@@ -190,10 +190,12 @@ jobs:
       # ── AppImage ─────────────────────────────────────────────────────────────
       - name: Package AppImage
         run: |
-          # Download appimagetool
+          # Download appimagetool and extract it (GitHub Actions runners lack FUSE)
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage \
-            -O /tmp/appimagetool
-          chmod +x /tmp/appimagetool
+            -O /tmp/appimagetool.AppImage
+          chmod +x /tmp/appimagetool.AppImage
+          /tmp/appimagetool.AppImage --appimage-extract 2>/dev/null
+          APPIMAGETOOL="$(pwd)/squashfs-root/AppRun"
 
           APPDIR=dist/appimage-work/JLShell.AppDir
           mkdir -p $APPDIR/usr/{bin,lib,share/applications,share/pixmaps}
@@ -203,29 +205,29 @@ jobs:
 
           # AppRun
           cat > $APPDIR/AppRun <<'EOF'
-          #!/bin/bash
-          HERE="$(cd "$(dirname "$0")" && pwd)"
-          exec "$HERE/usr/runtime/bin/java" \
-            --add-opens java.base/java.lang=ALL-UNNAMED \
-            --add-opens java.desktop/sun.awt=ALL-UNNAMED \
-            -jar "$HERE/usr/app.jar" "$@"
-          EOF
+#!/bin/bash
+HERE="$(cd "$(dirname "$0")" && pwd)"
+exec "$HERE/usr/runtime/bin/java" \
+  --add-opens java.base/java.lang=ALL-UNNAMED \
+  --add-opens java.desktop/sun.awt=ALL-UNNAMED \
+  -jar "$HERE/usr/app.jar" "$@"
+EOF
           chmod +x $APPDIR/AppRun
 
           # .desktop (required by AppImage)
           cat > $APPDIR/jlshell.desktop <<'EOF'
-          [Desktop Entry]
-          Name=JLShell
-          Exec=AppRun
-          Icon=jlshell
-          Type=Application
-          Categories=Network;
-          EOF
+[Desktop Entry]
+Name=JLShell
+Exec=AppRun
+Icon=jlshell
+Type=Application
+Categories=Network;
+EOF
 
           # Icon (required by AppImage)
           cp dist/deb-work/usr/share/pixmaps/jlshell.png $APPDIR/jlshell.png
 
-          ARCH=x86_64 /tmp/appimagetool --no-appstream $APPDIR \
+          ARCH=x86_64 "$APPIMAGETOOL" --no-appstream $APPDIR \
             dist/JLShell-${VERSION}-linux-x86_64.AppImage 2>&1
 
       - uses: actions/upload-artifact@v4
