@@ -2,3 +2,5 @@
 /.idea/
 /.m2/
 target/
+dist/
+.DS_Store
