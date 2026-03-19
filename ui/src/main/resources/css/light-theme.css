@@ -1,0 +1,557 @@
+/* ============================================================
+   JLShell Light Theme
+   Base: #f8fafc  Surface: #ffffff  Elevated: #f1f5f9
+   Border: #cbd5e1  Accent: #2563eb  Text: #0f172a
+   ============================================================ */
+
+/* ---------- Root / Global ---------- */
+.root {
+    -fx-font-family: "SF Pro Display", "PingFang SC", "Microsoft YaHei", sans-serif;
+    -fx-font-size: 13px;
+    -fx-background-color: #f8fafc;
+    -fx-base: #ffffff;
+    -fx-accent: #2563eb;
+    -fx-focus-color: #2563eb;
+    -fx-faint-focus-color: rgba(37, 99, 235, 0.15);
+    -fx-text-fill: #0f172a;
+}
+
+.app-root {
+    -fx-background-color: #f8fafc;
+}
+
+/* ---------- Menu Bar ---------- */
+.menu-bar {
+    -fx-background-color: #ffffff;
+    -fx-border-color: transparent transparent #cbd5e1 transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 0 4;
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+}
+
+.menu {
+    -fx-background-color: transparent;
+    -fx-padding: 4 8;
+}
+
+.menu:hover,
+.menu:focused,
+.menu:showing {
+    -fx-background-color: #e2e8f0;
+    -fx-background-radius: 4;
+}
+
+.menu .label,
+.menu-item .label {
+    -fx-text-fill: #0f172a;
+    -fx-font-size: 13px;
+}
+
+.context-menu,
+.menu-item {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #cbd5e1;
+    -fx-border-radius: 6;
+    -fx-background-radius: 6;
+    -fx-padding: 2 0;
+}
+
+.menu-item {
+    -fx-padding: 5 12;
+    -fx-border-color: transparent;
+}
+
+.menu-item:hover,
+.menu-item:focused {
+    -fx-background-color: #2563eb;
+}
+
+.menu-item:hover .label,
+.menu-item:focused .label {
+    -fx-text-fill: #ffffff;
+}
+
+.separator .line {
+    -fx-border-color: #cbd5e1;
+    -fx-border-width: 1 0 0 0;
+}
+
+/* ---------- Toolbar ---------- */
+.top-shell {
+    -fx-background-color: #ffffff;
+    -fx-border-color: transparent transparent #cbd5e1 transparent;
+    -fx-border-width: 0 0 1 0;
+}
+
+.tool-bar {
+    -fx-background-color: #ffffff;
+    -fx-padding: 3 8;
+    -fx-spacing: 2;
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+    -fx-border-color: transparent;
+}
+
+/* ---------- Buttons ---------- */
+.button {
+    -fx-background-color: #f1f5f9;
+    -fx-text-fill: #0f172a;
+    -fx-background-radius: 5;
+    -fx-border-radius: 5;
+    -fx-border-color: #cbd5e1;
+    -fx-border-width: 1;
+    -fx-padding: 3 10;
+    -fx-font-size: 12px;
+    -fx-font-weight: normal;
+    -fx-cursor: hand;
+}
+
+.button:hover {
+    -fx-background-color: #e2e8f0;
+    -fx-border-color: #94a3b8;
+}
+
+.button:pressed {
+    -fx-background-color: #bfdbfe;
+    -fx-border-color: #2563eb;
+}
+
+.button:focused {
+    -fx-border-color: #2563eb;
+    -fx-background-color: #f1f5f9;
+}
+
+/* 主操作按钮 */
+.button-primary {
+    -fx-background-color: #2563eb;
+    -fx-text-fill: #ffffff;
+    -fx-border-color: #1d4ed8;
+}
+
+.button-primary:hover {
+    -fx-background-color: #1d4ed8;
+}
+
+/* ---------- Sidebar ---------- */
+.sidebar {
+    -fx-background-color: #f1f5f9;
+    -fx-border-color: transparent #cbd5e1 transparent transparent;
+    -fx-border-width: 0 1 0 0;
+    -fx-padding: 8 6;
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+}
+
+.sidebar > .label {
+    -fx-text-fill: #64748b;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-padding: 4 4 6 4;
+}
+
+/* ---------- List View ---------- */
+.list-view {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-padding: 0;
+}
+
+.list-view .scroll-bar:vertical {
+    -fx-background-color: transparent;
+    -fx-pref-width: 8;
+}
+
+.list-view .scroll-bar:vertical .thumb {
+    -fx-background-color: #cbd5e1;
+    -fx-background-radius: 4;
+}
+
+.list-cell {
+    -fx-background-color: transparent;
+    -fx-text-fill: #0f172a;
+    -fx-padding: 5 8;
+    -fx-font-size: 12px;
+    -fx-border-color: transparent;
+}
+
+.list-cell:odd {
+    -fx-background-color: transparent;
+}
+
+.list-cell:hover {
+    -fx-background-color: #e2e8f0;
+    -fx-background-radius: 4;
+}
+
+.list-cell:filled:selected {
+    -fx-background-color: #bfdbfe;
+    -fx-background-radius: 4;
+    -fx-text-fill: #1e3a5f;
+}
+
+.list-cell:filled:selected:focused {
+    -fx-background-color: #bfdbfe;
+}
+
+/* ---------- Tab Pane ---------- */
+.tab-pane {
+    -fx-background-color: #f8fafc;
+    -fx-tab-min-height: 28px;
+    -fx-tab-max-height: 28px;
+}
+
+.tab-pane .tab-header-area {
+    -fx-background-color: #ffffff;
+    -fx-border-color: transparent transparent #cbd5e1 transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 0;
+}
+
+.tab-pane .tab-header-area .tab-header-background {
+    -fx-background-color: #ffffff;
+}
+
+.tab-pane .tab {
+    -fx-background-color: transparent;
+    -fx-background-radius: 0;
+    -fx-border-color: transparent;
+    -fx-padding: 4 16 4 12;
+}
+
+.tab-pane .tab .tab-label {
+    -fx-text-fill: #64748b;
+    -fx-font-size: 12px;
+}
+
+.tab-pane .tab:selected {
+    -fx-background-color: #f8fafc;
+    -fx-border-color: transparent transparent #2563eb transparent;
+    -fx-border-width: 0 0 2 0;
+}
+
+.tab-pane .tab:selected .tab-label {
+    -fx-text-fill: #0f172a;
+}
+
+.tab-pane .tab:hover .tab-label {
+    -fx-text-fill: #0f172a;
+}
+
+.tab-pane .tab-close-button {
+    -fx-background-color: #94a3b8;
+    -fx-shape: "M 0,0 H1 L 4,3 7,0 H8 V1 L 5,4 8,7 V8 H7 L 4,5 1,8 H0 V7 L 3,4 0,1 Z";
+    -fx-scale-shape: true;
+    -fx-pref-width: 8;
+    -fx-pref-height: 8;
+}
+
+/* ---------- Workspace / Terminal ---------- */
+.workspace-panel {
+    -fx-background-color: #f8fafc;
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+    -fx-border-color: transparent;
+    -fx-padding: 0;
+}
+
+.toolbar-strip {
+    -fx-background-color: #ffffff;
+    -fx-border-color: transparent transparent #cbd5e1 transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 3 8;
+    -fx-spacing: 4;
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+}
+
+/* ---------- Split Pane ---------- */
+.split-pane {
+    -fx-background-color: #f8fafc;
+    -fx-padding: 0;
+}
+
+.split-pane-divider {
+    -fx-background-color: #cbd5e1;
+    -fx-padding: 0 1;
+}
+
+/* ---------- Text Fields ---------- */
+.text-field,
+.password-field,
+.text-area {
+    -fx-background-color: #ffffff;
+    -fx-text-fill: #0f172a;
+    -fx-prompt-text-fill: #94a3b8;
+    -fx-background-radius: 5;
+    -fx-border-radius: 5;
+    -fx-border-color: #cbd5e1;
+    -fx-border-width: 1;
+    -fx-padding: 5 8;
+    -fx-font-size: 13px;
+}
+
+.text-field:focused,
+.password-field:focused,
+.text-area:focused {
+    -fx-border-color: #2563eb;
+    -fx-background-color: #ffffff;
+}
+
+/* ---------- Combo Box ---------- */
+.combo-box {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #cbd5e1;
+    -fx-border-radius: 5;
+    -fx-background-radius: 5;
+    -fx-padding: 2 4;
+}
+
+.combo-box .list-cell {
+    -fx-text-fill: #0f172a;
+    -fx-background-color: transparent;
+    -fx-padding: 3 6;
+}
+
+.combo-box-popup .list-view {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #cbd5e1;
+    -fx-border-radius: 5;
+    -fx-background-radius: 5;
+}
+
+/* ---------- Labels ---------- */
+.label {
+    -fx-text-fill: #0f172a;
+}
+
+/* ---------- Status Bar ---------- */
+.status-bar {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #cbd5e1 transparent transparent transparent;
+    -fx-border-width: 1 0 0 0;
+    -fx-text-fill: #64748b;
+    -fx-font-size: 11px;
+    -fx-padding: 3 10;
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+}
+
+/* ---------- Dialog / Alert ---------- */
+.dialog-pane {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #cbd5e1;
+    -fx-border-radius: 8;
+    -fx-background-radius: 8;
+}
+
+.dialog-pane .header-panel {
+    -fx-background-color: #f1f5f9;
+    -fx-background-radius: 8 8 0 0;
+}
+
+.dialog-pane .header-panel .label {
+    -fx-text-fill: #0f172a;
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+}
+
+.dialog-pane .content.label {
+    -fx-text-fill: #475569;
+    -fx-font-size: 13px;
+}
+
+.dialog-pane .button-bar .button {
+    -fx-min-width: 72px;
+}
+
+/* ---------- Scroll Bar ---------- */
+.scroll-bar {
+    -fx-background-color: transparent;
+}
+
+.scroll-bar .thumb {
+    -fx-background-color: #cbd5e1;
+    -fx-background-radius: 4;
+}
+
+.scroll-bar .thumb:hover {
+    -fx-background-color: #94a3b8;
+}
+
+.scroll-bar .increment-button,
+.scroll-bar .decrement-button {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+
+.scroll-bar .increment-arrow,
+.scroll-bar .decrement-arrow {
+    -fx-shape: "";
+    -fx-padding: 0;
+}
+
+/* ---------- Icon Buttons ---------- */
+.icon-btn {
+    -fx-background-color: transparent;
+    -fx-text-fill: #64748b;
+    -fx-background-radius: 4;
+    -fx-border-radius: 4;
+    -fx-border-color: transparent;
+    -fx-padding: 3 7;
+    -fx-font-size: 13px;
+    -fx-min-width: 26px;
+    -fx-min-height: 24px;
+    -fx-cursor: hand;
+}
+
+.action-bar-icon {
+    -fx-background-color: #64748b;
+}
+
+.icon-btn:hover .action-bar-icon {
+    -fx-background-color: #0f172a;
+}
+
+.icon-btn-primary .action-bar-icon {
+    -fx-background-color: #ffffff;
+}
+
+.icon-btn:hover {
+    -fx-background-color: #e2e8f0;
+    -fx-text-fill: #0f172a;
+}
+
+.icon-btn:pressed {
+    -fx-background-color: #bfdbfe;
+    -fx-text-fill: #1e3a5f;
+}
+
+.icon-btn-primary {
+    -fx-background-color: #2563eb;
+    -fx-text-fill: #ffffff;
+    -fx-border-color: transparent;
+}
+
+.icon-btn-primary:hover {
+    -fx-background-color: #1d4ed8;
+}
+
+/* ---------- Sidebar action bar ---------- */
+.sidebar-action-bar {
+    -fx-background-color: #f1f5f9;
+    -fx-border-color: #cbd5e1 transparent transparent transparent;
+    -fx-border-width: 1 0 0 0;
+    -fx-padding: 4 4;
+    -fx-alignment: center-left;
+}
+
+/* ---------- Sidebar section label ---------- */
+.sidebar-section-label {
+    -fx-text-fill: #94a3b8;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-padding: 8 8 4 8;
+}
+
+/* ---------- Connection list cell ---------- */
+.conn-cell-name {
+    -fx-text-fill: #0f172a;
+    -fx-font-size: 12px;
+}
+
+.conn-cell-summary {
+    -fx-text-fill: #64748b;
+    -fx-font-size: 11px;
+}
+
+.list-cell:filled:selected .conn-cell-name {
+    -fx-text-fill: #1e3a5f;
+}
+
+/* ---------- SFTP Browser ---------- */
+.sftp-pane-header {
+    -fx-text-fill: #64748b;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-padding: 0 0 4 0;
+}
+
+.sftp-nav-bar {
+    -fx-background-color: #ffffff;
+    -fx-border-color: transparent transparent #cbd5e1 transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 3 4;
+    -fx-spacing: 4;
+    -fx-alignment: center-left;
+}
+
+.sftp-path-label {
+    -fx-text-fill: #64748b;
+    -fx-font-size: 12px;
+}
+
+.sftp-section-label {
+    -fx-text-fill: #94a3b8;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-padding: 4 4 2 4;
+}
+
+.sftp-file-table {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #cbd5e1;
+    -fx-border-width: 1;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+}
+
+.sftp-file-table .column-header-background {
+    -fx-background-color: #f1f5f9;
+}
+
+.sftp-file-table .column-header {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent #cbd5e1 transparent transparent;
+    -fx-border-width: 0 1 0 0;
+}
+
+.sftp-file-table .column-header .label {
+    -fx-text-fill: #64748b;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-alignment: center-left;
+}
+
+.sftp-file-table .table-row-cell {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-table-cell-border-color: transparent;
+}
+
+.sftp-file-table .table-row-cell:odd {
+    -fx-background-color: #f8fafc;
+}
+
+.sftp-file-table .table-row-cell:hover {
+    -fx-background-color: #e2e8f0;
+}
+
+.sftp-file-table .table-row-cell:selected {
+    -fx-background-color: #bfdbfe;
+}
+
+.sftp-file-table .table-cell {
+    -fx-text-fill: #0f172a;
+    -fx-font-size: 12px;
+    -fx-padding: 3 6;
+    -fx-border-color: transparent;
+}
+
+.sftp-file-table .table-row-cell:selected .table-cell {
+    -fx-text-fill: #1e3a5f;
+}
+
+.list-cell:filled:selected .conn-cell-summary {
+    -fx-text-fill: #3b6ea8;
+}
