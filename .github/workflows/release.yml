@@ -8,32 +8,32 @@ on:
         required: true
         default: '0.1.0'
 
+env:
+  VERSION: ${{ github.event.inputs.version }}
+  JAR: app/target/app-0.1.0-SNAPSHOT.jar
+  MODULES: "java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.management.rmi,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.transaction.xa,java.xml,java.xml.crypto,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.jfr,jdk.management,jdk.naming.dns,jdk.net,jdk.unsupported,jdk.unsupported.desktop,jdk.zipfs"
+
 jobs:
-  # ── macOS ──────────────────────────────────────────────────────────────────
+  # ── macOS ───────────────────────────────────────────────────────────────────
   build-mac:
-    name: Build macOS
+    name: Build macOS (arm64 + x64)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           java-version: '21'
           distribution: 'temurin'
           cache: maven
 
-      - name: Build fat jar + jlink macOS package
+      - name: Build
         run: |
-          # Build fat jar with cross-platform natives
           mvn package -DskipTests -pl app -am -P dist -q
 
-          JAR=app/target/app-0.1.0-SNAPSHOT.jar
           JDK=$JAVA_HOME
-          MODULES="java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.management.rmi,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.transaction.xa,java.xml,java.xml.crypto,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.jfr,jdk.management,jdk.naming.dns,jdk.net,jdk.unsupported,jdk.unsupported.desktop,jdk.zipfs"
-
-          # jlink
           mkdir -p dist/mac-work/JLShell.app/Contents/{MacOS,Java,Resources}
+
           $JDK/bin/jlink \
             --module-path $JDK/jmods \
             --add-modules $MODULES \
@@ -42,16 +42,15 @@ jobs:
 
           cp $JAR dist/mac-work/JLShell.app/Contents/Java/app.jar
 
-          # Info.plist
-          cat > dist/mac-work/JLShell.app/Contents/Info.plist <<'PLIST'
+          cat > dist/mac-work/JLShell.app/Contents/Info.plist <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0"><dict>
             <key>CFBundleName</key>             <string>JLShell</string>
             <key>CFBundleDisplayName</key>      <string>JLShell</string>
             <key>CFBundleIdentifier</key>       <string>com.jlshell.app</string>
-            <key>CFBundleVersion</key>          <string>${{ github.event.inputs.version }}</string>
-            <key>CFBundleShortVersionString</key><string>${{ github.event.inputs.version }}</string>
+            <key>CFBundleVersion</key>          <string>${VERSION}</string>
+            <key>CFBundleShortVersionString</key><string>${VERSION}</string>
             <key>CFBundleExecutable</key>       <string>JLShell</string>
             <key>CFBundlePackageType</key>      <string>APPL</string>
             <key>NSHighResolutionCapable</key>  <true/>
@@ -59,7 +58,6 @@ jobs:
           </dict></plist>
           PLIST
 
-          # Launcher
           cat > dist/mac-work/JLShell.app/Contents/MacOS/JLShell <<'LAUNCHER'
           #!/bin/bash
           DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -72,110 +70,209 @@ jobs:
           LAUNCHER
           chmod +x dist/mac-work/JLShell.app/Contents/MacOS/JLShell
 
-          # Zip
-          mkdir -p dist
-          cd dist/mac-work && zip -qr ../JLShell-${{ github.event.inputs.version }}-mac.zip JLShell.app
+          cd dist/mac-work && zip -qr ../JLShell-${VERSION}-mac.zip JLShell.app
 
       - uses: actions/upload-artifact@v4
         with:
           name: mac-package
-          path: dist/JLShell-${{ github.event.inputs.version }}-mac.zip
+          path: dist/JLShell-${{ env.VERSION }}-mac.zip
 
-  # ── Linux ──────────────────────────────────────────────────────────────────
+  # ── Linux ───────────────────────────────────────────────────────────────────
   build-linux:
-    name: Build Linux
-    runs-on: ubuntu-latest
+    name: Build Linux (tar.gz + deb + AppImage)
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           java-version: '21'
           distribution: 'temurin'
           cache: maven
 
-      - name: Install zip
-        run: sudo apt-get install -y zip
+      - name: Install tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y fakeroot dpkg-dev imagemagick
 
-      - name: Build Linux package
+      - name: Build fat jar + jlink runtime
         run: |
           mvn package -DskipTests -pl app -am -P dist -q
 
-          JAR=app/target/app-0.1.0-SNAPSHOT.jar
           JDK=$JAVA_HOME
-          MODULES="java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.management.rmi,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.transaction.xa,java.xml,java.xml.crypto,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.jfr,jdk.management,jdk.naming.dns,jdk.net,jdk.unsupported,jdk.unsupported.desktop,jdk.zipfs"
-
-          mkdir -p dist/linux-work/JLShell
+          mkdir -p dist/runtime
           $JDK/bin/jlink \
             --module-path $JDK/jmods \
             --add-modules $MODULES \
-            --output dist/linux-work/JLShell/runtime \
+            --output dist/runtime \
             --strip-debug --no-man-pages --no-header-files --compress zip-6
 
-          cp $JAR dist/linux-work/JLShell/app.jar
+          cp $JAR dist/app.jar
 
-          cat > dist/linux-work/JLShell/JLShell.sh <<'LAUNCHER'
+      # ── tar.gz ──────────────────────────────────────────────────────────────
+      - name: Package tar.gz
+        run: |
+          mkdir -p dist/linux-work/JLShell
+          cp -r dist/runtime dist/linux-work/JLShell/
+          cp dist/app.jar dist/linux-work/JLShell/
+
+          cat > dist/linux-work/JLShell/JLShell.sh <<'EOF'
           #!/bin/bash
           DIR="$(cd "$(dirname "$0")" && pwd)"
           exec "$DIR/runtime/bin/java" \
             --add-opens java.base/java.lang=ALL-UNNAMED \
             --add-opens java.desktop/sun.awt=ALL-UNNAMED \
             -jar "$DIR/app.jar" "$@"
-          LAUNCHER
+          EOF
           chmod +x dist/linux-work/JLShell/JLShell.sh
 
-          cat > dist/linux-work/JLShell/JLShell.desktop <<'DESKTOP'
+          cd dist/linux-work && tar czf ../JLShell-${VERSION}-linux-x64.tar.gz JLShell
+
+      # ── .deb ────────────────────────────────────────────────────────────────
+      - name: Package .deb
+        run: |
+          PKG=dist/deb-work
+          mkdir -p $PKG/opt/jlshell
+          mkdir -p $PKG/usr/share/applications
+          mkdir -p $PKG/usr/share/pixmaps
+          mkdir -p $PKG/usr/bin
+          mkdir -p $PKG/DEBIAN
+
+          cp -r dist/runtime $PKG/opt/jlshell/
+          cp dist/app.jar $PKG/opt/jlshell/
+
+          cat > $PKG/opt/jlshell/JLShell.sh <<'EOF'
+          #!/bin/bash
+          DIR="$(cd "$(dirname "$0")" && pwd)"
+          exec "$DIR/runtime/bin/java" \
+            --add-opens java.base/java.lang=ALL-UNNAMED \
+            --add-opens java.desktop/sun.awt=ALL-UNNAMED \
+            -jar "$DIR/app.jar" "$@"
+          EOF
+          chmod +x $PKG/opt/jlshell/JLShell.sh
+
+          # Symlink in /usr/bin
+          ln -s /opt/jlshell/JLShell.sh $PKG/usr/bin/jlshell
+
+          # .desktop
+          cat > $PKG/usr/share/applications/jlshell.desktop <<EOF
           [Desktop Entry]
           Name=JLShell
           Comment=SSH Client
           Exec=/opt/jlshell/JLShell.sh
+          Icon=jlshell
           Terminal=false
           Type=Application
-          Categories=Network;
-          DESKTOP
+          Categories=Network;System;
+          EOF
 
-          mkdir -p dist
-          cd dist/linux-work && tar czf ../JLShell-${{ github.event.inputs.version }}-linux.tar.gz JLShell
+          # Icon (simple placeholder PNG via ImageMagick)
+          convert -size 64x64 xc:'#0f172a' -fill '#38bdf8' \
+            -draw "roundrectangle 8,8 56,56 8,8" \
+            $PKG/usr/share/pixmaps/jlshell.png 2>/dev/null || true
+
+          # DEBIAN/control
+          INSTALLED_SIZE=$(du -sk $PKG/opt/jlshell | cut -f1)
+          cat > $PKG/DEBIAN/control <<EOF
+          Package: jlshell
+          Version: ${VERSION}
+          Architecture: amd64
+          Maintainer: JLShell <noreply@jlshell.com>
+          Installed-Size: ${INSTALLED_SIZE}
+          Description: JLShell SSH Client
+           A modern SSH client with SFTP browser and plugin support.
+          Section: net
+          Priority: optional
+          EOF
+
+          fakeroot dpkg-deb --build $PKG dist/JLShell-${VERSION}-linux-x64.deb
+
+      # ── AppImage ─────────────────────────────────────────────────────────────
+      - name: Package AppImage
+        run: |
+          # Download appimagetool
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage \
+            -O /tmp/appimagetool
+          chmod +x /tmp/appimagetool
+
+          APPDIR=dist/appimage-work/JLShell.AppDir
+          mkdir -p $APPDIR/usr/{bin,lib,share/applications,share/pixmaps}
+
+          cp -r dist/runtime $APPDIR/usr/
+          cp dist/app.jar $APPDIR/usr/
+
+          # AppRun
+          cat > $APPDIR/AppRun <<'EOF'
+          #!/bin/bash
+          HERE="$(cd "$(dirname "$0")" && pwd)"
+          exec "$HERE/usr/runtime/bin/java" \
+            --add-opens java.base/java.lang=ALL-UNNAMED \
+            --add-opens java.desktop/sun.awt=ALL-UNNAMED \
+            -jar "$HERE/usr/app.jar" "$@"
+          EOF
+          chmod +x $APPDIR/AppRun
+
+          # .desktop (required by AppImage)
+          cat > $APPDIR/jlshell.desktop <<'EOF'
+          [Desktop Entry]
+          Name=JLShell
+          Exec=AppRun
+          Icon=jlshell
+          Type=Application
+          Categories=Network;
+          EOF
+
+          # Icon (required by AppImage)
+          cp dist/deb-work/usr/share/pixmaps/jlshell.png $APPDIR/jlshell.png
+
+          ARCH=x86_64 /tmp/appimagetool --no-appstream $APPDIR \
+            dist/JLShell-${VERSION}-linux-x86_64.AppImage 2>&1
 
       - uses: actions/upload-artifact@v4
         with:
-          name: linux-package
-          path: dist/JLShell-${{ github.event.inputs.version }}-linux.tar.gz
+          name: linux-packages
+          path: |
+            dist/JLShell-${{ env.VERSION }}-linux-x64.tar.gz
+            dist/JLShell-${{ env.VERSION }}-linux-x64.deb
+            dist/JLShell-${{ env.VERSION }}-linux-x86_64.AppImage
 
-  # ── Windows ────────────────────────────────────────────────────────────────
+  # ── Windows ─────────────────────────────────────────────────────────────────
   build-windows:
-    name: Build Windows
+    name: Build Windows (zip + exe installer)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           java-version: '21'
           distribution: 'temurin'
           cache: maven
 
-      - name: Build Windows package
+      - name: Build fat jar + jlink runtime
         shell: bash
         run: |
           mvn package -DskipTests -pl app -am -P dist -q
 
-          JAR=app/target/app-0.1.0-SNAPSHOT.jar
           JDK=$JAVA_HOME
-          MODULES="java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.management.rmi,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.transaction.xa,java.xml,java.xml.crypto,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.jfr,jdk.management,jdk.naming.dns,jdk.net,jdk.unsupported,jdk.unsupported.desktop,jdk.zipfs"
-
-          mkdir -p dist/win-work/JLShell
+          mkdir -p dist/runtime
           "$JDK/bin/jlink" \
             --module-path "$JDK/jmods" \
             --add-modules $MODULES \
-            --output dist/win-work/JLShell/runtime \
+            --output dist/runtime \
             --strip-debug --no-man-pages --no-header-files --compress zip-6
 
-          cp $JAR dist/win-work/JLShell/app.jar
+          cp $JAR dist/app.jar
 
-          cat > dist/win-work/JLShell/JLShell.bat <<'BAT'
+      # ── zip ─────────────────────────────────────────────────────────────────
+      - name: Package zip
+        shell: bash
+        run: |
+          mkdir -p dist/win-work/JLShell
+          cp -r dist/runtime dist/win-work/JLShell/
+          cp dist/app.jar dist/win-work/JLShell/
+
+          cat > dist/win-work/JLShell/JLShell.bat <<'EOF'
           @echo off
           setlocal
           set DIR=%~dp0
@@ -183,23 +280,51 @@ jobs:
             --add-opens java.base/java.lang=ALL-UNNAMED ^
             --add-opens java.desktop/sun.awt=ALL-UNNAMED ^
             -jar "%DIR%app.jar" %*
-          BAT
+          EOF
 
-          # VBScript wrapper: double-click with no console window
-          cat > dist/win-work/JLShell/JLShell.vbs <<'VBS'
+          cat > dist/win-work/JLShell/JLShell.vbs <<'EOF'
           Set oShell = CreateObject("WScript.Shell")
           sDir = Left(WScript.ScriptFullName, InStrRev(WScript.ScriptFullName, "\"))
           oShell.Run Chr(34) & sDir & "JLShell.bat" & Chr(34), 0, False
-          VBS
+          EOF
 
-          cd dist/win-work && 7z a -tzip ../JLShell-${{ github.event.inputs.version }}-win.zip JLShell
+          cd dist/win-work && 7z a -tzip ../JLShell-${VERSION}-win-x64.zip JLShell
+
+      # ── exe installer via jpackage ───────────────────────────────────────────
+      - name: Package exe installer
+        shell: bash
+        run: |
+          JDK=$JAVA_HOME
+
+          "$JDK/bin/jpackage" \
+            --type exe \
+            --name JLShell \
+            --app-version "${VERSION}" \
+            --input dist \
+            --main-jar app.jar \
+            --main-class com.jlshell.app.JlShellDesktopApplication \
+            --runtime-image dist/runtime \
+            --dest dist \
+            --win-dir-chooser \
+            --win-menu \
+            --win-shortcut \
+            --win-shortcut-prompt \
+            --java-options "--add-opens java.base/java.lang=ALL-UNNAMED" \
+            --java-options "--add-opens java.desktop/sun.awt=ALL-UNNAMED" \
+            --vendor "JLShell"
+
+          # jpackage output name: JLShell-<version>.exe
+          mv dist/JLShell-${VERSION}.exe dist/JLShell-${VERSION}-win-x64.exe 2>/dev/null || \
+          mv dist/JLShell-*.exe dist/JLShell-${VERSION}-win-x64.exe
 
       - uses: actions/upload-artifact@v4
         with:
-          name: win-package
-          path: dist/JLShell-${{ github.event.inputs.version }}-win.zip
+          name: win-packages
+          path: |
+            dist/JLShell-${{ env.VERSION }}-win-x64.zip
+            dist/JLShell-${{ env.VERSION }}-win-x64.exe
 
-  # ── Create GitHub Release ──────────────────────────────────────────────────
+  # ── Create GitHub Release ────────────────────────────────────────────────────
   release:
     name: Create Release
     needs: [build-mac, build-linux, build-windows]
@@ -215,24 +340,30 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ github.event.inputs.version }}
-          name: JLShell v${{ github.event.inputs.version }}
+          tag_name: v${{ env.VERSION }}
+          name: JLShell v${{ env.VERSION }}
           draft: false
           prerelease: false
           generate_release_notes: true
           files: |
-            artifacts/JLShell-${{ github.event.inputs.version }}-mac.zip
-            artifacts/JLShell-${{ github.event.inputs.version }}-linux.tar.gz
-            artifacts/JLShell-${{ github.event.inputs.version }}-win.zip
+            artifacts/JLShell-${{ env.VERSION }}-mac.zip
+            artifacts/JLShell-${{ env.VERSION }}-linux-x64.tar.gz
+            artifacts/JLShell-${{ env.VERSION }}-linux-x64.deb
+            artifacts/JLShell-${{ env.VERSION }}-linux-x86_64.AppImage
+            artifacts/JLShell-${{ env.VERSION }}-win-x64.zip
+            artifacts/JLShell-${{ env.VERSION }}-win-x64.exe
           body: |
-            ## JLShell v${{ github.event.inputs.version }}
+            ## JLShell v${{ env.VERSION }}
 
             ### 下载
 
             | 平台 | 文件 | 说明 |
             |------|------|------|
-            | macOS | `JLShell-${{ github.event.inputs.version }}-mac.zip` | 解压后双击 `JLShell.app` |
-            | Linux | `JLShell-${{ github.event.inputs.version }}-linux.tar.gz` | 解压后运行 `./JLShell.sh` |
-            | Windows | `JLShell-${{ github.event.inputs.version }}-win.zip` | 解压后双击 `JLShell.vbs` |
+            | macOS | `JLShell-${{ env.VERSION }}-mac.zip` | 解压后双击 `JLShell.app` |
+            | Linux | `JLShell-${{ env.VERSION }}-linux-x64.tar.gz` | 解压后运行 `./JLShell.sh` |
+            | Linux | `JLShell-${{ env.VERSION }}-linux-x64.deb` | `sudo dpkg -i` 安装，命令行 `jlshell` |
+            | Linux | `JLShell-${{ env.VERSION }}-linux-x86_64.AppImage` | `chmod +x` 后直接运行 |
+            | Windows | `JLShell-${{ env.VERSION }}-win-x64.exe` | 双击安装（推荐） |
+            | Windows | `JLShell-${{ env.VERSION }}-win-x64.zip` | 解压后双击 `JLShell.vbs` |
 
-            > 无需安装 JDK，JRE 已内置。
+            > 所有包均内置精简 JRE，无需安装 JDK。
