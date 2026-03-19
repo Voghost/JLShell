@@ -100,7 +100,7 @@ jobs:
           mvn package -DskipTests -pl app -am -P dist -q
 
           JDK=$JAVA_HOME
-          mkdir -p dist/runtime
+          mkdir -p dist
           $JDK/bin/jlink \
             --module-path $JDK/jmods \
             --add-modules $MODULES \
@@ -255,7 +255,7 @@ jobs:
           mvn package -DskipTests -pl app -am -P dist -q
 
           JDK=$JAVA_HOME
-          mkdir -p dist/runtime
+          mkdir -p dist
           "$JDK/bin/jlink" \
             --module-path "$JDK/jmods" \
             --add-modules $MODULES \
