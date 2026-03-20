@@ -1,10 +1,10 @@
 # JLShell
 
-A modern SSH client built with JavaFX and Spring Boot, featuring a clean IDE-inspired UI, SFTP file browser, and a plugin system.
+A modern SSH client built with JavaFX, featuring a clean IDE-inspired UI, SFTP file browser, and a plugin system.
 
 ![Java](https://img.shields.io/badge/Java-21-orange)
 ![JavaFX](https://img.shields.io/badge/JavaFX-21-blue)
-![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.x-green)
+![JDBI](https://img.shields.io/badge/JDBI-3-blue)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
 ---
@@ -95,23 +95,22 @@ See `plugin-demo/` for a complete working example (8 predefined SSH command snip
 
 ```
 jlshell-parent
-├── app            — JavaFX Application entry point, packaging
+├── app            — JavaFX Application entry point, AppContext (manual DI), packaging
 ├── core           — Shared domain models and interfaces
-├── data           — JPA repositories, SQLite persistence
+├── data           — JDBI DAOs, SQLite persistence, AES-GCM credential cipher
 ├── ssh            — SSHJ-based SSH session management
 ├── sftp           — SFTP file transfer service
 ├── ui             — JavaFX views, themes, i18n
 ├── plugin-api     — Public SPI for plugin developers (standalone publishable JAR)
-├── plugin-loader  — Spring @Service for plugin discovery and lifecycle
+├── plugin-loader  — Plugin discovery and lifecycle
 └── plugin-demo    — Example plugin: Script Snippets
 ```
 
 ## Tech Stack
 
 - **Java 21** + **JavaFX 21**
-- **Spring Boot 3** (DI, JPA, lifecycle)
+- **JDBI 3** + **HikariCP** (SQL, SQLite local storage)
 - **SSHJ** (SSH/SFTP)
-- **SQLite** + **Hibernate** (local storage)
 - **JediTerm** (terminal emulator)
 - **jlink** (bundled JRE, ~50 MB)
 
