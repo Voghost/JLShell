@@ -8,12 +8,10 @@ import javafx.beans.property.SimpleStringProperty;
 import javafx.beans.property.StringProperty;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
-import org.springframework.stereotype.Component;
 
 /**
  * 主窗口 ViewModel。
  */
-@Component
 public class MainViewModel {
 
     private final ObservableList<ConnectionProfile> connections = FXCollections.observableArrayList();

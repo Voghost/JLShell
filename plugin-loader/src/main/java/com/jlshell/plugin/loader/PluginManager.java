@@ -13,14 +13,11 @@ import com.jlshell.plugin.api.JlShellPlugin;
 import com.jlshell.plugin.api.PluginContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Service;
 
 /**
  * Discovers and manages plugin lifecycle.
  * Loads plugins from the classpath via ServiceLoader and from an external directory.
  */
-@Service
 public class PluginManager {
 
     private static final Logger log = LoggerFactory.getLogger(PluginManager.class);
@@ -29,10 +26,12 @@ public class PluginManager {
     private final List<PluginDescriptor> plugins = new ArrayList<>();
     private final Map<String, JlShellPlugin> activePlugins = new ConcurrentHashMap<>();
 
-    public PluginManager(
-            @Value("${jlshell.plugins.dir:#{systemProperties['user.home']}/.jlshell/plugins}") String pluginsDir
-    ) {
+    public PluginManager(String pluginsDir) {
         this.pluginsDir = pluginsDir;
+    }
+
+    public PluginManager() {
+        this(System.getProperty("user.home") + "/.jlshell/plugins");
     }
 
     public void loadPlugins() {
@@ -90,7 +89,7 @@ public class PluginManager {
         JlShellPlugin plugin = activePlugins.remove(pluginId);
         if (plugin != null) {
             plugin.deactivate();
-            log.debug("Deactivated plugin: ", pluginId);
+            log.debug("Deactivated plugin: {}", pluginId);
         }
     }
 

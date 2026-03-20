@@ -12,89 +12,88 @@ import com.jlshell.core.model.HostKeyVerificationMode;
 import com.jlshell.core.model.SessionId;
 import com.jlshell.core.model.SessionState;
 import com.jlshell.core.security.CredentialPayload;
+import com.jlshell.data.crypto.CredentialCipher;
+import com.jlshell.data.dao.ConnectionDao;
+import com.jlshell.data.dao.ConnectionFolderDao;
+import com.jlshell.data.dao.CredentialDao;
+import com.jlshell.data.dao.ProjectDao;
+import com.jlshell.data.dao.SessionHistoryDao;
 import com.jlshell.data.entity.AuthenticationType;
 import com.jlshell.data.entity.ConnectionEntity;
+import com.jlshell.data.entity.ConnectionFolderEntity;
 import com.jlshell.data.entity.CredentialEntity;
 import com.jlshell.data.entity.ProjectEntity;
 import com.jlshell.data.entity.SessionHistoryEntity;
-import com.jlshell.data.repository.ConnectionRepository;
-import com.jlshell.data.repository.ProjectRepository;
-import com.jlshell.data.repository.SessionHistoryRepository;
 import com.jlshell.ui.model.ConnectionFormData;
 import com.jlshell.ui.model.ConnectionProfile;
-import com.jlshell.ui.model.ProjectProfile;
-import com.jlshell.data.entity.ConnectionFolderEntity;
-import com.jlshell.data.repository.ConnectionFolderRepository;
 import com.jlshell.ui.model.FolderProfile;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import com.jlshell.ui.model.ProjectProfile;
+import org.jdbi.v3.core.Jdbi;
 
 /**
- * 连接配置与会话历史应用服务。
+ * 连接配置与会话历史应用服务（基于 JDBI）。
  */
-@Service
-@Transactional
 public class ConnectionProfileService {
 
-    private final ConnectionRepository connectionRepository;
-    private final SessionHistoryRepository sessionHistoryRepository;
-    private final ProjectRepository projectRepository;
-    private final ConnectionFolderRepository folderRepository;
+    private final Jdbi jdbi;
+    private final CredentialCipher credentialCipher;
 
-    public ConnectionProfileService(
-            ConnectionRepository connectionRepository,
-            SessionHistoryRepository sessionHistoryRepository,
-            ProjectRepository projectRepository,
-            ConnectionFolderRepository folderRepository
-    ) {
-        this.connectionRepository = connectionRepository;
-        this.sessionHistoryRepository = sessionHistoryRepository;
-        this.projectRepository = projectRepository;
-        this.folderRepository = folderRepository;
+    public ConnectionProfileService(Jdbi jdbi, CredentialCipher credentialCipher) {
+        this.jdbi = jdbi;
+        this.credentialCipher = credentialCipher;
     }
 
     // ── Connection queries ────────────────────────────────────────────
 
-    @Transactional(readOnly = true)
     public List<ConnectionProfile> listProfiles() {
-        return connectionRepository.findAllByOrderByDisplayNameAsc()
-                .stream()
-                .map(this::toProfile)
-                .toList();
-    }
-
-    @Transactional(readOnly = true)
-    public List<ConnectionProfile> listProfilesByProject(String projectId) {
-        if (projectId == null) {
-            return connectionRepository.findAllByProjectIsNullOrderByDisplayNameAsc()
-                    .stream().map(this::toProfile).toList();
-        }
-        return connectionRepository.findAllByProject_IdOrderByDisplayNameAsc(projectId)
-                .stream().map(this::toProfile).toList();
-    }
-
-    @Transactional(readOnly = true)
-    public ConnectionFormData loadForm(String id) {
-        ConnectionEntity entity = connectionRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Connection not found: " + id));
-        return new ConnectionFormData(
-                entity.getId(),
-                entity.getDisplayName(),
-                entity.getHost(),
-                entity.getPort(),
-                entity.getUsername(),
-                entity.getAuthenticationType(),
-                entity.getCredential() != null ? entity.getCredential().getEncryptedPassword() : null,
-                entity.getCredential() != null ? entity.getCredential().getPrivateKeyPath() : null,
-                entity.getCredential() != null ? entity.getCredential().getEncryptedPassphrase() : null,
-                HostKeyVerificationMode.valueOf(entity.getHostKeyVerificationMode()),
-                entity.getDescription(),
-                entity.getDefaultRemotePath(),
-                entity.isFavorite(),
-                entity.getProject() != null ? entity.getProject().getId() : null,
-                entity.getConnectionType() != null ? entity.getConnectionType() : ConnectionType.SSH,
-                entity.getFolder() != null ? entity.getFolder().getId() : null
+        return jdbi.withHandle(h ->
+                h.attach(ConnectionDao.class).findAllOrderByName()
+                        .stream().map(this::toProfile).toList()
         );
+    }
+
+    public List<ConnectionProfile> listProfilesByProject(String projectId) {
+        return jdbi.withHandle(h -> {
+            ConnectionDao dao = h.attach(ConnectionDao.class);
+            List<ConnectionEntity> entities = projectId == null
+                    ? dao.findAllWithNoProject()
+                    : dao.findAllByProjectId(projectId);
+            return entities.stream().map(this::toProfile).toList();
+        });
+    }
+
+    public ConnectionFormData loadForm(String id) {
+        return jdbi.withHandle(h -> {
+            ConnectionEntity entity = h.attach(ConnectionDao.class).findById(id)
+                    .orElseThrow(() -> new IllegalArgumentException("Connection not found: " + id));
+
+            CredentialEntity credential = entity.getCredentialId() != null
+                    ? h.attach(CredentialDao.class).findById(entity.getCredentialId()).orElse(null)
+                    : null;
+
+            // DB 中存储的是密文，解密后返回明文给 UI
+            String plainPassword = decryptOrNull(credential != null ? credential.getEncryptedPassword() : null);
+            String plainPassphrase = decryptOrNull(credential != null ? credential.getEncryptedPassphrase() : null);
+
+            return new ConnectionFormData(
+                    entity.getId(),
+                    entity.getDisplayName(),
+                    entity.getHost(),
+                    entity.getPort(),
+                    entity.getUsername(),
+                    credential != null ? credential.getAuthenticationType() : null,
+                    plainPassword,
+                    credential != null ? credential.getPrivateKeyPath() : null,
+                    plainPassphrase,
+                    HostKeyVerificationMode.valueOf(entity.getHostKeyVerificationMode()),
+                    entity.getDescription(),
+                    entity.getDefaultRemotePath(),
+                    entity.isFavorite(),
+                    entity.getProjectId(),
+                    entity.getConnectionType() != null ? entity.getConnectionType() : ConnectionType.SSH,
+                    entity.getFolderId()
+            );
+        });
     }
 
     public ConnectionProfile save(ConnectionFormData formData) {
@@ -103,209 +102,268 @@ public class ConnectionProfileService {
             validate(formData);
         }
 
-        ConnectionEntity entity = formData.id() == null || formData.id().isBlank()
-                ? new ConnectionEntity()
-                : connectionRepository.findById(formData.id())
-                .orElseThrow(() -> new IllegalArgumentException("Connection not found: " + formData.id()));
+        return jdbi.inTransaction(h -> {
+            ConnectionDao connDao = h.attach(ConnectionDao.class);
+            CredentialDao credDao = h.attach(CredentialDao.class);
 
-        entity.setConnectionType(connType);
-        entity.setDisplayName(formData.displayName());
-        entity.setFavorite(formData.favorite());
-        entity.setDescription(blankToNull(formData.description()));
+            boolean isNew = formData.id() == null || formData.id().isBlank();
+            ConnectionEntity entity = isNew
+                    ? new ConnectionEntity()
+                    : connDao.findById(formData.id())
+                    .orElseThrow(() -> new IllegalArgumentException("Connection not found: " + formData.id()));
 
-        if (connType == ConnectionType.SSH) {
-            CredentialEntity credential = entity.getCredential() == null ? new CredentialEntity() : entity.getCredential();
-            credential.setAuthenticationType(formData.authenticationType());
-            credential.setEncryptedPassword(blankToNull(formData.password()));
-            credential.setPrivateKeyPath(blankToNull(formData.privateKeyPath()));
-            credential.setEncryptedPassphrase(blankToNull(formData.passphrase()));
+            entity.setConnectionType(connType);
+            entity.setDisplayName(formData.displayName());
+            entity.setFavorite(formData.favorite());
+            entity.setDescription(blankToNull(formData.description()));
+            entity.setProjectId(blankToNull(formData.projectId()));
+            entity.setFolderId(blankToNull(formData.folderId()));
 
-            entity.setHost(formData.host());
-            entity.setPort(formData.port());
-            entity.setUsername(formData.username());
-            entity.setAuthenticationType(formData.authenticationType());
-            entity.setHostKeyVerificationMode(formData.hostKeyVerificationMode().name());
-            entity.setDefaultRemotePath(blankToNull(formData.defaultRemotePath()));
-            entity.setCredential(credential);
-        } else {
-            // LOCAL_SHELL: clear SSH-specific fields; keep a stub credential to satisfy NOT NULL FK
-            entity.setHost("");
-            entity.setPort(0);
-            entity.setUsername("");
-            entity.setAuthenticationType(AuthenticationType.PASSWORD);
-            entity.setHostKeyVerificationMode(HostKeyVerificationMode.STRICT.name());
-            entity.setDefaultRemotePath(null);
-            CredentialEntity stub = entity.getCredential() == null ? new CredentialEntity() : entity.getCredential();
-            stub.setAuthenticationType(AuthenticationType.PASSWORD);
-            stub.setEncryptedPassword(null);
-            stub.setPrivateKeyPath(null);
-            stub.setEncryptedPassphrase(null);
-            entity.setCredential(stub);
-        }
+            if (connType == ConnectionType.SSH) {
+                entity.setHost(formData.host());
+                entity.setPort(formData.port());
+                entity.setUsername(formData.username());
+                entity.setAuthenticationType(formData.authenticationType());
+                entity.setHostKeyVerificationMode(formData.hostKeyVerificationMode().name());
+                entity.setDefaultRemotePath(blankToNull(formData.defaultRemotePath()));
 
-        if (formData.projectId() != null && !formData.projectId().isBlank()) {
-            entity.setProject(projectRepository.getReferenceById(formData.projectId()));
-        } else {
-            entity.setProject(null);
-        }
+                // 处理凭证（明文 → 加密后存入 DB）
+                CredentialEntity credential = isNew || entity.getCredentialId() == null
+                        ? new CredentialEntity()
+                        : credDao.findById(entity.getCredentialId()).orElse(new CredentialEntity());
 
-        if (formData.folderId() != null && !formData.folderId().isBlank()) {
-            entity.setFolder(folderRepository.getReferenceById(formData.folderId()));
-        } else {
-            entity.setFolder(null);
-        }
+                credential.setAuthenticationType(formData.authenticationType());
+                credential.setEncryptedPassword(encryptOrNull(blankToNull(formData.password())));
+                credential.setPrivateKeyPath(blankToNull(formData.privateKeyPath()));
+                credential.setEncryptedPassphrase(encryptOrNull(blankToNull(formData.passphrase())));
 
-        return toProfile(connectionRepository.save(entity));
+                if (credential.getId() == null) {
+                    credential.prepareInsert();
+                    credDao.insert(credential);
+                } else {
+                    credential.prepareUpdate();
+                    credDao.update(credential);
+                }
+                entity.setCredentialId(credential.getId());
+            } else {
+                // LOCAL_SHELL：清空 SSH 专用字段，保留一个存根凭证
+                entity.setHost("");
+                entity.setPort(0);
+                entity.setUsername("");
+                entity.setAuthenticationType(AuthenticationType.PASSWORD);
+                entity.setHostKeyVerificationMode(HostKeyVerificationMode.STRICT.name());
+                entity.setDefaultRemotePath(null);
+
+                if (entity.getCredentialId() == null) {
+                    CredentialEntity stub = new CredentialEntity();
+                    stub.setAuthenticationType(AuthenticationType.PASSWORD);
+                    stub.prepareInsert();
+                    credDao.insert(stub);
+                    entity.setCredentialId(stub.getId());
+                }
+            }
+
+            if (isNew) {
+                entity.prepareInsert();
+                connDao.insert(entity);
+            } else {
+                entity.prepareUpdate();
+                connDao.update(entity);
+            }
+
+            return toProfile(entity);
+        });
     }
 
     public void delete(String id) {
-        connectionRepository.deleteById(id);
+        jdbi.useHandle(h -> h.attach(ConnectionDao.class).deleteById(id));
     }
 
     // ── Folder CRUD ───────────────────────────────────────────────────
 
-    @Transactional(readOnly = true)
     public List<FolderProfile> listFolders(String projectId) {
-        List<ConnectionFolderEntity> entities = projectId == null
-                ? folderRepository.findAllByProjectIsNullOrderBySortOrderAscNameAsc()
-                : folderRepository.findAllByProject_IdOrderBySortOrderAscNameAsc(projectId);
-        return entities.stream().map(this::toFolderProfile).toList();
+        return jdbi.withHandle(h -> {
+            ConnectionFolderDao dao = h.attach(ConnectionFolderDao.class);
+            List<ConnectionFolderEntity> entities = projectId == null
+                    ? dao.findAllWithNoProject()
+                    : dao.findAllByProjectId(projectId);
+            return entities.stream().map(this::toFolderProfile).toList();
+        });
     }
 
     public FolderProfile saveFolder(String id, String name, String parentId, String projectId) {
-        ConnectionFolderEntity entity = id == null || id.isBlank()
-                ? new ConnectionFolderEntity()
-                : folderRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Folder not found: " + id));
-        entity.setName(name);
-        if (parentId != null && !parentId.isBlank()) {
-            ConnectionFolderEntity parent = folderRepository.getReferenceById(parentId);
-            entity.setParent(parent);
-        } else {
-            entity.setParent(null);
-        }
-        entity.setProject(projectId != null && !projectId.isBlank()
-                ? projectRepository.getReferenceById(projectId) : null);
-        return toFolderProfile(folderRepository.save(entity));
+        return jdbi.inTransaction(h -> {
+            ConnectionFolderDao dao = h.attach(ConnectionFolderDao.class);
+            boolean isNew = id == null || id.isBlank();
+            ConnectionFolderEntity entity = isNew
+                    ? new ConnectionFolderEntity()
+                    : dao.findById(id)
+                    .orElseThrow(() -> new IllegalArgumentException("Folder not found: " + id));
+
+            entity.setName(name);
+            entity.setParentId(blankToNull(parentId));
+            entity.setProjectId(blankToNull(projectId));
+
+            if (isNew) {
+                entity.prepareInsert();
+                dao.insert(entity);
+            } else {
+                entity.prepareUpdate();
+                dao.update(entity);
+            }
+            return toFolderProfile(entity);
+        });
     }
 
     /** 计算某文件夹在树中的深度（根层为 0）。 */
     public int getFolderDepth(String folderId) {
-        int depth = 0;
-        String current = folderId;
-        while (true) {
-            String finalCurrent = current;
-            ConnectionFolderEntity entity = folderRepository.findById(finalCurrent).orElse(null);
-            if (entity == null || entity.getParent() == null) break;
-            current = entity.getParent().getId();
-            depth++;
-            if (depth > 100) break; // 防止循环引用死循环
-        }
-        return depth;
+        return jdbi.withHandle(h -> {
+            ConnectionFolderDao dao = h.attach(ConnectionFolderDao.class);
+            int depth = 0;
+            String current = folderId;
+            while (true) {
+                String finalCurrent = current;
+                ConnectionFolderEntity entity = dao.findById(finalCurrent).orElse(null);
+                if (entity == null || entity.getParentId() == null) break;
+                current = entity.getParentId();
+                depth++;
+                if (depth > 100) break;
+            }
+            return depth;
+        });
     }
 
     public FolderProfile renameFolder(String id, String newName) {
-        ConnectionFolderEntity entity = folderRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Folder not found: " + id));
-        entity.setName(newName);
-        return toFolderProfile(folderRepository.save(entity));
+        return jdbi.inTransaction(h -> {
+            ConnectionFolderDao dao = h.attach(ConnectionFolderDao.class);
+            ConnectionFolderEntity entity = dao.findById(id)
+                    .orElseThrow(() -> new IllegalArgumentException("Folder not found: " + id));
+            entity.setName(newName);
+            entity.prepareUpdate();
+            dao.update(entity);
+            return toFolderProfile(entity);
+        });
     }
 
-    /** 将连接移动到指定文件夹（targetFolderId 为 null 表示移到根层）。 */
-    @Transactional
     public void moveConnectionToFolder(String connectionId, String targetFolderId) {
-        ConnectionEntity entity = connectionRepository.findById(connectionId)
-                .orElseThrow(() -> new IllegalArgumentException("Connection not found: " + connectionId));
-        entity.setFolder(targetFolderId != null && !targetFolderId.isBlank()
-                ? folderRepository.getReferenceById(targetFolderId) : null);
-        connectionRepository.save(entity);
+        jdbi.useHandle(h -> h.attach(ConnectionDao.class)
+                .updateFolderId(connectionId, blankToNull(targetFolderId), Instant.now()));
     }
 
-    /** 将文件夹移动到另一个文件夹下（targetParentId 为 null 表示移到根层）。 */
-    @Transactional
     public void moveFolderToParent(String folderId, String targetParentId) {
-        ConnectionFolderEntity entity = folderRepository.findById(folderId)
-                .orElseThrow(() -> new IllegalArgumentException("Folder not found: " + folderId));
-        entity.setParent(targetParentId != null && !targetParentId.isBlank()
-                ? folderRepository.getReferenceById(targetParentId) : null);
-        folderRepository.save(entity);
+        jdbi.useHandle(h -> h.attach(ConnectionFolderDao.class)
+                .updateParentId(folderId, blankToNull(targetParentId), Instant.now()));
     }
 
     public void deleteFolder(String id) {
-        // Move connections in this folder to no folder
-        connectionRepository.findAllByFolder_IdOrderByDisplayNameAsc(id)
-                .forEach(c -> { c.setFolder(null); connectionRepository.save(c); });
-        folderRepository.deleteById(id);
+        jdbi.useTransaction(h -> {
+            h.attach(ConnectionDao.class).clearFolderIdForFolder(id);
+            h.attach(ConnectionFolderDao.class).deleteById(id);
+        });
     }
 
     // ── Project CRUD ──────────────────────────────────────────────────
 
-    @Transactional(readOnly = true)
     public List<ProjectProfile> listProjects() {
-        return projectRepository.findAllByOrderBySortOrderAscNameAsc()
-                .stream().map(this::toProjectProfile).toList();
+        return jdbi.withHandle(h ->
+                h.attach(ProjectDao.class).findAllOrderBySortOrderName()
+                        .stream().map(this::toProjectProfile).toList()
+        );
     }
 
     public ProjectProfile saveProject(String id, String name, String description) {
-        ProjectEntity entity = id == null || id.isBlank()
-                ? new ProjectEntity()
-                : projectRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Project not found: " + id));
-        entity.setName(name);
-        entity.setDescription(description);
-        return toProjectProfile(projectRepository.save(entity));
+        return jdbi.inTransaction(h -> {
+            ProjectDao dao = h.attach(ProjectDao.class);
+            boolean isNew = id == null || id.isBlank();
+            ProjectEntity entity = isNew
+                    ? new ProjectEntity()
+                    : dao.findById(id)
+                    .orElseThrow(() -> new IllegalArgumentException("Project not found: " + id));
+
+            entity.setName(name);
+            entity.setDescription(description);
+
+            if (isNew) {
+                entity.prepareInsert();
+                dao.insert(entity);
+            } else {
+                entity.prepareUpdate();
+                dao.update(entity);
+            }
+            return toProjectProfile(entity);
+        });
     }
 
     public void deleteProject(String id) {
-        // Null out project FK on connections before deleting
-        connectionRepository.findAllByProject_IdOrderByDisplayNameAsc(id)
-                .forEach(c -> { c.setProject(null); connectionRepository.save(c); });
-        projectRepository.deleteById(id);
+        jdbi.useTransaction(h -> {
+            h.attach(ConnectionDao.class).clearProjectIdForProject(id);
+            h.attach(ProjectDao.class).deleteById(id);
+        });
     }
 
     // ── Session history ───────────────────────────────────────────────
 
-    @Transactional(readOnly = true)
     public ConnectionRequest toConnectionRequest(String connectionId) {
-        ConnectionEntity entity = connectionRepository.findById(connectionId)
-                .orElseThrow(() -> new IllegalArgumentException("Connection not found: " + connectionId));
+        return jdbi.withHandle(h -> {
+            ConnectionEntity entity = h.attach(ConnectionDao.class).findById(connectionId)
+                    .orElseThrow(() -> new IllegalArgumentException("Connection not found: " + connectionId));
 
-        CredentialPayload credentialPayload = entity.getAuthenticationType() == AuthenticationType.PASSWORD
-                ? CredentialPayload.forPassword(value(entity.getCredential().getEncryptedPassword()).toCharArray())
-                : CredentialPayload.forPrivateKey(
-                Path.of(value(entity.getCredential().getPrivateKeyPath())),
-                value(entity.getCredential().getEncryptedPassphrase()).toCharArray()
-        );
+            CredentialEntity credential = entity.getCredentialId() != null
+                    ? h.attach(CredentialDao.class).findById(entity.getCredentialId()).orElse(null)
+                    : null;
 
-        return new ConnectionRequest(
-                entity.getDisplayName(),
-                new ConnectionTarget(entity.getHost(), entity.getPort(), entity.getUsername(), null, null),
-                entity.getAuthenticationType() == AuthenticationType.PASSWORD
-                        ? AuthenticationMethod.PASSWORD
-                        : AuthenticationMethod.PRIVATE_KEY,
-                credentialPayload,
-                HostKeyVerificationMode.valueOf(entity.getHostKeyVerificationMode())
-        );
+            // DB 存储的是密文，解密后传给 CredentialPayload
+            CredentialPayload credentialPayload;
+            if (entity.getAuthenticationType() == AuthenticationType.PASSWORD) {
+                String pwd = decryptOrNull(credential != null ? credential.getEncryptedPassword() : null);
+                credentialPayload = CredentialPayload.forPassword(value(pwd).toCharArray());
+            } else {
+                String keyPath = credential != null ? credential.getPrivateKeyPath() : null;
+                String passphrase = decryptOrNull(credential != null ? credential.getEncryptedPassphrase() : null);
+                credentialPayload = CredentialPayload.forPrivateKey(
+                        Path.of(value(keyPath)),
+                        value(passphrase).toCharArray()
+                );
+            }
+
+            return new ConnectionRequest(
+                    entity.getDisplayName(),
+                    new ConnectionTarget(entity.getHost(), entity.getPort(), entity.getUsername(), null, null),
+                    entity.getAuthenticationType() == AuthenticationType.PASSWORD
+                            ? AuthenticationMethod.PASSWORD
+                            : AuthenticationMethod.PRIVATE_KEY,
+                    credentialPayload,
+                    HostKeyVerificationMode.valueOf(entity.getHostKeyVerificationMode())
+            );
+        });
     }
 
     public String recordSessionOpened(SessionId sessionId, String connectionId, String remoteAddress) {
-        SessionHistoryEntity history = new SessionHistoryEntity();
-        history.setConnection(connectionRepository.getReferenceById(connectionId));
-        history.setSessionIdentifier(sessionId.toString());
-        history.setState(SessionState.CONNECTED.name());
-        history.setOpenedAt(Instant.now());
-        history.setRemoteAddress(remoteAddress);
-        return sessionHistoryRepository.save(history).getId();
+        return jdbi.inTransaction(h -> {
+            SessionHistoryEntity history = new SessionHistoryEntity();
+            history.setConnectionId(connectionId);
+            history.setSessionIdentifier(sessionId.toString());
+            history.setState(SessionState.CONNECTED.name());
+            history.setOpenedAt(Instant.now());
+            history.setRemoteAddress(remoteAddress);
+            history.prepareInsert();
+            h.attach(SessionHistoryDao.class).insert(history);
+            return history.getId();
+        });
     }
 
     public void recordSessionClosed(String historyId, SessionState state, Integer exitCode, String failureReason) {
-        SessionHistoryEntity history = sessionHistoryRepository.findById(historyId)
-                .orElseThrow(() -> new IllegalArgumentException("Session history not found: " + historyId));
-        history.setState(state.name());
-        history.setClosedAt(Instant.now());
-        history.setExitCode(exitCode);
-        history.setFailureReason(blankToNull(failureReason));
-        sessionHistoryRepository.save(history);
+        jdbi.useTransaction(h -> {
+            SessionHistoryDao dao = h.attach(SessionHistoryDao.class);
+            SessionHistoryEntity history = dao.findById(historyId)
+                    .orElseThrow(() -> new IllegalArgumentException("Session history not found: " + historyId));
+            history.setState(state.name());
+            history.setClosedAt(Instant.now());
+            history.setExitCode(exitCode);
+            history.setFailureReason(blankToNull(failureReason));
+            history.prepareUpdate();
+            dao.update(history);
+        });
     }
 
     // ── Mapping ───────────────────────────────────────────────────────
@@ -323,9 +381,9 @@ public class ConnectionProfileService {
                 entity.getDescription(),
                 entity.getDefaultRemotePath(),
                 entity.isFavorite(),
-                entity.getProject() != null ? entity.getProject().getId() : null,
+                entity.getProjectId(),
                 entity.getConnectionType() != null ? entity.getConnectionType() : ConnectionType.SSH,
-                entity.getFolder() != null ? entity.getFolder().getId() : null
+                entity.getFolderId()
         );
     }
 
@@ -333,8 +391,8 @@ public class ConnectionProfileService {
         return new FolderProfile(
                 entity.getId(),
                 entity.getName(),
-                entity.getParent() != null ? entity.getParent().getId() : null,
-                entity.getProject() != null ? entity.getProject().getId() : null,
+                entity.getParentId(),
+                entity.getProjectId(),
                 entity.getSortOrder()
         );
     }
@@ -353,6 +411,14 @@ public class ConnectionProfileService {
         if (formData.authenticationType() == AuthenticationType.PRIVATE_KEY && isBlank(formData.privateKeyPath())) {
             throw new IllegalArgumentException("Private key path is required for key authentication");
         }
+    }
+
+    private String encryptOrNull(String plainText) {
+        return plainText != null ? credentialCipher.encrypt(plainText) : null;
+    }
+
+    private String decryptOrNull(String cipherText) {
+        return cipherText != null ? credentialCipher.decrypt(cipherText) : null;
     }
 
     private boolean isBlank(String value) {

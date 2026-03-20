@@ -19,12 +19,10 @@ import com.jlshell.terminal.support.LocalShellTtyConnector;
 import com.jlshell.terminal.support.SwingExecutors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
 
 /**
  * 启动本地 Shell 终端。
  */
-@Service
 public class LocalShellLauncher {
 
     private static final Logger log = LoggerFactory.getLogger(LocalShellLauncher.class);
@@ -35,11 +33,11 @@ public class LocalShellLauncher {
 
     public LocalShellLauncher(
             FontProfileService fontProfileService,
-            ExecutorService sshConnectionExecutor,
+            ExecutorService executorService,
             I18nService i18nService
     ) {
         this.fontProfileService = fontProfileService;
-        this.executorService = sshConnectionExecutor;
+        this.executorService = executorService;
         this.i18n = i18nService::get;
     }
 

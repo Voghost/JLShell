@@ -52,12 +52,12 @@ import javafx.scene.layout.VBox;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import javafx.stage.Stage;
-import org.springframework.stereotype.Component;
+
 
 /**
  * 主窗口视图。
  */
-@Component
+
 public class MainWindow {
 
     private static final Logger log = LoggerFactory.getLogger(MainWindow.class);
@@ -97,7 +97,7 @@ public class MainWindow {
             I18nService i18nService,
             LocalShellLauncher localShellLauncher,
             ExecutorService sshConnectionExecutor,
-            @org.springframework.beans.factory.annotation.Value("${jlshell.sidebar.maxFolderDepth:5}") int maxFolderDepth,
+            int maxFolderDepth,
             PluginManager pluginManager
     ) {
         this.viewModel = viewModel;

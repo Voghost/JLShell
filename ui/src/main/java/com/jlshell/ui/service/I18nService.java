@@ -1,23 +1,40 @@
 package com.jlshell.ui.service;
 
+import java.text.MessageFormat;
 import java.util.Locale;
-
-import org.springframework.context.MessageSource;
-import org.springframework.stereotype.Service;
+import java.util.MissingResourceException;
+import java.util.ResourceBundle;
 
 /**
- * UI 国际化服务。
+ * UI 国际化服务（基于标准 Java ResourceBundle）。
  */
-@Service
 public class I18nService {
 
-    private final MessageSource messageSource;
+    private ResourceBundle bundle;
 
-    public I18nService(MessageSource messageSource) {
-        this.messageSource = messageSource;
+    public I18nService(Locale locale) {
+        loadBundle(locale);
+    }
+
+    private void loadBundle(Locale locale) {
+        try {
+            bundle = ResourceBundle.getBundle("i18n/messages", locale);
+        } catch (MissingResourceException e) {
+            bundle = ResourceBundle.getBundle("i18n/messages", Locale.ENGLISH);
+        }
+    }
+
+    public void setLocale(Locale locale) {
+        Locale.setDefault(locale);
+        loadBundle(locale);
     }
 
     public String get(String key, Object... args) {
-        return messageSource.getMessage(key, args, Locale.getDefault());
+        try {
+            String pattern = bundle.getString(key);
+            return args.length == 0 ? pattern : MessageFormat.format(pattern, args);
+        } catch (MissingResourceException e) {
+            return key;
+        }
     }
 }

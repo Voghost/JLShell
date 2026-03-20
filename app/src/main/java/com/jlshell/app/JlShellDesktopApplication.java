@@ -15,12 +15,10 @@ import com.jlshell.ui.view.MainWindow;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.stage.Stage;
-import org.springframework.boot.builder.SpringApplicationBuilder;
-import org.springframework.context.ConfigurableApplicationContext;
 
 public class JlShellDesktopApplication extends Application {
 
-    private ConfigurableApplicationContext applicationContext;
+    private AppContext appContext;
     private TrayIcon trayIcon;
 
     public static void main(String[] args) {
@@ -32,14 +30,12 @@ public class JlShellDesktopApplication extends Application {
 
     @Override
     public void init() {
-        applicationContext = new SpringApplicationBuilder(JlShellSpringApplication.class)
-                .headless(false)
-                .run(getParameters().getRaw().toArray(String[]::new));
+        appContext = new AppContext();
     }
 
     @Override
     public void start(Stage stage) {
-        MainWindow mainWindow = applicationContext.getBean(MainWindow.class);
+        MainWindow mainWindow = appContext.getMainWindow();
         stage.setTitle("JLShell");
         stage.setScene(mainWindow.createScene(stage));
         stage.setMinWidth(1200);
@@ -82,8 +78,8 @@ public class JlShellDesktopApplication extends Application {
         });
         Thread shutdownThread = new Thread(() -> {
             try {
-                if (applicationContext != null) {
-                    applicationContext.close();
+                if (appContext != null) {
+                    appContext.close();
                 }
             } finally {
                 Platform.exit();

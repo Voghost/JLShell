@@ -3,42 +3,41 @@ package com.jlshell.data.entity;
 import java.time.Instant;
 import java.util.UUID;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Id;
-import jakarta.persistence.MappedSuperclass;
-import jakarta.persistence.PrePersist;
-import jakarta.persistence.PreUpdate;
-
 /**
  * 通用审计基类。
  */
-@MappedSuperclass
 public abstract class AbstractAuditableEntity {
 
-    @Id
-    @Column(name = "id", nullable = false, updatable = false, length = 36)
     private String id;
-
-    @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
-
-    @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
     public String getId() {
         return id;
     }
 
+    public void setId(String id) {
+        this.id = id;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public void setCreatedAt(Instant createdAt) {
+        this.createdAt = createdAt;
     }
 
     public Instant getUpdatedAt() {
         return updatedAt;
     }
 
-    @PrePersist
-    protected void onCreate() {
+    public void setUpdatedAt(Instant updatedAt) {
+        this.updatedAt = updatedAt;
+    }
+
+    /** 新增记录前调用：生成 ID 并设置时间戳。 */
+    public void prepareInsert() {
         if (id == null || id.isBlank()) {
             id = UUID.randomUUID().toString();
         }
@@ -47,8 +46,8 @@ public abstract class AbstractAuditableEntity {
         updatedAt = now;
     }
 
-    @PreUpdate
-    protected void onUpdate() {
+    /** 更新记录前调用：刷新 updatedAt。 */
+    public void prepareUpdate() {
         updatedAt = Instant.now();
     }
 }
