@@ -273,15 +273,20 @@ jobs:
 
           # ── Portable EXE via 7-Zip SFX ──────────────────────────────────────
           # Get 7-Zip SFX stub (not bundled with standard 7-Zip install)
-          curl -fsSL "https://7-zip.org/a/7z2409-extra.7z" -o /tmp/7zextra.7z
-          7z e /tmp/7zextra.7z -o/tmp/7zextra/ 7zSD.sfx -y
+          SFXDIR="${RUNNER_TEMP}/7zsfx"
+          mkdir -p "$SFXDIR"
+          curl -fsSL "https://7-zip.org/a/7z2409-extra.7z" -o "$SFXDIR/7zextra.7z"
+          7z e "$SFXDIR/7zextra.7z" -o"$SFXDIR/" -y
+          echo "--- SFX dir contents ---" && ls "$SFXDIR/"
+          SFX_STUB=$(find "$SFXDIR" -maxdepth 1 -name "7zSD.sfx" -o -name "7z.sfx" | head -1)
+          [[ -n "$SFX_STUB" ]] || { echo "ERROR: no .sfx stub found"; ls "$SFXDIR/"; exit 1; }
 
-          # SFX config: extract to %LOCALAPPDATA%\JLShell\<version>, skip if exists, then run
+          # SFX config: extract to %LOCALAPPDATA%\JLShell\<version>, then run
           printf ';!@Install@!UTF-8!\nTitle="JLShell %s"\nExtractPathVariable=LOCALAPPDATA\nExtractPath=JLShell\\%s\nOverwriteMode=2\nRunProgram="JLShell.bat"\nGUIMode=2\n;!@InstallEnd@!' \
-            "${VERSION}" "${VERSION}" > /tmp/sfx.cfg
+            "${VERSION}" "${VERSION}" > "$SFXDIR/sfx.cfg"
 
           # Combine: sfx stub + config + zip archive = single portable exe
-          cat /tmp/7zextra/7zSD.sfx /tmp/sfx.cfg "dist/JLShell-${VERSION}-win-x64.zip" \
+          cat "$SFX_STUB" "$SFXDIR/sfx.cfg" "dist/JLShell-${VERSION}-win-x64.zip" \
             > "dist/JLShell-${VERSION}-win-x64.exe"
 
       - uses: actions/upload-artifact@v4
