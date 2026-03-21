@@ -272,16 +272,13 @@ jobs:
           cd dist/win-work && 7z a -tzip "../JLShell-${VERSION}-win-x64.zip" . && cd ../..
 
           # ── Portable EXE via 7-Zip SFX ──────────────────────────────────────
-          # Get 7-Zip SFX stub (not bundled with standard 7-Zip install)
-          SFXDIR="${RUNNER_TEMP}/7zsfx"
-          mkdir -p "$SFXDIR"
-          curl -fsSL "https://7-zip.org/a/7z2409-extra.7z" -o "$SFXDIR/7zextra.7z"
-          7z e "$SFXDIR/7zextra.7z" -o"$SFXDIR/" -y
-          echo "--- SFX dir contents ---" && ls "$SFXDIR/"
-          SFX_STUB=$(find "$SFXDIR" -maxdepth 1 -name "7zSD.sfx" -o -name "7z.sfx" | head -1)
-          [[ -n "$SFX_STUB" ]] || { echo "ERROR: no .sfx stub found"; ls "$SFXDIR/"; exit 1; }
+          # 7-Zip 23.01+ ships 7zSD.sfx in the installation directory
+          SFX_STUB="C:/Program Files/7-Zip/7zSD.sfx"
+          [[ -f "$SFX_STUB" ]] || { echo "7zSD.sfx not found, listing 7-Zip dir:"; ls "C:/Program Files/7-Zip/"; exit 1; }
 
           # SFX config: extract to %LOCALAPPDATA%\JLShell\<version>, then run
+          SFXDIR="${RUNNER_TEMP}/7zsfx"
+          mkdir -p "$SFXDIR"
           printf ';!@Install@!UTF-8!\nTitle="JLShell %s"\nExtractPathVariable=LOCALAPPDATA\nExtractPath=JLShell\\%s\nOverwriteMode=2\nRunProgram="JLShell.bat"\nGUIMode=2\n;!@InstallEnd@!' \
             "${VERSION}" "${VERSION}" > "$SFXDIR/sfx.cfg"
 
