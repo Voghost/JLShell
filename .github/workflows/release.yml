@@ -246,14 +246,15 @@ jobs:
           mvn package -DskipTests -pl app -am -q
 
           JDK=$JAVA_HOME
-          mkdir -p dist
+          # app-input contains ONLY the jar — keeps it separate from runtime/
+          mkdir -p dist/app-input dist/runtime
           "$JDK/bin/jlink" \
             --module-path "$JDK/jmods" \
             --add-modules $MODULES \
             --output dist/runtime \
             --strip-debug --no-man-pages --no-header-files --compress zip-6
 
-          cp $JAR dist/app.jar
+          cp $JAR dist/app-input/app.jar
 
       # ── zip ─────────────────────────────────────────────────────────────────
       - name: Package zip
@@ -261,7 +262,7 @@ jobs:
         run: |
           mkdir -p dist/win-work/JLShell
           cp -r dist/runtime dist/win-work/JLShell/
-          cp dist/app.jar dist/win-work/JLShell/
+          cp dist/app-input/app.jar dist/win-work/JLShell/
 
           cat > dist/win-work/JLShell/JLShell.bat <<'EOF'
           @echo off
@@ -286,12 +287,14 @@ jobs:
         shell: bash
         run: |
           JDK=$JAVA_HOME
+          # Windows Installer requires X.Y.Z numeric-only version
+          WIN_VER=$(echo "${VERSION}" | sed 's/[^0-9.]//g' | sed 's/\.$//')
 
           "$JDK/bin/jpackage" \
             --type exe \
             --name JLShell \
-            --app-version "${VERSION}" \
-            --input dist \
+            --app-version "${WIN_VER}" \
+            --input dist/app-input \
             --main-jar app.jar \
             --main-class com.jlshell.app.JlShellDesktopApplication \
             --runtime-image dist/runtime \
@@ -305,8 +308,8 @@ jobs:
             --vendor "JLShell"
 
           # jpackage output name: JLShell-<version>.exe
-          mv dist/JLShell-${VERSION}.exe dist/JLShell-${VERSION}-win-x64.exe 2>/dev/null || \
-          mv dist/JLShell-*.exe dist/JLShell-${VERSION}-win-x64.exe
+          mv "dist/JLShell-${WIN_VER}.exe" "dist/JLShell-${VERSION}-win-x64.exe" 2>/dev/null || \
+          mv dist/JLShell-*.exe "dist/JLShell-${VERSION}-win-x64.exe"
 
       - uses: actions/upload-artifact@v4
         with:
