@@ -273,8 +273,8 @@ jobs:
 
           # ── Portable EXE via 7-Zip SFX ──────────────────────────────────────
           # 7-Zip 23.01+ ships 7zSD.sfx in the installation directory
-          SFX_STUB="C:/Program Files/7-Zip/7zSD.sfx"
-          [[ -f "$SFX_STUB" ]] || { echo "7zSD.sfx not found, listing 7-Zip dir:"; ls "C:/Program Files/7-Zip/"; exit 1; }
+          SFX_STUB="C:/Program Files/7-Zip/7z.sfx"
+          [[ -f "$SFX_STUB" ]] || { echo "7z.sfx not found, listing 7-Zip dir:"; ls "C:/Program Files/7-Zip/"; exit 1; }
 
           # SFX config: extract to %LOCALAPPDATA%\JLShell\<version>, then run
           SFXDIR="${RUNNER_TEMP}/7zsfx"
