@@ -62,8 +62,7 @@ build_jar() {
 
 # ── Step 2: Required Java modules (fixed list, covers Spring Boot + JavaFX + SQLite + SSH) ──
 detect_modules() {
-    # jdeps on a Spring Boot fat jar is unreliable due to nested jars.
-    # Use a curated list that covers all runtime needs.
+    # jdeps on a shaded fat jar can be unreliable; use a curated list that covers all runtime needs.
     echo "java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.management.rmi,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.transaction.xa,java.xml,java.xml.crypto,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.jfr,jdk.management,jdk.naming.dns,jdk.net,jdk.unsupported,jdk.unsupported.desktop,jdk.zipfs"
 }
 
