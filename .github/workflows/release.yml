@@ -265,15 +265,8 @@ jobs:
           cp dist/app-input/app.jar dist/win-work/
 
           # Launcher: no console window via javaw
-          cat > dist/win-work/JLShell.bat << 'BAT'
-@echo off
-setlocal
-set DIR=%~dp0
-start "" "%DIR%runtime\bin\javaw.exe" ^
-  --add-opens java.base/java.lang=ALL-UNNAMED ^
-  --add-opens java.desktop/sun.awt=ALL-UNNAMED ^
-  -jar "%DIR%app.jar"
-BAT
+          printf '@echo off\r\nsetlocal\r\nset DIR=%%~dp0\r\nstart "" "%%DIR%%runtime\\bin\\javaw.exe" ^\r\n  --add-opens java.base/java.lang=ALL-UNNAMED ^\r\n  --add-opens java.desktop/sun.awt=ALL-UNNAMED ^\r\n  -jar "%%DIR%%app.jar"\r\n' \
+            > dist/win-work/JLShell.bat
 
           # ZIP (portable — extract anywhere, double-click JLShell.bat)
           cd dist/win-work && 7z a -tzip "../JLShell-${VERSION}-win-x64.zip" . && cd ../..
