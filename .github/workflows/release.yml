@@ -228,7 +228,7 @@ jobs:
 
   # ── Windows ─────────────────────────────────────────────────────────────────
   build-windows:
-    name: Build Windows (zip + exe installer)
+    name: Build Windows (zip + portable exe)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -246,8 +246,7 @@ jobs:
           mvn package -DskipTests -pl app -am -q
 
           JDK=$JAVA_HOME
-          # app-input contains ONLY the jar — keeps it separate from runtime/
-          mkdir -p dist/app-input dist/runtime
+          mkdir -p dist/app-input
           "$JDK/bin/jlink" \
             --module-path "$JDK/jmods" \
             --add-modules $MODULES \
@@ -256,60 +255,41 @@ jobs:
 
           cp $JAR dist/app-input/app.jar
 
-      # ── zip ─────────────────────────────────────────────────────────────────
-      - name: Package zip
+      # ── zip + portable exe (7-Zip SFX) ──────────────────────────────────────
+      - name: Package zip + portable exe
         shell: bash
         run: |
-          mkdir -p dist/win-work/JLShell
-          cp -r dist/runtime dist/win-work/JLShell/
-          cp dist/app-input/app.jar dist/win-work/JLShell/
+          # Assemble portable layout (flat — no JLShell/ subdir, easier for SFX)
+          mkdir -p dist/win-work
+          cp -r dist/runtime dist/win-work/
+          cp dist/app-input/app.jar dist/win-work/
 
-          cat > dist/win-work/JLShell/JLShell.bat <<'EOF'
-          @echo off
-          setlocal
-          set DIR=%~dp0
-          "%DIR%runtime\bin\java.exe" ^
-            --add-opens java.base/java.lang=ALL-UNNAMED ^
-            --add-opens java.desktop/sun.awt=ALL-UNNAMED ^
-            -jar "%DIR%app.jar" %*
-          EOF
+          # Launcher: no console window via javaw
+          cat > dist/win-work/JLShell.bat << 'BAT'
+@echo off
+setlocal
+set DIR=%~dp0
+start "" "%DIR%runtime\bin\javaw.exe" ^
+  --add-opens java.base/java.lang=ALL-UNNAMED ^
+  --add-opens java.desktop/sun.awt=ALL-UNNAMED ^
+  -jar "%DIR%app.jar"
+BAT
 
-          cat > dist/win-work/JLShell/JLShell.vbs <<'EOF'
-          Set oShell = CreateObject("WScript.Shell")
-          sDir = Left(WScript.ScriptFullName, InStrRev(WScript.ScriptFullName, "\"))
-          oShell.Run Chr(34) & sDir & "JLShell.bat" & Chr(34), 0, False
-          EOF
+          # ZIP (portable — extract anywhere, double-click JLShell.bat)
+          cd dist/win-work && 7z a -tzip "../JLShell-${VERSION}-win-x64.zip" . && cd ../..
 
-          cd dist/win-work && 7z a -tzip ../JLShell-${VERSION}-win-x64.zip JLShell
+          # ── Portable EXE via 7-Zip SFX ──────────────────────────────────────
+          # Get 7-Zip SFX stub (not bundled with standard 7-Zip install)
+          curl -fsSL "https://7-zip.org/a/7z2409-extra.7z" -o /tmp/7zextra.7z
+          7z e /tmp/7zextra.7z -o/tmp/7zextra/ 7zSD.sfx -y
 
-      # ── exe installer via jpackage ───────────────────────────────────────────
-      - name: Package exe installer
-        shell: bash
-        run: |
-          JDK=$JAVA_HOME
-          # Windows Installer requires X.Y.Z numeric-only version
-          WIN_VER=$(echo "${VERSION}" | sed 's/[^0-9.]//g' | sed 's/\.$//')
+          # SFX config: extract to %LOCALAPPDATA%\JLShell\<version>, skip if exists, then run
+          printf ';!@Install@!UTF-8!\nTitle="JLShell %s"\nExtractPathVariable=LOCALAPPDATA\nExtractPath=JLShell\\%s\nOverwriteMode=2\nRunProgram="JLShell.bat"\nGUIMode=2\n;!@InstallEnd@!' \
+            "${VERSION}" "${VERSION}" > /tmp/sfx.cfg
 
-          "$JDK/bin/jpackage" \
-            --type exe \
-            --name JLShell \
-            --app-version "${WIN_VER}" \
-            --input dist/app-input \
-            --main-jar app.jar \
-            --main-class com.jlshell.app.JlShellDesktopApplication \
-            --runtime-image dist/runtime \
-            --dest dist \
-            --win-dir-chooser \
-            --win-menu \
-            --win-shortcut \
-            --win-shortcut-prompt \
-            --java-options "--add-opens java.base/java.lang=ALL-UNNAMED" \
-            --java-options "--add-opens java.desktop/sun.awt=ALL-UNNAMED" \
-            --vendor "JLShell"
-
-          # jpackage output name: JLShell-<version>.exe
-          mv "dist/JLShell-${WIN_VER}.exe" "dist/JLShell-${VERSION}-win-x64.exe" 2>/dev/null || \
-          mv dist/JLShell-*.exe "dist/JLShell-${VERSION}-win-x64.exe"
+          # Combine: sfx stub + config + zip archive = single portable exe
+          cat /tmp/7zextra/7zSD.sfx /tmp/sfx.cfg "dist/JLShell-${VERSION}-win-x64.zip" \
+            > "dist/JLShell-${VERSION}-win-x64.exe"
 
       - uses: actions/upload-artifact@v4
         with:
