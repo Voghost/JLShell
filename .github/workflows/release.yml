@@ -11,7 +11,7 @@ on:
 env:
   VERSION: ${{ github.event.inputs.version }}
   JAR: app/target/app-0.1.0-SNAPSHOT.jar
-  MODULES: "java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.management.rmi,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.transaction.xa,java.xml,java.xml.crypto,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.jfr,jdk.management,jdk.naming.dns,jdk.net,jdk.unsupported,jdk.unsupported.desktop,jdk.zipfs"
+  MODULES: "java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.management.rmi,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.transaction.xa,java.xml,java.xml.crypto,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.jfr,jdk.management,jdk.naming.dns,jdk.net,jdk.unsupported,jdk.unsupported.desktop,jdk.zipfs,javafx.base,javafx.controls,javafx.fxml,javafx.graphics,javafx.swing"
 
 jobs:
   # ── macOS ───────────────────────────────────────────────────────────────────
@@ -24,12 +24,13 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           java-version: '21'
-          distribution: 'temurin'
+          distribution: 'liberica'
+          java-package: 'jdk+fx'
           cache: maven
 
       - name: Build
         run: |
-          mvn package -DskipTests -pl app -am -P dist -q
+          mvn package -DskipTests -pl app -am -q
 
           JDK=$JAVA_HOME
           mkdir -p dist/mac-work/JLShell.app/Contents/{MacOS,Java,Resources}
@@ -87,7 +88,8 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           java-version: '21'
-          distribution: 'temurin'
+          distribution: 'liberica'
+          java-package: 'jdk+fx'
           cache: maven
 
       - name: Install tools
@@ -97,7 +99,7 @@ jobs:
 
       - name: Build fat jar + jlink runtime
         run: |
-          mvn package -DskipTests -pl app -am -P dist -q
+          mvn package -DskipTests -pl app -am -q
 
           JDK=$JAVA_HOME
           mkdir -p dist
@@ -234,13 +236,14 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           java-version: '21'
-          distribution: 'temurin'
+          distribution: 'liberica'
+          java-package: 'jdk+fx'
           cache: maven
 
       - name: Build fat jar + jlink runtime
         shell: bash
         run: |
-          mvn package -DskipTests -pl app -am -P dist -q
+          mvn package -DskipTests -pl app -am -q
 
           JDK=$JAVA_HOME
           mkdir -p dist
