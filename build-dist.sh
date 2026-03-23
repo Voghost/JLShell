@@ -160,6 +160,23 @@ LAUNCHER
     sed -i '' "s/MAIN_JAR_PLACEHOLDER/$MAIN_JAR/" "$app_bundle/Contents/MacOS/JLShell"
     chmod +x "$app_bundle/Contents/MacOS/JLShell"
 
+    # Build AppIcon.icns so Finder shows the correct icon immediately (before app launches)
+    # Source: app/src/main/resources/icons/app_icon.png — replace this file to change the icon
+    local icon_src="$SCRIPT_DIR/app/src/main/resources/icons/app_icon.png"
+    if [[ -f "$icon_src" ]]; then
+        local iconset="$work/AppIcon.iconset"
+        mkdir -p "$iconset"
+        for size in 16 32 128 256 512; do
+            sips -z $size $size "$icon_src" --out "$iconset/icon_${size}x${size}.png" &>/dev/null
+            sips -z $((size*2)) $((size*2)) "$icon_src" --out "$iconset/icon_${size}x${size}@2x.png" &>/dev/null
+        done
+        iconutil -c icns "$iconset" -o "$app_bundle/Contents/Resources/AppIcon.icns"
+        rm -rf "$iconset"
+        ok "macOS icon: AppIcon.icns created"
+    else
+        log "WARN: $icon_src not found, bundle will have no dock icon"
+    fi
+
     # Package as .zip (user can drag .app to Applications)
     local out="$DIST_DIR/${APP_NAME}-${APP_VERSION}-mac.zip"
     rm -f "$out"

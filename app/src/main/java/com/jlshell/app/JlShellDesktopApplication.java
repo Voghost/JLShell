@@ -42,7 +42,7 @@ public class JlShellDesktopApplication extends Application {
         stage.setMinHeight(780);
 
         // JavaFX window icon (taskbar + title bar on Windows/Linux)
-        try (InputStream is = getClass().getResourceAsStream("/icons/jlshell_app_icon_512.png")) {
+        try (InputStream is = getClass().getResourceAsStream("/icons/app_icon.png")) {
             if (is != null) {
                 stage.getIcons().add(new javafx.scene.image.Image(is));
             }
@@ -120,7 +120,7 @@ public class JlShellDesktopApplication extends Application {
     }
 
     private java.awt.Image loadAwtIcon() {
-        try (InputStream is = getClass().getResourceAsStream("/icons/jlshell_app_icon_512.png")) {
+        try (InputStream is = getClass().getResourceAsStream("/icons/app_icon.png")) {
             if (is != null) return ImageIO.read(is);
         } catch (Exception ignored) {}
         return fallbackAwtIcon(256);

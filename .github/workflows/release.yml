@@ -53,6 +53,7 @@ jobs:
             <key>CFBundleVersion</key>          <string>${VERSION}</string>
             <key>CFBundleShortVersionString</key><string>${VERSION}</string>
             <key>CFBundleExecutable</key>       <string>JLShell</string>
+            <key>CFBundleIconFile</key>         <string>AppIcon</string>
             <key>CFBundlePackageType</key>      <string>APPL</string>
             <key>NSHighResolutionCapable</key>  <true/>
             <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
@@ -70,6 +71,18 @@ jobs:
             -jar "$DIR/Java/app.jar" "$@"
           LAUNCHER
           chmod +x dist/mac-work/JLShell.app/Contents/MacOS/JLShell
+
+          # Build AppIcon.icns so Finder shows the correct icon immediately (before app launches)
+          # Source: app/src/main/resources/icons/app_icon.png — replace this file to change the icon
+          ICON_PNG=app/src/main/resources/icons/app_icon.png
+          ICONSET=dist/mac-work/AppIcon.iconset
+          mkdir -p "$ICONSET"
+          for size in 16 32 128 256 512; do
+            sips -z $size $size "$ICON_PNG" --out "$ICONSET/icon_${size}x${size}.png" &>/dev/null
+            sips -z $((size*2)) $((size*2)) "$ICON_PNG" --out "$ICONSET/icon_${size}x${size}@2x.png" &>/dev/null
+          done
+          iconutil -c icns "$ICONSET" -o dist/mac-work/JLShell.app/Contents/Resources/AppIcon.icns
+          rm -rf "$ICONSET"
 
           cd dist/mac-work && zip -qr ../JLShell-${VERSION}-mac.zip JLShell.app
 
@@ -168,10 +181,9 @@ jobs:
           Categories=Network;System;
           EOF
 
-          # Icon (simple placeholder PNG via ImageMagick)
-          convert -size 64x64 xc:'#0f172a' -fill '#38bdf8' \
-            -draw "roundrectangle 8,8 56,56 8,8" \
-            $PKG/usr/share/pixmaps/jlshell.png 2>/dev/null || true
+          # Icon — use actual app icon from source (replace app_icon.png to customize)
+          convert app/src/main/resources/icons/app_icon.png \
+            -resize 64x64 $PKG/usr/share/pixmaps/jlshell.png
 
           # DEBIAN/control
           INSTALLED_SIZE=$(du -sk $PKG/opt/jlshell | cut -f1)
