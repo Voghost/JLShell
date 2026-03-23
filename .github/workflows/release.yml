@@ -66,6 +66,8 @@ jobs:
           exec "$DIR/runtime/bin/java" \
             -Dapple.awt.application.name=JLShell \
             -Dapple.laf.useScreenMenuBar=true \
+            -Xdock:name="JLShell" \
+            -Xdock:icon="$DIR/Resources/AppIcon.icns" \
             --add-opens java.base/java.lang=ALL-UNNAMED \
             --add-opens java.desktop/sun.awt=ALL-UNNAMED \
             -jar "$DIR/Java/app.jar" "$@"
