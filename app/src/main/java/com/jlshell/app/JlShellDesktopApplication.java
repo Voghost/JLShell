@@ -4,7 +4,6 @@ import java.awt.AWTException;
 import java.awt.MenuItem;
 import java.awt.PopupMenu;
 import java.awt.SystemTray;
-import java.awt.Taskbar;
 import java.awt.TrayIcon;
 import java.io.InputStream;
 import java.util.Objects;
@@ -48,18 +47,10 @@ public class JlShellDesktopApplication extends Application {
             }
         } catch (Exception ignored) {}
 
-        // macOS Dock + Windows taskbar icon via AWT Taskbar API
+        // macOS Dock icon comes from Contents/Resources/AppIcon.icns in the bundle —
+        // no runtime override needed (and doing so causes a visible icon flash/swap).
+        // On Windows/Linux the stage.getIcons() above handles the taskbar icon.
         java.awt.Image awtIcon = loadAwtIcon();
-        if (awtIcon != null) {
-            try {
-                if (Taskbar.isTaskbarSupported()) {
-                    Taskbar taskbar = Taskbar.getTaskbar();
-                    if (taskbar.isSupported(Taskbar.Feature.ICON_IMAGE)) {
-                        taskbar.setIconImage(awtIcon);
-                    }
-                }
-            } catch (Exception ignored) {}
-        }
 
         stage.setOnCloseRequest(event -> {
             event.consume();
