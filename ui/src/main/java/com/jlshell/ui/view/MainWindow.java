@@ -172,14 +172,20 @@ public class MainWindow {
         lightTheme.setOnAction(event -> themeService.setTheme(AppTheme.LIGHT));
         viewMenu.getItems().addAll(darkTheme, lightTheme);
 
-        // Preferences 菜单（macOS 下会自动移到 App 菜单）
-        Menu appMenu = new Menu(i18nService.get("menu.app"));
-        MenuItem preferences = new MenuItem(i18nService.get("action.preferences"));
-        preferences.setAccelerator(new KeyCodeCombination(KeyCode.COMMA, KeyCombination.SHORTCUT_DOWN));
-        preferences.setOnAction(event -> openPreferences(stage));
-        appMenu.getItems().add(preferences);
-
-        menuBar.getMenus().addAll(appMenu, fileMenu, viewMenu);
+        // On macOS, Preferences is registered via Desktop.setPreferencesHandler() in the app
+        // entry point so it appears natively in the application menu. No separate menu needed.
+        // On other platforms, show a Settings menu.
+        boolean isMac = System.getProperty("os.name", "").toLowerCase().contains("mac");
+        if (!isMac) {
+            Menu settingsMenu = new Menu(i18nService.get("menu.settings"));
+            MenuItem preferences = new MenuItem(i18nService.get("action.preferences"));
+            preferences.setAccelerator(new KeyCodeCombination(KeyCode.COMMA, KeyCombination.SHORTCUT_DOWN));
+            preferences.setOnAction(event -> openPreferences(stage));
+            settingsMenu.getItems().add(preferences);
+            menuBar.getMenus().addAll(fileMenu, viewMenu, settingsMenu);
+        } else {
+            menuBar.getMenus().addAll(fileMenu, viewMenu);
+        }
         menuBar.setUseSystemMenuBar(true);
 
         VBox box = new VBox(menuBar);
@@ -230,7 +236,7 @@ public class MainWindow {
         }
     }
 
-    private void openPreferences(Stage stage) {
+    public void openPreferences(Stage stage) {
         PreferencesDialog.show(stage, fontProfileService, appSettingsService, i18nService);
     }
 

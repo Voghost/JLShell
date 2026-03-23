@@ -1,6 +1,7 @@
 package com.jlshell.app;
 
 import java.awt.AWTException;
+import java.awt.Desktop;
 import java.awt.MenuItem;
 import java.awt.PopupMenu;
 import java.awt.SystemTray;
@@ -22,6 +23,8 @@ public class JlShellDesktopApplication extends Application {
 
     public static void main(String[] args) {
         System.setProperty("apple.laf.useScreenMenuBar", "true");
+        // Must be set before AWT toolkit initialises so the macOS application menu
+        // shows "JLShell" instead of the fully-qualified class name.
         System.setProperty("apple.awt.application.name", "JLShell");
         System.setProperty("com.apple.mrj.application.apple.menu.about.name", "JLShell");
         launch(args);
@@ -51,6 +54,17 @@ public class JlShellDesktopApplication extends Application {
         // no runtime override needed (and doing so causes a visible icon flash/swap).
         // On Windows/Linux the stage.getIcons() above handles the taskbar icon.
         java.awt.Image awtIcon = loadAwtIcon();
+
+        // Register macOS application-menu handlers (Preferences, About).
+        // This causes "Preferences..." to appear in the native JLShell application menu
+        // instead of needing a separate custom menu. macOS localises the item label itself.
+        if (Desktop.isDesktopSupported()) {
+            Desktop desktop = Desktop.getDesktop();
+            if (desktop.isSupported(Desktop.Action.APP_PREFERENCES)) {
+                desktop.setPreferencesHandler(e ->
+                    javafx.application.Platform.runLater(() -> mainWindow.openPreferences(stage)));
+            }
+        }
 
         stage.setOnCloseRequest(event -> {
             event.consume();
