@@ -132,11 +132,12 @@ public class SftpBrowserPane extends BorderPane {
 
     private Button toolButton(String svgPath, String text) {
         Region icon = new Region();
-        icon.getStyleClass().add("tool-icon");
+        icon.getStyleClass().add("action-bar-icon");
         icon.setStyle("-fx-shape: \"" + svgPath + "\"; -fx-pref-width: 14; -fx-pref-height: 14; "
-                     + "-fx-background-color: -fx-color-text; -fx-scale-shape: true;");
+                     + "-fx-min-width: 14; -fx-min-height: 14; -fx-max-width: 14; -fx-max-height: 14; "
+                     + "-fx-scale-shape: true;");
         Button btn = new Button(text, icon);
-        btn.getStyleClass().add("tool-button");
+        btn.getStyleClass().add("icon-btn");
         return btn;
     }
 

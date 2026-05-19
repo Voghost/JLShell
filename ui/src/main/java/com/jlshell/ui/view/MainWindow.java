@@ -48,7 +48,6 @@ import javafx.scene.input.KeyCombination;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
-import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -301,7 +300,7 @@ public class MainWindow {
 
 
         // 紧凑图标按钮行 — Lucide SVG icons
-        Button createButton    = svgIconButton("M12 5v14M5 12h14",          i18nService.get("action.newConnection"),    () -> createConnection(stage));
+        Button createButton    = svgIconButton("M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z",          i18nService.get("action.newConnection"),    () -> createConnection(stage));
         Button editButton      = svgIconButton("M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z", i18nService.get("action.editConnection"), () -> editSelectedConnection(stage));
         Button deleteButton    = svgIconButton("M3 6h18M8 6V4h8v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6",    i18nService.get("action.deleteConnection"), this::deleteSelectedConnection);
         Button newFolderButton = svgIconButton("M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2zM12 11v6M9 14h6",                         i18nService.get("sidebar.newFolder"),       () -> createFolder(stage));
@@ -326,21 +325,11 @@ public class MainWindow {
         return sidebar;
     }
 
-    private final Region statusDot = new Region();
-
-    private HBox buildStatusBar() {
-        statusDot.getStyleClass().addAll("status-indicator", "status-indicator-disconnected");
-        statusDot.setPrefSize(8, 8);
-
+    private Label buildStatusBar() {
         Label statusLabel = new Label();
         statusLabel.textProperty().bind(viewModel.statusMessageProperty());
-
-        Region spacer = new Region();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
-
-        HBox bar = new HBox(8, statusDot, statusLabel, spacer);
-        bar.getStyleClass().add("status-bar");
-        return bar;
+        statusLabel.getStyleClass().add("status-bar");
+        return statusLabel;
     }
 
     private Button svgIconButton(String svgPath, String tooltip, Runnable action) {
@@ -542,8 +531,6 @@ public class MainWindow {
         workspaceTabs.getSelectionModel().select(tab);
         viewHandle.requestFocus();
         viewModel.statusMessageProperty().set(i18nService.get("status.connected", profile.displayName()));
-        statusDot.getStyleClass().remove("status-indicator-disconnected");
-        statusDot.getStyleClass().add("status-indicator-connected");
     }
 
     private void connectSsh(ConnectionProfile selected) {
@@ -608,8 +595,6 @@ public class MainWindow {
                 } else {
                     log.info("Workspace initialization completed for session {}", sshSession.sessionId());
                     viewModel.statusMessageProperty().set(i18nService.get("status.connected", profile.summary()));
-                    statusDot.getStyleClass().remove("status-indicator-disconnected");
-                    statusDot.getStyleClass().add("status-indicator-connected");
                 }
             }));
         }));

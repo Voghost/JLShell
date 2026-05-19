@@ -28,7 +28,6 @@ import javafx.scene.input.Dragboard;
 import javafx.scene.input.TransferMode;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Region;
-import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.SVGPath;
@@ -104,15 +103,6 @@ public class SidebarTreeView {
         path.setScaleX(0.65);
         path.setScaleY(0.65);
         return path;
-    }
-
-    private static Region iconBadge(Region icon, String name) {
-        int hue = Math.abs(name.hashCode() % 360);
-        String bg = String.format("hsb(%d, 55%%, 65%%)", hue);
-        StackPane badge = new StackPane(icon);
-        badge.setStyle("-fx-background-color: " + bg + "; -fx-background-radius: 6; -fx-padding: 4;");
-        badge.getStyleClass().add("conn-icon-badge");
-        return badge;
     }
 
     public TreeView<SidebarItem> getTreeView() { return treeView; }
@@ -296,8 +286,7 @@ public class SidebarTreeView {
                             ? ICON_TERMINAL : ICON_SERVER;
                     String iconClass = conn.connectionType() == ConnectionType.LOCAL_SHELL
                             ? "sidebar-icon-terminal" : "sidebar-icon-server";
-                    Region rawIcon = svgIcon(iconPath, 14, iconClass);
-                    Region icon = iconBadge(rawIcon, conn.displayName());
+                    Region icon = svgIcon(iconPath, 14, iconClass);
                     Label name = new Label(conn.displayName());
                     name.getStyleClass().add("conn-cell-name");
                     Label summary = new Label(conn.summary());
