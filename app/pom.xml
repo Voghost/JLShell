@@ -136,7 +136,6 @@
                     <mainClass>com.jlshell.app.JlShellDesktopApplication</mainClass>
                     <options>
                         <option>-Dapple.laf.useScreenMenuBar=true</option>
-                        <option>-Djava.awt.im.style=none</option>
                     </options>
                 </configuration>
             </plugin>

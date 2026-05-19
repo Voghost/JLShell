@@ -518,8 +518,17 @@ public class MainWindow {
     private void openLocalShellTab(ConnectionProfile profile, com.jlshell.terminal.service.TerminalViewHandle viewHandle) {
         javafx.scene.control.Tab tab = new javafx.scene.control.Tab(profile.displayName());
         tab.setClosable(true);
+        javax.swing.JComponent component = (javax.swing.JComponent) viewHandle.component();
+        component.enableInputMethods(true);
         javafx.embed.swing.SwingNode swingNode = new javafx.embed.swing.SwingNode();
-        swingNode.setContent((javax.swing.JComponent) viewHandle.component());
+        swingNode.setFocusTraversable(true);
+        swingNode.setContent(component);
+        swingNode.focusedProperty().addListener((obs, oldFocused, focused) -> {
+            if (focused) {
+                viewHandle.requestFocus();
+            }
+        });
+        swingNode.addEventHandler(javafx.scene.input.MouseEvent.MOUSE_CLICKED, event -> viewHandle.requestFocus());
         tab.setContent(swingNode);
         tab.setOnCloseRequest(event -> {
             event.consume();
@@ -529,7 +538,7 @@ public class MainWindow {
         });
         workspaceTabs.getTabs().add(tab);
         workspaceTabs.getSelectionModel().select(tab);
-        viewHandle.requestFocus();
+        FxThread.run(viewHandle::requestFocus);
         viewModel.statusMessageProperty().set(i18nService.get("status.connected", profile.displayName()));
     }
 

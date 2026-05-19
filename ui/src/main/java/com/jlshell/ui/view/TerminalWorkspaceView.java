@@ -179,9 +179,11 @@ public class TerminalWorkspaceView extends BorderPane {
 
     private Node createEmbeddedTerminalNode(TerminalViewHandle handle) {
         log.info("Attaching SwingNode terminal component for session {}", sshSession.sessionId());
+        javax.swing.JComponent component = handle.component();
+        component.enableInputMethods(true);
         SwingNode swingNode = new SwingNode();
         swingNode.setFocusTraversable(true);
-        swingNode.setContent(handle.component());
+        swingNode.setContent(component);
         swingNode.focusedProperty().addListener((obs, oldFocused, focused) -> {
             if (focused) {
                 handle.requestFocus();

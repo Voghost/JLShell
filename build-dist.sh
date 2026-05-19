@@ -154,7 +154,6 @@ exec "$JRE" \
     -Dapple.laf.useScreenMenuBar=true \
     -Xdock:name="JLShell" \
     -Xdock:icon="$DIR/Resources/AppIcon.icns" \
-    -Djava.awt.im.style=none \
     --add-opens java.base/java.lang=ALL-UNNAMED \
     --add-opens java.desktop/sun.awt=ALL-UNNAMED \
     -jar "$JAR" "$@"
