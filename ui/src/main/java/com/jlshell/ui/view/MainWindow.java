@@ -48,6 +48,7 @@ import javafx.scene.input.KeyCombination;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -325,11 +326,21 @@ public class MainWindow {
         return sidebar;
     }
 
-    private Label buildStatusBar() {
+    private final Region statusDot = new Region();
+
+    private HBox buildStatusBar() {
+        statusDot.getStyleClass().addAll("status-indicator", "status-indicator-disconnected");
+        statusDot.setPrefSize(8, 8);
+
         Label statusLabel = new Label();
         statusLabel.textProperty().bind(viewModel.statusMessageProperty());
-        statusLabel.getStyleClass().add("status-bar");
-        return statusLabel;
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        HBox bar = new HBox(8, statusDot, statusLabel, spacer);
+        bar.getStyleClass().add("status-bar");
+        return bar;
     }
 
     private Button svgIconButton(String svgPath, String tooltip, Runnable action) {
@@ -531,6 +542,8 @@ public class MainWindow {
         workspaceTabs.getSelectionModel().select(tab);
         viewHandle.requestFocus();
         viewModel.statusMessageProperty().set(i18nService.get("status.connected", profile.displayName()));
+        statusDot.getStyleClass().remove("status-indicator-disconnected");
+        statusDot.getStyleClass().add("status-indicator-connected");
     }
 
     private void connectSsh(ConnectionProfile selected) {
@@ -595,6 +608,8 @@ public class MainWindow {
                 } else {
                     log.info("Workspace initialization completed for session {}", sshSession.sessionId());
                     viewModel.statusMessageProperty().set(i18nService.get("status.connected", profile.summary()));
+                    statusDot.getStyleClass().remove("status-indicator-disconnected");
+                    statusDot.getStyleClass().add("status-indicator-connected");
                 }
             }));
         }));
