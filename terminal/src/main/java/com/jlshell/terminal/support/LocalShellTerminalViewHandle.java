@@ -82,4 +82,9 @@ public class LocalShellTerminalViewHandle implements TerminalViewHandle {
             widget.close();
         }).thenCompose(unused -> ttyConnector.closeFuture());
     }
+
+    @Override
+    public void setScreenLocationSupplier(java.util.function.Supplier<java.awt.Point> supplier) {
+        widget.setScreenLocationSupplier(supplier);
+    }
 }

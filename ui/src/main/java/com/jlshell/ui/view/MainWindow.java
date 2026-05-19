@@ -529,6 +529,12 @@ public class MainWindow {
             }
         });
         swingNode.addEventHandler(javafx.scene.input.MouseEvent.MOUSE_CLICKED, event -> viewHandle.requestFocus());
+        viewHandle.setScreenLocationSupplier(() -> {
+            if (swingNode.getScene() == null || swingNode.getScene().getWindow() == null) return null;
+            javafx.geometry.Bounds b = swingNode.localToScreen(swingNode.getBoundsInLocal());
+            if (b == null) return null;
+            return new java.awt.Point((int) Math.round(b.getMinX()), (int) Math.round(b.getMinY()));
+        });
         tab.setContent(swingNode);
         tab.setOnCloseRequest(event -> {
             event.consume();
