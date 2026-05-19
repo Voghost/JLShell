@@ -173,14 +173,14 @@ public class SftpBrowserPane extends BorderPane {
     private VBox buildLocalPane() {
         return buildPane("sftp.local", localDirTree, localFileTable,
                 this::goUpLocal,
-                () -> loadLocalDirectory(Path.of(viewModel.localPathProperty().get())),
+                () -> loadLocalFilesOnly(Path.of(viewModel.localPathProperty().get())),
                 viewModel.localPathProperty());
     }
 
     private VBox buildRemotePane() {
         return buildPane("sftp.remote", remoteDirTree, remoteFileTable,
                 this::goUpRemote,
-                () -> loadRemoteDirectory(viewModel.remotePathProperty().get()),
+                () -> loadRemoteFilesOnly(viewModel.remotePathProperty().get()),
                 viewModel.remotePathProperty());
     }
 
@@ -200,13 +200,36 @@ public class SftpBrowserPane extends BorderPane {
     // ── Tree / Table configuration ────────────────────────────────────────────
 
     private void configureLocalDirTree() {
-        localDirTree.setShowRoot(false);
+        localDirTree.setShowRoot(true);
         localDirTree.setCellFactory(tv -> new DirTreeCell());
         localDirTree.getSelectionModel().selectedItemProperty().addListener((obs, ov, item) -> {
-            if (item != null && item.getValue().isDirectory() && !item.getValue().path().isBlank()) {
-                loadLocalDirectory(Path.of(item.getValue().path()));
-            }
+            if (item == null) return;
+            FileNode node = item.getValue();
+            if (!node.isDirectory() || node.path().isBlank()) return;
+            loadLocalFilesOnly(Path.of(node.path()));
         });
+        localDirTree.expandedItemCountProperty().addListener((obs, ov, nv) -> {
+            TreeItem<FileNode> expanded = findRecentlyExpanded(localDirTree);
+            if (expanded != null) lazyExpandLocal(expanded);
+        });
+    }
+
+    private void lazyExpandLocal(TreeItem<FileNode> item) {
+        if (item == null || item.getChildren().size() != 1
+                || !item.getChildren().get(0).getValue().name().equals("\0")) return;
+        item.getChildren().clear();
+        CompletableFuture.supplyAsync(() -> scanLocalDirectory(Path.of(item.getValue().path())))
+                .whenComplete((entries, t) -> FxThread.run(() -> {
+                    if (t != null) return;
+                    entries.stream().filter(LocalFileEntry::directory)
+                            .sorted(Comparator.comparing(LocalFileEntry::name, String.CASE_INSENSITIVE_ORDER))
+                            .forEach(e -> {
+                                TreeItem<FileNode> child = new TreeItem<>(
+                                        new FileNode(e.name(), e.path().toString(), true, 0, e.modifiedAt()));
+                                child.getChildren().add(placeholder());
+                                item.getChildren().add(child);
+                            });
+                }));
     }
 
     private void configureLocalFileTable() {
@@ -240,7 +263,7 @@ public class SftpBrowserPane extends BorderPane {
             TableRow<LocalFileEntry> row = new TableRow<>();
             row.setOnMouseClicked(ev -> {
                 if (ev.getClickCount() == 2 && !row.isEmpty() && row.getItem().directory()) {
-                    loadLocalDirectory(row.getItem().path());
+                    selectLocalTreeNode(row.getItem().path().toString());
                 }
             });
             return row;
@@ -254,27 +277,31 @@ public class SftpBrowserPane extends BorderPane {
             if (item == null) return;
             FileNode node = item.getValue();
             if (!node.isDirectory() || node.path().isBlank()) return;
-            // load file list for selected dir
             loadRemoteFilesOnly(node.path());
-            // lazy-expand: if placeholder child present, load subdirs
-            if (item.getChildren().size() == 1
-                    && item.getChildren().get(0).getValue().name().equals("\0")) {
-                item.getChildren().clear();
-                sftpService.listDirectory(sshSession, node.path())
-                        .whenComplete((listing, t) -> FxThread.run(() -> {
-                            if (t != null) return;
-                            listing.entries().stream()
-                                    .filter(RemoteFileEntry::isDirectory)
-                                    .sorted(Comparator.comparing(RemoteFileEntry::name, String.CASE_INSENSITIVE_ORDER))
-                                    .forEach(e -> {
-                                        TreeItem<FileNode> child = new TreeItem<>(
-                                                new FileNode(e.name(), e.path(), true, 0, null));
-                                        child.getChildren().add(placeholder());
-                                        item.getChildren().add(child);
-                                    });
-                        }));
-            }
         });
+        remoteDirTree.expandedItemCountProperty().addListener((obs, ov, nv) -> {
+            TreeItem<FileNode> expanded = findRecentlyExpanded(remoteDirTree);
+            if (expanded != null) lazyExpandRemote(expanded);
+        });
+    }
+
+    private void lazyExpandRemote(TreeItem<FileNode> item) {
+        if (item == null || item.getChildren().size() != 1
+                || !item.getChildren().get(0).getValue().name().equals("\0")) return;
+        item.getChildren().clear();
+        sftpService.listDirectory(sshSession, item.getValue().path())
+                .whenComplete((listing, t) -> FxThread.run(() -> {
+                    if (t != null) return;
+                    listing.entries().stream()
+                            .filter(RemoteFileEntry::isDirectory)
+                            .sorted(Comparator.comparing(RemoteFileEntry::name, String.CASE_INSENSITIVE_ORDER))
+                            .forEach(e -> {
+                                TreeItem<FileNode> child = new TreeItem<>(
+                                        new FileNode(e.name(), e.path(), true, 0, null));
+                                child.getChildren().add(placeholder());
+                                item.getChildren().add(child);
+                            });
+                }));
     }
 
     private void configureRemoteFileTable() {
@@ -310,7 +337,11 @@ public class SftpBrowserPane extends BorderPane {
             TableRow<RemoteFileEntry> row = new TableRow<>();
             row.setOnMouseClicked(ev -> {
                 if (ev.getClickCount() == 2 && !row.isEmpty() && row.getItem().isDirectory()) {
-                    loadRemoteDirectory(row.getItem().path());
+                    TreeItem<FileNode> found = findTreeItem(remoteDirTree.getRoot(), row.getItem().path());
+                    if (found != null) {
+                        remoteDirTree.getSelectionModel().select(found);
+                        found.setExpanded(true);
+                    }
                 }
             });
             return row;
@@ -377,18 +408,32 @@ public class SftpBrowserPane extends BorderPane {
                     }
                     viewModel.setLocalEntries(directory, entries);
 
-                    // rebuild dir tree root
-                    TreeItem<FileNode> root = new TreeItem<>(
-                            new FileNode(directory.getFileName() != null
-                                    ? directory.getFileName().toString() : directory.toString(),
-                                    directory.toString(), true, 0, null));
-                    root.setExpanded(true);
-                    entries.stream().filter(LocalFileEntry::directory).forEach(e -> {
-                        TreeItem<FileNode> child = new TreeItem<>(
-                                new FileNode(e.name(), e.path().toString(), true, 0, e.modifiedAt()));
-                        root.getChildren().add(child);
-                    });
-                    localDirTree.setRoot(root);
+                    // build dir tree on first load only
+                    if (localDirTree.getRoot() == null) {
+                        TreeItem<FileNode> root = new TreeItem<>(
+                                new FileNode(directory.getFileName() != null
+                                        ? directory.getFileName().toString() : directory.toString(),
+                                        directory.toString(), true, 0, null));
+                        root.setExpanded(true);
+                        entries.stream().filter(LocalFileEntry::directory)
+                                .sorted(Comparator.comparing(LocalFileEntry::name, String.CASE_INSENSITIVE_ORDER))
+                                .forEach(e -> {
+                                    TreeItem<FileNode> child = new TreeItem<>(
+                                            new FileNode(e.name(), e.path().toString(), true, 0, e.modifiedAt()));
+                                    child.getChildren().add(placeholder());
+                                    root.getChildren().add(child);
+                                });
+                        localDirTree.setRoot(root);
+                    }
+                }));
+    }
+
+    /** Refresh only the file table for a given local path (no tree rebuild). */
+    private void loadLocalFilesOnly(Path directory) {
+        CompletableFuture.supplyAsync(() -> scanLocalDirectory(directory))
+                .whenComplete((entries, t) -> FxThread.run(() -> {
+                    if (t != null) return;
+                    viewModel.setLocalEntries(directory, entries);
                 }));
     }
 
@@ -464,15 +509,71 @@ public class SftpBrowserPane extends BorderPane {
 
     // ── Navigation ────────────────────────────────────────────────────────────
 
+    /** Find and select a tree node matching the given path, expanding ancestors as needed. */
+    private void selectLocalTreeNode(String path) {
+        TreeItem<FileNode> found = findTreeItem(localDirTree.getRoot(), path);
+        if (found != null) {
+            localDirTree.getSelectionModel().select(found);
+            // trigger lazy expansion if needed
+            found.setExpanded(true);
+        }
+    }
+
+    /** Find the tree item that most recently expanded by comparing expanded items before/after the count change. */
+    private TreeItem<FileNode> findRecentlyExpanded(TreeView<FileNode> tree) {
+        // Walk the expanded items to find one with a placeholder child
+        for (TreeItem<FileNode> item : tree.getSelectionModel().getSelectedItems()) {
+            if (item.isExpanded() && item.getChildren().size() == 1
+                    && item.getChildren().get(0).getValue().name().equals("\0")) {
+                return item;
+            }
+        }
+        // Fallback: scan the tree for any expanded node with a placeholder
+        return findExpandedPlaceholder(tree.getRoot());
+    }
+
+    private TreeItem<FileNode> findExpandedPlaceholder(TreeItem<FileNode> parent) {
+        if (parent == null) return null;
+        if (parent.isExpanded() && parent.getChildren().size() == 1
+                && parent.getChildren().get(0).getValue().name().equals("\0")) {
+            return parent;
+        }
+        for (TreeItem<FileNode> child : parent.getChildren()) {
+            TreeItem<FileNode> found = findExpandedPlaceholder(child);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    private TreeItem<FileNode> findTreeItem(TreeItem<FileNode> parent, String path) {
+        if (parent == null) return null;
+        if (parent.getValue().path().equals(path)) return parent;
+        for (TreeItem<FileNode> child : parent.getChildren()) {
+            TreeItem<FileNode> found = findTreeItem(child, path);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
     private void goUpLocal() {
-        Path current = Path.of(viewModel.localPathProperty().get());
-        if (current.getParent() != null) loadLocalDirectory(current.getParent());
+        TreeItem<FileNode> selected = localDirTree.getSelectionModel().getSelectedItem();
+        if (selected != null && selected.getParent() != null) {
+            localDirTree.getSelectionModel().select(selected.getParent());
+        } else {
+            Path current = Path.of(viewModel.localPathProperty().get());
+            if (current.getParent() != null) loadLocalDirectory(current.getParent());
+        }
     }
 
     private void goUpRemote() {
-        String current = viewModel.remotePathProperty().get();
-        int idx = current.lastIndexOf('/');
-        loadRemoteDirectory(idx > 0 ? current.substring(0, idx) : "/");
+        TreeItem<FileNode> selected = remoteDirTree.getSelectionModel().getSelectedItem();
+        if (selected != null && selected.getParent() != null) {
+            remoteDirTree.getSelectionModel().select(selected.getParent());
+        } else {
+            String current = viewModel.remotePathProperty().get();
+            int idx = current.lastIndexOf('/');
+            loadRemoteDirectory(idx > 0 ? current.substring(0, idx) : "/");
+        }
     }
 
     // ── Transfer actions ──────────────────────────────────────────────────────
@@ -490,7 +591,7 @@ public class SftpBrowserPane extends BorderPane {
                 sftpService.upload(sshSession,
                         new TransferRequest(localPath, target, TransferResumeMode.RESUME_IF_POSSIBLE, 64 * 1024),
                         progressListener()),
-                () -> loadRemoteDirectory(viewModel.remotePathProperty().get()));
+                () -> loadRemoteFilesOnly(viewModel.remotePathProperty().get()));
     }
 
     private void downloadSelected() {
@@ -506,7 +607,7 @@ public class SftpBrowserPane extends BorderPane {
                 sftpService.download(sshSession,
                         new TransferRequest(localTarget, remotePath, TransferResumeMode.RESUME_IF_POSSIBLE, 64 * 1024),
                         progressListener()),
-                () -> loadLocalDirectory(Path.of(viewModel.localPathProperty().get())));
+                () -> loadLocalFilesOnly(Path.of(viewModel.localPathProperty().get())));
     }
 
     private void renameSelectedRemoteFile() {
@@ -521,7 +622,7 @@ public class SftpBrowserPane extends BorderPane {
                     .whenComplete((u, t) -> FxThread.run(() -> {
                         if (t != null) viewModel.transferStatusProperty().set(
                                 i18nService.get("status.renameFailed", t.getMessage()));
-                        else loadRemoteDirectory(viewModel.remotePathProperty().get());
+                        else loadRemoteFilesOnly(viewModel.remotePathProperty().get());
                     }));
         });
     }
@@ -533,7 +634,7 @@ public class SftpBrowserPane extends BorderPane {
                 .whenComplete((u, t) -> FxThread.run(() -> {
                     if (t != null) viewModel.transferStatusProperty().set(
                             i18nService.get("status.deleteFailed", t.getMessage()));
-                    else loadRemoteDirectory(viewModel.remotePathProperty().get());
+                    else loadRemoteFilesOnly(viewModel.remotePathProperty().get());
                 }));
     }
 
@@ -547,7 +648,7 @@ public class SftpBrowserPane extends BorderPane {
                     .whenComplete((u, t) -> FxThread.run(() -> {
                         if (t != null) viewModel.transferStatusProperty().set(
                                 i18nService.get("status.mkdirFailed", t.getMessage()));
-                        else loadRemoteDirectory(viewModel.remotePathProperty().get());
+                        else loadRemoteFilesOnly(viewModel.remotePathProperty().get());
                     }));
         });
     }
