@@ -97,11 +97,16 @@ public class TerminalWorkspaceView extends BorderPane {
         );
     }
 
+    private static final String ICON_SPLIT_V  = "M4 3h16M4 21h16M12 3v18";
+    private static final String ICON_SPLIT_H  = "M3 4h18M3 20h18M3 12h18";
+    private static final String ICON_RESET    = "M4 4h16v16H4zM9 4v16M15 4v16";
+    private static final String ICON_FONT     = "M6 4l6 16M6 4h8M10 12h5M15 4l-3 8M18 20l-3-8";
+
     private HBox buildToolbar() {
-        Button verticalSplit   = iconBtn("⬜", i18nService.get("terminal.splitVertical"),   () -> split(Orientation.HORIZONTAL));
-        Button horizontalSplit = iconBtn("⬛", i18nService.get("terminal.splitHorizontal"), () -> split(Orientation.VERTICAL));
-        Button resetLayout     = iconBtn("▣",  i18nService.get("terminal.resetSplit"),      this::resetLayout);
-        Button fontSettings    = iconBtn("A",  i18nService.get("terminal.fontSettings"),    this::openFontSettings);
+        Button verticalSplit   = iconBtn(ICON_SPLIT_V, i18nService.get("terminal.splitVertical"),   () -> split(Orientation.HORIZONTAL));
+        Button horizontalSplit = iconBtn(ICON_SPLIT_H, i18nService.get("terminal.splitHorizontal"), () -> split(Orientation.VERTICAL));
+        Button resetLayout     = iconBtn(ICON_RESET,   i18nService.get("terminal.resetSplit"),      this::resetLayout);
+        Button fontSettings    = iconBtn(ICON_FONT,    i18nService.get("terminal.fontSettings"),    this::openFontSettings);
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
@@ -111,10 +116,14 @@ public class TerminalWorkspaceView extends BorderPane {
         return toolbar;
     }
 
-    private Button iconBtn(String icon, String tooltip, Runnable action) {
-        Button btn = new Button(icon);
+    private Button iconBtn(String svgPath, String tooltip, Runnable action) {
+        Region icon = new Region();
+        icon.getStyleClass().add("tool-icon");
+        icon.setStyle("-fx-shape: \"" + svgPath + "\"; -fx-pref-width: 14; -fx-pref-height: 14; "
+                     + "-fx-background-color: -fx-color-text; -fx-scale-shape: true;");
+        Button btn = new Button("", icon);
         btn.setTooltip(new javafx.scene.control.Tooltip(tooltip));
-        btn.getStyleClass().add("icon-btn");
+        btn.getStyleClass().add("tool-button");
         btn.setOnAction(e -> action.run());
         return btn;
     }
