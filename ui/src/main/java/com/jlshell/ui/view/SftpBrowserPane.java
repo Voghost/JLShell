@@ -61,6 +61,11 @@ public class SftpBrowserPane extends BorderPane {
     private static final String ICON_FILE     = "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7ZM14 2v4a1 1 0 0 0 1 1h4";
     private static final String ICON_UP       = "M12 19V5M5 12l7-7 7 7";
     private static final String ICON_REFRESH  = "M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15";
+    private static final String ICON_UPLOAD   = "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12";
+    private static final String ICON_DOWNLOAD = "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 8l5 5 5-5M12 13V1";
+    private static final String ICON_RENAME   = "M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z";
+    private static final String ICON_DELETE   = "M3 6h18M8 6V4h8v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6";
+    private static final String ICON_MKDIR    = "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2zM12 11v6M9 14h6";
 
     private final SshSession sshSession;
     private final SftpService sftpService;
@@ -110,19 +115,29 @@ public class SftpBrowserPane extends BorderPane {
     }
 
     private HBox buildToolbar() {
-        Button upload   = new Button(i18nService.get("sftp.upload"));
-        Button download = new Button(i18nService.get("sftp.download"));
-        Button rename   = new Button(i18nService.get("sftp.rename"));
-        Button delete   = new Button(i18nService.get("sftp.delete"));
-        Button mkdir    = new Button(i18nService.get("sftp.newFolder"));
+        Button upload   = toolButton(ICON_UPLOAD,   i18nService.get("sftp.upload"));
+        Button download = toolButton(ICON_DOWNLOAD, i18nService.get("sftp.download"));
+        Button rename   = toolButton(ICON_RENAME,   i18nService.get("sftp.rename"));
+        Button delete   = toolButton(ICON_DELETE,   i18nService.get("sftp.delete"));
+        Button mkdir    = toolButton(ICON_MKDIR,    i18nService.get("sftp.newFolder"));
         upload.setOnAction(e -> uploadSelected());
         download.setOnAction(e -> downloadSelected());
         rename.setOnAction(e -> renameSelectedRemoteFile());
         delete.setOnAction(e -> deleteSelectedRemoteFile());
         mkdir.setOnAction(e -> createRemoteDirectory());
-        HBox bar = new HBox(8, upload, download, rename, delete, mkdir);
+        HBox bar = new HBox(4, upload, download, rename, delete, mkdir);
         bar.getStyleClass().add("toolbar-strip");
         return bar;
+    }
+
+    private Button toolButton(String svgPath, String text) {
+        Region icon = new Region();
+        icon.getStyleClass().add("tool-icon");
+        icon.setStyle("-fx-shape: \"" + svgPath + "\"; -fx-pref-width: 14; -fx-pref-height: 14; "
+                     + "-fx-background-color: -fx-color-text; -fx-scale-shape: true;");
+        Button btn = new Button(text, icon);
+        btn.getStyleClass().add("tool-button");
+        return btn;
     }
 
     private SplitPane buildSplitPane() {
