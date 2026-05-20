@@ -519,7 +519,6 @@ public class MainWindow {
         javafx.scene.control.Tab tab = new javafx.scene.control.Tab(profile.displayName());
         tab.setClosable(true);
         javax.swing.JComponent component = (javax.swing.JComponent) viewHandle.component();
-        component.enableInputMethods(true);
         javafx.embed.swing.SwingNode swingNode = new javafx.embed.swing.SwingNode();
         swingNode.setFocusTraversable(true);
         swingNode.setContent(component);
@@ -529,12 +528,7 @@ public class MainWindow {
             }
         });
         swingNode.addEventHandler(javafx.scene.input.MouseEvent.MOUSE_CLICKED, event -> viewHandle.requestFocus());
-        viewHandle.setScreenLocationSupplier(() -> {
-            if (swingNode.getScene() == null || swingNode.getScene().getWindow() == null) return null;
-            javafx.geometry.Bounds b = swingNode.localToScreen(swingNode.getBoundsInLocal());
-            if (b == null) return null;
-            return new java.awt.Point((int) Math.round(b.getMinX()), (int) Math.round(b.getMinY()));
-        });
+        com.jlshell.ui.support.SwingNodeImeBridge.attach(swingNode, viewHandle);
         tab.setContent(swingNode);
         tab.setOnCloseRequest(event -> {
             event.consume();

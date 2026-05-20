@@ -68,12 +68,6 @@ public class JlshellJediTermWidget extends JediTermWidget {
         return super.createTerminal(terminalDisplay, terminalTextBuffer, styleState);
     }
 
-    public void setScreenLocationSupplier(java.util.function.Supplier<java.awt.Point> supplier) {
-        if (terminalPanel != null) {
-            terminalPanel.setScreenLocationSupplier(supplier);
-        }
-    }
-
     public void refreshVisuals() {
         java.awt.Color bg = settingsProvider.backgroundColor();
         java.awt.Color fg = settingsProvider.foregroundColor();

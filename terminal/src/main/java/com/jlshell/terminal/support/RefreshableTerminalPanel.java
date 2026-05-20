@@ -2,11 +2,9 @@ package com.jlshell.terminal.support;
 
 import java.awt.Color;
 import java.awt.Font;
-import java.awt.Point;
 import java.awt.event.KeyEvent;
 import java.util.Map;
 import java.util.function.Function;
-import java.util.function.Supplier;
 
 import javax.swing.BorderFactory;
 import javax.swing.JMenuItem;
@@ -38,13 +36,6 @@ public class RefreshableTerminalPanel extends TerminalPanel {
 
     private final JlshellSettingsProvider jlshellSettings;
     private final Function<String, String> i18n;
-    /**
-     * SwingNode 把这个 JComponent 渲染到一个隐藏的离屏 JFrame，导致
-     * Component#getLocationOnScreen 返回的是离屏窗口坐标，IME 候选窗只能落
-     * 在屏幕左上角。这里允许 UI 层注入"真实屏幕坐标提供器"，让 JediTerm
-     * 的 MyInputMethodRequests#getTextLocation 拿到正确位置。
-     */
-    private volatile Supplier<Point> screenLocationSupplier;
 
     public RefreshableTerminalPanel(
             SettingsProvider settingsProvider,
@@ -61,22 +52,6 @@ public class RefreshableTerminalPanel extends TerminalPanel {
     public void refreshVisuals() {
         reinitFontAndResize();
         repaint();
-    }
-
-    public void setScreenLocationSupplier(Supplier<Point> supplier) {
-        this.screenLocationSupplier = supplier;
-    }
-
-    @Override
-    public Point getLocationOnScreen() {
-        Supplier<Point> supplier = this.screenLocationSupplier;
-        if (supplier != null) {
-            Point provided = supplier.get();
-            if (provided != null) {
-                return provided;
-            }
-        }
-        return super.getLocationOnScreen();
     }
 
     @Override

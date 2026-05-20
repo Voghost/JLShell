@@ -16,6 +16,7 @@ import com.jlshell.terminal.service.TerminalViewHandle;
 import com.jlshell.ui.dialog.PreferencesDialog;
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.support.FxThread;
+import com.jlshell.ui.support.SwingNodeImeBridge;
 import com.jlshell.ui.theme.AppTheme;
 import javafx.embed.swing.SwingNode;
 import javafx.geometry.Insets;
@@ -180,7 +181,6 @@ public class TerminalWorkspaceView extends BorderPane {
     private Node createEmbeddedTerminalNode(TerminalViewHandle handle) {
         log.info("Attaching SwingNode terminal component for session {}", sshSession.sessionId());
         javax.swing.JComponent component = handle.component();
-        component.enableInputMethods(true);
         SwingNode swingNode = new SwingNode();
         swingNode.setFocusTraversable(true);
         swingNode.setContent(component);
@@ -191,29 +191,8 @@ public class TerminalWorkspaceView extends BorderPane {
         });
         swingNode.addEventHandler(MouseEvent.MOUSE_CLICKED, event -> handle.requestFocus());
         HBox.setHgrow(swingNode, Priority.ALWAYS);
-        handle.setScreenLocationSupplier(swingNodeScreenLocation(swingNode));
+        SwingNodeImeBridge.attach(swingNode, handle);
         FxThread.run(handle::requestFocus);
         return swingNode;
-    }
-
-    /**
-     * macOS SwingNode 把 Swing 组件画到一个离屏 JFrame 里，
-     * AWT Component#getLocationOnScreen 返回的是离屏坐标而不是
-     * JavaFX 窗口里 SwingNode 的真实屏幕坐标，导致 JediTerm IME
-     * 候选窗始终落在屏幕左上角。这里把 javafx 屏幕坐标转成 awt.Point。
-     */
-    private static java.util.function.Supplier<java.awt.Point> swingNodeScreenLocation(SwingNode swingNode) {
-        return () -> {
-            if (swingNode.getScene() == null || swingNode.getScene().getWindow() == null) {
-                return null;
-            }
-            javafx.geometry.Bounds bounds = swingNode.localToScreen(swingNode.getBoundsInLocal());
-            if (bounds == null) {
-                return null;
-            }
-            return new java.awt.Point(
-                    (int) Math.round(bounds.getMinX()),
-                    (int) Math.round(bounds.getMinY()));
-        };
     }
 }

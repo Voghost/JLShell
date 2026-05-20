@@ -84,7 +84,13 @@ public class LocalShellTerminalViewHandle implements TerminalViewHandle {
     }
 
     @Override
-    public void setScreenLocationSupplier(java.util.function.Supplier<java.awt.Point> supplier) {
-        widget.setScreenLocationSupplier(supplier);
+    public void sendStringToTerminal(String text) {
+        if (text == null || text.isEmpty()) return;
+        SwingExecutors.runOnEdtAsync(() -> {
+            com.jediterm.terminal.TerminalStarter starter = widget.getTerminalStarter();
+            if (starter != null) {
+                starter.sendString(text, true);
+            }
+        });
     }
 }

@@ -29,13 +29,12 @@ public interface TerminalViewHandle extends AutoCloseable {
     CompletableFuture<Void> closeAsync();
 
     /**
-     * 注入"真实屏幕坐标提供器"。macOS 下 JavaFX SwingNode 把 JComponent
-     * 挂在离屏 JFrame 上，Component#getLocationOnScreen 返回的是离屏坐标，
-     * 导致 IME 候选窗落到屏幕左上角。UI 层在 SwingNode 已经挂到场景图上
-     * 之后调用本方法，把 SwingNode 的 javafx 屏幕坐标转成 awt.Point 注入。
+     * 把字符串注入到终端的输入流，等价于用户键入这些字符。
+     * 用于 JavaFX IME commit：在 SwingNode 下 AWT IME 链路不工作，
+     * UI 层接收 JavaFX 的 InputMethodEvent，commit 部分直接走这里。
      */
-    default void setScreenLocationSupplier(java.util.function.Supplier<java.awt.Point> supplier) {
-        // 默认 no-op，避免破坏现有实现
+    default void sendStringToTerminal(String text) {
+        // 默认 no-op
     }
 
     @Override
