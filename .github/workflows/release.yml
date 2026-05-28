@@ -286,7 +286,9 @@ jobs:
           cd dist/win-work && 7z a -tzip "../JLShell-${VERSION}-win-x64.zip" . && cd ../..
 
           # ── Portable EXE via 7-Zip SFX ──────────────────────────────────────
-          # 7-Zip 23.01+ ships 7zSD.sfx in the installation directory
+          # 7z.sfx supports installer config format in 7-Zip 26.00+
+          cd dist/win-work && 7z a -t7z -mx=5 "../JLShell-sfx.7z" . && cd ../..
+
           SFX_STUB="C:/Program Files/7-Zip/7z.sfx"
           [[ -f "$SFX_STUB" ]] || { echo "7z.sfx not found, listing 7-Zip dir:"; ls "C:/Program Files/7-Zip/"; exit 1; }
 
@@ -296,9 +298,10 @@ jobs:
           printf ';!@Install@!UTF-8!\nTitle="JLShell %s"\nExtractPathVariable=LOCALAPPDATA\nExtractPath=JLShell\\%s\nOverwriteMode=2\nRunProgram="JLShell.bat"\nGUIMode=2\n;!@InstallEnd@!' \
             "${VERSION}" "${VERSION}" > "$SFXDIR/sfx.cfg"
 
-          # Combine: sfx stub + config + zip archive = single portable exe
-          cat "$SFX_STUB" "$SFXDIR/sfx.cfg" "dist/JLShell-${VERSION}-win-x64.zip" \
+          # Combine: sfx stub + config + 7z archive = single portable exe
+          cat "$SFX_STUB" "$SFXDIR/sfx.cfg" "dist/JLShell-sfx.7z" \
             > "dist/JLShell-${VERSION}-win-x64.exe"
+          rm -f "dist/JLShell-sfx.7z"
 
       - uses: actions/upload-artifact@v4
         with:
