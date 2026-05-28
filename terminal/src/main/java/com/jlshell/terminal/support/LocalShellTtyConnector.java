@@ -3,6 +3,7 @@ package com.jlshell.terminal.support;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
@@ -36,6 +37,11 @@ public class LocalShellTtyConnector implements TtyConnector {
 
     public LocalShellTtyConnector(String name, String[] command, int columns, int rows,
                                    ExecutorService executorService) throws IOException {
+        this(name, command, columns, rows, executorService, null);
+    }
+
+    public LocalShellTtyConnector(String name, String[] command, int columns, int rows,
+                                   ExecutorService executorService, Charset charset) throws IOException {
         this.name = name;
         this.executorService = executorService;
 
@@ -50,7 +56,8 @@ public class LocalShellTtyConnector implements TtyConnector {
                 .setConsole(false)
                 .start();
 
-        this.reader = new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8);
+        Charset readCharset = charset != null ? charset : StandardCharsets.UTF_8;
+        this.reader = new InputStreamReader(process.getInputStream(), readCharset);
         this.outputStream = process.getOutputStream();
 
         // Watch for process exit

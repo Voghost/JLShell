@@ -1,5 +1,6 @@
 package com.jlshell.ui.view;
 
+import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -101,7 +102,13 @@ public class SftpBrowserPane extends BorderPane {
         configureRemoteFileTable();
         setupDragDrop();
 
-        loadLocalDirectory(Path.of(System.getProperty("user.home")));
+        Path localStart = Path.of(System.getProperty("user.home"));
+        boolean isWindows = System.getProperty("os.name", "").toLowerCase().contains("win");
+        if (isWindows) {
+            loadLocalDirectoryWithDriveRoots(localStart);
+        } else {
+            loadLocalDirectory(localStart);
+        }
         loadRemoteDirectory(Optional.ofNullable(connectionProfile.defaultRemotePath())
                 .filter(p -> !p.isBlank()).orElse("."));
     }
@@ -444,6 +451,61 @@ public class SftpBrowserPane extends BorderPane {
                 }));
     }
 
+    /** Windows: build a virtual root "This PC" with each drive (C:\, D:\, …) as a child. */
+    private void loadLocalDirectoryWithDriveRoots(Path initialDir) {
+        File[] roots = File.listRoots();
+        if (roots == null || roots.length == 0) {
+            loadLocalDirectory(initialDir);
+            return;
+        }
+
+        TreeItem<FileNode> virtualRoot = new TreeItem<>(
+                new FileNode("This PC", "", true, 0, null));
+        virtualRoot.setExpanded(true);
+
+        TreeItem<FileNode> selectItem = null;
+        for (File root : roots) {
+            String rootPath = root.getAbsolutePath();
+            // Skip empty/unavailable drives (e.g. A:\ on some systems)
+            if (!root.exists()) continue;
+            String name = rootPath.replace("\\", "/");  // "C:/"
+            TreeItem<FileNode> driveItem = new TreeItem<>(
+                    new FileNode(name, rootPath, true, 0, null));
+            driveItem.getChildren().add(placeholder());
+            virtualRoot.getChildren().add(driveItem);
+            // Pre-select the drive that contains user.home
+            if (selectItem == null && initialDir.getRoot().toString().equalsIgnoreCase(rootPath)) {
+                selectItem = driveItem;
+            }
+        }
+
+        localDirTree.setRoot(virtualRoot);
+
+        // Expand the initial drive and select user.home
+        if (selectItem != null) {
+            TreeItem<FileNode> finalSelectItem = selectItem;
+            selectItem.setExpanded(true);
+            // Lazy-expand the drive, then select the initial directory
+            lazyExpandLocal(selectItem);
+            CompletableFuture.supplyAsync(() -> scanLocalDirectory(initialDir))
+                    .whenComplete((entries, t) -> FxThread.run(() -> {
+                        if (t != null) return;
+                        viewModel.setLocalEntries(initialDir, entries);
+                        // Populate drive children
+                        finalSelectItem.getChildren().clear();
+                        entries.stream().filter(LocalFileEntry::directory)
+                                .sorted(Comparator.comparing(LocalFileEntry::name, String.CASE_INSENSITIVE_ORDER))
+                                .forEach(e -> {
+                                    TreeItem<FileNode> child = new TreeItem<>(
+                                            new FileNode(e.name(), e.path().toString(), true, 0, e.modifiedAt()));
+                                    child.getChildren().add(placeholder());
+                                    finalSelectItem.getChildren().add(child);
+                                });
+                        finalSelectItem.setExpanded(true);
+                    }));
+        }
+    }
+
     /** Refresh only the file table for a given local path (no tree rebuild). */
     private void loadLocalFilesOnly(Path directory) {
         CompletableFuture.supplyAsync(() -> scanLocalDirectory(directory))
@@ -577,7 +639,10 @@ public class SftpBrowserPane extends BorderPane {
             localDirTree.getSelectionModel().select(selected.getParent());
         } else {
             Path current = Path.of(viewModel.localPathProperty().get());
-            if (current.getParent() != null) loadLocalDirectory(current.getParent());
+            Path parent = current.getParent();
+            if (parent != null && !parent.equals(current)) {
+                loadLocalDirectory(parent);
+            }
         }
     }
 

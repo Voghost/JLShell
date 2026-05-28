@@ -20,6 +20,8 @@ import com.jlshell.terminal.support.SwingExecutors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.charset.Charset;
+
 /**
  * 启动本地 Shell 终端。
  */
@@ -44,8 +46,9 @@ public class LocalShellLauncher {
     public CompletableFuture<TerminalViewHandle> launch(String displayName, TerminalViewRequest request) {
         TerminalViewRequest resolved = resolveRequest(request);
         String[] command = detectShell();
+        Charset charset = isWindows() ? detectWindowsCharset() : null;
         log.info("Launching local shell for '{}': {}", displayName, java.util.Arrays.toString(command));
-        return createOnEdt(displayName, resolved, command);
+        return createOnEdt(displayName, resolved, command, charset);
     }
 
     private String[] detectShell() {
@@ -53,8 +56,7 @@ public class LocalShellLauncher {
         if (shellEnv != null && !shellEnv.isBlank()) {
             return new String[]{shellEnv, "-l"};
         }
-        String os = System.getProperty("os.name", "").toLowerCase();
-        if (os.contains("win")) {
+        if (isWindows()) {
             return new String[]{"cmd.exe"};
         }
         for (String shell : List.of("/bin/zsh", "/bin/bash", "/bin/sh")) {
@@ -65,8 +67,47 @@ public class LocalShellLauncher {
         return new String[]{"/bin/sh"};
     }
 
+    private static boolean isWindows() {
+        return System.getProperty("os.name", "").toLowerCase().contains("win");
+    }
+
+    /** Detect the Windows console codepage and map it to a Java Charset. */
+    private static Charset detectWindowsCharset() {
+        try {
+            Process pb = new ProcessBuilder("chcp.com").redirectErrorStream(true).start();
+            String output = new String(pb.getInputStream().readAllBytes());
+            pb.waitFor();
+            // Output like "Active code page: 936"
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("(\\d+)").matcher(output);
+            if (m.find()) {
+                int cp = Integer.parseInt(m.group(1));
+                Charset cs = codepageToCharset(cp);
+                log.info("Windows codepage {} → charset {}", cp, cs);
+                return cs;
+            }
+        } catch (Exception e) {
+            log.warn("Failed to detect Windows codepage, falling back to GBK", e);
+        }
+        return Charset.forName("GBK");
+    }
+
+    private static Charset codepageToCharset(int codepage) {
+        switch (codepage) {
+            case 936:  return Charset.forName("GBK");       // Chinese simplified
+            case 950:  return Charset.forName("Big5");      // Chinese traditional
+            case 65001: return java.nio.charset.StandardCharsets.UTF_8;
+            case 437: case 850: case 1252:
+                return java.nio.charset.StandardCharsets.ISO_8859_1;
+            case 1251: return Charset.forName("windows-1251"); // Russian
+            case 1250: return Charset.forName("windows-1250"); // Central European
+            default:
+                try { return Charset.forName("windows-" + codepage); }
+                catch (Exception e) { return Charset.forName("GBK"); }
+        }
+    }
+
     private CompletableFuture<TerminalViewHandle> createOnEdt(
-            String displayName, TerminalViewRequest request, String[] command) {
+            String displayName, TerminalViewRequest request, String[] command, Charset charset) {
         return SwingExecutors.supplyOnEdtAsync(() -> {
             try {
                 int cols = request.shellRequest().terminalSize().columns();
@@ -74,7 +115,7 @@ public class LocalShellLauncher {
                 JlshellSettingsProvider settingsProvider =
                         new JlshellSettingsProvider(request.fontProfile(), request.colorScheme());
                 LocalShellTtyConnector ttyConnector =
-                        new LocalShellTtyConnector(displayName, command, cols, rows, executorService);
+                        new LocalShellTtyConnector(displayName, command, cols, rows, executorService, charset);
                 JlshellJediTermWidget widget = JlshellJediTermWidget.create(
                         cols, rows, settingsProvider, i18n);
                 widget.setTtyConnector(ttyConnector);

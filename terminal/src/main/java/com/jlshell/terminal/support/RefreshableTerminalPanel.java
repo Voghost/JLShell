@@ -81,6 +81,10 @@ public class RefreshableTerminalPanel extends TerminalPanel {
         UIManager.put("Separator.foreground",         border);
 
         Font itemFont = jlshellSettings.getTerminalFont().deriveFont(Font.PLAIN, 12f);
+        // Use a system font that can render CJK for the popup menu items.
+        // Terminal monospace fonts (Consolas, etc.) often lack CJK glyphs on Windows.
+        final Font menuFont = (!itemFont.canDisplay('复') || !itemFont.canDisplay('制'))
+                ? new Font(Font.DIALOG, Font.PLAIN, 12) : itemFont;
 
         TerminalAction.buildMenu(provider, new com.jediterm.terminal.ui.TerminalActionMenuBuilder() {
             @Override
@@ -93,7 +97,7 @@ public class RefreshableTerminalPanel extends TerminalPanel {
                 JMenuItem item = new JMenuItem(label);
                 item.setBackground(bg);
                 item.setForeground(fg);
-                item.setFont(itemFont);
+                item.setFont(menuFont);
                 item.setOpaque(true);
                 item.setEnabled(action.isEnabled(null));
                 item.addActionListener(e -> action.actionPerformed(null));
