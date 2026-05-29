@@ -43,6 +43,14 @@
         <javafx.maven.plugin.version>0.0.8</javafx.maven.plugin.version>
     </properties>
 
+    <repositories>
+        <repository>
+            <id>jetbrains-space</id>
+            <name>JetBrains Space Packages</name>
+            <url>https://packages.jetbrains.team/maven/p/ij/intellij-dependencies</url>
+        </repository>
+    </repositories>
+
     <dependencyManagement>
         <dependencies>
             <!-- JavaFX -->

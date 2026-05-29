@@ -35,6 +35,8 @@ public class LocalShellTtyConnector implements TtyConnector {
     private final AtomicBoolean closeStarted = new AtomicBoolean(false);
     private final CompletableFuture<Void> closeFuture = new CompletableFuture<>();
 
+    private final Charset writeCharset;
+
     public LocalShellTtyConnector(String name, String[] command, int columns, int rows,
                                    ExecutorService executorService) throws IOException {
         this(name, command, columns, rows, executorService, null);
@@ -44,6 +46,7 @@ public class LocalShellTtyConnector implements TtyConnector {
                                    ExecutorService executorService, Charset charset) throws IOException {
         this.name = name;
         this.executorService = executorService;
+        this.writeCharset = charset != null ? charset : StandardCharsets.UTF_8;
 
         Map<String, String> env = new HashMap<>(System.getenv());
         env.put("TERM", "xterm-256color");
@@ -97,7 +100,7 @@ public class LocalShellTtyConnector implements TtyConnector {
 
     @Override
     public void write(String string) throws IOException {
-        write(string.getBytes(StandardCharsets.UTF_8));
+        write(string.getBytes(writeCharset));
     }
 
     @Override

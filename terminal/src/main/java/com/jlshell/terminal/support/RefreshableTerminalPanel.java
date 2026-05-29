@@ -12,12 +12,15 @@ import javax.swing.JPopupMenu;
 import javax.swing.JSeparator;
 import javax.swing.UIManager;
 
+import com.jediterm.terminal.TextStyle;
 import com.jediterm.terminal.model.StyleState;
 import com.jediterm.terminal.model.TerminalTextBuffer;
 import com.jediterm.terminal.ui.TerminalAction;
 import com.jediterm.terminal.ui.TerminalActionProvider;
 import com.jediterm.terminal.ui.TerminalPanel;
 import com.jediterm.terminal.ui.settings.SettingsProvider;
+import com.jediterm.terminal.util.CharUtils;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * 暴露受保护的字体/布局刷新能力。
@@ -151,8 +154,14 @@ public class RefreshableTerminalPanel extends TerminalPanel {
         if (id != KeyEvent.KEY_TYPED && isModifierOnly(code)) {
             return;
         }
-        // KEY_TYPED 里的 NUL/UNDEFINED 是修饰键副作用，过滤掉
+        // KEY_TYPED 里的 NUL/UNDEFINED 是修饰键副作用或 IME composing 噪音，过滤掉
         if (id == KeyEvent.KEY_TYPED && (c == KeyEvent.CHAR_UNDEFINED || c == '\0')) {
+            return;
+        }
+        // Windows IME composing 期间产生的 KEY_PRESSED keyChar='\0' 且 keyCode=0，
+        // JediTerm 会当作 isISOControl('\0') → processCharacter → 发送 NUL → 显示 ^@。
+        // 正常功能键（Backspace、方向键、Ctrl+C 等）keyCode 有明确值，不受此过滤影响。
+        if (isWindows() && id == KeyEvent.KEY_PRESSED && c == '\0' && code == KeyEvent.VK_UNDEFINED) {
             return;
         }
 
@@ -187,5 +196,26 @@ public class RefreshableTerminalPanel extends TerminalPanel {
                 || keyCode == KeyEvent.VK_CAPS_LOCK
                 || keyCode == KeyEvent.VK_NUM_LOCK
                 || keyCode == KeyEvent.VK_SCROLL_LOCK;
+    }
+
+    /**
+     * Windows CJK 字体回退：当终端主字体无法渲染中文字符时，
+     * 自动切换到 "Microsoft YaHei"，避免显示方框。
+     * macOS/Linux 不需要此回退，直接返回父类结果。
+     */
+    @Override
+    protected @NotNull Font getFontToDisplay(char[] text, int start, int end, @NotNull TextStyle style) {
+        Font baseFont = super.getFontToDisplay(text, start, end, style);
+        if (!isWindows()) return baseFont;
+        for (int i = start; i < end; i++) {
+            if (text[i] != CharUtils.DWC && !baseFont.canDisplay(text[i])) {
+                return new Font("Microsoft YaHei", baseFont.getStyle(), baseFont.getSize());
+            }
+        }
+        return baseFont;
+    }
+
+    private static boolean isWindows() {
+        return System.getProperty("os.name", "").toLowerCase().contains("win");
     }
 }

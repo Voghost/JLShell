@@ -21,6 +21,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 
 /**
  * 启动本地 Shell 终端。
@@ -46,8 +47,8 @@ public class LocalShellLauncher {
     public CompletableFuture<TerminalViewHandle> launch(String displayName, TerminalViewRequest request) {
         TerminalViewRequest resolved = resolveRequest(request);
         String[] command = detectShell();
-        Charset charset = isWindows() ? detectWindowsCharset() : null;
-        log.info("Launching local shell for '{}': {}", displayName, java.util.Arrays.toString(command));
+        Charset charset = isWindows() ? StandardCharsets.UTF_8 : null;
+        log.info("Launching local shell for '{}': {} with charset={}", displayName, java.util.Arrays.toString(command), charset);
         return createOnEdt(displayName, resolved, command, charset);
     }
 
@@ -69,41 +70,6 @@ public class LocalShellLauncher {
 
     private static boolean isWindows() {
         return System.getProperty("os.name", "").toLowerCase().contains("win");
-    }
-
-    /** Detect the Windows console codepage and map it to a Java Charset. */
-    private static Charset detectWindowsCharset() {
-        try {
-            Process pb = new ProcessBuilder("chcp.com").redirectErrorStream(true).start();
-            String output = new String(pb.getInputStream().readAllBytes());
-            pb.waitFor();
-            // Output like "Active code page: 936"
-            java.util.regex.Matcher m = java.util.regex.Pattern.compile("(\\d+)").matcher(output);
-            if (m.find()) {
-                int cp = Integer.parseInt(m.group(1));
-                Charset cs = codepageToCharset(cp);
-                log.info("Windows codepage {} → charset {}", cp, cs);
-                return cs;
-            }
-        } catch (Exception e) {
-            log.warn("Failed to detect Windows codepage, falling back to GBK", e);
-        }
-        return Charset.forName("GBK");
-    }
-
-    private static Charset codepageToCharset(int codepage) {
-        switch (codepage) {
-            case 936:  return Charset.forName("GBK");       // Chinese simplified
-            case 950:  return Charset.forName("Big5");      // Chinese traditional
-            case 65001: return java.nio.charset.StandardCharsets.UTF_8;
-            case 437: case 850: case 1252:
-                return java.nio.charset.StandardCharsets.ISO_8859_1;
-            case 1251: return Charset.forName("windows-1251"); // Russian
-            case 1250: return Charset.forName("windows-1250"); // Central European
-            default:
-                try { return Charset.forName("windows-" + codepage); }
-                catch (Exception e) { return Charset.forName("GBK"); }
-        }
     }
 
     private CompletableFuture<TerminalViewHandle> createOnEdt(
