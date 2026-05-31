@@ -1,5 +1,6 @@
 package com.jlshell.ssh.support;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -13,6 +14,7 @@ import com.jlshell.core.service.ConnectionManager;
 import com.jlshell.core.session.SshSession;
 import com.jlshell.ssh.support.session.SshjSession;
 import net.schmizz.sshj.SSHClient;
+import net.schmizz.sshj.transport.verification.OpenSSHKnownHosts;
 import net.schmizz.sshj.transport.verification.PromiscuousVerifier;
 import net.schmizz.sshj.userauth.keyprovider.KeyProvider;
 import org.slf4j.Logger;
@@ -28,13 +30,16 @@ public class SshjConnectionManager implements ConnectionManager {
 
     private final ExecutorService executorService;
     private final EphemeralTrustHostKeyVerifier ephemeralTrustHostKeyVerifier;
+    private final HostKeyConfirmationCallback hostKeyConfirmationCallback;
 
     public SshjConnectionManager(
             ExecutorService executorService,
-            EphemeralTrustHostKeyVerifier ephemeralTrustHostKeyVerifier
+            EphemeralTrustHostKeyVerifier ephemeralTrustHostKeyVerifier,
+            HostKeyConfirmationCallback hostKeyConfirmationCallback
     ) {
         this.executorService = executorService;
         this.ephemeralTrustHostKeyVerifier = ephemeralTrustHostKeyVerifier;
+        this.hostKeyConfirmationCallback = hostKeyConfirmationCallback;
     }
 
     @Override
@@ -78,8 +83,22 @@ public class SshjConnectionManager implements ConnectionManager {
 
     private void configureHostKeyVerification(SSHClient client, HostKeyVerificationMode mode) throws IOException {
         if (mode == HostKeyVerificationMode.STRICT) {
-            // 生产默认策略：严格依赖 known_hosts。
-            client.loadKnownHosts();
+            File sshDir = OpenSSHKnownHosts.detectSSHDir();
+            File knownHosts;
+            if (sshDir != null) {
+                knownHosts = new File(sshDir, "known_hosts");
+            } else {
+                knownHosts = new File(System.getProperty("user.home"), ".ssh/known_hosts");
+            }
+            // Ensure the file exists so OpenSSHKnownHosts can read it.
+            if (!knownHosts.isFile()) {
+                File parent = knownHosts.getParentFile();
+                if (parent != null && !parent.isDirectory()) {
+                    parent.mkdirs();
+                }
+                knownHosts.createNewFile();
+            }
+            client.addHostKeyVerifier(new InteractiveHostKeyVerifier(knownHosts, hostKeyConfirmationCallback));
             return;
         }
         if (mode == HostKeyVerificationMode.ACCEPT_ONCE) {

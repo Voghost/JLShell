@@ -28,6 +28,7 @@ import com.jlshell.ssh.support.EphemeralTrustHostKeyVerifier;
 import com.jlshell.ssh.support.SshjConnectionManager;
 import com.jlshell.terminal.support.JediTermTerminalViewFactory;
 import com.jlshell.ui.service.ConnectionProfileService;
+import com.jlshell.ui.service.HostKeyConfirmationService;
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.service.LocalShellLauncher;
 import com.jlshell.ui.theme.ThemeService;
@@ -81,18 +82,20 @@ public class AppContext implements AutoCloseable {
         SessionRegistry sessionRegistry = new InMemorySessionRegistry();
         FontProfileService fontProfileService = new PersistentFontProfileService(appSettingsService);
 
-        // 4. SSH / SFTP
+        // 4. I18n (needed before SSH for host key confirmation dialogs)
+        I18nService i18nService = new I18nService(Locale.getDefault());
+
+        // 5. SSH / SFTP
         SshjConnectionManager connectionManager = new SshjConnectionManager(
-                executor, new EphemeralTrustHostKeyVerifier());
+                executor, new EphemeralTrustHostKeyVerifier(), new HostKeyConfirmationService(i18nService));
         SessionManager sessionManager = new DefaultSessionManager(connectionManager, sessionRegistry);
         SftpService sftpService = new SshjSftpService(executor);
 
-        // 5. Plugins
+        // 6. Plugins
         PluginManager pluginManager = new PluginManager();
         pluginManager.loadPlugins();
 
-        // 6. UI services
-        I18nService i18nService = new I18nService(Locale.getDefault());
+        // 7. UI services
         ThemeService themeService = new ThemeService();
         MainViewModel viewModel = new MainViewModel();
 
