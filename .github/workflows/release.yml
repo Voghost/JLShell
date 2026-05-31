@@ -277,7 +277,7 @@ jobs:
           mvn package -DskipTests -pl app -am -P dist,win-exe -q
 
           JDK=$JAVA_HOME
-          mkdir -p dist/runtime
+          rm -rf dist/runtime
           "$JDK/bin/jlink" \
             --module-path "$JDK/jmods" \
             --add-modules $MODULES \
