@@ -10,6 +10,7 @@ import com.jlshell.ui.model.ConnectionFormData;
 import com.jlshell.ui.model.FolderProfile;
 import com.jlshell.ui.model.ProjectProfile;
 import com.jlshell.ui.service.I18nService;
+import com.jlshell.ui.theme.ThemeService;
 import javafx.beans.binding.Bindings;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
@@ -35,11 +36,12 @@ public final class ConnectionDialog {
     }
 
     public static Optional<ConnectionFormData> show(
-            Window owner, I18nService i18n, ConnectionFormData initialData,
+            Window owner, I18nService i18n, ThemeService themeService, ConnectionFormData initialData,
             List<ProjectProfile> projects, List<FolderProfile> folders) {
         Dialog<ConnectionFormData> dialog = new Dialog<>();
         dialog.initOwner(owner);
         dialog.setTitle(i18n.get(initialData.id() == null ? "dialog.connection.create" : "dialog.connection.edit"));
+        themeService.applyToDialog(dialog);
 
         DialogPane dialogPane = dialog.getDialogPane();
         dialogPane.getButtonTypes().addAll(javafx.scene.control.ButtonType.OK, javafx.scene.control.ButtonType.CANCEL);

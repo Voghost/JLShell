@@ -675,3 +675,111 @@
     -fx-padding: 0 8 6 8;
 }
 
+/* ---------- Welcome Pane ---------- */
+.welcome-pane {
+    -fx-background-color: #1e1f22;
+    -fx-alignment: center;
+}
+
+.welcome-pane .welcome-title {
+    -fx-text-fill: #dfe1e5;
+    -fx-font-size: 28px;
+    -fx-font-weight: bold;
+}
+
+.welcome-pane .welcome-subtitle {
+    -fx-text-fill: #9da0a8;
+    -fx-font-size: 14px;
+}
+
+.welcome-pane .welcome-section-label {
+    -fx-text-fill: #9da0a8;
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+}
+
+.welcome-pane .action-btn {
+    -fx-background-color: #2d5fa3;
+    -fx-text-fill: #ffffff;
+    -fx-border-color: #4d9cf8;
+    -fx-background-radius: 6;
+    -fx-border-radius: 6;
+    -fx-padding: 8 24;
+    -fx-font-size: 14px;
+    -fx-cursor: hand;
+}
+
+.welcome-pane .action-btn:hover {
+    -fx-background-color: #3670b8;
+}
+
+.welcome-pane .action-btn-secondary {
+    -fx-background-color: #3c3f41;
+    -fx-text-fill: #dfe1e5;
+    -fx-border-color: #53565a;
+    -fx-background-radius: 6;
+    -fx-border-radius: 6;
+    -fx-padding: 8 24;
+    -fx-font-size: 14px;
+    -fx-cursor: hand;
+}
+
+.welcome-pane .action-btn-secondary:hover {
+    -fx-background-color: #4c5052;
+}
+
+.welcome-pane .welcome-help-item {
+    -fx-text-fill: #6b6e73;
+    -fx-font-size: 12px;
+}
+
+.welcome-pane .separator .line {
+    -fx-border-color: #43454a;
+    -fx-border-width: 1 0 0 0;
+}
+
+/* ---------- Custom Title Bar (Windows) ---------- */
+.custom-title-bar {
+    -fx-background-color: #2b2d30;
+    -fx-border-color: transparent transparent #43454a transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 0 4 0 0;
+    -fx-pref-height: 32px;
+    -fx-alignment: center-left;
+}
+
+.custom-title-bar .embedded-menu-bar {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-padding: 0;
+}
+
+.custom-title-bar .title-label {
+    -fx-text-fill: #9da0a8;
+    -fx-font-size: 12px;
+    -fx-padding: 0 8;
+}
+
+.custom-title-bar .window-btn {
+    -fx-background-color: transparent;
+    -fx-text-fill: #9da0a8;
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+    -fx-border-color: transparent;
+    -fx-padding: 0;
+    -fx-min-width: 46px;
+    -fx-min-height: 32px;
+    -fx-font-size: 12px;
+    -fx-cursor: hand;
+}
+
+.custom-title-bar .window-btn:hover {
+    -fx-background-color: #43454a;
+    -fx-text-fill: #dfe1e5;
+}
+
+.custom-title-bar .window-btn-close:hover {
+    -fx-background-color: #e81123;
+    -fx-text-fill: #ffffff;
+}
+

@@ -8,6 +8,7 @@ import com.jlshell.plugin.loader.PluginDescriptor;
 import com.jlshell.plugin.loader.PluginManager;
 import com.jlshell.core.session.SshSession;
 import com.jlshell.ui.service.I18nService;
+import com.jlshell.ui.theme.ThemeService;
 import javafx.geometry.Insets;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
@@ -28,7 +29,8 @@ public class PluginsTabView extends BorderPane {
             PluginManager pluginManager,
             SshSession sshSession,
             Consumer<Tab> openTabCallback,
-            I18nService i18nService
+            I18nService i18nService,
+            ThemeService themeService
     ) {
         setPadding(new Insets(8));
 
@@ -49,7 +51,7 @@ public class PluginsTabView extends BorderPane {
                     desc.getStyleClass().add("plugin-desc");
                     Button openBtn = new Button(i18nService.get("plugin.open"));
                     openBtn.setOnAction(e -> {
-                        PluginContext ctx = new DefaultPluginContext(sshSession, openTabCallback);
+                        PluginContext ctx = new DefaultPluginContext(sshSession, openTabCallback, themeService::applyToDialog);
                         pluginManager.activatePlugin(item.id(), ctx);
                     });
                     HBox row = new HBox(8, new VBox(2, name, desc), openBtn);

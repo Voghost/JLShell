@@ -57,8 +57,7 @@ public class HostKeyConfirmationService implements HostKeyConfirmationCallback {
         alert.getButtonTypes().setAll(trustButton, ButtonType.CANCEL);
 
         alert.getDialogPane().setPrefWidth(480);
-        alert.getDialogPane().getStylesheets().add(
-                getClass().getResource(themeService.currentTheme().stylesheet()).toExternalForm());
+        themeService.applyToDialog(alert);
 
         return alert.showAndWait()
                 .filter(trustButton::equals)

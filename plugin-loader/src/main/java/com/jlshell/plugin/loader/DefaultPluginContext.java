@@ -16,11 +16,13 @@ public class DefaultPluginContext implements PluginContext {
 
     private final SshSession sshSession;
     private final Consumer<Tab> openTabCallback;
+    private final Consumer<Alert> themeApplier;
     private Tab openedTab;
 
-    public DefaultPluginContext(SshSession sshSession, Consumer<Tab> openTabCallback) {
+    public DefaultPluginContext(SshSession sshSession, Consumer<Tab> openTabCallback, Consumer<Alert> themeApplier) {
         this.sshSession = sshSession;
         this.openTabCallback = openTabCallback;
+        this.themeApplier = themeApplier;
     }
 
     @Override
@@ -63,6 +65,7 @@ public class DefaultPluginContext implements PluginContext {
             };
             Alert alert = new Alert(alertType, message);
             alert.setHeaderText(null);
+            if (themeApplier != null) themeApplier.accept(alert);
             alert.show();
         });
     }

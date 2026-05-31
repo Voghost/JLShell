@@ -25,6 +25,7 @@ import com.jlshell.ui.theme.AppTheme;
 import com.jlshell.ui.theme.ThemeService;
 import com.jlshell.ui.viewmodel.MainViewModel;
 import com.jlshell.ui.dialog.PreferencesDialog;
+import javafx.beans.binding.Bindings;
 import javafx.geometry.Insets;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
@@ -48,6 +49,7 @@ import javafx.scene.input.KeyCombination;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -118,7 +120,13 @@ public class MainWindow {
     public Scene createScene(Stage stage) {
         BorderPane root = new BorderPane();
         root.getStyleClass().add("app-root");
-        root.setTop(buildTopArea(stage));
+
+        boolean isWindows = System.getProperty("os.name", "").toLowerCase().contains("win");
+        if (isWindows) {
+            root.setTop(buildCustomTitleBar(stage));
+        } else {
+            root.setTop(buildTopArea(stage));
+        }
         root.setCenter(buildCenterArea(stage));
         root.setBottom(buildStatusBar());
 
@@ -137,7 +145,7 @@ public class MainWindow {
         return scene;
     }
 
-    private VBox buildTopArea(Stage stage) {
+    private MenuBar buildMenuBar(Stage stage) {
         MenuBar menuBar = new MenuBar();
 
         // File 菜单
@@ -155,7 +163,7 @@ public class MainWindow {
         Menu projectsMenu = new Menu(i18nService.get("project.menu.projects"));
         MenuItem manageProjects = new MenuItem(i18nService.get("project.menu.manage"));
         manageProjects.setOnAction(e -> {
-            ProjectManagerDialog.show(stage, connectionProfileService, i18nService);
+            ProjectManagerDialog.show(stage, connectionProfileService, i18nService, themeService);
             rebuildProjectsMenu(projectsMenu, stage);
             loadConnections();
         });
@@ -186,11 +194,21 @@ public class MainWindow {
         } else {
             menuBar.getMenus().addAll(fileMenu, viewMenu);
         }
+        return menuBar;
+    }
+
+    private VBox buildTopArea(Stage stage) {
+        MenuBar menuBar = buildMenuBar(stage);
         menuBar.setUseSystemMenuBar(true);
 
         VBox box = new VBox(menuBar);
         box.getStyleClass().add("top-shell");
         return box;
+    }
+
+    private CustomTitleBar buildCustomTitleBar(Stage stage) {
+        MenuBar menuBar = buildMenuBar(stage);
+        return new CustomTitleBar(stage, menuBar, i18nService);
     }
 
     private void rebuildProjectsMenu(Menu projectsMenu, Stage stage) {
@@ -237,13 +255,21 @@ public class MainWindow {
     }
 
     public void openPreferences(Stage stage) {
-        PreferencesDialog.show(stage, fontProfileService, appSettingsService, i18nService);
+        PreferencesDialog.show(stage, fontProfileService, appSettingsService, i18nService, themeService);
     }
 
     private SplitPane buildCenterArea(Stage stage) {
         VBox sidebar = buildSidebar(stage);
         workspaceTabs.getStyleClass().add("workspace-tabs");
-        SplitPane splitPane = new SplitPane(sidebar, workspaceTabs);
+
+        WelcomePane welcomePane = new WelcomePane(i18nService,
+                () -> createConnection(stage),
+                () -> createFolder(stage));
+        welcomePane.visibleProperty().bind(Bindings.isEmpty(workspaceTabs.getTabs()));
+        workspaceTabs.visibleProperty().bind(Bindings.isNotEmpty(workspaceTabs.getTabs()));
+
+        StackPane workspace = new StackPane(welcomePane, workspaceTabs);
+        SplitPane splitPane = new SplitPane(sidebar, workspace);
         splitPane.setDividerPositions(0.26);
         return splitPane;
     }
@@ -398,6 +424,7 @@ public class MainWindow {
                                 javafx.scene.control.Alert.AlertType.WARNING);
                         alert.setHeaderText(null);
                         alert.setContentText(i18nService.get("folder.maxDepthReached", maxFolderDepth));
+                        themeService.applyToDialog(alert);
                         alert.showAndWait();
                         return;
                     }
@@ -421,13 +448,14 @@ public class MainWindow {
         dialog.setTitle(title);
         dialog.setHeaderText(null);
         dialog.setContentText(i18nService.get("sftp.newFolder.prompt"));
+        themeService.applyToDialog(dialog);
         return dialog.showAndWait()
                 .map(String::trim)
                 .filter(s -> !s.isBlank());
     }
 
     private void createConnection(Stage stage) {
-        ConnectionDialog.show(stage, i18nService, ConnectionFormData.empty(),
+        ConnectionDialog.show(stage, i18nService, themeService, ConnectionFormData.empty(),
                 connectionProfileService.listProjects(),
                 connectionProfileService.listFolders(activeProjectId))
                 .ifPresent(form -> saveConnection(form));
@@ -445,7 +473,7 @@ public class MainWindow {
                         showError(i18nService.get("status.connectionSaveFailed", throwable.getMessage()));
                         return;
                     }
-                    ConnectionDialog.show(stage, i18nService, formData,
+                    ConnectionDialog.show(stage, i18nService, themeService, formData,
                             connectionProfileService.listProjects(),
                             connectionProfileService.listFolders(activeProjectId))
                             .ifPresent(this::saveConnection);
@@ -473,6 +501,7 @@ public class MainWindow {
                 i18nService.get("confirm.deleteConnection", selected.displayName()),
                 ButtonType.OK,
                 ButtonType.CANCEL);
+        themeService.applyToDialog(alert);
         alert.showAndWait().filter(ButtonType.OK::equals).ifPresent(unused ->
                 CompletableFuture.runAsync(() -> connectionProfileService.delete(selected.id()), executor)
                         .whenComplete((v, throwable) -> FxThread.run(() -> {
@@ -581,6 +610,7 @@ public class MainWindow {
                     sftpService,
                     i18nService,
                     themeService.currentTheme(),
+                    themeService,
                     pluginManager
             );
             tab.setClosable(true);
@@ -621,6 +651,7 @@ public class MainWindow {
     private void showError(String message) {
         viewModel.statusMessageProperty().set(message);
         Alert alert = new Alert(Alert.AlertType.ERROR, message, ButtonType.OK);
+        themeService.applyToDialog(alert);
         alert.showAndWait();
     }
 }

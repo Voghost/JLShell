@@ -4,6 +4,7 @@ import com.jlshell.core.model.FontProfile;
 import com.jlshell.core.service.AppSettingsService;
 import com.jlshell.core.service.FontProfileService;
 import com.jlshell.ui.service.I18nService;
+import com.jlshell.ui.theme.ThemeService;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.ButtonBar;
@@ -57,13 +58,12 @@ public class PreferencesDialog {
 
     private PreferencesDialog() {}
 
-    public static void show(Stage owner, FontProfileService fontProfileService, AppSettingsService appSettings, I18nService i18n) {
+    public static void show(Stage owner, FontProfileService fontProfileService, AppSettingsService appSettings, I18nService i18n, ThemeService themeService) {
         Dialog<Void> dialog = new Dialog<>();
         dialog.setTitle(i18n.get("preferences.title"));
         dialog.setHeaderText(null);
         if (owner != null) dialog.initOwner(owner);
-        dialog.getDialogPane().getStylesheets().add(
-                PreferencesDialog.class.getResource("/css/dark-theme.css").toExternalForm());
+        themeService.applyToDialog(dialog);
         dialog.getDialogPane().setPrefWidth(520);
 
         FontProfile[] pending = { fontProfileService.activeProfile() };
@@ -84,6 +84,7 @@ public class PreferencesDialog {
                             javafx.scene.control.Alert.AlertType.INFORMATION,
                             i18n.get("preferences.general.restartRequired"),
                             javafx.scene.control.ButtonType.OK);
+                    themeService.applyToDialog(alert);
                     alert.showAndWait();
                 }
             }

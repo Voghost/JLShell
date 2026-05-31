@@ -24,6 +24,7 @@ import com.jlshell.ui.model.ConnectionProfile;
 import com.jlshell.ui.model.LocalFileEntry;
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.support.FxThread;
+import com.jlshell.ui.theme.ThemeService;
 import com.jlshell.ui.viewmodel.SftpBrowserViewModel;
 import javafx.beans.property.ReadOnlyStringWrapper;
 import javafx.geometry.Insets;
@@ -71,6 +72,7 @@ public class SftpBrowserPane extends BorderPane {
     private final SshSession sshSession;
     private final SftpService sftpService;
     private final I18nService i18nService;
+    private final ThemeService themeService;
     private final SftpBrowserViewModel viewModel = new SftpBrowserViewModel();
 
     // Local pane
@@ -85,11 +87,13 @@ public class SftpBrowserPane extends BorderPane {
             ConnectionProfile connectionProfile,
             SshSession sshSession,
             SftpService sftpService,
-            I18nService i18nService
+            I18nService i18nService,
+            ThemeService themeService
     ) {
         this.sshSession = sshSession;
         this.sftpService = sftpService;
         this.i18nService = i18nService;
+        this.themeService = themeService;
 
         getStyleClass().add("workspace-panel");
         setPadding(new Insets(12));
@@ -697,6 +701,7 @@ public class SftpBrowserPane extends BorderPane {
         TextInputDialog dlg = new TextInputDialog(e.name());
         dlg.setTitle(i18nService.get("sftp.rename"));
         dlg.setHeaderText(i18nService.get("sftp.rename.prompt"));
+        themeService.applyToDialog(dlg);
         dlg.showAndWait().filter(n -> !n.isBlank()).ifPresent(newName -> {
             String target = appendRemotePath(viewModel.remotePathProperty().get(), newName);
             sftpService.rename(sshSession, e.path(), target)
@@ -723,6 +728,7 @@ public class SftpBrowserPane extends BorderPane {
         TextInputDialog dlg = new TextInputDialog();
         dlg.setTitle(i18nService.get("sftp.newFolder"));
         dlg.setHeaderText(i18nService.get("sftp.newFolder.prompt"));
+        themeService.applyToDialog(dlg);
         dlg.showAndWait().filter(n -> !n.isBlank()).ifPresent(name -> {
             sftpService.createDirectory(sshSession,
                     appendRemotePath(viewModel.remotePathProperty().get(), name), false)

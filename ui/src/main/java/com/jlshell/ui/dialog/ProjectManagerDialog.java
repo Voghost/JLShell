@@ -3,6 +3,7 @@ package com.jlshell.ui.dialog;
 import com.jlshell.ui.model.ProjectProfile;
 import com.jlshell.ui.service.ConnectionProfileService;
 import com.jlshell.ui.service.I18nService;
+import com.jlshell.ui.theme.ThemeService;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
@@ -29,13 +30,12 @@ public class ProjectManagerDialog {
 
     private ProjectManagerDialog() {}
 
-    public static void show(Stage owner, ConnectionProfileService service, I18nService i18n) {
+    public static void show(Stage owner, ConnectionProfileService service, I18nService i18n, ThemeService themeService) {
         Dialog<Void> dialog = new Dialog<>();
         dialog.setTitle(i18n.get("project.manage.title"));
         dialog.setHeaderText(null);
         if (owner != null) dialog.initOwner(owner);
-        dialog.getDialogPane().getStylesheets().add(
-                ProjectManagerDialog.class.getResource("/css/dark-theme.css").toExternalForm());
+        themeService.applyToDialog(dialog);
         dialog.getDialogPane().setPrefWidth(500);
         dialog.getDialogPane().setPrefHeight(400);
         dialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
@@ -92,6 +92,7 @@ public class ProjectManagerDialog {
             Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
                     i18n.get("project.action.deleteConfirm").replace("{0}", selected.name()),
                     ButtonType.YES, ButtonType.NO);
+            themeService.applyToDialog(confirm);
             confirm.showAndWait().filter(b -> b == ButtonType.YES).ifPresent(b -> {
                 service.deleteProject(selected.id());
                 items.setAll(service.listProjects());

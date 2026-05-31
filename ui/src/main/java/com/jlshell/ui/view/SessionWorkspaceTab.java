@@ -14,6 +14,7 @@ import com.jlshell.ui.service.ConnectionProfileService;
 import com.jlshell.plugin.loader.PluginManager;
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.theme.AppTheme;
+import com.jlshell.ui.theme.ThemeService;
 import javafx.scene.control.Label;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
@@ -32,6 +33,7 @@ public class SessionWorkspaceTab extends Tab {
     private final ConnectionProfile connectionProfile;
     private final SftpService sftpService;
     private final I18nService i18nService;
+    private final ThemeService themeService;
     private final PluginManager pluginManager;
 
     private boolean filePaneInitialized;
@@ -48,6 +50,7 @@ public class SessionWorkspaceTab extends Tab {
             SftpService sftpService,
             I18nService i18nService,
             AppTheme theme,
+            ThemeService themeService,
             PluginManager pluginManager
     ) {
         super(connectionProfile.displayName());
@@ -58,6 +61,7 @@ public class SessionWorkspaceTab extends Tab {
         this.connectionProfileService = connectionProfileService;
         this.sftpService = sftpService;
         this.i18nService = i18nService;
+        this.themeService = themeService;
         this.pluginManager = pluginManager;
 
         this.terminalWorkspaceView = new TerminalWorkspaceView(
@@ -66,7 +70,8 @@ public class SessionWorkspaceTab extends Tab {
                 fontProfileService,
                 appSettingsService,
                 i18nService,
-                theme
+                theme,
+                themeService
         );
 
         Tab terminalTab = new Tab(i18nService.get("workspace.terminal"), terminalWorkspaceView);
@@ -86,7 +91,7 @@ public class SessionWorkspaceTab extends Tab {
             Tab pluginsTab = new Tab(i18nService.get("workspace.plugins"));
             pluginsTab.setClosable(false);
             pluginsTab.setContent(new PluginsTabView(
-                    pluginManager, sshSession, workspaceTabs.getTabs()::add, i18nService));
+                    pluginManager, sshSession, workspaceTabs.getTabs()::add, i18nService, themeService));
             workspaceTabs.getTabs().add(pluginsTab);
         }
 
@@ -127,6 +132,6 @@ public class SessionWorkspaceTab extends Tab {
             return;
         }
         filePaneInitialized = true;
-        filesTab.setContent(new SftpBrowserPane(connectionProfile, sshSession, sftpService, i18nService));
+        filesTab.setContent(new SftpBrowserPane(connectionProfile, sshSession, sftpService, i18nService, themeService));
     }
 }

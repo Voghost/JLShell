@@ -18,6 +18,7 @@ import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.support.FxThread;
 import com.jlshell.ui.support.SwingNodeImeBridge;
 import com.jlshell.ui.theme.AppTheme;
+import com.jlshell.ui.theme.ThemeService;
 import javafx.embed.swing.SwingNode;
 import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
@@ -47,6 +48,7 @@ public class TerminalWorkspaceView extends BorderPane {
     private final FontProfileService fontProfileService;
     private final AppSettingsService appSettingsService;
     private final I18nService i18nService;
+    private final ThemeService themeService;
     private final StackPane terminalHost = new StackPane();
     private final List<TerminalViewHandle> handles = new ArrayList<>();
 
@@ -61,13 +63,15 @@ public class TerminalWorkspaceView extends BorderPane {
             FontProfileService fontProfileService,
             AppSettingsService appSettingsService,
             I18nService i18nService,
-            AppTheme appTheme
+            AppTheme appTheme,
+            ThemeService themeService
     ) {
         this.sshSession = sshSession;
         this.terminalViewFactory = terminalViewFactory;
         this.fontProfileService = fontProfileService;
         this.appSettingsService = appSettingsService;
         this.i18nService = i18nService;
+        this.themeService = themeService;
         this.appTheme = appTheme;
 
         getStyleClass().add("workspace-panel");
@@ -134,7 +138,7 @@ public class TerminalWorkspaceView extends BorderPane {
     private void openFontSettings() {
         Window owner = getScene() != null ? getScene().getWindow() : null;
         javafx.stage.Stage stage = owner instanceof javafx.stage.Stage ? (javafx.stage.Stage) owner : null;
-        PreferencesDialog.show(stage, fontProfileService, appSettingsService, i18nService);
+        PreferencesDialog.show(stage, fontProfileService, appSettingsService, i18nService, themeService);
         // Apply the (possibly updated) active profile to all open terminals
         FontProfile profile = fontProfileService.activeProfile();
         handles.forEach(h -> h.updateFontProfile(profile));

@@ -15,6 +15,7 @@ import com.jlshell.ui.view.MainWindow;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.stage.Stage;
+import javafx.stage.StageStyle;
 
 public class JlShellDesktopApplication extends Application {
 
@@ -38,6 +39,12 @@ public class JlShellDesktopApplication extends Application {
     @Override
     public void start(Stage stage) {
         MainWindow mainWindow = appContext.getMainWindow();
+
+        // On Windows, remove the OS title bar and use a custom one embedded in the app.
+        if (isWindows()) {
+            stage.initStyle(StageStyle.UNDECORATED);
+        }
+
         stage.setTitle("JLShell");
         stage.setScene(mainWindow.createScene(stage));
         stage.setMinWidth(1200);
@@ -94,6 +101,10 @@ public class JlShellDesktopApplication extends Application {
 
     @Override
     public void stop() {}
+
+    private static boolean isWindows() {
+        return System.getProperty("os.name", "").toLowerCase().contains("win");
+    }
 
     private void installSystemTray(Stage stage, java.awt.Image icon) {
         if (!SystemTray.isSupported()) return;

@@ -555,3 +555,118 @@
 .list-cell:filled:selected .conn-cell-summary {
     -fx-text-fill: #3b6ea8;
 }
+
+/* ---------- Sidebar project label ---------- */
+.sidebar-project-label {
+    -fx-text-fill: #1a6dd4;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-padding: 0 8 6 8;
+}
+
+/* ---------- Welcome Pane ---------- */
+.welcome-pane {
+    -fx-background-color: #ffffff;
+    -fx-alignment: center;
+}
+
+.welcome-pane .welcome-title {
+    -fx-text-fill: #1a1a1a;
+    -fx-font-size: 28px;
+    -fx-font-weight: bold;
+}
+
+.welcome-pane .welcome-subtitle {
+    -fx-text-fill: #666666;
+    -fx-font-size: 14px;
+}
+
+.welcome-pane .welcome-section-label {
+    -fx-text-fill: #666666;
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+}
+
+.welcome-pane .action-btn {
+    -fx-background-color: #1a6dd4;
+    -fx-text-fill: #ffffff;
+    -fx-background-radius: 6;
+    -fx-border-radius: 6;
+    -fx-padding: 8 24;
+    -fx-font-size: 14px;
+    -fx-cursor: hand;
+}
+
+.welcome-pane .action-btn:hover {
+    -fx-background-color: #1560bf;
+}
+
+.welcome-pane .action-btn-secondary {
+    -fx-background-color: #f0f0f0;
+    -fx-text-fill: #333333;
+    -fx-border-color: #cccccc;
+    -fx-background-radius: 6;
+    -fx-border-radius: 6;
+    -fx-padding: 8 24;
+    -fx-font-size: 14px;
+    -fx-cursor: hand;
+}
+
+.welcome-pane .action-btn-secondary:hover {
+    -fx-background-color: #e0e0e0;
+}
+
+.welcome-pane .welcome-help-item {
+    -fx-text-fill: #888888;
+    -fx-font-size: 12px;
+}
+
+.welcome-pane .separator .line {
+    -fx-border-color: #e0e0e0;
+    -fx-border-width: 1 0 0 0;
+}
+
+/* ---------- Custom Title Bar (Windows) ---------- */
+.custom-title-bar {
+    -fx-background-color: #ffffff;
+    -fx-border-color: transparent transparent #cbd5e1 transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 0 4 0 0;
+    -fx-pref-height: 32px;
+    -fx-alignment: center-left;
+}
+
+.custom-title-bar .embedded-menu-bar {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-padding: 0;
+}
+
+.custom-title-bar .title-label {
+    -fx-text-fill: #64748b;
+    -fx-font-size: 12px;
+    -fx-padding: 0 8;
+}
+
+.custom-title-bar .window-btn {
+    -fx-background-color: transparent;
+    -fx-text-fill: #64748b;
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+    -fx-border-color: transparent;
+    -fx-padding: 0;
+    -fx-min-width: 46px;
+    -fx-min-height: 32px;
+    -fx-font-size: 12px;
+    -fx-cursor: hand;
+}
+
+.custom-title-bar .window-btn:hover {
+    -fx-background-color: #e2e8f0;
+    -fx-text-fill: #0f172a;
+}
+
+.custom-title-bar .window-btn-close:hover {
+    -fx-background-color: #e81123;
+    -fx-text-fill: #ffffff;
+}
