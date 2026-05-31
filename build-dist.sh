@@ -241,9 +241,7 @@ assemble_win() {
 
     run_jlink "$jdk" "$modules" "$work/runtime" "${JAVAFX_MODS_WIN:-}"
 
-    cp "$FAT_JAR" "$work/$MAIN_JAR"
-
-    # Build native Windows exe via Launch4j Maven plugin
+    # Build native Windows exe via Launch4j Maven plugin (jar is embedded in exe)
     log "Building Windows native exe via Launch4j..."
     mvn package -DskipTests -pl app -am -P dist,win-exe -q
 

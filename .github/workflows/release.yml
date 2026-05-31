@@ -289,7 +289,6 @@ jobs:
         run: |
           mkdir -p dist/win-work/JLShell
           cp -r dist/runtime dist/win-work/JLShell/
-          cp app/target/app-0.1.0-SNAPSHOT.jar dist/win-work/JLShell/
           cp app/target/JLShell.exe dist/win-work/JLShell/
 
           cd dist/win-work && 7z a -tzip "../JLShell-${VERSION}-win-x64.zip" JLShell && cd ../..
