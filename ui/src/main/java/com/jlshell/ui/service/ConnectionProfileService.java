@@ -297,6 +297,7 @@ public class ConnectionProfileService {
     public void deleteProject(String id) {
         jdbi.useTransaction(h -> {
             h.attach(ConnectionDao.class).clearProjectIdForProject(id);
+            h.attach(ConnectionFolderDao.class).clearProjectIdForProject(id);
             h.attach(ProjectDao.class).deleteById(id);
         });
     }

@@ -6,7 +6,7 @@
 
 /* ---------- Root / Global ---------- */
 .root {
-    -fx-font-family: "SF Pro Display", "PingFang SC", "Microsoft YaHei", sans-serif;
+    -fx-font-family: "SauceCodePro Nerd Font Mono", "SF Pro Display", "PingFang SC", "Microsoft YaHei", sans-serif;
     -fx-font-size: 13px;
     -fx-background-color: #f8fafc;
     -fx-base: #ffffff;
@@ -341,13 +341,23 @@
 .dialog-pane {
     -fx-background-color: #ffffff;
     -fx-border-color: #cbd5e1;
-    -fx-border-radius: 8;
-    -fx-background-radius: 8;
+    -fx-border-radius: 0;
+    -fx-background-radius: 0;
 }
 
 .dialog-pane .header-panel {
     -fx-background-color: #f1f5f9;
-    -fx-background-radius: 8 8 0 0;
+    -fx-background-radius: 0;
+}
+
+.dialog-pane .button-bar {
+    -fx-background-color: #ffffff;
+    -fx-background-radius: 0;
+}
+
+.dialog-pane .content {
+    -fx-background-color: #ffffff;
+    -fx-background-radius: 0;
 }
 
 .dialog-pane .header-panel .label {
@@ -561,7 +571,66 @@
     -fx-text-fill: #1a6dd4;
     -fx-font-size: 11px;
     -fx-font-weight: bold;
+    -fx-padding: 0;
+}
+
+.sidebar-project-row {
     -fx-padding: 0 8 6 8;
+    -fx-alignment: center-left;
+    -fx-spacing: 6;
+}
+
+.sidebar-project-combo {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #cbd5e1;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+    -fx-padding: 2 6;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #1a6dd4;
+    -fx-margin: 0 4 4 4;
+}
+
+.sidebar-project-combo .list-cell {
+    -fx-text-fill: #1a6dd4;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-background-color: transparent;
+    -fx-padding: 2 4;
+}
+
+.sidebar-project-combo-popup .list-view {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #cbd5e1;
+}
+
+.sidebar-project-combo-popup .list-cell {
+    -fx-text-fill: #0f172a;
+    -fx-font-size: 12px;
+    -fx-font-weight: normal;
+    -fx-padding: 4 8;
+}
+
+.sidebar-project-combo-popup .list-cell:hover {
+    -fx-background-color: #e2e8f0;
+}
+
+.sidebar-project-combo-popup .list-cell:filled:selected {
+    -fx-background-color: #bfdbfe;
+    -fx-text-fill: #1e3a5f;
+}
+
+.sidebar-project-row {
+    -fx-padding: 2 8 6 8;
+    -fx-alignment: center-left;
+    -fx-spacing: 6;
+}
+
+.sidebar-project-inline-label {
+    -fx-text-fill: #64748b;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
 }
 
 /* ---------- Welcome Pane ---------- */

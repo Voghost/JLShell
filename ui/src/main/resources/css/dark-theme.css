@@ -6,7 +6,7 @@
 
 /* ---------- Root / Global ---------- */
 .root {
-    -fx-font-family: "JetBrains Mono", "SF Mono", "Consolas", "PingFang SC", "Microsoft YaHei", monospace;
+    -fx-font-family: "SauceCodePro Nerd Font Mono", "JetBrains Mono", "SF Mono", "Consolas", "PingFang SC", "Microsoft YaHei", monospace;
     -fx-font-size: 13px;
     -fx-background-color: #1e1f22;
     -fx-base: #2b2d30;
@@ -341,13 +341,23 @@
 .dialog-pane {
     -fx-background-color: #2b2d30;
     -fx-border-color: #43454a;
-    -fx-border-radius: 8;
-    -fx-background-radius: 8;
+    -fx-border-radius: 0;
+    -fx-background-radius: 0;
 }
 
 .dialog-pane .header-panel {
     -fx-background-color: #313438;
-    -fx-background-radius: 8 8 0 0;
+    -fx-background-radius: 0;
+}
+
+.dialog-pane .button-bar {
+    -fx-background-color: #2b2d30;
+    -fx-background-radius: 0;
+}
+
+.dialog-pane .content {
+    -fx-background-color: #2b2d30;
+    -fx-background-radius: 0;
 }
 
 .dialog-pane .header-panel .label {
@@ -672,7 +682,66 @@
     -fx-text-fill: #4d9cf8;
     -fx-font-size: 11px;
     -fx-font-weight: bold;
+    -fx-padding: 0;
+}
+
+.sidebar-project-row {
     -fx-padding: 0 8 6 8;
+    -fx-alignment: center-left;
+    -fx-spacing: 6;
+}
+
+.sidebar-project-combo {
+    -fx-background-color: #2b2d30;
+    -fx-border-color: #43454a;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+    -fx-padding: 2 6;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #4d9cf8;
+    -fx-margin: 0 4 4 4;
+}
+
+.sidebar-project-combo .list-cell {
+    -fx-text-fill: #4d9cf8;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-background-color: transparent;
+    -fx-padding: 2 4;
+}
+
+.sidebar-project-combo-popup .list-view {
+    -fx-background-color: #2b2d30;
+    -fx-border-color: #43454a;
+}
+
+.sidebar-project-combo-popup .list-cell {
+    -fx-text-fill: #dfe1e5;
+    -fx-font-size: 12px;
+    -fx-font-weight: normal;
+    -fx-padding: 4 8;
+}
+
+.sidebar-project-combo-popup .list-cell:hover {
+    -fx-background-color: #3c3f41;
+}
+
+.sidebar-project-combo-popup .list-cell:filled:selected {
+    -fx-background-color: #2d5fa3;
+    -fx-text-fill: #ffffff;
+}
+
+.sidebar-project-row {
+    -fx-padding: 2 8 6 8;
+    -fx-alignment: center-left;
+    -fx-spacing: 6;
+}
+
+.sidebar-project-inline-label {
+    -fx-text-fill: #9da0a8;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
 }
 
 /* ---------- Welcome Pane ---------- */

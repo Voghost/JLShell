@@ -14,6 +14,7 @@ import com.jlshell.core.service.FontProfileService;
 public class InMemoryFontProfileService implements FontProfileService {
 
     private final CopyOnWriteArrayList<FontProfile> profiles = new CopyOnWriteArrayList<>(List.of(
+            new FontProfile("SauceCodePro Nerd Font Mono", 13, true, 1.0),
             new FontProfile("JetBrains Mono", 13, true, 1.0),
             new FontProfile("Cascadia Code", 13, true, 1.0),
             new FontProfile("Monospaced", 13, false, 1.0)

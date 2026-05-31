@@ -12,6 +12,7 @@ import java.util.Objects;
 import javax.imageio.ImageIO;
 
 import com.jlshell.ui.view.MainWindow;
+import com.jlshell.ui.support.BundledFontLoader;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.stage.Stage;
@@ -33,6 +34,7 @@ public class JlShellDesktopApplication extends Application {
 
     @Override
     public void init() {
+        BundledFontLoader.load();
         appContext = new AppContext();
     }
 

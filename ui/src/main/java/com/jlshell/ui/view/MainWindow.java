@@ -31,6 +31,7 @@ import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonType;
+import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
@@ -79,9 +80,11 @@ public class MainWindow {
     private final TabPane workspaceTabs = new TabPane();
     private final ListView<ConnectionProfile> connectionListView = new ListView<>();
     private SidebarTreeView sidebarTreeView;
+    /** Sentinel for the "Default" (no project) combo item */
+    private static final ProjectProfile DEFAULT_PROJECT = new ProjectProfile(null, "", null);
     /** null = "Default" (connections with no project) */
     private String activeProjectId = null;
-    private final Label projectLabel = new Label();
+    private final ComboBox<ProjectProfile> projectCombo = new ComboBox<>();
     /** Cached profiles for tree selection lookup */
     private java.util.List<ConnectionProfile> cachedProfiles = java.util.List.of();
 
@@ -115,6 +118,12 @@ public class MainWindow {
         this.executor = sshConnectionExecutor;
         this.maxFolderDepth = maxFolderDepth;
         this.pluginManager = pluginManager;
+
+        // Restore saved active project
+        String savedProject = appSettingsService.get("ui.activeProject", "");
+        if (savedProject != null && !savedProject.isBlank()) {
+            this.activeProjectId = savedProject;
+        }
     }
 
     public Scene createScene(Stage stage) {
@@ -165,6 +174,7 @@ public class MainWindow {
         manageProjects.setOnAction(e -> {
             ProjectManagerDialog.show(stage, connectionProfileService, i18nService, themeService);
             rebuildProjectsMenu(projectsMenu, stage);
+            refreshProjectCombo();
             loadConnections();
         });
         projectsMenu.getItems().add(manageProjects);
@@ -236,21 +246,52 @@ public class MainWindow {
     private void switchProject(String projectId) {
         activeProjectId = projectId;
         appSettingsService.set("ui.activeProject", projectId != null ? projectId : "");
-        updateProjectLabel();
+        selectProjectCombo();
         loadConnections();
     }
 
-    private void updateProjectLabel() {
+    private void switchProjectWithConfirm(ProjectProfile selected) {
+        if (selected == null) return; // can happen during combo rebuild
+        String newProjectId = (selected == DEFAULT_PROJECT) ? null : selected.id();
+        if (Objects.equals(newProjectId, activeProjectId)) return;
+
+        String projectName = (selected == DEFAULT_PROJECT)
+                ? i18nService.get("project.label.default")
+                : selected.name();
+
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION,
+                i18nService.get("project.switch.detail", projectName),
+                ButtonType.OK, ButtonType.CANCEL);
+        alert.setHeaderText(i18nService.get("project.switch.confirm", projectName));
+        themeService.applyToDialog(alert);
+        alert.showAndWait().filter(ButtonType.OK::equals).ifPresent(unused ->
+                switchProject(newProjectId));
+
+        // Revert combo if cancelled
+        if (!Objects.equals(activeProjectId, newProjectId)) {
+            selectProjectCombo();
+        }
+    }
+
+    private void refreshProjectCombo() {
+        String saved = activeProjectId;
+        projectCombo.getItems().clear();
+        projectCombo.getItems().add(DEFAULT_PROJECT);
+        projectCombo.getItems().addAll(connectionProfileService.listProjects());
+        activeProjectId = saved;
+        selectProjectCombo();
+    }
+
+    private void selectProjectCombo() {
         if (activeProjectId == null) {
-            projectLabel.setText(i18nService.get("project.label.default"));
+            projectCombo.getSelectionModel().select(DEFAULT_PROJECT);
         } else {
-            connectionProfileService.listProjects().stream()
-                    .filter(p -> p.id().equals(activeProjectId))
+            projectCombo.getItems().stream()
+                    .filter(p -> p != DEFAULT_PROJECT && p.id().equals(activeProjectId))
                     .findFirst()
                     .ifPresentOrElse(
-                            p -> projectLabel.setText(p.name()),
-                            () -> projectLabel.setText(i18nService.get("project.label.default"))
-                    );
+                            projectCombo.getSelectionModel()::select,
+                            () -> projectCombo.getSelectionModel().select(DEFAULT_PROJECT));
         }
     }
 
@@ -342,10 +383,35 @@ public class MainWindow {
         Label sectionLabel = new Label(i18nService.get("sidebar.connections"));
         sectionLabel.getStyleClass().add("sidebar-section-label");
 
-        projectLabel.getStyleClass().add("sidebar-project-label");
-        updateProjectLabel();
+        Label projectSwitchLabel = new Label(i18nService.get("project.switch.label"));
+        projectSwitchLabel.getStyleClass().add("sidebar-project-label");
 
-        VBox sidebar = new VBox(0, sectionLabel, projectLabel, sidebarTreeView.getTreeView(), actionBar);
+        projectCombo.getStyleClass().add("sidebar-project-combo");
+        projectCombo.setButtonCell(new ListCell<>() {
+            @Override
+            protected void updateItem(ProjectProfile item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty ? "" : (item == DEFAULT_PROJECT ? i18nService.get("project.label.default") : item.name()));
+            }
+        });
+        projectCombo.setCellFactory(lv -> new ListCell<>() {
+            @Override
+            protected void updateItem(ProjectProfile item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty ? "" : (item == DEFAULT_PROJECT ? i18nService.get("project.label.default") : item.name()));
+            }
+        });
+        projectCombo.getItems().add(DEFAULT_PROJECT);
+        projectCombo.getItems().addAll(connectionProfileService.listProjects());
+        selectProjectCombo();
+        projectCombo.getSelectionModel().selectedItemProperty().addListener((obs, oldVal, newVal) ->
+                switchProjectWithConfirm(newVal));
+
+        HBox projectRow = new HBox(6, projectSwitchLabel, projectCombo);
+        projectRow.getStyleClass().add("sidebar-project-row");
+        HBox.setHgrow(projectCombo, Priority.ALWAYS);
+
+        VBox sidebar = new VBox(0, sectionLabel, projectRow, sidebarTreeView.getTreeView(), actionBar);
         sidebar.getStyleClass().add("sidebar");
         VBox.setVgrow(sidebarTreeView.getTreeView(), Priority.ALWAYS);
         return sidebar;

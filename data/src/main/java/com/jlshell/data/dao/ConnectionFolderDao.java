@@ -40,4 +40,7 @@ public interface ConnectionFolderDao {
     void updateParentId(@Bind("folderId") String folderId,
                         @Bind("parentId") String parentId,
                         @Bind("updatedAt") java.time.Instant updatedAt);
+
+    @SqlUpdate("UPDATE connection_folders SET project_id=NULL WHERE project_id=:projectId")
+    void clearProjectIdForProject(@Bind("projectId") String projectId);
 }
