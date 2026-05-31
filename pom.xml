@@ -20,7 +20,6 @@
         <module>data</module>
         <module>plugin-api</module>
         <module>plugin-loader</module>
-        <module>plugin-demo</module>
         <module>ui</module>
     </modules>
 

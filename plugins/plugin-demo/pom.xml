@@ -5,8 +5,8 @@
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
-        <groupId>com.jlshell</groupId>
-        <artifactId>jlshell-parent</artifactId>
+        <groupId>com.jlshell.plugins</groupId>
+        <artifactId>jlshell-plugins-parent</artifactId>
         <version>0.1.0-SNAPSHOT</version>
     </parent>
 
@@ -17,7 +17,6 @@
         <dependency>
             <groupId>com.jlshell</groupId>
             <artifactId>plugin-api</artifactId>
-            <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>org.openjfx</groupId>
