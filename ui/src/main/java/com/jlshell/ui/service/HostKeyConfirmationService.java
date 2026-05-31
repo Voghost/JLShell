@@ -5,6 +5,7 @@ import java.util.concurrent.TimeoutException;
 
 import com.jlshell.ssh.support.HostKeyConfirmationCallback;
 import com.jlshell.ui.support.FxThread;
+import com.jlshell.ui.theme.ThemeService;
 import javafx.scene.control.Alert;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.Label;
@@ -19,9 +20,11 @@ public class HostKeyConfirmationService implements HostKeyConfirmationCallback {
     private static final long TIMEOUT_SECONDS = 60;
 
     private final I18nService i18n;
+    private final ThemeService themeService;
 
-    public HostKeyConfirmationService(I18nService i18n) {
+    public HostKeyConfirmationService(I18nService i18n, ThemeService themeService) {
         this.i18n = i18n;
+        this.themeService = themeService;
     }
 
     @Override
@@ -54,6 +57,8 @@ public class HostKeyConfirmationService implements HostKeyConfirmationCallback {
         alert.getButtonTypes().setAll(trustButton, ButtonType.CANCEL);
 
         alert.getDialogPane().setPrefWidth(480);
+        alert.getDialogPane().getStylesheets().add(
+                getClass().getResource(themeService.currentTheme().stylesheet()).toExternalForm());
 
         return alert.showAndWait()
                 .filter(trustButton::equals)

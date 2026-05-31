@@ -82,12 +82,13 @@ public class AppContext implements AutoCloseable {
         SessionRegistry sessionRegistry = new InMemorySessionRegistry();
         FontProfileService fontProfileService = new PersistentFontProfileService(appSettingsService);
 
-        // 4. I18n (needed before SSH for host key confirmation dialogs)
+        // 4. I18n & Theme (needed before SSH for host key confirmation dialogs)
         I18nService i18nService = new I18nService(Locale.getDefault());
+        ThemeService themeService = new ThemeService();
 
         // 5. SSH / SFTP
         SshjConnectionManager connectionManager = new SshjConnectionManager(
-                executor, new EphemeralTrustHostKeyVerifier(), new HostKeyConfirmationService(i18nService));
+                executor, new EphemeralTrustHostKeyVerifier(), new HostKeyConfirmationService(i18nService, themeService));
         SessionManager sessionManager = new DefaultSessionManager(connectionManager, sessionRegistry);
         SftpService sftpService = new SshjSftpService(executor);
 
@@ -96,7 +97,6 @@ public class AppContext implements AutoCloseable {
         pluginManager.loadPlugins();
 
         // 7. UI services
-        ThemeService themeService = new ThemeService();
         MainViewModel viewModel = new MainViewModel();
 
         JediTermTerminalViewFactory terminalViewFactory = new JediTermTerminalViewFactory(
