@@ -125,6 +125,50 @@
                 </dependency>
             </dependencies>
         </profile>
+
+        <!-- Windows native exe via Launch4j -->
+        <profile>
+            <id>win-exe</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>com.akathist.maven.plugins</groupId>
+                        <artifactId>launch4j-maven-plugin</artifactId>
+                        <version>2.5.3</version>
+                        <executions>
+                            <execution>
+                                <phase>package</phase>
+                                <goals><goal>launch4j</goal></goals>
+                            </execution>
+                        </executions>
+                        <configuration>
+                            <headerType>gui</headerType>
+                            <jarPath>${project.build.directory}/${project.build.finalName}.jar</jarPath>
+                            <outfile>${project.build.directory}/JLShell.exe</outfile>
+                            <icon>${project.basedir}/src/main/resources/icons/app_icon.ico</icon>
+                            <jre>
+                                <path>runtime</path>
+                                <minVersion>21</minVersion>
+                                <opts>
+                                    <opt>--add-opens java.base/java.lang=ALL-UNNAMED</opt>
+                                    <opt>--add-opens java.desktop/sun.awt=ALL-UNNAMED</opt>
+                                </opts>
+                            </jre>
+                            <versionInfo>
+                                <fileVersion>${project.version}.0</fileVersion>
+                                <productVersion>${project.version}.0</productVersion>
+                                <txtFileVersion>${project.version}</txtFileVersion>
+                                <txtProductVersion>${project.version}</txtProductVersion>
+                                <fileDescription>JLShell SSH Client</fileDescription>
+                                <productName>JLShell</productName>
+                                <internalName>JLShell</internalName>
+                                <originalFilename>JLShell.exe</originalFilename>
+                            </versionInfo>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
     </profiles>
 
     <build>
@@ -136,6 +180,8 @@
                     <mainClass>com.jlshell.app.JlShellDesktopApplication</mainClass>
                     <options>
                         <option>-Dapple.laf.useScreenMenuBar=true</option>
+                        <option>-Xdock:icon=${project.basedir}/src/main/resources/icons/app_icon.png</option>
+                        <option>-Xdock:name=JLShell</option>
                     </options>
                 </configuration>
             </plugin>

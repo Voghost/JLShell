@@ -243,27 +243,29 @@ assemble_win() {
 
     cp "$FAT_JAR" "$work/$MAIN_JAR"
 
-    # Windows batch launcher
-    cat > "$work/JLShell.bat" <<'BAT'
+    # Build native Windows exe via Launch4j Maven plugin
+    log "Building Windows native exe via Launch4j..."
+    mvn package -DskipTests -pl app -am -P dist,win-exe -q
+
+    local maven_exe="$TARGET_DIR/${APP_NAME}.exe"
+    if [[ -f "$maven_exe" ]]; then
+        cp "$maven_exe" "$work/$APP_NAME.exe"
+        ok "Windows native exe: $APP_NAME.exe"
+    else
+        # Fallback: batch launcher using javaw (no console window)
+        log "WARN: Launch4j exe not found, falling back to .bat launcher"
+        cat > "$work/JLShell.bat" <<'BAT'
 @echo off
 setlocal
 set DIR=%~dp0
-"%DIR%runtime\bin\java.exe" ^
+"%DIR%runtime\bin\javaw.exe" ^
     --add-opens java.base/java.lang=ALL-UNNAMED ^
     --add-opens java.desktop/sun.awt=ALL-UNNAMED ^
     -jar "%DIR%MAIN_JAR_PLACEHOLDER" %*
 BAT
-    sed -i '' "s/MAIN_JAR_PLACEHOLDER/$MAIN_JAR/" "$work/JLShell.bat" 2>/dev/null || \
-    sed -i    "s/MAIN_JAR_PLACEHOLDER/$MAIN_JAR/" "$work/JLShell.bat"
-
-    # Windows VBScript launcher (double-click, no console window)
-    cat > "$work/JLShell.vbs" <<VBS
-Set WshShell = CreateObject("WScript.Shell")
-WshShell.Run Chr(34) & WScript.ScriptFullName & Chr(34), 0, False
-Set oShell = CreateObject("WScript.Shell")
-sDir = Left(WScript.ScriptFullName, InStrRev(WScript.ScriptFullName, "\"))
-oShell.Run Chr(34) & sDir & "JLShell.bat" & Chr(34), 0, False
-VBS
+        sed -i '' "s/MAIN_JAR_PLACEHOLDER/$MAIN_JAR/" "$work/JLShell.bat" 2>/dev/null || \
+        sed -i    "s/MAIN_JAR_PLACEHOLDER/$MAIN_JAR/" "$work/JLShell.bat"
+    fi
 
     local out="$DIST_DIR/${APP_NAME}-${APP_VERSION}-win.zip"
     rm -f "$out"

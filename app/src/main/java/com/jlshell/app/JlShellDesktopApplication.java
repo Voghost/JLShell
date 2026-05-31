@@ -50,9 +50,6 @@ public class JlShellDesktopApplication extends Application {
             }
         } catch (Exception ignored) {}
 
-        // macOS Dock icon comes from Contents/Resources/AppIcon.icns in the bundle —
-        // no runtime override needed (and doing so causes a visible icon flash/swap).
-        // On Windows/Linux the stage.getIcons() above handles the taskbar icon.
         java.awt.Image awtIcon = loadAwtIcon();
 
         // Register macOS application-menu handlers (Preferences, About).

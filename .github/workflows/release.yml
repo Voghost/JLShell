@@ -254,61 +254,51 @@ jobs:
           java-package: 'jdk+fx'
           cache: maven
 
-      - name: Build fat jar + jlink runtime
+      - name: Install Python for ICO conversion
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install Pillow
+        run: pip install Pillow
+
+      - name: Create app_icon.ico from PNG
+        shell: python
+        run: |
+          from PIL import Image
+          img = Image.open('app/src/main/resources/icons/app_icon.png')
+          sizes = [(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)]
+          icons = [img.resize(s, Image.LANCZOS) for s in sizes]
+          icons[0].save('app/src/main/resources/icons/app_icon.ico', format='ICO', sizes=sizes)
+
+      - name: Build fat jar + jlink runtime + native exe
         shell: bash
         run: |
-          mvn package -DskipTests -pl app -am -q
+          mvn package -DskipTests -pl app -am -P dist,win-exe -q
 
           JDK=$JAVA_HOME
-          mkdir -p dist/app-input
+          mkdir -p dist/runtime
           "$JDK/bin/jlink" \
             --module-path "$JDK/jmods" \
             --add-modules $MODULES \
             --output dist/runtime \
             --strip-debug --no-man-pages --no-header-files --compress zip-6
 
-          cp $JAR dist/app-input/app.jar
-
-      # ── zip + portable exe (7-Zip SFX) ──────────────────────────────────────
-      - name: Package zip + portable exe
+      - name: Package zip with exe
         shell: bash
         run: |
-          # Assemble portable layout (flat — no JLShell/ subdir, easier for SFX)
-          mkdir -p dist/win-work
-          cp -r dist/runtime dist/win-work/
-          cp dist/app-input/app.jar dist/win-work/
+          mkdir -p dist/win-work/JLShell
+          cp -r dist/runtime dist/win-work/JLShell/
+          cp app/target/app-0.1.0-SNAPSHOT.jar dist/win-work/JLShell/
+          cp app/target/JLShell.exe dist/win-work/JLShell/
 
-          # Launcher: no console window via javaw
-          printf '@echo off\r\nsetlocal\r\nset DIR=%%~dp0\r\nstart "" "%%DIR%%runtime\\bin\\javaw.exe" ^\r\n  --add-opens java.base/java.lang=ALL-UNNAMED ^\r\n  --add-opens java.desktop/sun.awt=ALL-UNNAMED ^\r\n  -jar "%%DIR%%app.jar"\r\n' \
-            > dist/win-work/JLShell.bat
-
-          # ZIP (portable — extract anywhere, double-click JLShell.bat)
-          cd dist/win-work && 7z a -tzip "../JLShell-${VERSION}-win-x64.zip" . && cd ../..
-
-          # ── Portable EXE via 7-Zip SFX ──────────────────────────────────────
-          # 7z.sfx supports installer config format in 7-Zip 26.00+
-          cd dist/win-work && 7z a -t7z -mx=5 "../JLShell-sfx.7z" . && cd ../..
-
-          SFX_STUB="C:/Program Files/7-Zip/7z.sfx"
-          [[ -f "$SFX_STUB" ]] || { echo "7z.sfx not found, listing 7-Zip dir:"; ls "C:/Program Files/7-Zip/"; exit 1; }
-
-          # SFX config: extract to %LOCALAPPDATA%\JLShell\<version>, then run
-          SFXDIR="${RUNNER_TEMP}/7zsfx"
-          mkdir -p "$SFXDIR"
-          printf ';!@Install@!UTF-8!\nTitle="JLShell %s"\nExtractPathVariable=LOCALAPPDATA\nExtractPath=JLShell\\%s\nOverwriteMode=2\nRunProgram="JLShell.bat"\nGUIMode=2\n;!@InstallEnd@!' \
-            "${VERSION}" "${VERSION}" > "$SFXDIR/sfx.cfg"
-
-          # Combine: sfx stub + config + 7z archive = single portable exe
-          cat "$SFX_STUB" "$SFXDIR/sfx.cfg" "dist/JLShell-sfx.7z" \
-            > "dist/JLShell-${VERSION}-win-x64.exe"
-          rm -f "dist/JLShell-sfx.7z"
+          cd dist/win-work && 7z a -tzip "../JLShell-${VERSION}-win-x64.zip" JLShell && cd ../..
 
       - uses: actions/upload-artifact@v4
         with:
           name: win-packages
           path: |
             dist/JLShell-${{ env.VERSION }}-win-x64.zip
-            dist/JLShell-${{ env.VERSION }}-win-x64.exe
 
   # ── Create GitHub Release ────────────────────────────────────────────────────
   release:
@@ -337,7 +327,6 @@ jobs:
             artifacts/JLShell-${{ env.VERSION }}-linux-x64.deb
             artifacts/JLShell-${{ env.VERSION }}-linux-x86_64.AppImage
             artifacts/JLShell-${{ env.VERSION }}-win-x64.zip
-            artifacts/JLShell-${{ env.VERSION }}-win-x64.exe
           body: |
             ## JLShell v${{ env.VERSION }}
 
@@ -349,7 +338,6 @@ jobs:
             | Linux | `JLShell-${{ env.VERSION }}-linux-x64.tar.gz` | 解压后运行 `./JLShell.sh` |
             | Linux | `JLShell-${{ env.VERSION }}-linux-x64.deb` | `sudo dpkg -i` 安装，命令行 `jlshell` |
             | Linux | `JLShell-${{ env.VERSION }}-linux-x86_64.AppImage` | `chmod +x` 后直接运行 |
-            | Windows | `JLShell-${{ env.VERSION }}-win-x64.exe` | 双击安装（推荐） |
-            | Windows | `JLShell-${{ env.VERSION }}-win-x64.zip` | 解压后双击 `JLShell.vbs` |
+            | Windows | `JLShell-${{ env.VERSION }}-win-x64.zip` | 解压后双击 `JLShell.exe` |
 
             > 所有包均内置精简 JRE，无需安装 JDK。
