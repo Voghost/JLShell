@@ -79,13 +79,7 @@ public class PreferencesDialog {
                 String prevLang = appSettings.get("ui.language", "en");
                 appSettings.set("ui.language", pendingLang[0]);
                 if (!prevLang.equals(pendingLang[0])) {
-                    applyLocale(pendingLang[0]);
-                    javafx.scene.control.Alert alert = new javafx.scene.control.Alert(
-                            javafx.scene.control.Alert.AlertType.INFORMATION,
-                            i18n.get("preferences.general.restartRequired"),
-                            javafx.scene.control.ButtonType.OK);
-                    themeService.applyToDialog(alert);
-                    alert.showAndWait();
+                    applyLocale(pendingLang[0], i18n);
                 }
             }
             return null;
@@ -94,11 +88,11 @@ public class PreferencesDialog {
         dialog.showAndWait();
     }
 
-    private static void applyLocale(String langCode) {
+    private static void applyLocale(String langCode, I18nService i18n) {
         Locale locale = langCode.contains("_")
                 ? new Locale(langCode.split("_")[0], langCode.split("_")[1])
                 : new Locale(langCode);
-        Locale.setDefault(locale);
+        i18n.setLocale(locale);
     }
 
     private static TabPane buildTabPane(FontProfileService fontProfileService, AppSettingsService appSettings, I18nService i18n, FontProfile[] pending, String[] pendingLang) {

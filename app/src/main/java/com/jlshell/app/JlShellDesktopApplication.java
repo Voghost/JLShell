@@ -24,11 +24,6 @@ public class JlShellDesktopApplication extends Application {
     private TrayIcon trayIcon;
 
     public static void main(String[] args) {
-        System.setProperty("apple.laf.useScreenMenuBar", "true");
-        // Must be set before AWT toolkit initialises so the macOS application menu
-        // shows "JLShell" instead of the fully-qualified class name.
-        System.setProperty("apple.awt.application.name", "JLShell");
-        System.setProperty("com.apple.mrj.application.apple.menu.about.name", "JLShell");
         launch(args);
     }
 
@@ -61,14 +56,24 @@ public class JlShellDesktopApplication extends Application {
 
         java.awt.Image awtIcon = loadAwtIcon();
 
-        // Register macOS application-menu handlers (Preferences, About).
-        // This causes "Preferences..." to appear in the native JLShell application menu
-        // instead of needing a separate custom menu. macOS localises the item label itself.
+        // Register macOS application-menu handlers (Preferences, About, Quit).
+        // This causes these items to appear in the native JLShell application menu.
+        // macOS localises the item labels itself.
         if (Desktop.isDesktopSupported()) {
             Desktop desktop = Desktop.getDesktop();
             if (desktop.isSupported(Desktop.Action.APP_PREFERENCES)) {
                 desktop.setPreferencesHandler(e ->
-                    javafx.application.Platform.runLater(() -> mainWindow.openPreferences(stage)));
+                    Platform.runLater(() -> mainWindow.openPreferences(stage)));
+            }
+            if (desktop.isSupported(Desktop.Action.APP_ABOUT)) {
+                desktop.setAboutHandler(e ->
+                    Platform.runLater(() -> showAboutDialog(stage)));
+            }
+            if (desktop.isSupported(Desktop.Action.APP_QUIT_HANDLER)) {
+                desktop.setQuitHandler((e, response) -> {
+                    scheduleShutdown();
+                    response.cancelQuit();
+                });
             }
         }
 
@@ -106,6 +111,16 @@ public class JlShellDesktopApplication extends Application {
 
     private static boolean isWindows() {
         return System.getProperty("os.name", "").toLowerCase().contains("win");
+    }
+
+    private void showAboutDialog(Stage stage) {
+        javafx.scene.control.Alert about = new javafx.scene.control.Alert(
+                javafx.scene.control.Alert.AlertType.INFORMATION);
+        about.setTitle("About JLShell");
+        about.setHeaderText("JLShell");
+        about.setContentText("SSH / SFTP Client\nVersion 0.1.12");
+        about.initOwner(stage);
+        about.showAndWait();
     }
 
     private void installSystemTray(Stage stage, java.awt.Image icon) {

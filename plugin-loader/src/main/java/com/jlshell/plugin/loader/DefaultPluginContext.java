@@ -1,72 +1,81 @@
 package com.jlshell.plugin.loader;
 
+import java.util.Locale;
 import java.util.Optional;
-import java.util.function.Consumer;
 
-import com.jlshell.core.session.SshSession;
 import com.jlshell.plugin.api.NotificationLevel;
 import com.jlshell.plugin.api.PluginContext;
 import com.jlshell.plugin.api.SshSessionContext;
-import javafx.application.Platform;
+
+import javafx.beans.property.ReadOnlyObjectProperty;
+import javafx.beans.property.ReadOnlyStringProperty;
+import javafx.beans.property.SimpleObjectProperty;
+import javafx.beans.property.SimpleStringProperty;
+import javafx.beans.property.StringProperty;
 import javafx.scene.Node;
-import javafx.scene.control.Alert;
-import javafx.scene.control.Tab;
 
 public class DefaultPluginContext implements PluginContext {
 
-    private final SshSession sshSession;
-    private final Consumer<Tab> openTabCallback;
-    private final Consumer<Alert> themeApplier;
-    private Tab openedTab;
+    private final StringProperty themeName = new SimpleStringProperty("dark");
+    private final SimpleObjectProperty<Locale> locale = new SimpleObjectProperty<>(Locale.getDefault());
+    private final Optional<SshSessionContext> sshSession;
+    private final Callbacks callbacks;
 
-    public DefaultPluginContext(SshSession sshSession, Consumer<Tab> openTabCallback, Consumer<Alert> themeApplier) {
+    public interface Callbacks {
+        void openTab(String title, Node content);
+        void closeTab();
+    }
+
+    public DefaultPluginContext(Optional<SshSessionContext> sshSession, Callbacks callbacks) {
         this.sshSession = sshSession;
-        this.openTabCallback = openTabCallback;
-        this.themeApplier = themeApplier;
+        this.callbacks = callbacks;
+    }
+
+    @Override
+    public String themeName() {
+        return themeName.get();
+    }
+
+    @Override
+    public ReadOnlyStringProperty themeNameProperty() {
+        return themeName;
+    }
+
+    public StringProperty writableThemeNameProperty() {
+        return themeName;
+    }
+
+    @Override
+    public Locale locale() {
+        return locale.get();
+    }
+
+    @Override
+    public ReadOnlyObjectProperty<Locale> localeProperty() {
+        return locale;
+    }
+
+    public SimpleObjectProperty<Locale> writableLocaleProperty() {
+        return locale;
     }
 
     @Override
     public Optional<SshSessionContext> sshSession() {
-        if (sshSession == null) {
-            return Optional.empty();
-        }
-        return Optional.of(new SshSessionContextAdapter(sshSession));
+        return sshSession;
     }
 
     @Override
     public void openTab(String title, Node content) {
-        Platform.runLater(() -> {
-            Tab tab = new Tab(title, content);
-            tab.setClosable(true);
-            openedTab = tab;
-            openTabCallback.accept(tab);
-        });
+        callbacks.openTab(title, content);
     }
 
     @Override
     public void closeTab() {
-        if (openedTab != null) {
-            Platform.runLater(() -> {
-                if (openedTab.getTabPane() != null) {
-                    openedTab.getTabPane().getTabs().remove(openedTab);
-                }
-                openedTab = null;
-            });
-        }
+        callbacks.closeTab();
     }
 
     @Override
     public void showNotification(String message, NotificationLevel level) {
-        Platform.runLater(() -> {
-            Alert.AlertType alertType = switch (level) {
-                case WARNING -> Alert.AlertType.WARNING;
-                case ERROR -> Alert.AlertType.ERROR;
-                default -> Alert.AlertType.INFORMATION;
-            };
-            Alert alert = new Alert(alertType, message);
-            alert.setHeaderText(null);
-            if (themeApplier != null) themeApplier.accept(alert);
-            alert.show();
-        });
+        // TODO: implement notification UI
     }
 }

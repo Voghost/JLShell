@@ -177,9 +177,11 @@
                 <groupId>org.openjfx</groupId>
                 <artifactId>javafx-maven-plugin</artifactId>
                 <configuration>
-                    <mainClass>com.jlshell.app.JlShellDesktopApplication</mainClass>
+                    <mainClass>com.jlshell.app.Launcher</mainClass>
                     <options>
                         <option>-Dapple.laf.useScreenMenuBar=true</option>
+                        <option>-Dapple.awt.application.name=JLShell</option>
+                        <option>-Dcom.apple.mrj.application.apple.menu.about.name=JLShell</option>
                         <option>-Xdock:icon=${project.basedir}/src/main/resources/icons/app_icon.png</option>
                         <option>-Xdock:name=JLShell</option>
                     </options>
@@ -192,7 +194,7 @@
                 <configuration>
                     <archive>
                         <manifest>
-                            <mainClass>com.jlshell.app.JlShellDesktopApplication</mainClass>
+                            <mainClass>com.jlshell.app.Launcher</mainClass>
                         </manifest>
                     </archive>
                 </configuration>
@@ -222,7 +224,7 @@
                             </filters>
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                                    <mainClass>com.jlshell.app.JlShellDesktopApplication</mainClass>
+                                    <mainClass>com.jlshell.app.Launcher</mainClass>
                                 </transformer>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">

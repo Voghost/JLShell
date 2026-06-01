@@ -80,6 +80,11 @@ public class MainWindow {
     private final TabPane workspaceTabs = new TabPane();
     private final ListView<ConnectionProfile> connectionListView = new ListView<>();
     private SidebarTreeView sidebarTreeView;
+    private VBox topArea; // stored for locale rebuild
+    private Label sectionLabel;
+    private Label projectSwitchLabel;
+    private Label statusLabel;
+    private Stage primaryStage;
     /** Sentinel for the "Default" (no project) combo item */
     private static final ProjectProfile DEFAULT_PROJECT = new ProjectProfile(null, "", null);
     /** null = "Default" (connections with no project) */
@@ -127,6 +132,7 @@ public class MainWindow {
     }
 
     public Scene createScene(Stage stage) {
+        this.primaryStage = stage;
         BorderPane root = new BorderPane();
         root.getStyleClass().add("app-root");
 
@@ -148,6 +154,12 @@ public class MainWindow {
                     .filter(SessionWorkspaceTab.class::isInstance)
                     .map(SessionWorkspaceTab.class::cast)
                     .forEach(tab -> tab.applyTheme(newTheme));
+            pluginManager.setThemeName(newTheme.name().toLowerCase());
+        });
+
+        i18nService.localeProperty().addListener((obs, oldLocale, newLocale) -> {
+            refreshAllTexts(stage, root);
+            pluginManager.setLocale(newLocale);
         });
 
         loadConnections();
@@ -211,9 +223,9 @@ public class MainWindow {
         MenuBar menuBar = buildMenuBar(stage);
         menuBar.setUseSystemMenuBar(true);
 
-        VBox box = new VBox(menuBar);
-        box.getStyleClass().add("top-shell");
-        return box;
+        topArea = new VBox(menuBar);
+        topArea.getStyleClass().add("top-shell");
+        return topArea;
     }
 
     private CustomTitleBar buildCustomTitleBar(Stage stage) {
@@ -299,6 +311,21 @@ public class MainWindow {
         PreferencesDialog.show(stage, fontProfileService, appSettingsService, i18nService, themeService);
     }
 
+    private void refreshAllTexts(Stage stage, BorderPane root) {
+        boolean isWindows = System.getProperty("os.name", "").toLowerCase().contains("win");
+        if (isWindows) {
+            root.setTop(buildCustomTitleBar(stage));
+        } else {
+            root.setTop(buildTopArea(stage));
+        }
+        if (sectionLabel != null) {
+            sectionLabel.setText(i18nService.get("sidebar.connections"));
+        }
+        if (projectSwitchLabel != null) {
+            projectSwitchLabel.setText(i18nService.get("project.switch.label"));
+        }
+    }
+
     private SplitPane buildCenterArea(Stage stage) {
         VBox sidebar = buildSidebar(stage);
         workspaceTabs.getStyleClass().add("workspace-tabs");
@@ -380,10 +407,10 @@ public class MainWindow {
         HBox.setHgrow(actionBar.getChildren().get(4), Priority.ALWAYS);
         actionBar.getStyleClass().add("sidebar-action-bar");
 
-        Label sectionLabel = new Label(i18nService.get("sidebar.connections"));
+        sectionLabel = new Label(i18nService.get("sidebar.connections"));
         sectionLabel.getStyleClass().add("sidebar-section-label");
 
-        Label projectSwitchLabel = new Label(i18nService.get("project.switch.label"));
+        projectSwitchLabel = new Label(i18nService.get("project.switch.label"));
         projectSwitchLabel.getStyleClass().add("sidebar-project-label");
 
         projectCombo.getStyleClass().add("sidebar-project-combo");
@@ -418,7 +445,7 @@ public class MainWindow {
     }
 
     private Label buildStatusBar() {
-        Label statusLabel = new Label();
+        statusLabel = new Label();
         statusLabel.textProperty().bind(viewModel.statusMessageProperty());
         statusLabel.getStyleClass().add("status-bar");
         return statusLabel;

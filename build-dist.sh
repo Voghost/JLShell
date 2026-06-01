@@ -15,7 +15,7 @@ set -euo pipefail
 # ── Config ────────────────────────────────────────────────────────────────────
 APP_NAME="JLShell"
 APP_VERSION="0.1.0"
-MAIN_CLASS="com.jlshell.app.JlShellDesktopApplication"
+MAIN_CLASS="com.jlshell.app.Launcher"
 MAIN_JAR="app-0.1.0-SNAPSHOT.jar"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,7 +24,7 @@ DIST_DIR="$SCRIPT_DIR/dist"
 FAT_JAR="$TARGET_DIR/$MAIN_JAR"
 
 # JDK 21 locations — override via env vars if needed
-JDK21_MAC="${JDK21_MAC:-/opt/homebrew/Cellar/openjdk@21/21.0.10/libexec/openjdk.jdk/Contents/Home}"
+JDK21_MAC="${JDK21_MAC:-/opt/homebrew/Cellar/openjdk@21/21.0.11/libexec/openjdk.jdk/Contents/Home}"
 JDK21_WIN="${JDK21_WIN:-}"   # path to a Windows JDK 21 (only needed for --win on non-Windows)
 JDK21_LINUX="${JDK21_LINUX:-}"  # path to a Linux JDK 21 (only needed for --linux on non-Linux)
 
@@ -63,7 +63,7 @@ build_jar() {
 # ── Step 2: Required Java modules (fixed list, covers Spring Boot + JavaFX + SQLite + SSH) ──
 detect_modules() {
     # jdeps on a shaded fat jar can be unreliable; use a curated list that covers all runtime needs.
-    echo "java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.management.rmi,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.transaction.xa,java.xml,java.xml.crypto,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.jfr,jdk.management,jdk.naming.dns,jdk.net,jdk.unsupported,jdk.unsupported.desktop,jdk.zipfs"
+    echo "java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.management.rmi,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.transaction.xa,java.xml,java.xml.crypto,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.jfr,jdk.localedata,jdk.management,jdk.naming.dns,jdk.net,jdk.unsupported,jdk.unsupported.desktop,jdk.zipfs"
 }
 
 # ── Step 3: jlink ─────────────────────────────────────────────────────────────
@@ -105,65 +105,17 @@ assemble_mac() {
     [[ -d "$jdk" ]] || err "macOS JDK 21 not found at $jdk — set JDK21_MAC env var"
 
     local work="$DIST_DIR/mac-work"
-    local app_bundle="$work/$APP_NAME.app"
     rm -rf "$work" && mkdir -p "$work"
 
+    # jlink a custom JRE for macOS
+    local jre_dir="$work/jre"
     local modules
     modules=$(detect_modules)
-
-    local jre_dir="$work/jre"
     run_jlink "$jdk" "$modules" "$jre_dir" "${JAVAFX_MODS_MAC:-}"
 
-    # macOS .app bundle structure
-    mkdir -p "$app_bundle/Contents/MacOS"
-    mkdir -p "$app_bundle/Contents/Resources"
-    mkdir -p "$app_bundle/Contents/Java"
-
-    cp "$FAT_JAR" "$app_bundle/Contents/Java/$MAIN_JAR"
-    cp -r "$jre_dir" "$app_bundle/Contents/runtime"
-
-    # Info.plist
-    cat > "$app_bundle/Contents/Info.plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleName</key>             <string>$APP_NAME</string>
-    <key>CFBundleDisplayName</key>      <string>$APP_NAME</string>
-    <key>CFBundleIdentifier</key>       <string>com.jlshell.app</string>
-    <key>CFBundleVersion</key>          <string>$APP_VERSION</string>
-    <key>CFBundleShortVersionString</key><string>$APP_VERSION</string>
-    <key>CFBundleExecutable</key>       <string>JLShell</string>
-    <key>CFBundleIconFile</key>         <string>AppIcon</string>
-    <key>CFBundlePackageType</key>      <string>APPL</string>
-    <key>NSHighResolutionCapable</key>  <true/>
-    <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
-    <key>LSMinimumSystemVersion</key>   <string>12.0</string>
-</dict>
-</plist>
-PLIST
-
-    # Launcher script
-    cat > "$app_bundle/Contents/MacOS/JLShell" <<'LAUNCHER'
-#!/bin/bash
-DIR="$(cd "$(dirname "$0")/.." && pwd)"
-JRE="$DIR/runtime/bin/java"
-JAR="$DIR/Java/MAIN_JAR_PLACEHOLDER"
-exec "$JRE" \
-    -Dapple.awt.application.name=JLShell \
-    -Dapple.laf.useScreenMenuBar=true \
-    -Xdock:name="JLShell" \
-    -Xdock:icon="$DIR/Resources/AppIcon.icns" \
-    --add-opens java.base/java.lang=ALL-UNNAMED \
-    --add-opens java.desktop/sun.awt=ALL-UNNAMED \
-    -jar "$JAR" "$@"
-LAUNCHER
-    sed -i '' "s/MAIN_JAR_PLACEHOLDER/$MAIN_JAR/" "$app_bundle/Contents/MacOS/JLShell"
-    chmod +x "$app_bundle/Contents/MacOS/JLShell"
-
-    # Build AppIcon.icns so Finder shows the correct icon immediately (before app launches)
-    # Source: app/src/main/resources/icons/app_icon.png — replace this file to change the icon
+    # Build AppIcon.icns (jpackage needs it before invocation)
     local icon_src="$SCRIPT_DIR/app/src/main/resources/icons/app_icon.png"
+    local icns_file="$work/AppIcon.icns"
     if [[ -f "$icon_src" ]]; then
         local iconset="$work/AppIcon.iconset"
         mkdir -p "$iconset"
@@ -171,12 +123,49 @@ LAUNCHER
             sips -z $size $size "$icon_src" --out "$iconset/icon_${size}x${size}.png" &>/dev/null
             sips -z $((size*2)) $((size*2)) "$icon_src" --out "$iconset/icon_${size}x${size}@2x.png" &>/dev/null
         done
-        iconutil -c icns "$iconset" -o "$app_bundle/Contents/Resources/AppIcon.icns"
+        iconutil -c icns "$iconset" -o "$icns_file"
         rm -rf "$iconset"
         ok "macOS icon: AppIcon.icns created"
     else
         log "WARN: $icon_src not found, bundle will have no dock icon"
     fi
+
+    # Use jpackage to create a proper .app bundle with a native launcher.
+    # The native launcher sets the process name to "JLShell", so macOS shows
+    # "Hide JLShell" / "Quit JLShell" instead of the Java class name.
+    local jpackage="$jdk/bin/jpackage"
+    [[ -x "$jpackage" ]] || err "jpackage not found at $jpackage"
+
+    # jpackage --app-version requires first segment > 0
+    local pkg_version="${APP_VERSION#0.}"
+    pkg_version="1.${pkg_version}"
+
+    # Prepare a clean input directory with only the fat jar
+    local input_dir="$work/input"
+    mkdir -p "$input_dir"
+    cp "$FAT_JAR" "$input_dir/"
+
+    log "Running jpackage → $APP_NAME.app"
+    "$jpackage" \
+        --type app-image \
+        --name "$APP_NAME" \
+        --app-version "$pkg_version" \
+        --input "$input_dir" \
+        --main-jar "$MAIN_JAR" \
+        --main-class com.jlshell.app.Launcher \
+        --runtime-image "$jre_dir" \
+        --icon "$icns_file" \
+        --vendor "JLShell" \
+        --description "JLShell SSH Client" \
+        --java-options "--add-opens java.base/java.lang=ALL-UNNAMED" \
+        --java-options "--add-opens java.desktop/sun.awt=ALL-UNNAMED" \
+        --java-options "-Dapple.laf.useScreenMenuBar=true" \
+        --java-options "-Dapple.awt.application.name=JLShell" \
+        --dest "$work"
+
+    local app_bundle="$work/$APP_NAME.app"
+    [[ -d "$app_bundle" ]] || err "jpackage did not produce $APP_NAME.app"
+    ok "macOS .app bundle created"
 
     # Package as .zip (user can drag .app to Applications)
     local out="$DIST_DIR/${APP_NAME}-${APP_VERSION}-mac.zip"

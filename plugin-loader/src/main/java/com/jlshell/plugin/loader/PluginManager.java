@@ -7,12 +7,19 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.ServiceLoader;
 import java.util.concurrent.ConcurrentHashMap;
 
 import com.jlshell.plugin.api.JlShellPlugin;
 import com.jlshell.plugin.api.PluginContext;
+import com.jlshell.plugin.api.PluginView;
+
+import javafx.beans.property.ObjectProperty;
+import javafx.beans.property.SimpleObjectProperty;
+import javafx.beans.property.SimpleStringProperty;
+import javafx.beans.property.StringProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,6 +34,9 @@ public class PluginManager {
     private final String userPluginsDir;
     private final List<PluginDescriptor> plugins = new ArrayList<>();
     private final Map<String, JlShellPlugin> activePlugins = new ConcurrentHashMap<>();
+
+    private final StringProperty themeName = new SimpleStringProperty("dark");
+    private final ObjectProperty<Locale> locale = new SimpleObjectProperty<>(Locale.getDefault());
 
     public PluginManager(String userPluginsDir) {
         this.userPluginsDir = userPluginsDir;
@@ -51,10 +61,7 @@ public class PluginManager {
     }
 
     private void loadFromExternalDirs() {
-        // 1. User plugins directory: ~/.jlshell/plugins/
         loadFromDirectory(Path.of(userPluginsDir));
-
-        // 2. Bundled plugins directory: <application-dir>/plugins/
         Path appDir = resolveApplicationDir();
         if (appDir != null) {
             Path bundledDir = appDir.resolve("plugins");
@@ -84,21 +91,34 @@ public class PluginManager {
         try {
             String appDir = System.getProperty("jlshell.app.dir");
             if (appDir != null) return Path.of(appDir);
-
             Path jarPath = Path.of(PluginManager.class.getProtectionDomain()
                     .getCodeSource().getLocation().toURI());
-            if (Files.isRegularFile(jarPath)) {
-                return jarPath.getParent();
-            }
-            if (Files.isDirectory(jarPath)) {
-                return jarPath;
-            }
+            if (Files.isRegularFile(jarPath)) return jarPath.getParent();
+            if (Files.isDirectory(jarPath)) return jarPath;
         } catch (Exception ignored) {}
         return null;
     }
 
     public List<PluginDescriptor> getAvailablePlugins() {
         return List.copyOf(plugins);
+    }
+
+    public StringProperty themeNameProperty() {
+        return themeName;
+    }
+
+    public ObjectProperty<Locale> localeProperty() {
+        return locale;
+    }
+
+    public void setThemeName(String name) {
+        themeName.set(name);
+        notifyThemeChanged(name);
+    }
+
+    public void setLocale(Locale loc) {
+        locale.set(loc);
+        notifyLocaleChanged(loc);
     }
 
     public void activatePlugin(String pluginId, PluginContext context) {
@@ -123,6 +143,20 @@ public class PluginManager {
 
     public void deactivateAll() {
         new ArrayList<>(activePlugins.keySet()).forEach(this::deactivatePlugin);
+    }
+
+    private void notifyThemeChanged(String themeName) {
+        activePlugins.values().forEach(p -> {
+            PluginView view = p.view();
+            if (view != null) view.onThemeChanged(themeName);
+        });
+    }
+
+    private void notifyLocaleChanged(Locale locale) {
+        activePlugins.values().forEach(p -> {
+            PluginView view = p.view();
+            if (view != null) view.onLocaleChanged(locale);
+        });
     }
 
     private static PluginDescriptor toDescriptor(JlShellPlugin plugin) {

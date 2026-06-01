@@ -1,8 +1,9 @@
 package com.jlshell.ui.view;
 
+import java.util.Optional;
 import java.util.function.Consumer;
 
-import com.jlshell.plugin.api.PluginContext;
+import com.jlshell.plugin.api.SshSessionContext;
 import com.jlshell.plugin.loader.DefaultPluginContext;
 import com.jlshell.plugin.loader.PluginDescriptor;
 import com.jlshell.plugin.loader.PluginManager;
@@ -51,7 +52,35 @@ public class PluginsTabView extends BorderPane {
                     desc.getStyleClass().add("plugin-desc");
                     Button openBtn = new Button(i18nService.get("plugin.open"));
                     openBtn.setOnAction(e -> {
-                        PluginContext ctx = new DefaultPluginContext(sshSession, openTabCallback, themeService::applyToDialog);
+                        Optional<SshSessionContext> sshCtx = (sshSession != null)
+                                ? Optional.of(new com.jlshell.plugin.loader.SshSessionContextAdapter(sshSession))
+                                : Optional.empty();
+                        DefaultPluginContext ctx = new DefaultPluginContext(sshCtx, new DefaultPluginContext.Callbacks() {
+                            private Tab openedTab;
+
+                            @Override
+                            public void openTab(String title, javafx.scene.Node content) {
+                                javafx.application.Platform.runLater(() -> {
+                                    openedTab = new Tab(title, content);
+                                    openedTab.setClosable(true);
+                                    openTabCallback.accept(openedTab);
+                                });
+                            }
+
+                            @Override
+                            public void closeTab() {
+                                if (openedTab != null) {
+                                    javafx.application.Platform.runLater(() -> {
+                                        if (openedTab.getTabPane() != null) {
+                                            openedTab.getTabPane().getTabs().remove(openedTab);
+                                        }
+                                        openedTab = null;
+                                    });
+                                }
+                            }
+                        });
+                        ctx.writableThemeNameProperty().bind(pluginManager.themeNameProperty());
+                        ctx.writableLocaleProperty().bind(pluginManager.localeProperty());
                         pluginManager.activatePlugin(item.id(), ctx);
                     });
                     HBox row = new HBox(8, new VBox(2, name, desc), openBtn);

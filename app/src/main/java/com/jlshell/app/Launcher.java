@@ -1,15 +1,19 @@
 package com.jlshell.app;
 
 /**
- * IDEA 直接运行时的入口。
- *
- * JVM 对继承 Application 的 main 类会做 JavaFX 模块检查，
- * 只有 module path 上的 jar 才算；classpath 上的不算。
- * 通过一个不继承 Application 的 Launcher 类间接调用，
- * 等 Application.launch() 执行时 JavaFX 已经在 classpath 上了。
+ * Entry point that sets macOS system properties before AWT/JavaFX initialises.
+ * macOS derives the application menu name from the main class's simple name,
+ * so this class is deliberately named "Launcher" — but we override it with
+ * {@code apple.awt.application.name} which takes precedence when set early enough.
  */
 public class Launcher {
+
     public static void main(String[] args) {
+        // Must be set before any AWT/JavaFX class is loaded
+        System.setProperty("apple.laf.useScreenMenuBar", "true");
+        System.setProperty("apple.awt.application.name", "JLShell");
+        System.setProperty("com.apple.mrj.application.apple.menu.about.name", "JLShell");
+
         JlShellDesktopApplication.main(args);
     }
 }
