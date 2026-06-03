@@ -24,6 +24,8 @@ public class DefaultPluginContext implements PluginContext {
     public interface Callbacks {
         void openTab(String title, Node content);
         void closeTab();
+        void updateTabTitle(String title);
+        String resolveI18n(String key, String fallback);
     }
 
     public DefaultPluginContext(Optional<SshSessionContext> sshSession, Callbacks callbacks) {
@@ -72,6 +74,16 @@ public class DefaultPluginContext implements PluginContext {
     @Override
     public void closeTab() {
         callbacks.closeTab();
+    }
+
+    @Override
+    public void updateTabTitle(String title) {
+        callbacks.updateTabTitle(title);
+    }
+
+    @Override
+    public String resolveI18n(String key, String fallback) {
+        return callbacks.resolveI18n(key, fallback);
     }
 
     @Override

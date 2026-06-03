@@ -83,7 +83,12 @@ public class AppContext implements AutoCloseable {
         FontProfileService fontProfileService = new PersistentFontProfileService(appSettingsService);
 
         // 4. I18n & Theme (needed before SSH for host key confirmation dialogs)
-        I18nService i18nService = new I18nService(Locale.getDefault());
+        String savedLang = appSettingsService.get("ui.language", "en");
+        Locale initialLocale = savedLang.contains("_")
+                ? new Locale(savedLang.split("_")[0], savedLang.split("_")[1])
+                : new Locale(savedLang);
+        log.info("Initial locale from settings: {} (savedLang={})", initialLocale, savedLang);
+        I18nService i18nService = new I18nService(initialLocale);
         ThemeService themeService = new ThemeService();
 
         // 5. SSH / SFTP

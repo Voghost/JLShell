@@ -1,5 +1,7 @@
 package com.jlshell.plugin.api;
 
+import java.util.Locale;
+
 /**
  * Main SPI interface for JLShell plugins.
  * Discovered via {@link java.util.ServiceLoader}.
@@ -11,9 +13,15 @@ public interface JlShellPlugin {
 
     String displayName();
 
+    /** Locale-aware display name. Override to return a translated name from the plugin's own ResourceBundle. */
+    default String displayName(Locale locale) { return displayName(); }
+
     String version();
 
     String description();
+
+    /** Locale-aware description. Override to return a translated description from the plugin's own ResourceBundle. */
+    default String description(Locale locale) { return description(); }
 
     /** Whether this plugin requires an active SSH session to function. */
     boolean requiresSshSession();

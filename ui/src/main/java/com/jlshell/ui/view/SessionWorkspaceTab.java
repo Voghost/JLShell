@@ -37,6 +37,7 @@ public class SessionWorkspaceTab extends Tab {
     private final PluginManager pluginManager;
 
     private boolean filePaneInitialized;
+    private Tab pluginsTab;
 
     public SessionWorkspaceTab(
             ConnectionProfile connectionProfile,
@@ -88,12 +89,18 @@ public class SessionWorkspaceTab extends Tab {
         TabPane workspaceTabs = new TabPane(terminalTab, filesTab);
 
         if (pluginManager != null) {
-            Tab pluginsTab = new Tab(i18nService.get("workspace.plugins"));
+            pluginsTab = new Tab(i18nService.get("workspace.plugins"));
             pluginsTab.setClosable(false);
             pluginsTab.setContent(new PluginsTabView(
-                    pluginManager, sshSession, workspaceTabs.getTabs()::add, i18nService, themeService));
+                    pluginManager, sshSession, workspaceTabs, i18nService, themeService));
             workspaceTabs.getTabs().add(pluginsTab);
         }
+
+        i18nService.localeProperty().addListener((obs, oldLocale, newLocale) -> {
+            if (pluginsTab != null) {
+                pluginsTab.setText(i18nService.get("workspace.plugins"));
+            }
+        });
 
         setContent(workspaceTabs);
     }

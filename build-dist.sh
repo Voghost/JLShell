@@ -254,6 +254,13 @@ BAT
         sed -i    "s/MAIN_JAR_PLACEHOLDER/$MAIN_JAR/" "$work/JLShell.bat"
     fi
 
+    # plugins directory — drop plugin JARs here to install them
+    mkdir -p "$work/plugins"
+    cat > "$work/plugins/README.txt" <<'EOF'
+Place plugin JAR files (*.jar) in this directory.
+JLShell will automatically discover and load them on startup.
+EOF
+
     local out="$DIST_DIR/${APP_NAME}-${APP_VERSION}-win.zip"
     rm -f "$out"
     (cd "$DIST_DIR/win-work" && zip -qr "$out" "$APP_NAME")

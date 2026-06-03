@@ -1,8 +1,8 @@
 package com.jlshell.ui.view;
 
 import java.util.Optional;
-import java.util.function.Consumer;
 
+import com.jlshell.plugin.api.JlShellPlugin;
 import com.jlshell.plugin.api.SshSessionContext;
 import com.jlshell.plugin.loader.DefaultPluginContext;
 import com.jlshell.plugin.loader.PluginDescriptor;
@@ -10,12 +10,14 @@ import com.jlshell.plugin.loader.PluginManager;
 import com.jlshell.core.session.SshSession;
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.theme.ThemeService;
+import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
 import javafx.scene.control.Tab;
+import javafx.scene.control.TabPane;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -26,13 +28,16 @@ import javafx.scene.layout.VBox;
  */
 public class PluginsTabView extends BorderPane {
 
+    private final I18nService i18nService;
+
     public PluginsTabView(
             PluginManager pluginManager,
             SshSession sshSession,
-            Consumer<Tab> openTabCallback,
+            TabPane workspaceTabs,
             I18nService i18nService,
             ThemeService themeService
     ) {
+        this.i18nService = i18nService;
         setPadding(new Insets(8));
 
         ListView<PluginDescriptor> listView = new ListView<>();
@@ -46,12 +51,21 @@ public class PluginsTabView extends BorderPane {
                     setGraphic(null);
                     setText(null);
                 } else {
-                    Label name = new Label(item.displayName());
+                    JlShellPlugin plugin = item.instance();
+                    Label name = new Label(plugin.displayName(i18nService.getLocale()));
                     name.getStyleClass().add("plugin-name");
-                    Label desc = new Label(item.description());
+                    Label desc = new Label(plugin.description(i18nService.getLocale()));
                     desc.getStyleClass().add("plugin-desc");
                     Button openBtn = new Button(i18nService.get("plugin.open"));
                     openBtn.setOnAction(e -> {
+                        // Prevent duplicate: if this plugin is already open in this session's tab pane, just select it
+                        for (Tab tab : workspaceTabs.getTabs()) {
+                            String existingId = (String) tab.getProperties().get("pluginId");
+                            if (existingId != null && existingId.equals(item.id())) {
+                                workspaceTabs.getSelectionModel().select(tab);
+                                return;
+                            }
+                        }
                         Optional<SshSessionContext> sshCtx = (sshSession != null)
                                 ? Optional.of(new com.jlshell.plugin.loader.SshSessionContextAdapter(sshSession))
                                 : Optional.empty();
@@ -60,23 +74,37 @@ public class PluginsTabView extends BorderPane {
 
                             @Override
                             public void openTab(String title, javafx.scene.Node content) {
-                                javafx.application.Platform.runLater(() -> {
+                                Platform.runLater(() -> {
                                     openedTab = new Tab(title, content);
                                     openedTab.setClosable(true);
-                                    openTabCallback.accept(openedTab);
+                                    openedTab.getProperties().put("pluginId", item.id());
+                                    workspaceTabs.getTabs().add(openedTab);
+                                    workspaceTabs.getSelectionModel().select(openedTab);
                                 });
                             }
 
                             @Override
                             public void closeTab() {
                                 if (openedTab != null) {
-                                    javafx.application.Platform.runLater(() -> {
+                                    Platform.runLater(() -> {
                                         if (openedTab.getTabPane() != null) {
                                             openedTab.getTabPane().getTabs().remove(openedTab);
                                         }
                                         openedTab = null;
                                     });
                                 }
+                            }
+
+                            @Override
+                            public void updateTabTitle(String title) {
+                                if (openedTab != null) {
+                                    Platform.runLater(() -> openedTab.setText(title));
+                                }
+                            }
+
+                            @Override
+                            public String resolveI18n(String key, String fallback) {
+                                return i18nService.getOrDefault(key, fallback);
                             }
                         });
                         ctx.writableThemeNameProperty().bind(pluginManager.themeNameProperty());
@@ -91,6 +119,8 @@ public class PluginsTabView extends BorderPane {
                 }
             }
         });
+
+        i18nService.localeProperty().addListener((obs, oldLocale, newLocale) -> listView.refresh());
 
         if (listView.getItems().isEmpty()) {
             setCenter(new Label(i18nService.get("plugin.noPlugins")));

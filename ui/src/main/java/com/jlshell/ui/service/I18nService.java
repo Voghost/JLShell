@@ -38,9 +38,14 @@ public class I18nService {
 
     private void loadBundle(Locale locale) {
         try {
-            bundle = ResourceBundle.getBundle("i18n/messages", locale);
+            // Use ResourceBundle.Control to prevent fallback to system default locale.
+            // Without this, on a Chinese system, requesting Locale("en") would still
+            // match messages_zh_CN.properties via the default fallback chain.
+            ResourceBundle.Control control = ResourceBundle.Control.getNoFallbackControl(
+                    ResourceBundle.Control.FORMAT_PROPERTIES);
+            bundle = ResourceBundle.getBundle("i18n/messages", locale, control);
         } catch (MissingResourceException e) {
-            bundle = ResourceBundle.getBundle("i18n/messages", Locale.ENGLISH);
+            bundle = ResourceBundle.getBundle("i18n/messages", Locale.ROOT);
         }
     }
 
@@ -50,6 +55,15 @@ public class I18nService {
             return args.length == 0 ? pattern : MessageFormat.format(pattern, args);
         } catch (MissingResourceException e) {
             return key;
+        }
+    }
+
+    public String getOrDefault(String key, String fallback) {
+        try {
+            String value = bundle.getString(key);
+            return value.isEmpty() ? fallback : value;
+        } catch (MissingResourceException e) {
+            return fallback;
         }
     }
 }

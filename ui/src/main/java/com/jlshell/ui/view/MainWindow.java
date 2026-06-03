@@ -1,5 +1,6 @@
 package com.jlshell.ui.view;
 
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -146,6 +147,12 @@ public class MainWindow {
         root.setBottom(buildStatusBar());
 
         Scene scene = new Scene(root, 1480, 920);
+
+        // On Windows, the stage is UNDECORATED so we need manual edge resize.
+        if (isWindows) {
+            installWindowResizeHandler(stage, scene);
+        }
+
         themeService.apply(scene);
         viewModel.activeThemeProperty().bind(themeService.currentThemeProperty());
         themeService.currentThemeProperty().addListener((obs, oldTheme, newTheme) -> {
@@ -158,7 +165,6 @@ public class MainWindow {
         });
 
         i18nService.localeProperty().addListener((obs, oldLocale, newLocale) -> {
-            refreshAllTexts(stage, root);
             pluginManager.setLocale(newLocale);
         });
 
@@ -739,6 +745,91 @@ public class MainWindow {
             return sidebarTreeView.getSelectedConnection(cachedProfiles);
         }
         return null;
+    }
+
+    private void installWindowResizeHandler(Stage stage, Scene scene) {
+        final int border = 6;
+        final Map<javafx.scene.Cursor, String> resizeDirections = Map.of(
+                javafx.scene.Cursor.W_RESIZE, "W",
+                javafx.scene.Cursor.E_RESIZE, "E",
+                javafx.scene.Cursor.N_RESIZE, "N",
+                javafx.scene.Cursor.S_RESIZE, "S",
+                javafx.scene.Cursor.NW_RESIZE, "NW",
+                javafx.scene.Cursor.NE_RESIZE, "NE",
+                javafx.scene.Cursor.SW_RESIZE, "SW",
+                javafx.scene.Cursor.SE_RESIZE, "SE"
+        );
+
+        javafx.scene.Cursor[] activeCursor = {null};
+        double[] startDragX = {0}, startDragY = {0};
+        double[] startStageX = {0}, startStageY = {0}, startW = {0}, startH = {0};
+
+        scene.setOnMouseMoved(e -> {
+            if (stage.isMaximized() || stage.isFullScreen()) {
+                scene.setCursor(javafx.scene.Cursor.DEFAULT);
+                activeCursor[0] = null;
+                return;
+            }
+            double x = e.getSceneX(), y = e.getSceneY();
+            double w = scene.getWidth(), h = scene.getHeight();
+            boolean onLeft = x < border, onRight = x > w - border;
+            boolean onTop = y < border, onBottom = y > h - border;
+            javafx.scene.Cursor cursor = javafx.scene.Cursor.DEFAULT;
+            if (onTop && onLeft)       cursor = javafx.scene.Cursor.NW_RESIZE;
+            else if (onTop && onRight) cursor = javafx.scene.Cursor.NE_RESIZE;
+            else if (onBottom && onLeft)  cursor = javafx.scene.Cursor.SW_RESIZE;
+            else if (onBottom && onRight) cursor = javafx.scene.Cursor.SE_RESIZE;
+            else if (onLeft)   cursor = javafx.scene.Cursor.W_RESIZE;
+            else if (onRight)  cursor = javafx.scene.Cursor.E_RESIZE;
+            else if (onTop)    cursor = javafx.scene.Cursor.N_RESIZE;
+            else if (onBottom) cursor = javafx.scene.Cursor.S_RESIZE;
+            scene.setCursor(cursor);
+            activeCursor[0] = cursor;
+        });
+
+        scene.setOnMousePressed(e -> {
+            if (activeCursor[0] != null && e.getButton() == javafx.scene.input.MouseButton.PRIMARY) {
+                startDragX[0] = e.getScreenX();
+                startDragY[0] = e.getScreenY();
+                startStageX[0] = stage.getX();
+                startStageY[0] = stage.getY();
+                startW[0] = stage.getWidth();
+                startH[0] = stage.getHeight();
+                e.consume();
+            }
+        });
+
+        scene.setOnMouseDragged(e -> {
+            if (activeCursor[0] == null) return;
+            String dir = resizeDirections.get(activeCursor[0]);
+            if (dir == null) return;
+            double dx = e.getScreenX() - startDragX[0];
+            double dy = e.getScreenY() - startDragY[0];
+            double newX = startStageX[0], newY = startStageY[0];
+            double newW = startW[0], newH = startH[0];
+            if (dir.contains("W")) { newX += dx; newW -= dx; }
+            if (dir.contains("E")) { newW += dx; }
+            if (dir.contains("N")) { newY += dy; newH -= dy; }
+            if (dir.contains("S")) { newH += dy; }
+            // Enforce minimum size
+            if (newW < stage.getMinWidth()) {
+                if (dir.contains("W")) newX = startStageX[0] + startW[0] - stage.getMinWidth();
+                newW = stage.getMinWidth();
+            }
+            if (newH < stage.getMinHeight()) {
+                if (dir.contains("N")) newY = startStageY[0] + startH[0] - stage.getMinHeight();
+                newH = stage.getMinHeight();
+            }
+            stage.setX(newX);
+            stage.setY(newY);
+            stage.setWidth(newW);
+            stage.setHeight(newH);
+            e.consume();
+        });
+
+        scene.setOnMouseReleased(e -> {
+            activeCursor[0] = null;
+        });
     }
 
     private void showError(String message) {

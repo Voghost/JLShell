@@ -1,6 +1,8 @@
 package com.jlshell.sysmon;
 
 import java.util.Locale;
+import java.util.MissingResourceException;
+import java.util.ResourceBundle;
 
 import com.jlshell.plugin.api.JlShellPlugin;
 import com.jlshell.plugin.api.PluginContext;
@@ -26,11 +28,29 @@ public class SystemMonitorPlugin implements JlShellPlugin, PluginView {
     @Override public boolean requiresSshSession() { return false; }
 
     @Override
+    public String displayName(Locale locale) {
+        return getBundle(locale).getString("plugin.name");
+    }
+
+    @Override
+    public String description(Locale locale) {
+        return getBundle(locale).getString("plugin.description");
+    }
+
+    private ResourceBundle getBundle(Locale locale) {
+        try {
+            return ResourceBundle.getBundle("com.jlshell.sysmon.messages", locale);
+        } catch (MissingResourceException e) {
+            return ResourceBundle.getBundle("com.jlshell.sysmon.messages", Locale.ENGLISH);
+        }
+    }
+
+    @Override
     public void activate(PluginContext context) {
         this.activeContext = context;
         PluginView view = view();
         if (view != null) {
-            context.openTab(displayName(), view.createView(context));
+            context.openTab(displayName(context.locale()), view.createView(context));
         }
     }
 
@@ -46,8 +66,7 @@ public class SystemMonitorPlugin implements JlShellPlugin, PluginView {
         }
     }
 
-    @Override
-    public PluginView view() { return this; }
+    @Override public PluginView view() { return this; }
 
     // ── PluginView ──────────────────────────────────────────────────────
 
@@ -74,6 +93,9 @@ public class SystemMonitorPlugin implements JlShellPlugin, PluginView {
 
     @Override
     public void onLocaleChanged(Locale locale) {
-        // Plugin manages its own i18n if needed
+        if (activeContext != null) {
+            activeContext.updateTabTitle(displayName(locale));
+        }
+        if (dashboard != null) dashboard.applyLocale(locale);
     }
 }

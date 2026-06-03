@@ -1,5 +1,8 @@
 package com.jlshell.sysmon;
 
+import java.util.Locale;
+import java.util.MissingResourceException;
+import java.util.ResourceBundle;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
@@ -65,6 +68,7 @@ public class MonitorDashboard {
     private ToggleButton remoteBtn;
     private volatile boolean remoteMode = true;
     private volatile boolean isDarkTheme = true;
+    private volatile Locale currentLocale = Locale.ENGLISH;
 
     private BorderPane root;
     private Label titleLabel;
@@ -192,6 +196,29 @@ public class MonitorDashboard {
         memCard.setThemeColors(textFill, detailFill, cardBg);
         netCard.setThemeColors(textFill, detailFill, cardBg);
         diskCard.setThemeColors(textFill, detailFill, cardBg);
+    }
+
+    public void applyLocale(Locale locale) {
+        currentLocale = locale;
+        ResourceBundle bundle = getBundle(locale);
+        Platform.runLater(() -> {
+            cpuCard.setTitle(bundle.getString("metric.cpu"));
+            memCard.setTitle(bundle.getString("metric.memory"));
+            netCard.setTitle(bundle.getString("metric.network"));
+            diskCard.setTitle(bundle.getString("metric.disk"));
+            if (titleLabel != null) {
+                titleLabel.setText(bundle.getString("plugin.name"));
+            }
+            updateSourceLabel();
+        });
+    }
+
+    private ResourceBundle getBundle(Locale locale) {
+        try {
+            return ResourceBundle.getBundle("com.jlshell.sysmon.messages", locale);
+        } catch (MissingResourceException e) {
+            return ResourceBundle.getBundle("com.jlshell.sysmon.messages", Locale.ENGLISH);
+        }
     }
 
     private void updateSourceLabel() {

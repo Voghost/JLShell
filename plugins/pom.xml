@@ -55,6 +55,38 @@
                         <parameters>true</parameters>
                     </configuration>
                 </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-shade-plugin</artifactId>
+                    <version>3.6.0</version>
+                    <executions>
+                        <execution>
+                            <phase>package</phase>
+                            <goals>
+                                <goal>shade</goal>
+                            </goals>
+                            <configuration>
+                                <shadedArtifactAttached>true</shadedArtifactAttached>
+                                <shadedClassifierName>fat</shadedClassifierName>
+                                <artifactSet>
+                                    <excludes>
+                                        <exclude>com.jlshell:plugin-api</exclude>
+                                        <exclude>org.openjfx:javafx-base</exclude>
+                                        <exclude>org.openjfx:javafx-controls</exclude>
+                                        <exclude>org.openjfx:javafx-graphics</exclude>
+                                        <exclude>org.openjfx:javafx-swing</exclude>
+                                        <exclude>org.openjfx:javafx-fxml</exclude>
+                                        <exclude>org.openjfx:javafx-web</exclude>
+                                        <exclude>org.openjfx:javafx-media</exclude>
+                                        <exclude>org.slf4j:slf4j-api</exclude>
+                                        <exclude>ch.qos.logback:logback-classic</exclude>
+                                        <exclude>ch.qos.logback:logback-core</exclude>
+                                    </excludes>
+                                </artifactSet>
+                            </configuration>
+                        </execution>
+                    </executions>
+                </plugin>
             </plugins>
         </pluginManagement>
     </build>

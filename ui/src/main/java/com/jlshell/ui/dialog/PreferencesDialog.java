@@ -7,6 +7,7 @@ import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.theme.ThemeService;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.scene.control.Alert;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckBox;
@@ -79,13 +80,24 @@ public class PreferencesDialog {
                 String prevLang = appSettings.get("ui.language", "en");
                 appSettings.set("ui.language", pendingLang[0]);
                 if (!prevLang.equals(pendingLang[0])) {
-                    applyLocale(pendingLang[0], i18n);
+                    showRestartPrompt(owner, i18n);
                 }
             }
             return null;
         });
 
         dialog.showAndWait();
+    }
+
+    private static void showRestartPrompt(Stage owner, I18nService i18n) {
+        Alert alert = new Alert(Alert.AlertType.WARNING,
+                i18n.get("preferences.general.restartRequired"),
+                ButtonType.OK);
+        alert.setTitle(i18n.get("preferences.title"));
+        alert.setHeaderText(null);
+        if (owner != null) alert.initOwner(owner);
+        alert.showAndWait();
+        System.exit(0);
     }
 
     private static void applyLocale(String langCode, I18nService i18n) {

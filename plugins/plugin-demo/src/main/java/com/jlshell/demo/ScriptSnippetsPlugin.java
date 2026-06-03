@@ -1,6 +1,9 @@
 package com.jlshell.demo;
 
 import java.util.List;
+import java.util.Locale;
+import java.util.MissingResourceException;
+import java.util.ResourceBundle;
 import java.util.concurrent.CompletableFuture;
 
 import com.jlshell.plugin.api.JlShellPlugin;
@@ -50,11 +53,29 @@ public class ScriptSnippetsPlugin implements JlShellPlugin, PluginView {
     @Override public boolean requiresSshSession() { return true; }
 
     @Override
+    public String displayName(Locale locale) {
+        return getBundle(locale).getString("plugin.name");
+    }
+
+    @Override
+    public String description(Locale locale) {
+        return getBundle(locale).getString("plugin.description");
+    }
+
+    private ResourceBundle getBundle(Locale locale) {
+        try {
+            return ResourceBundle.getBundle("com.jlshell.demo.messages", locale);
+        } catch (MissingResourceException e) {
+            return ResourceBundle.getBundle("com.jlshell.demo.messages", Locale.ENGLISH);
+        }
+    }
+
+    @Override
     public void activate(PluginContext context) {
         this.activeContext = context;
         PluginView view = view();
         if (view != null) {
-            context.openTab(displayName(), view.createView(context));
+            context.openTab(displayName(context.locale()), view.createView(context));
         }
     }
 
@@ -66,13 +87,14 @@ public class ScriptSnippetsPlugin implements JlShellPlugin, PluginView {
         }
     }
 
-    @Override
-    public PluginView view() { return this; }
+    @Override public PluginView view() { return this; }
 
     // ── PluginView ───────────────────────────────────────────────────────────
 
     @Override
     public Node createView(PluginContext context) {
+        ResourceBundle bundle = getBundle(context.locale());
+
         // Left: snippet list
         ListView<ScriptSnippet> listView = new ListView<>();
         listView.getItems().addAll(SNIPPETS);
@@ -89,16 +111,16 @@ public class ScriptSnippetsPlugin implements JlShellPlugin, PluginView {
         descArea.setEditable(false);
         descArea.setWrapText(true);
         descArea.setPrefRowCount(4);
-        descArea.setPromptText("Select a snippet to see details.");
+        descArea.setPromptText(bundle.getString("prompt.selectSnippet"));
 
         // Right bottom: output
-        Label outputLabel = new Label("Output:");
+        Label outputLabel = new Label(bundle.getString("label.output"));
         TextArea outputArea = new TextArea();
         outputArea.setEditable(false);
         outputArea.setWrapText(true);
         VBox.setVgrow(outputArea, Priority.ALWAYS);
 
-        Button runButton = new Button("Run");
+        Button runButton = new Button(bundle.getString("button.run"));
         runButton.setDisable(true);
 
         listView.getSelectionModel().selectedItemProperty().addListener((obs, ov, snippet) -> {
@@ -117,22 +139,22 @@ public class ScriptSnippetsPlugin implements JlShellPlugin, PluginView {
 
             context.sshSession().ifPresentOrElse(ssh -> {
                 runButton.setDisable(true);
-                outputArea.setText("Running...");
+                outputArea.setText(bundle.getString("status.running"));
                 CompletableFuture<com.jlshell.plugin.api.model.CommandOutput> future =
                         ssh.commandExecutor().execute(selected.command());
                 future.whenComplete((output, err) -> Platform.runLater(() -> {
                     runButton.setDisable(false);
                     if (err != null) {
                         outputArea.setText("Error: " + err.getMessage());
-                        context.showNotification("Command failed: " + err.getMessage(), NotificationLevel.ERROR);
+                        context.showNotification(bundle.getString("error.commandFailed").replace("{0}", err.getMessage()), NotificationLevel.ERROR);
                     } else {
                         String result = output.stdout().isBlank() ? output.stderr() : output.stdout();
                         outputArea.setText(result);
                     }
                 }));
             }, () -> {
-                outputArea.setText("No SSH session available.");
-                context.showNotification("No SSH session available.", NotificationLevel.WARNING);
+                outputArea.setText(bundle.getString("status.noSession"));
+                context.showNotification(bundle.getString("error.noSession"), NotificationLevel.WARNING);
             });
         });
 
@@ -150,6 +172,13 @@ public class ScriptSnippetsPlugin implements JlShellPlugin, PluginView {
         BorderPane root = new BorderPane(split);
         root.setPadding(new Insets(8));
         return root;
+    }
+
+    @Override
+    public void onLocaleChanged(Locale locale) {
+        if (activeContext != null) {
+            activeContext.updateTabTitle(displayName(locale));
+        }
     }
 
     // ── Inner record ─────────────────────────────────────────────────────────

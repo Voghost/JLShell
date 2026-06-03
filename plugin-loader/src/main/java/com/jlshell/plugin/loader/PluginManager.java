@@ -88,14 +88,27 @@ public class PluginManager {
     }
 
     private static Path resolveApplicationDir() {
+        // 1. Explicit system property override
+        String appDir = System.getProperty("jlshell.app.dir");
+        if (appDir != null && !appDir.isBlank()) return Path.of(appDir);
+
+        // 2. Code-source location (works for jpackage app-image, jar-in-exe, etc.)
         try {
-            String appDir = System.getProperty("jlshell.app.dir");
-            if (appDir != null) return Path.of(appDir);
-            Path jarPath = Path.of(PluginManager.class.getProtectionDomain()
+            Path codeSourcePath = Path.of(PluginManager.class.getProtectionDomain()
                     .getCodeSource().getLocation().toURI());
-            if (Files.isRegularFile(jarPath)) return jarPath.getParent();
-            if (Files.isDirectory(jarPath)) return jarPath;
+            if (Files.isRegularFile(codeSourcePath)) return codeSourcePath.getParent();
+            if (Files.isDirectory(codeSourcePath)) return codeSourcePath;
         } catch (Exception ignored) {}
+
+        // 3. Fallback: process executable path (Launch4j exe on Windows)
+        try {
+            String cmd = java.lang.ProcessHandle.current().info().command().orElse("");
+            if (!cmd.isEmpty()) {
+                Path exePath = Path.of(cmd);
+                if (Files.isRegularFile(exePath)) return exePath.getParent();
+            }
+        } catch (Exception ignored) {}
+
         return null;
     }
 
@@ -128,7 +141,6 @@ public class PluginManager {
                 .ifPresent(descriptor -> {
                     JlShellPlugin plugin = descriptor.instance();
                     plugin.activate(context);
-                    activePlugins.put(pluginId, plugin);
                     log.debug("Activated plugin: {}", pluginId);
                 });
     }

@@ -126,6 +126,33 @@
             </dependencies>
         </profile>
 
+        <!-- macOS dock options -->
+        <profile>
+            <id>mac-dock</id>
+            <activation>
+                <os>
+                    <family>mac</family>
+                </os>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.openjfx</groupId>
+                        <artifactId>javafx-maven-plugin</artifactId>
+                        <configuration>
+                            <options>
+                                <option>-Dapple.laf.useScreenMenuBar=true</option>
+                                <option>-Dapple.awt.application.name=JLShell</option>
+                                <option>-Dcom.apple.mrj.application.apple.menu.about.name=JLShell</option>
+                                <option>-Xdock:icon=${project.basedir}/src/main/resources/icons/app_icon.png</option>
+                                <option>-Xdock:name=JLShell</option>
+                            </options>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
         <!-- Windows native exe via Launch4j -->
         <profile>
             <id>win-exe</id>
@@ -178,13 +205,6 @@
                 <artifactId>javafx-maven-plugin</artifactId>
                 <configuration>
                     <mainClass>com.jlshell.app.Launcher</mainClass>
-                    <options>
-                        <option>-Dapple.laf.useScreenMenuBar=true</option>
-                        <option>-Dapple.awt.application.name=JLShell</option>
-                        <option>-Dcom.apple.mrj.application.apple.menu.about.name=JLShell</option>
-                        <option>-Xdock:icon=${project.basedir}/src/main/resources/icons/app_icon.png</option>
-                        <option>-Xdock:name=JLShell</option>
-                    </options>
                 </configuration>
             </plugin>
             <plugin>

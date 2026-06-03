@@ -1,6 +1,8 @@
 @echo off
 setlocal enabledelayedexpansion
 
+set "JAVA_HOME=D:\Program Files\java\jdk-21.0.10_windows-x64_bin\jdk-21.0.10"
+
 set SCRIPT_DIR=%~dp0
 set PLUGINS_DIR=%USERPROFILE%\.jlshell\plugins
 

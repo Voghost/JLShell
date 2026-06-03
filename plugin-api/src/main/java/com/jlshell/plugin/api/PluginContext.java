@@ -32,5 +32,11 @@ public interface PluginContext {
     /** Close the tab that was opened by this plugin, if any. */
     void closeTab();
 
+    /** Update the title of the tab opened by this plugin. */
+    void updateTabTitle(String title);
+
+    /** Resolve an i18n key from the host application's resource bundle. Returns fallback if key is missing. */
+    String resolveI18n(String key, String fallback);
+
     void showNotification(String message, NotificationLevel level);
 }

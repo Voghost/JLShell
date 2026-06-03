@@ -283,6 +283,13 @@ jobs:
           cp -r dist/runtime dist/win-work/JLShell/
           cp app/target/JLShell.exe dist/win-work/JLShell/
 
+          # plugins directory — drop plugin JARs here to install them
+          mkdir -p dist/win-work/JLShell/plugins
+          cat > dist/win-work/JLShell/plugins/README.txt <<'EOF'
+          Place plugin JAR files (*.jar) in this directory.
+          JLShell will automatically discover and load them on startup.
+          EOF
+
           cd dist/win-work && 7z a -tzip "../JLShell-${VERSION}-win-x64.zip" JLShell && cd ../..
 
       - uses: actions/upload-artifact@v4

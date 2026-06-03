@@ -10,6 +10,7 @@ import javafx.scene.paint.Color;
  */
 public class MetricCard extends VBox {
 
+    private final Label titleLabel;
     private final Label valueLabel;
     private final Label detailLabel;
     private final TrendChart chart;
@@ -23,7 +24,7 @@ public class MetricCard extends VBox {
         setPadding(new Insets(10, 14, 10, 14));
         setStyle("-fx-background-color: rgba(255,255,255,0.04); -fx-background-radius: 8;");
 
-        Label titleLabel = new Label(title);
+        titleLabel = new Label(title);
         titleLabel.setStyle("-fx-text-fill: #9da0a8; -fx-font-size: 11px; -fx-font-weight: bold;");
 
         valueLabel = new Label("--");
@@ -61,7 +62,12 @@ public class MetricCard extends VBox {
     public void setThemeColors(String textFill, String detailFill, String cardBg) {
         valueLabel.setStyle("-fx-text-fill: " + textFill + "; -fx-font-size: 22px; -fx-font-weight: bold;");
         detailLabel.setStyle("-fx-text-fill: " + detailFill + "; -fx-font-size: 10px;");
+        titleLabel.setStyle("-fx-text-fill: " + detailFill + "; -fx-font-size: 11px; -fx-font-weight: bold;");
         setStyle("-fx-background-color: " + cardBg + "; -fx-background-radius: 8;");
         chart.setThemeColors(detailFill, cardBg);
+    }
+
+    public void setTitle(String title) {
+        titleLabel.setText(title);
     }
 }
