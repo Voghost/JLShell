@@ -141,6 +141,7 @@ public class PluginManager {
                 .ifPresent(descriptor -> {
                     JlShellPlugin plugin = descriptor.instance();
                     plugin.activate(context);
+                    activePlugins.put(pluginId, plugin);
                     log.debug("Activated plugin: {}", pluginId);
                 });
     }
@@ -148,6 +149,8 @@ public class PluginManager {
     public void deactivatePlugin(String pluginId) {
         JlShellPlugin plugin = activePlugins.remove(pluginId);
         if (plugin != null) {
+            PluginView view = plugin.view();
+            if (view != null) view.onSessionClosed();
             plugin.deactivate();
             log.debug("Deactivated plugin: {}", pluginId);
         }

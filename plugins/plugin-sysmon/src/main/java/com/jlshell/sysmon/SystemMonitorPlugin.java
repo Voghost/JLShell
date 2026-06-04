@@ -98,4 +98,9 @@ public class SystemMonitorPlugin implements JlShellPlugin, PluginView {
         }
         if (dashboard != null) dashboard.applyLocale(locale);
     }
+
+    @Override
+    public void onSessionClosed() {
+        if (dashboard != null) dashboard.stopPolling();
+    }
 }

@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
+import com.jlshell.core.model.CommandRequest;
 import com.jlshell.core.model.FontProfile;
 import com.jlshell.core.model.ShellRequest;
 import com.jlshell.core.model.TerminalSize;
@@ -19,13 +20,14 @@ import com.jlshell.ui.support.FxThread;
 import com.jlshell.ui.support.SwingNodeImeBridge;
 import com.jlshell.ui.theme.AppTheme;
 import com.jlshell.ui.theme.ThemeService;
+import javafx.animation.Animation;
+import javafx.animation.KeyFrame;
+import javafx.animation.Timeline;
 import javafx.embed.swing.SwingNode;
-import javafx.geometry.Insets;
-import javafx.geometry.Orientation;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
+import javafx.scene.control.Label;
 import javafx.scene.control.ProgressIndicator;
-import javafx.scene.control.SplitPane;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
@@ -33,11 +35,12 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.stage.Window;
+import javafx.util.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * 终端工作区，支持单视图和基础分屏。
+ * 终端工作区，含系统信息条和字体设置。
  */
 public class TerminalWorkspaceView extends BorderPane {
 
@@ -54,8 +57,13 @@ public class TerminalWorkspaceView extends BorderPane {
 
     private AppTheme appTheme;
     private Node primaryNode;
-    private Node secondaryNode;
-    private SplitPane splitPane;
+
+    // System info bar
+    private Label hostLabel;
+    private Label osLabel;
+    private Label cpuLabel;
+    private Label memLabel;
+    private Timeline infoTimeline;
 
     public TerminalWorkspaceView(
             SshSession sshSession,
@@ -86,6 +94,7 @@ public class TerminalWorkspaceView extends BorderPane {
             primaryNode = node;
             terminalHost.getChildren().setAll(node);
             log.info("Terminal workspace initialized for session {}", sshSession.sessionId());
+            startInfoPolling();
         }));
     }
 
@@ -95,6 +104,7 @@ public class TerminalWorkspaceView extends BorderPane {
     }
 
     public CompletableFuture<Void> closeAsync() {
+        stopInfoPolling();
         return CompletableFuture.allOf(
                 handles.stream()
                         .map(TerminalViewHandle::closeAsync)
@@ -102,21 +112,36 @@ public class TerminalWorkspaceView extends BorderPane {
         );
     }
 
-    private static final String ICON_SPLIT_V  = "M3 3h8v18H3zM13 3h8v18h-8z";
-    private static final String ICON_SPLIT_H  = "M3 3h18v8H3zM3 13h18v8H3z";
-    private static final String ICON_RESET    = "M3 3h18v18H3zM10 5h4v14h-4z";
-    private static final String ICON_FONT     = "M5 4h14v3h-1V6h-5v13h2v1H9v-1h2V6H6v1H5z";
+    // ── Toolbar ──────────────────────────────────────────────────────────────
+
+    private static final String ICON_FONT = "M5 4h14v3h-1V6h-5v13h2v1H9v-1h2V6H6v1H5z";
 
     private HBox buildToolbar() {
-        Button verticalSplit   = iconBtn(ICON_SPLIT_V, i18nService.get("terminal.splitVertical"),   () -> split(Orientation.HORIZONTAL));
-        Button horizontalSplit = iconBtn(ICON_SPLIT_H, i18nService.get("terminal.splitHorizontal"), () -> split(Orientation.VERTICAL));
-        Button resetLayout     = iconBtn(ICON_RESET,   i18nService.get("terminal.resetSplit"),      this::resetLayout);
-        Button fontSettings    = iconBtn(ICON_FONT,    i18nService.get("terminal.fontSettings"),    this::openFontSettings);
+        Button fontSettings = iconBtn(ICON_FONT, i18nService.get("terminal.fontSettings"), this::openFontSettings);
+
+        // System info labels
+        hostLabel = new Label(sshSession.displayName());
+        hostLabel.getStyleClass().add("sysinfo-label");
+        osLabel = new Label();
+        osLabel.getStyleClass().add("sysinfo-label");
+        cpuLabel = new Label();
+        cpuLabel.getStyleClass().add("sysinfo-label");
+        memLabel = new Label();
+        memLabel.getStyleClass().add("sysinfo-label");
+
+        Label separator1 = new Label("│");
+        separator1.getStyleClass().add("sysinfo-sep");
+        Label separator2 = new Label("│");
+        separator2.getStyleClass().add("sysinfo-sep");
+        Label separator3 = new Label("│");
+        separator3.getStyleClass().add("sysinfo-sep");
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        HBox toolbar = new HBox(4, verticalSplit, horizontalSplit, resetLayout, spacer, fontSettings);
+        HBox toolbar = new HBox(4,
+                hostLabel, separator1, osLabel, separator2, cpuLabel, separator3, memLabel,
+                spacer, fontSettings);
         toolbar.getStyleClass().add("toolbar-strip");
         return toolbar;
     }
@@ -139,32 +164,115 @@ public class TerminalWorkspaceView extends BorderPane {
         Window owner = getScene() != null ? getScene().getWindow() : null;
         javafx.stage.Stage stage = owner instanceof javafx.stage.Stage ? (javafx.stage.Stage) owner : null;
         PreferencesDialog.show(stage, fontProfileService, appSettingsService, i18nService, themeService);
-        // Apply the (possibly updated) active profile to all open terminals
         FontProfile profile = fontProfileService.activeProfile();
         handles.forEach(h -> h.updateFontProfile(profile));
     }
 
-    private void split(Orientation orientation) {
-        if (primaryNode == null) {
-            return;
-        }
-        createTerminalNode().whenComplete((node, throwable) -> FxThread.run(() -> {
-            if (throwable != null) {
-                return;
-            }
-            secondaryNode = node;
-            splitPane = new SplitPane(primaryNode, secondaryNode);
-            splitPane.setOrientation(orientation);
-            splitPane.setDividerPositions(0.5);
-            terminalHost.getChildren().setAll(splitPane);
-        }));
+    // ── System info polling ──────────────────────────────────────────────────
+
+    private void startInfoPolling() {
+        // Fetch initial info immediately
+        pollSystemInfo();
+        // Then poll every 5 seconds
+        infoTimeline = new Timeline(new KeyFrame(javafx.util.Duration.seconds(5), e -> pollSystemInfo()));
+        infoTimeline.setCycleCount(Animation.INDEFINITE);
+        infoTimeline.play();
     }
 
-    private void resetLayout() {
-        if (primaryNode != null) {
-            terminalHost.getChildren().setAll(primaryNode);
+    private void stopInfoPolling() {
+        if (infoTimeline != null) {
+            infoTimeline.stop();
+            infoTimeline = null;
         }
     }
+
+    private void pollSystemInfo() {
+        // Single command: outputs OS, arch, CPU cores, and memory info
+        String cmd = "echo \"$(uname -s)|||$(uname -m)|||$(nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo ?)|||$(cat /proc/meminfo 2>/dev/null | head -3 || vm_stat 2>/dev/null | head -10)\"";
+        sshSession.execute(new CommandRequest(cmd, java.time.Duration.ofSeconds(5), false, null))
+                .thenAccept(output -> FxThread.run(() -> parseInfoOutput(output.stdout())))
+                .exceptionally(ex -> {
+                    log.debug("System info poll failed: {}", ex.getMessage());
+                    FxThread.run(() -> {
+                        cpuLabel.setText("--");
+                        memLabel.setText("--");
+                    });
+                    return null;
+                });
+    }
+
+    private void parseInfoOutput(String output) {
+        try {
+            String[] parts = output.trim().split("\\|\\|\\|");
+            String osName = parts.length > 0 ? parts[0].trim() : "";
+            String arch = parts.length > 1 ? parts[1].trim() : "";
+            String cores = parts.length > 2 ? parts[2].trim() : "?";
+            String memInfo = parts.length > 3 ? parts[3].trim() : "";
+
+            if (!osName.isEmpty()) {
+                osLabel.setText(osName + " " + arch);
+            }
+            cpuLabel.setText(cores.equals("?") ? "--" : cores + " CPU");
+
+            // Parse memory
+            if (memInfo.contains("MemTotal:")) {
+                // Linux /proc/meminfo format
+                long totalKb = 0, availableKb = 0;
+                for (String line : memInfo.split("\n")) {
+                    if (line.startsWith("MemTotal:")) totalKb = extractKb(line);
+                    else if (line.startsWith("MemAvailable:")) availableKb = extractKb(line);
+                }
+                if (totalKb > 0) {
+                    int pct = (int) ((1 - (double) availableKb / totalKb) * 100);
+                    memLabel.setText(pct + "% MEM");
+                } else {
+                    memLabel.setText("--");
+                }
+            } else if (memInfo.contains("Pages free:") || memInfo.contains("page size")) {
+                // macOS vm_stat
+                long free = 0, active = 0, wired = 0, inactive = 0;
+                for (String line : memInfo.split("\n")) {
+                    if (line.contains("Pages free:")) free = parseVmNum(line);
+                    else if (line.contains("Pages active:")) active = parseVmNum(line);
+                    else if (line.contains("Pages inactive:")) inactive = parseVmNum(line);
+                    else if (line.contains("Pages wired")) wired = parseVmNum(line);
+                }
+                long pageSize = 4096;
+                long total = (free + active + inactive + wired) * pageSize;
+                long used = (active + wired) * pageSize;
+                if (total > 0) {
+                    int pct = (int) ((double) used / total * 100);
+                    memLabel.setText(pct + "% MEM");
+                } else {
+                    memLabel.setText("--");
+                }
+            } else {
+                memLabel.setText("--");
+            }
+        } catch (Exception e) {
+            log.debug("Failed to parse system info: {}", e.getMessage());
+            cpuLabel.setText("--");
+            memLabel.setText("--");
+        }
+    }
+
+    private long extractKb(String line) {
+        try {
+            return Long.parseLong(line.replaceAll("[^0-9]", "").trim());
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    private long parseVmNum(String line) {
+        try {
+            return Long.parseLong(line.replaceAll("[^\\d]", "").trim());
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    // ── Terminal node creation ────────────────────────────────────────────────
 
     private CompletableFuture<Node> createTerminalNode() {
         FontProfile fontProfile = fontProfileService.activeProfile();
@@ -177,7 +285,6 @@ public class TerminalWorkspaceView extends BorderPane {
         return terminalViewFactory.createTerminalView(sshSession, request)
                 .thenCompose(handle -> {
                     handles.add(handle);
-                    // 统一走嵌入模式，依赖 -Djavafx.embed.singleThread=true 避免 macOS 死锁
                     return FxThread.supplyAsync(() -> createEmbeddedTerminalNode(handle));
                 });
     }

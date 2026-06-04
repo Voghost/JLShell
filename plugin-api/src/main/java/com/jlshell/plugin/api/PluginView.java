@@ -16,4 +16,6 @@ public interface PluginView {
     default void onThemeChanged(String themeName) {}
 
     default void onLocaleChanged(Locale locale) {}
+
+    default void onSessionClosed() {}
 }

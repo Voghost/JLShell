@@ -251,8 +251,15 @@ public class MonitorDashboard {
                     .thenAccept(m -> Platform.runLater(() -> updateUI(m)))
                     .exceptionally(ex -> {
                         Platform.runLater(() -> {
-                            cpuCard.updateValue("Error");
-                            cpuCard.updateDetail(ex.getMessage());
+                            stopPolling();
+                            cpuCard.updateValue("Disconnected");
+                            cpuCard.updateDetail("");
+                            memCard.updateValue("--");
+                            memCard.updateDetail("");
+                            netCard.updateValue("--");
+                            netCard.updateDetail("");
+                            diskCard.updateValue("--");
+                            diskCard.updateDetail("");
                         });
                         return null;
                     });

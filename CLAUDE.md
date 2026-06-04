@@ -49,6 +49,7 @@ plugin-demo → plugin-api
 - **ServiceLoader-based DI**: `AppContext` (in `app` module) is the composition root. It discovers service implementations via `ServiceLoader` and wires them together. No Spring or DI framework.
 - **SPI registrations**: Each implementation module registers its services in `META-INF/services/com.jlshell.*` files.
 - **Plugin system**: Plugins implement `JlShellPlugin` from `plugin-api`, register via SPI, and are loaded at runtime from `~/.jlshell/plugins/` by `PluginManager` using `URLClassLoader` + `ServiceLoader`.
+  - **Plugin lifecycle**: `activate(context)` → `createView(context)` → `onTabSelected/Deselected()` → `onThemeChanged()` / `onLocaleChanged()` → `onSessionClosed()` → `deactivate()`. When a session tab closes, `PluginsTabView.stopPlugins()` calls `deactivatePlugin()` which invokes `onSessionClosed()` then `deactivate()`, stopping timers/threads.
 
 ### Core Interfaces (in `core` module)
 
@@ -72,6 +73,10 @@ plugin-demo → plugin-api
 - **JDBI 3** + **HikariCP** + **SQLite** (persistence)
 - **Bouncy Castle** (AES-GCM encryption)
 - **SLF4J + Logback** (logging)
+
+## UI Styling Notes
+
+- **Tab focus ring removal**: JavaFX tabs show a blue focus rectangle by default (from `-fx-focus-color`). To show only the bottom accent line on selected tabs, set `-fx-focus-color: transparent` and `-fx-faint-focus-color: transparent` on both `.tab-pane .tab` and `.tab-pane .tab:selected` in `dark-theme.css` and `light-theme.css`.
 
 ## Distribution
 

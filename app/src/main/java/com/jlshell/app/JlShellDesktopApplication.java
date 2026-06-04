@@ -56,9 +56,12 @@ public class JlShellDesktopApplication extends Application {
 
         java.awt.Image awtIcon = loadAwtIcon();
 
+        // Ensure AWT toolkit is initialized before registering Desktop handlers.
+        // On macOS, Desktop.setPreferencesHandler() etc. only work after AWT is loaded.
+        java.awt.Toolkit.getDefaultToolkit();
+
         // Register macOS application-menu handlers (Preferences, About, Quit).
         // This causes these items to appear in the native JLShell application menu.
-        // macOS localises the item labels itself.
         if (Desktop.isDesktopSupported()) {
             Desktop desktop = Desktop.getDesktop();
             if (desktop.isSupported(Desktop.Action.APP_PREFERENCES)) {
@@ -113,12 +116,17 @@ public class JlShellDesktopApplication extends Application {
         return System.getProperty("os.name", "").toLowerCase().contains("win");
     }
 
+    private static String getAppVersion() {
+        String v = JlShellDesktopApplication.class.getPackage().getImplementationVersion();
+        return v != null ? v : "0.1.13";
+    }
+
     private void showAboutDialog(Stage stage) {
         javafx.scene.control.Alert about = new javafx.scene.control.Alert(
                 javafx.scene.control.Alert.AlertType.INFORMATION);
         about.setTitle("About JLShell");
         about.setHeaderText("JLShell");
-        about.setContentText("SSH / SFTP Client\nVersion 0.1.12");
+        about.setContentText("SSH / SFTP Client\nVersion " + getAppVersion());
         about.initOwner(stage);
         about.showAndWait();
     }

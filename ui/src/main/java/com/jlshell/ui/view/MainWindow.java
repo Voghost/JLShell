@@ -208,19 +208,21 @@ public class MainWindow {
         lightTheme.setOnAction(event -> themeService.setTheme(AppTheme.LIGHT));
         viewMenu.getItems().addAll(darkTheme, lightTheme);
 
-        // On macOS, Preferences is registered via Desktop.setPreferencesHandler() in the app
-        // entry point so it appears natively in the application menu. No separate menu needed.
-        // On other platforms, show a Settings menu.
+        // Preferences menu item
+        // On macOS, JavaFX automatically moves a MenuItem with Cmd+, shortcut to the app menu.
+        MenuItem preferences = new MenuItem(i18nService.get("action.preferences"));
+        preferences.setAccelerator(new KeyCodeCombination(KeyCode.COMMA, KeyCombination.SHORTCUT_DOWN));
+        preferences.setOnAction(event -> openPreferences(stage));
+
         boolean isMac = System.getProperty("os.name", "").toLowerCase().contains("mac");
-        if (!isMac) {
+        if (isMac) {
+            // Add to fileMenu; JavaFX moves Preferences with Cmd+, to the macOS app menu
+            fileMenu.getItems().add(3, preferences);
+            menuBar.getMenus().addAll(fileMenu, viewMenu);
+        } else {
             Menu settingsMenu = new Menu(i18nService.get("menu.settings"));
-            MenuItem preferences = new MenuItem(i18nService.get("action.preferences"));
-            preferences.setAccelerator(new KeyCodeCombination(KeyCode.COMMA, KeyCombination.SHORTCUT_DOWN));
-            preferences.setOnAction(event -> openPreferences(stage));
             settingsMenu.getItems().add(preferences);
             menuBar.getMenus().addAll(fileMenu, viewMenu, settingsMenu);
-        } else {
-            menuBar.getMenus().addAll(fileMenu, viewMenu);
         }
         return menuBar;
     }
@@ -324,11 +326,10 @@ public class MainWindow {
         } else {
             root.setTop(buildTopArea(stage));
         }
-        if (sectionLabel != null) {
-            sectionLabel.setText(i18nService.get("sidebar.connections"));
-        }
-        if (projectSwitchLabel != null) {
-            projectSwitchLabel.setText(i18nService.get("project.switch.label"));
+        // Rebuild sidebar to refresh all labels, buttons, and tooltips
+        // Center area (SplitPane) has the sidebar as first child
+        if (root.getCenter() instanceof SplitPane splitPane && !splitPane.getItems().isEmpty()) {
+            splitPane.getItems().set(0, buildSidebar(stage));
         }
     }
 

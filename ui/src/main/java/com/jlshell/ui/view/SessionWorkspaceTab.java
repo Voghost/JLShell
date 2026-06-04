@@ -38,6 +38,7 @@ public class SessionWorkspaceTab extends Tab {
 
     private boolean filePaneInitialized;
     private Tab pluginsTab;
+    private PluginsTabView pluginsTabView;
 
     public SessionWorkspaceTab(
             ConnectionProfile connectionProfile,
@@ -91,8 +92,9 @@ public class SessionWorkspaceTab extends Tab {
         if (pluginManager != null) {
             pluginsTab = new Tab(i18nService.get("workspace.plugins"));
             pluginsTab.setClosable(false);
-            pluginsTab.setContent(new PluginsTabView(
-                    pluginManager, sshSession, workspaceTabs, i18nService, themeService));
+            pluginsTabView = new PluginsTabView(
+                    pluginManager, sshSession, workspaceTabs, i18nService, themeService);
+            pluginsTab.setContent(pluginsTabView);
             workspaceTabs.getTabs().add(pluginsTab);
         }
 
@@ -114,6 +116,9 @@ public class SessionWorkspaceTab extends Tab {
     }
 
     public CompletableFuture<Void> closeWorkspace() {
+        if (pluginsTabView != null) {
+            pluginsTabView.stopPlugins();
+        }
         return terminalWorkspaceView.closeAsync()
                 .exceptionally(throwable -> null)
                 .thenCompose(unused -> sessionManager.closeSession(sshSession.sessionId()))

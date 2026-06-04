@@ -31,6 +31,7 @@ import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.TextField;
 import javafx.scene.control.ProgressBar;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.TableCell;
@@ -161,21 +162,34 @@ public class SftpBrowserPane extends BorderPane {
 
     private VBox buildPane(String headerKey, TreeView<FileNode> dirTree,
                            TableView<?> fileTable, Runnable goUp, Runnable refresh,
-                           javafx.beans.property.StringProperty pathProp) {
+                           javafx.beans.property.StringProperty pathProp,
+                           boolean isRemote) {
         Label header = new Label(i18nService.get(headerKey));
         header.getStyleClass().add("sftp-pane-header");
 
-        Label pathLabel = new Label();
-        pathLabel.textProperty().bind(pathProp);
-        pathLabel.getStyleClass().add("sftp-path-label");
-        HBox.setHgrow(pathLabel, Priority.ALWAYS);
+        TextField pathField = new TextField();
+        pathField.textProperty().bindBidirectional(pathProp);
+        pathField.getStyleClass().add("sftp-path-field");
+        HBox.setHgrow(pathField, Priority.ALWAYS);
+        pathField.setOnAction(e -> {
+            String path = pathField.getText().trim();
+            if (path.isEmpty()) return;
+            // Unbind temporarily so the field shows user input during navigation
+            pathField.textProperty().unbindBidirectional(pathProp);
+            if (isRemote) {
+                loadRemoteDirectory(path);
+            } else {
+                loadLocalDirectory(Path.of(path));
+            }
+            pathField.textProperty().bindBidirectional(pathProp);
+        });
 
         Button upBtn  = svgNavButton(ICON_UP, "..");
         Button refBtn = svgNavButton(ICON_REFRESH, i18nService.get("action.refresh"));
         upBtn.setOnAction(e -> goUp.run());
         refBtn.setOnAction(e -> refresh.run());
 
-        HBox nav = new HBox(4, pathLabel, upBtn, refBtn);
+        HBox nav = new HBox(4, pathField, upBtn, refBtn);
         nav.getStyleClass().add("sftp-nav-bar");
 
         Label treeLabel  = new Label(i18nService.get("sftp.remote.folders"));
@@ -201,14 +215,14 @@ public class SftpBrowserPane extends BorderPane {
         return buildPane("sftp.local", localDirTree, localFileTable,
                 this::goUpLocal,
                 () -> loadLocalFilesOnly(Path.of(viewModel.localPathProperty().get())),
-                viewModel.localPathProperty());
+                viewModel.localPathProperty(), false);
     }
 
     private VBox buildRemotePane() {
         return buildPane("sftp.remote", remoteDirTree, remoteFileTable,
                 this::goUpRemote,
                 () -> loadRemoteFilesOnly(viewModel.remotePathProperty().get()),
-                viewModel.remotePathProperty());
+                viewModel.remotePathProperty(), true);
     }
 
     private BorderPane buildStatusBar() {

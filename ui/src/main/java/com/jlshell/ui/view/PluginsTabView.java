@@ -29,6 +29,8 @@ import javafx.scene.layout.VBox;
 public class PluginsTabView extends BorderPane {
 
     private final I18nService i18nService;
+    private final PluginManager pluginManager;
+    private final java.util.Set<String> activatedPluginIds = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     public PluginsTabView(
             PluginManager pluginManager,
@@ -38,6 +40,7 @@ public class PluginsTabView extends BorderPane {
             ThemeService themeService
     ) {
         this.i18nService = i18nService;
+        this.pluginManager = pluginManager;
         setPadding(new Insets(8));
 
         ListView<PluginDescriptor> listView = new ListView<>();
@@ -110,6 +113,7 @@ public class PluginsTabView extends BorderPane {
                         ctx.writableThemeNameProperty().bind(pluginManager.themeNameProperty());
                         ctx.writableLocaleProperty().bind(pluginManager.localeProperty());
                         pluginManager.activatePlugin(item.id(), ctx);
+                        activatedPluginIds.add(item.id());
                     });
                     HBox row = new HBox(8, new VBox(2, name, desc), openBtn);
                     HBox.setHgrow(row.getChildren().get(0), Priority.ALWAYS);
@@ -127,5 +131,10 @@ public class PluginsTabView extends BorderPane {
         } else {
             setCenter(listView);
         }
+    }
+
+    public void stopPlugins() {
+        activatedPluginIds.forEach(pluginManager::deactivatePlugin);
+        activatedPluginIds.clear();
     }
 }
