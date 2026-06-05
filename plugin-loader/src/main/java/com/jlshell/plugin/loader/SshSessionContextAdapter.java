@@ -1,5 +1,7 @@
 package com.jlshell.plugin.loader;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -7,10 +9,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 import com.jlshell.core.model.CommandRequest;
+import com.jlshell.core.model.ShellRequest;
+import com.jlshell.core.session.ShellChannel;
 import com.jlshell.core.session.SshSession;
 import com.jlshell.plugin.api.SshSessionContext;
 import com.jlshell.plugin.api.capability.CommandExecutor;
 import com.jlshell.plugin.api.capability.FileExplorer;
+import com.jlshell.plugin.api.capability.InteractiveCommandExecutor;
+import com.jlshell.plugin.api.capability.InteractiveSession;
 import com.jlshell.plugin.api.capability.LogViewer;
 import com.jlshell.plugin.api.capability.ServerStatusProvider;
 import com.jlshell.plugin.api.model.CommandOutput;
@@ -70,6 +76,17 @@ public class SshSessionContextAdapter implements SshSessionContext {
                 return session.execute(req).thenApply(result ->
                         new CommandOutput(result.stdout(), result.stderr(),
                                 result.exitCode() == null ? -1 : result.exitCode()));
+            }
+        };
+    }
+
+    @Override
+    public InteractiveCommandExecutor interactiveCommandExecutor() {
+        return new InteractiveCommandExecutor() {
+            @Override
+            public CompletableFuture<InteractiveSession> start(String command) {
+                return session.openShell(new ShellRequest("xterm-256color", null, null))
+                        .thenApply(shellChannel -> new ShellChannelSessionAdapter(shellChannel, command));
             }
         };
     }
@@ -137,5 +154,110 @@ public class SshSessionContextAdapter implements SshSessionContext {
                 throw new UnsupportedOperationException("not yet implemented");
             }
         };
+    }
+
+    /**
+     * Adapts a {@link ShellChannel} to the plugin-api {@link InteractiveSession}.
+     * When created, it sends the initial command to the shell and starts a background
+     * thread to read output into a buffer.
+     */
+    private static class ShellChannelSessionAdapter implements InteractiveSession {
+
+        private final ShellChannel channel;
+        private final StringBuilder outputBuffer = new StringBuilder();
+        private final Thread readerThread;
+        private volatile boolean running = true;
+
+        ShellChannelSessionAdapter(ShellChannel channel, String command) {
+            this.channel = channel;
+
+            // Start a background thread to continuously read from the shell's output stream
+            readerThread = new Thread(() -> {
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(channel.remoteOutput()))) {
+                    String line;
+                    while (running && channel.isOpen()) {
+                        line = reader.readLine();
+                        if (line == null) break;
+                        synchronized (outputBuffer) {
+                            outputBuffer.append(line).append('\n');
+                            outputBuffer.notifyAll();
+                        }
+                    }
+                } catch (Exception ignored) {}
+            }, "interactive-session-reader");
+            readerThread.setDaemon(true);
+            readerThread.start();
+
+            // Send the initial command
+            try {
+                channel.remoteInput().write((command + "\n").getBytes());
+                channel.remoteInput().flush();
+            } catch (Exception ignored) {}
+        }
+
+        @Override
+        public String readOutput() {
+            synchronized (outputBuffer) {
+                String output = outputBuffer.toString();
+                outputBuffer.setLength(0);
+                return output;
+            }
+        }
+
+        @Override
+        public void writeInput(String input) {
+            try {
+                channel.remoteInput().write(input.getBytes());
+                channel.remoteInput().flush();
+            } catch (Exception ignored) {}
+        }
+
+        @Override
+        public CompletableFuture<String> readUntil(String prompt, Duration timeout) {
+            return CompletableFuture.supplyAsync(() -> {
+                StringBuilder accumulated = new StringBuilder();
+                long deadline = System.nanoTime() + timeout.toNanos();
+
+                synchronized (outputBuffer) {
+                    while (running) {
+                        // Check if the prompt appears in the accumulated + buffered output
+                        String current = accumulated.toString() + outputBuffer.toString();
+                        if (current.contains(prompt)) {
+                            // Transfer buffer to accumulated, then clear
+                            accumulated.append(outputBuffer);
+                            outputBuffer.setLength(0);
+                            return accumulated.toString();
+                        }
+
+                        long remaining = deadline - System.nanoTime();
+                        if (remaining <= 0) {
+                            accumulated.append(outputBuffer);
+                            outputBuffer.setLength(0);
+                            return accumulated.toString();
+                        }
+
+                        try {
+                            outputBuffer.wait(Math.min(remaining / 1_000_000, 500));
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            accumulated.append(outputBuffer);
+                            outputBuffer.setLength(0);
+                            return accumulated.toString();
+                        }
+                    }
+                }
+                return accumulated.toString();
+            });
+        }
+
+        @Override
+        public void close() {
+            running = false;
+            synchronized (outputBuffer) {
+                outputBuffer.notifyAll();
+            }
+            try { channel.close(); } catch (Exception ignored) {}
+            readerThread.interrupt();
+        }
     }
 }

@@ -2,6 +2,7 @@ package com.jlshell.plugin.api;
 
 import com.jlshell.plugin.api.capability.CommandExecutor;
 import com.jlshell.plugin.api.capability.FileExplorer;
+import com.jlshell.plugin.api.capability.InteractiveCommandExecutor;
 import com.jlshell.plugin.api.capability.LogViewer;
 import com.jlshell.plugin.api.capability.ServerStatusProvider;
 
@@ -22,6 +23,8 @@ public interface SshSessionContext {
     String username();
 
     CommandExecutor commandExecutor();
+
+    InteractiveCommandExecutor interactiveCommandExecutor();
 
     FileExplorer fileExplorer();
 
