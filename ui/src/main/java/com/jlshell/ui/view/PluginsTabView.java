@@ -8,6 +8,7 @@ import com.jlshell.plugin.loader.DefaultPluginContext;
 import com.jlshell.plugin.loader.PluginDescriptor;
 import com.jlshell.plugin.loader.PluginManager;
 import com.jlshell.core.session.SshSession;
+import com.jlshell.sftp.service.SftpService;
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.theme.ThemeService;
 import javafx.application.Platform;
@@ -30,6 +31,7 @@ public class PluginsTabView extends BorderPane {
 
     private final I18nService i18nService;
     private final PluginManager pluginManager;
+    private final SftpService sftpService;
     private final java.util.Set<String> activatedPluginIds = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     public PluginsTabView(
@@ -37,10 +39,12 @@ public class PluginsTabView extends BorderPane {
             SshSession sshSession,
             TabPane workspaceTabs,
             I18nService i18nService,
-            ThemeService themeService
+            ThemeService themeService,
+            SftpService sftpService
     ) {
         this.i18nService = i18nService;
         this.pluginManager = pluginManager;
+        this.sftpService = sftpService;
         setPadding(new Insets(8));
 
         ListView<PluginDescriptor> listView = new ListView<>();
@@ -70,7 +74,7 @@ public class PluginsTabView extends BorderPane {
                             }
                         }
                         Optional<SshSessionContext> sshCtx = (sshSession != null)
-                                ? Optional.of(new com.jlshell.plugin.loader.SshSessionContextAdapter(sshSession))
+                                ? Optional.of(new com.jlshell.plugin.loader.SshSessionContextAdapter(sshSession, sftpService))
                                 : Optional.empty();
                         DefaultPluginContext ctx = new DefaultPluginContext(sshCtx, new DefaultPluginContext.Callbacks() {
                             private Tab openedTab;

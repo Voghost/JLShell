@@ -93,7 +93,7 @@ public class SessionWorkspaceTab extends Tab {
             pluginsTab = new Tab(i18nService.get("workspace.plugins"));
             pluginsTab.setClosable(false);
             pluginsTabView = new PluginsTabView(
-                    pluginManager, sshSession, workspaceTabs, i18nService, themeService);
+                    pluginManager, sshSession, workspaceTabs, i18nService, themeService, sftpService);
             pluginsTab.setContent(pluginsTabView);
             workspaceTabs.getTabs().add(pluginsTab);
         }

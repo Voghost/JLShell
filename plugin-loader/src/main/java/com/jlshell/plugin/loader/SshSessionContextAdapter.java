@@ -2,6 +2,7 @@ package com.jlshell.plugin.loader;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -25,6 +26,9 @@ import com.jlshell.plugin.api.model.DiskStatus;
 import com.jlshell.plugin.api.model.MemoryStatus;
 import com.jlshell.plugin.api.model.ProcessInfo;
 import com.jlshell.plugin.api.model.RemoteFile;
+import com.jlshell.sftp.model.TransferRequest;
+import com.jlshell.sftp.service.SftpService;
+import com.jlshell.sftp.service.TransferProgressListener;
 
 /**
  * Adapts {@link SshSession} to the plugin-api {@link SshSessionContext}.
@@ -32,9 +36,11 @@ import com.jlshell.plugin.api.model.RemoteFile;
 public class SshSessionContextAdapter implements SshSessionContext {
 
     private final SshSession session;
+    private final SftpService sftpService;
 
-    public SshSessionContextAdapter(SshSession session) {
+    public SshSessionContextAdapter(SshSession session, SftpService sftpService) {
         this.session = session;
+        this.sftpService = sftpService;
     }
 
     @Override
@@ -96,22 +102,55 @@ public class SshSessionContextAdapter implements SshSessionContext {
         return new FileExplorer() {
             @Override
             public CompletableFuture<List<RemoteFile>> listDirectory(String path) {
-                throw new UnsupportedOperationException("not yet implemented");
+                return sftpService.listDirectory(session, path)
+                        .thenApply(listing -> listing.entries().stream()
+                                .map(e -> new RemoteFile(
+                                        e.name(),
+                                        e.path(),
+                                        e.size(),
+                                        e.isDirectory(),
+                                        e.permissionString(),
+                                        e.modifiedAt()))
+                                .toList());
             }
 
             @Override
             public CompletableFuture<byte[]> readFile(String path) {
-                throw new UnsupportedOperationException("not yet implemented");
+                Path tmpFile = Path.of(System.getProperty("java.io.tmpdir"),
+                        "jlshell-download-" + session.sessionId() + "-" + Path.of(path).getFileName());
+                TransferRequest req = new TransferRequest(tmpFile, path, null, 0);
+                return sftpService.download(session, req, TransferProgressListener.NO_OP)
+                        .thenCompose(unused -> {
+                            try {
+                                return CompletableFuture.completedFuture(
+                                        java.nio.file.Files.readAllBytes(tmpFile));
+                            } catch (java.io.IOException e) {
+                                return CompletableFuture.failedFuture(e);
+                            } finally {
+                                try { java.nio.file.Files.deleteIfExists(tmpFile); } catch (Exception ignored) {}
+                            }
+                        });
             }
 
             @Override
             public CompletableFuture<Void> writeFile(String path, byte[] content) {
-                throw new UnsupportedOperationException("not yet implemented");
+                Path tmpFile = Path.of(System.getProperty("java.io.tmpdir"),
+                        "jlshell-upload-" + session.sessionId() + "-" + Path.of(path).getFileName());
+                try {
+                    java.nio.file.Files.write(tmpFile, content);
+                } catch (java.io.IOException e) {
+                    return CompletableFuture.failedFuture(e);
+                }
+                TransferRequest req = new TransferRequest(tmpFile, path, null, 0);
+                return sftpService.upload(session, req, TransferProgressListener.NO_OP)
+                        .whenComplete((unused, ex) -> {
+                            try { java.nio.file.Files.deleteIfExists(tmpFile); } catch (Exception ignored) {}
+                        });
             }
 
             @Override
             public CompletableFuture<Void> deleteFile(String path) {
-                throw new UnsupportedOperationException("not yet implemented");
+                return sftpService.delete(session, path, false);
             }
         };
     }
