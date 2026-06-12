@@ -44,8 +44,9 @@ public class JlShellDesktopApplication extends Application {
 
         stage.setTitle("JLShell");
         stage.setScene(mainWindow.createScene(stage));
-        stage.setMinWidth(1200);
-        stage.setMinHeight(780);
+        // Minimum window size is now set adaptively in MainWindow.createScene()
+        // based on Screen.getPrimary().getVisualBounds(), so the app scales
+        // properly on HiDPI / small screens (e.g. 1920×1080 @ 150 %).
 
         // JavaFX window icon (taskbar + title bar on Windows/Linux)
         try (InputStream is = getClass().getResourceAsStream("/icons/app_icon.png")) {

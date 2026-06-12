@@ -28,6 +28,7 @@ import com.jlshell.ui.viewmodel.MainViewModel;
 import com.jlshell.ui.dialog.PreferencesDialog;
 import javafx.beans.binding.Bindings;
 import javafx.geometry.Insets;
+import javafx.geometry.Rectangle2D;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
@@ -53,9 +54,10 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
+import javafx.stage.Screen;
+import javafx.stage.Stage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import javafx.stage.Stage;
 
 
 /**
@@ -146,7 +148,36 @@ public class MainWindow {
         root.setCenter(buildCenterArea(stage));
         root.setBottom(buildStatusBar());
 
-        Scene scene = new Scene(root, 1480, 920);
+        // Adapt initial and minimum window size to available screen area.
+        // On Windows with 150% DPI scaling at 1920×1080, the logical
+        // resolution is ~1280×720 (minus taskbar).  Hard-coding 1480×920
+        // and minWidth/minHeight of 1200/780 makes the window fill or
+        // overflow the screen, so we compute adaptive values instead.
+        Screen screen = Screen.getPrimary();
+        Rectangle2D vis = screen.getVisualBounds();
+        double availW = vis.getWidth();
+        double availH = vis.getHeight();
+
+        // Initial size: 90 % of available area, capped at 1480×920
+        double initW = Math.min(1480, Math.floor(availW * 0.90));
+        double initH = Math.min(920, Math.floor(availH * 0.90));
+
+        // Minimum size: allow the window to shrink to 85 % of the screen
+        // (so it never locks the user out of resizing), but never below
+        // 800×560 which is the absolute usable minimum for our layout.
+        double minW = Math.max(800, Math.floor(availW * 0.85));
+        double minH = Math.max(560, Math.floor(availH * 0.85));
+
+        Scene scene = new Scene(root, initW, initH);
+
+        stage.setMinWidth(minW);
+        stage.setMinHeight(minH);
+
+        // Centre the window on screen once it has been shown
+        stage.setOnShown(e -> {
+            stage.setX(vis.getMinX() + (availW - stage.getWidth()) / 2);
+            stage.setY(vis.getMinY() + (availH - stage.getHeight()) / 2);
+        });
 
         // On Windows, the stage is UNDECORATED so we need manual edge resize.
         if (isWindows) {
