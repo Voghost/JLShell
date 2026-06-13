@@ -29,8 +29,6 @@ import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressIndicator;
 import javafx.scene.input.MouseEvent;
-import javafx.scene.image.Image;
-import javafx.scene.image.ImageView;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -139,8 +137,8 @@ public class TerminalWorkspaceView extends BorderPane {
         separator3.getStyleClass().add("sysinfo-sep");
 
         // CPU and MEM icons
-        ImageView cpuIcon = loadIcon("/icons/cpu.svg", 14);
-        ImageView memIcon = loadIcon("/icons/memory-solid.svg", 14);
+        Region cpuIcon = loadSvgShape("/icons/cpu.svg", 14);
+        Region memIcon = loadSvgShape("/icons/memory-solid.svg", 14);
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
@@ -155,15 +153,34 @@ public class TerminalWorkspaceView extends BorderPane {
         return toolbar;
     }
 
-    private ImageView loadIcon(String resourcePath, double size) {
+    private Region loadSvgShape(String resourcePath, double size) {
         var url = TerminalWorkspaceView.class.getResource(resourcePath);
         if (url == null) return null;
-        Image img = new Image(url.toExternalForm(), size, size, true, true);
-        return new ImageView(img);
+        try {
+            String content = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Path.of(url.toURI())));
+            int start = content.indexOf("d=\"");
+            if (start == -1) return null;
+            start += 3;
+            int end = content.indexOf("\"", start);
+            if (end == -1) return null;
+            String pathData = content.substring(start, end);
+            Region region = new Region();
+            region.setStyle(String.format(
+                    "-fx-min-width:%.0fpx;-fx-min-height:%.0fpx;" +
+                    "-fx-max-width:%.0fpx;-fx-max-height:%.0fpx;" +
+                    "-fx-pref-width:%.0fpx;-fx-pref-height:%.0fpx;" +
+                    "-fx-shape:\"%s\";-fx-scale-shape:true;",
+                    size, size, size, size, size, size, pathData));
+            region.getStyleClass().add("action-bar-icon");
+            return region;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private Button iconBtn(String iconResourcePath, String tooltip, Runnable action) {
-        ImageView icon = loadIcon(iconResourcePath, 14);
+        Region icon = loadSvgShape(iconResourcePath, 14);
         Button btn = new Button();
         if (icon != null) {
             btn.setGraphic(icon);

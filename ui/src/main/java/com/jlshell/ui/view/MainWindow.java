@@ -54,6 +54,7 @@ import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.stage.Screen;
@@ -492,20 +493,42 @@ public class MainWindow {
     }
 
     private Button svgIconButton(String iconResourcePath, String tooltip, Runnable action) {
-        ImageView iconView = null;
-        var url = MainWindow.class.getResource(iconResourcePath);
-        if (url != null) {
-            Image img = new Image(url.toExternalForm(), 16, 16, true, true);
-            iconView = new ImageView(img);
-        }
+        Region icon = loadSvgShape(iconResourcePath, 16);
         Button button = new Button();
-        if (iconView != null) {
-            button.setGraphic(iconView);
+        if (icon != null) {
+            button.setGraphic(icon);
         }
         button.setTooltip(new javafx.scene.control.Tooltip(tooltip));
         button.getStyleClass().add("icon-btn");
         button.setOnAction(e -> action.run());
         return button;
+    }
+
+    /** 从 SVG 文件提取 path 数据，返回 Region（通过 -fx-shape CSS 显示） */
+    private Region loadSvgShape(String resourcePath, double size) {
+        var url = MainWindow.class.getResource(resourcePath);
+        if (url == null) return null;
+        try {
+            String content = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Path.of(url.toURI())));
+            int start = content.indexOf("d=\"");
+            if (start == -1) return null;
+            start += 3;
+            int end = content.indexOf("\"", start);
+            if (end == -1) return null;
+            String pathData = content.substring(start, end);
+            Region region = new Region();
+            region.setStyle(String.format(
+                    "-fx-min-width:%.0fpx;-fx-min-height:%.0fpx;" +
+                    "-fx-max-width:%.0fpx;-fx-max-height:%.0fpx;" +
+                    "-fx-pref-width:%.0fpx;-fx-pref-height:%.0fpx;" +
+                    "-fx-shape:\"%s\";-fx-scale-shape:true;",
+                    size, size, size, size, size, size, pathData));
+            region.getStyleClass().add("action-bar-icon");
+            return region;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private Button iconButton(String icon, String tooltip, Runnable action) {

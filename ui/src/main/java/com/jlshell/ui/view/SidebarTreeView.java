@@ -69,12 +69,30 @@ public class SidebarTreeView {
 
     // ── Icon helpers ──────────────────────────────────────────────────
 
-    /** 加载 SVG 图标为 ImageView */
-    private static ImageView loadSvgIcon(String resourcePath, double size) {
+    /** 从 SVG 文件提取 path 数据，返回 Region（通过 -fx-shape CSS 显示） */
+    private static Region loadSvgShape(String resourcePath, double size) {
         var url = SidebarTreeView.class.getResource(resourcePath);
         if (url == null) return null;
-        Image img = new Image(url.toExternalForm(), size, size, true, true);
-        return new ImageView(img);
+        try {
+            String content = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Path.of(url.toURI())));
+            int start = content.indexOf("d=\"");
+            if (start == -1) return null;
+            start += 3;
+            int end = content.indexOf("\"", start);
+            if (end == -1) return null;
+            String pathData = content.substring(start, end);
+            Region region = new Region();
+            region.setStyle(String.format(
+                    "-fx-min-width:%.0fpx;-fx-min-height:%.0fpx;" +
+                    "-fx-max-width:%.0fpx;-fx-max-height:%.0fpx;" +
+                    "-fx-pref-width:%.0fpx;-fx-pref-height:%.0fpx;" +
+                    "-fx-shape:\"%s\";-fx-scale-shape:true;",
+                    size, size, size, size, size, size, pathData));
+            return region;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     public TreeView<SidebarItem> getTreeView() { return treeView; }
@@ -244,7 +262,8 @@ public class SidebarTreeView {
             }
             switch (item) {
                 case SidebarItem.FolderItem folder -> {
-                    ImageView icon = loadSvgIcon("/icons/folder.svg", 16);
+                    Region icon = loadSvgShape("/icons/folder.svg", 16);
+                    icon.getStyleClass().add("sidebar-icon-folder");
                     Label name = new Label(folder.displayName());
                     name.getStyleClass().add("folder-item-name");
                     HBox box = new HBox(5, icon, name);
@@ -256,7 +275,8 @@ public class SidebarTreeView {
                 case SidebarItem.ConnectionItem conn -> {
                     String iconPath = conn.connectionType() == ConnectionType.LOCAL_SHELL
                             ? "/icons/mac.svg" : "/icons/linux.svg";
-                    ImageView icon = loadSvgIcon(iconPath, 16);
+                    Region icon = loadSvgShape(iconPath, 16);
+                    icon.getStyleClass().add("sidebar-icon-server");
                     Label name = new Label(conn.displayName());
                     name.getStyleClass().add("conn-cell-name");
                     Label summary = new Label(conn.summary());
