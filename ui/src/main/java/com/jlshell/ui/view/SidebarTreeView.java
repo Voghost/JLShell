@@ -29,24 +29,13 @@ import javafx.scene.input.TransferMode;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
-import javafx.scene.paint.Color;
-import javafx.scene.shape.SVGPath;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
 
 /**
  * 侧边栏 TreeView：支持多选、拖拽到文件夹、分层文件夹（最多 maxFolderDepth 层）。
  */
 public class SidebarTreeView {
-
-    // ── Lucide icon paths (24×24 viewBox, filled/stroked via SVGPath) ──
-    // Folder (filled variant for JavaFX SVGPath)
-    private static final String ICON_FOLDER =
-            "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z";
-    // Server icon (two stacked rectangles — approximated as filled path)
-    private static final String ICON_SERVER =
-            "M2 2h20v8H2zM2 14h20v8H2zM6 6h.01M6 18h.01";
-    // Terminal prompt: chevron + underline
-    private static final String ICON_TERMINAL =
-            "M4 17l6-6-6-6M12 19h8";
 
     /** 拖拽时放在 Dragboard 里的自定义格式 */
     private static final DataFormat DRAG_FORMAT = new DataFormat("application/jlshell-sidebar");
@@ -78,31 +67,14 @@ public class SidebarTreeView {
 
     // ── Icon helpers ──────────────────────────────────────────────────
 
-    /**
-     * 创建一个 SVGPath 图标，缩放到 size×size，颜色用 CSS class 控制。
-     * JavaFX SVGPath 只支持 fill，所以 Lucide 的 stroke 路径需要用 stroke-to-fill 近似。
-     * 这里用 Region + -fx-shape CSS 方式，颜色通过 styleClass 继承。
-     */
-    private static Region svgIcon(String pathData, double size, String styleClass) {
-        Region region = new Region();
-        region.setStyle(String.format(
-                "-fx-min-width: %.0fpx; -fx-min-height: %.0fpx;" +
-                "-fx-max-width: %.0fpx; -fx-max-height: %.0fpx;" +
-                "-fx-pref-width: %.0fpx; -fx-pref-height: %.0fpx;" +
-                "-fx-shape: \"%s\"; -fx-scale-shape: true;",
-                size, size, size, size, size, size, pathData));
-        if (styleClass != null) region.getStyleClass().add(styleClass);
-        return region;
-    }
+    // ── Icon helpers ──────────────────────────────────────────────────
 
-    /** 用 SVGPath 节点（fill 模式），适合简单 filled 路径。 */
-    private static SVGPath svgPathIcon(String pathData, String colorHex) {
-        SVGPath path = new SVGPath();
-        path.setContent(pathData);
-        path.setFill(Color.web(colorHex));
-        path.setScaleX(0.65);
-        path.setScaleY(0.65);
-        return path;
+    /** 加载 SVG 图标为 ImageView */
+    private static ImageView loadSvgIcon(String resourcePath, double size) {
+        var url = SidebarTreeView.class.getResource(resourcePath);
+        if (url == null) return null;
+        Image img = new Image(url.toExternalForm(), size, size, true, true);
+        return new ImageView(img);
     }
 
     public TreeView<SidebarItem> getTreeView() { return treeView; }
@@ -272,7 +244,7 @@ public class SidebarTreeView {
             }
             switch (item) {
                 case SidebarItem.FolderItem folder -> {
-                    Region icon = svgIcon(ICON_FOLDER, 14, "sidebar-icon-folder");
+                    ImageView icon = loadSvgIcon("/icons/folder.svg", 16);
                     Label name = new Label(folder.displayName());
                     name.getStyleClass().add("folder-item-name");
                     HBox box = new HBox(5, icon, name);
@@ -283,10 +255,8 @@ public class SidebarTreeView {
                 }
                 case SidebarItem.ConnectionItem conn -> {
                     String iconPath = conn.connectionType() == ConnectionType.LOCAL_SHELL
-                            ? ICON_TERMINAL : ICON_SERVER;
-                    String iconClass = conn.connectionType() == ConnectionType.LOCAL_SHELL
-                            ? "sidebar-icon-terminal" : "sidebar-icon-server";
-                    Region icon = svgIcon(iconPath, 14, iconClass);
+                            ? "/icons/mac.svg" : "/icons/linux.svg";
+                    ImageView icon = loadSvgIcon(iconPath, 16);
                     Label name = new Label(conn.displayName());
                     name.getStyleClass().add("conn-cell-name");
                     Label summary = new Label(conn.summary());

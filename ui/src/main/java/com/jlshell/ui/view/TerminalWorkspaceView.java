@@ -29,6 +29,8 @@ import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressIndicator;
 import javafx.scene.input.MouseEvent;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -117,7 +119,7 @@ public class TerminalWorkspaceView extends BorderPane {
     private static final String ICON_FONT = "M5 4h14v3h-1V6h-5v13h2v1H9v-1h2V6H6v1H5z";
 
     private HBox buildToolbar() {
-        Button fontSettings = iconBtn(ICON_FONT, i18nService.get("terminal.fontSettings"), this::openFontSettings);
+        Button fontSettings = iconBtn("/icons/font.svg", i18nService.get("terminal.fontSettings"), this::openFontSettings);
 
         // System info labels
         hostLabel = new Label(sshSession.displayName());
@@ -136,24 +138,36 @@ public class TerminalWorkspaceView extends BorderPane {
         Label separator3 = new Label("│");
         separator3.getStyleClass().add("sysinfo-sep");
 
+        // CPU and MEM icons
+        ImageView cpuIcon = loadIcon("/icons/cpu.svg", 14);
+        ImageView memIcon = loadIcon("/icons/memory-solid.svg", 14);
+
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
         HBox toolbar = new HBox(4,
-                hostLabel, separator1, osLabel, separator2, cpuLabel, separator3, memLabel,
+                hostLabel, separator1, osLabel, separator2,
+                cpuIcon != null ? cpuIcon : new Region(), cpuLabel,
+                separator3,
+                memIcon != null ? memIcon : new Region(), memLabel,
                 spacer, fontSettings);
         toolbar.getStyleClass().add("toolbar-strip");
         return toolbar;
     }
 
-    private Button iconBtn(String svgPath, String tooltip, Runnable action) {
-        Region icon = new Region();
-        icon.getStyleClass().add("action-bar-icon");
-        icon.setStyle("-fx-shape: \"" + svgPath + "\"; -fx-pref-width: 14; -fx-pref-height: 14; "
-                     + "-fx-min-width: 14; -fx-min-height: 14; -fx-max-width: 14; -fx-max-height: 14; "
-                     + "-fx-scale-shape: true;");
+    private ImageView loadIcon(String resourcePath, double size) {
+        var url = TerminalWorkspaceView.class.getResource(resourcePath);
+        if (url == null) return null;
+        Image img = new Image(url.toExternalForm(), size, size, true, true);
+        return new ImageView(img);
+    }
+
+    private Button iconBtn(String iconResourcePath, String tooltip, Runnable action) {
+        ImageView icon = loadIcon(iconResourcePath, 14);
         Button btn = new Button();
-        btn.setGraphic(icon);
+        if (icon != null) {
+            btn.setGraphic(icon);
+        }
         btn.setTooltip(new javafx.scene.control.Tooltip(tooltip));
         btn.getStyleClass().add("icon-btn");
         btn.setOnAction(e -> action.run());

@@ -50,6 +50,8 @@ import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyCodeCombination;
 import javafx.scene.input.KeyCombination;
 import javafx.scene.layout.BorderPane;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.StackPane;
@@ -431,13 +433,13 @@ public class MainWindow {
 
 
 
-        // 紧凑图标按钮行 — Lucide SVG icons
-        Button createButton    = svgIconButton("M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z",          i18nService.get("action.newConnection"),    () -> createConnection(stage));
-        Button editButton      = svgIconButton("M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z", i18nService.get("action.editConnection"), () -> editSelectedConnection(stage));
-        Button deleteButton    = svgIconButton("M3 6h18M8 6V4h8v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6",    i18nService.get("action.deleteConnection"), this::deleteSelectedConnection);
-        Button newFolderButton = svgIconButton("M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2zM12 11v6M9 14h6",                         i18nService.get("sidebar.newFolder"),       () -> createFolder(stage));
-        Button connectButton   = svgIconButton("M5 3l14 9-14 9V3z",         i18nService.get("action.connect"),          this::connectSelected);
-        Button refreshButton   = svgIconButton("M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15", i18nService.get("action.refresh"), this::loadConnections);
+        // 紧凑图标按钮行 — SVG 图标
+        Button createButton    = svgIconButton("/icons/add.svg",          i18nService.get("action.newConnection"),    () -> createConnection(stage));
+        Button editButton      = svgIconButton("/icons/edit.svg",         i18nService.get("action.editConnection"), () -> editSelectedConnection(stage));
+        Button deleteButton    = svgIconButton("/icons/delete.svg",       i18nService.get("action.deleteConnection"), this::deleteSelectedConnection);
+        Button newFolderButton = svgIconButton("/icons/folder.svg",       i18nService.get("sidebar.newFolder"),       () -> createFolder(stage));
+        Button connectButton   = svgIconButton("/icons/runo24.svg",       i18nService.get("action.connect"),          this::connectSelected);
+        Button refreshButton   = svgIconButton("/icons/refresh.svg",      i18nService.get("action.refresh"), this::loadConnections);
         connectButton.getStyleClass().add("icon-btn-primary");
 
         HBox actionBar = new HBox(4, createButton, editButton, deleteButton, newFolderButton,
@@ -489,15 +491,17 @@ public class MainWindow {
         return statusLabel;
     }
 
-    private Button svgIconButton(String svgPath, String tooltip, Runnable action) {
-        javafx.scene.layout.Region icon = new javafx.scene.layout.Region();
-        icon.setStyle(String.format(
-                "-fx-min-width:14px;-fx-min-height:14px;-fx-max-width:14px;-fx-max-height:14px;" +
-                "-fx-pref-width:14px;-fx-pref-height:14px;" +
-                "-fx-shape:\"%s\";-fx-scale-shape:true;", svgPath));
-        icon.getStyleClass().add("action-bar-icon");
+    private Button svgIconButton(String iconResourcePath, String tooltip, Runnable action) {
+        ImageView iconView = null;
+        var url = MainWindow.class.getResource(iconResourcePath);
+        if (url != null) {
+            Image img = new Image(url.toExternalForm(), 16, 16, true, true);
+            iconView = new ImageView(img);
+        }
         Button button = new Button();
-        button.setGraphic(icon);
+        if (iconView != null) {
+            button.setGraphic(iconView);
+        }
         button.setTooltip(new javafx.scene.control.Tooltip(tooltip));
         button.getStyleClass().add("icon-btn");
         button.setOnAction(e -> action.run());
