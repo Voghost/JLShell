@@ -48,18 +48,23 @@
     -fx-font-size: 13px;
 }
 
-.context-menu,
-.menu-item {
+.context-menu {
     -fx-background-color: #ffffff;
     -fx-border-color: #cbd5e1;
+    -fx-border-width: 1;
     -fx-border-radius: 6;
     -fx-background-radius: 6;
+    -fx-background-insets: 0;
     -fx-padding: 2 0;
+    -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.12), 12, 0.25, 0, 4);
 }
 
 .menu-item {
-    -fx-padding: 5 12;
+    -fx-background-color: transparent;
     -fx-border-color: transparent;
+    -fx-padding: 5 12;
+    -fx-background-radius: 4;
+    -fx-border-radius: 4;
 }
 
 .menu-item:hover,
@@ -216,7 +221,7 @@
     -fx-background-color: transparent;
     -fx-background-radius: 0;
     -fx-border-color: transparent;
-    -fx-padding: 4 16 4 12;
+    -fx-padding: 4 4 4 12;
     -fx-focus-color: transparent;
     -fx-faint-focus-color: transparent;
 }
@@ -224,6 +229,7 @@
 .tab-pane .tab .tab-label {
     -fx-text-fill: #64748b;
     -fx-font-size: 12px;
+    -fx-padding: 0 8 0 0;
 }
 
 .tab-pane .tab:selected {
@@ -246,8 +252,22 @@
     -fx-background-color: #94a3b8;
     -fx-shape: "M 0,0 H1 L 4,3 7,0 H8 V1 L 5,4 8,7 V8 H7 L 4,5 1,8 H0 V7 L 3,4 0,1 Z";
     -fx-scale-shape: true;
-    -fx-pref-width: 8;
-    -fx-pref-height: 8;
+    -fx-pref-width: 10;
+    -fx-pref-height: 10;
+    -fx-padding: 2;
+    -fx-cursor: hand;
+}
+
+.tab-pane .tab-close-button:hover {
+    -fx-background-color: #ef4444;
+}
+
+.tab-pane .tab:hover .tab-close-button {
+    -fx-background-color: #64748b;
+}
+
+.tab-pane .tab:hover .tab-close-button:hover {
+    -fx-background-color: #ef4444;
 }
 
 /* ---------- Workspace / Terminal ---------- */
@@ -322,6 +342,22 @@
     -fx-border-color: #cbd5e1;
     -fx-border-radius: 5;
     -fx-background-radius: 5;
+}
+
+.combo-box-popup .list-cell {
+    -fx-text-fill: #1e293b;
+    -fx-font-size: 12px;
+    -fx-padding: 4 8;
+}
+
+.combo-box-popup .list-cell:hover {
+    -fx-background-color: #e2e8f0;
+    -fx-text-fill: #0f172a;
+}
+
+.combo-box-popup .list-cell:filled:selected {
+    -fx-background-color: #bfdbfe;
+    -fx-text-fill: #1e3a5f;
 }
 
 /* ---------- Labels ---------- */
@@ -481,6 +517,86 @@
 
 .list-cell:filled:selected .conn-cell-name {
     -fx-text-fill: #1e3a5f;
+}
+
+/* ---------- Sysinfo separator ---------- */
+.sysinfo-sep {
+    -fx-background-color: #cbd5e1;
+    -fx-pref-width: 1;
+    -fx-min-width: 1;
+    -fx-max-width: 1;
+    -fx-pref-height: 10;
+    -fx-min-height: 10;
+    -fx-max-height: 10;
+    -fx-translate-y: 8;
+}
+
+/* ---------- Sysinfo clickable sections ---------- */
+.sysinfo-section {
+    -fx-alignment: center-left;
+    -fx-spacing: 2;
+    -fx-padding: 2 4;
+    -fx-cursor: hand;
+}
+
+.sysinfo-section:hover {
+    -fx-background-color: #e2e8f0;
+    -fx-background-radius: 3;
+}
+
+.sysinfo-section:hover .sysinfo-label {
+    -fx-text-fill: #0f172a;
+}
+
+.sysinfo-section:hover .action-bar-icon {
+    -fx-background-color: #475569;
+}
+
+/* ---------- Floating card ---------- */
+.hover-card {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #cbd5e1;
+    -fx-border-width: 1;
+    -fx-border-radius: 6;
+    -fx-background-radius: 6;
+    -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.12), 12, 0.25, 0, 4);
+}
+
+.card-row {
+    -fx-alignment: center-left;
+    -fx-spacing: 6;
+    -fx-padding: 2 0;
+}
+
+.card-key {
+    -fx-text-fill: #64748b;
+    -fx-font-size: 11px;
+    -fx-pref-width: 130px;
+    -fx-min-width: 130px;
+}
+
+.card-val {
+    -fx-text-fill: #1e293b;
+    -fx-font-size: 11px;
+    -fx-font-family: "JetBrains Mono", "Menlo", "Consolas", monospace;
+}
+
+.card-section {
+    -fx-text-fill: #2563eb;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-padding: 6 0 2 0;
+}
+
+.card-mono {
+    -fx-text-fill: #475569;
+    -fx-font-size: 10px;
+    -fx-font-family: "JetBrains Mono", "Menlo", "Consolas", monospace;
+}
+
+.card-bar-track {
+    -fx-background-color: #e2e8f0;
+    -fx-background-radius: 3;
 }
 
 /* ---------- SFTP Browser ---------- */

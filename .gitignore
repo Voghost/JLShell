@@ -4,3 +4,4 @@
 target/
 dist/
 .DS_Store
+/.refs/

@@ -43,4 +43,13 @@ public record ConnectionFormData(
                 ConnectionType.SSH, null
         );
     }
+
+    public static ConnectionFormData emptyWithFolder(String folderId) {
+        return new ConnectionFormData(
+                null, "", "", 22, "",
+                AuthenticationType.PASSWORD, "", "", "",
+                HostKeyVerificationMode.STRICT, "", "", false, null,
+                ConnectionType.SSH, folderId
+        );
+    }
 }

@@ -2,6 +2,10 @@ package com.jlshell.terminal.support;
 
 import java.awt.Color;
 import java.awt.Font;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.Window;
 import java.awt.event.KeyEvent;
 import java.util.Map;
 import java.util.function.Function;
@@ -10,6 +14,7 @@ import javax.swing.BorderFactory;
 import javax.swing.JMenuItem;
 import javax.swing.JPopupMenu;
 import javax.swing.JSeparator;
+import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 
 import com.jediterm.terminal.TextStyle;
@@ -30,11 +35,16 @@ import org.jetbrains.annotations.NotNull;
 public class RefreshableTerminalPanel extends TerminalPanel {
 
     // JediTerm 硬编码的英文菜单项名 → i18n key 映射
-    private static final Map<String, String> ACTION_KEY_MAP = Map.of(
-            "Copy",         "terminal.action.copy",
-            "Paste",        "terminal.action.paste",
-            "Clear Buffer", "terminal.action.clearBuffer",
-            "Select All",   "terminal.action.selectAll"
+    private static final Map<String, String> ACTION_KEY_MAP = Map.ofEntries(
+            Map.entry("Copy",         "terminal.action.copy"),
+            Map.entry("Paste",        "terminal.action.paste"),
+            Map.entry("Clear Buffer", "terminal.action.clearBuffer"),
+            Map.entry("Select All",   "terminal.action.selectAll"),
+            Map.entry("Find",         "terminal.action.find"),
+            Map.entry("Page Up",      "terminal.action.pageUp"),
+            Map.entry("Page Down",    "terminal.action.pageDown"),
+            Map.entry("Line Up",      "terminal.action.lineUp"),
+            Map.entry("Line Down",    "terminal.action.lineDown")
     );
 
     private final JlshellSettingsProvider jlshellSettings;
@@ -64,13 +74,41 @@ public class RefreshableTerminalPanel extends TerminalPanel {
         Color hover   = blend(bg, fg, 0.15f);
         Color border  = blend(bg, fg, 0.25f);
 
-        JPopupMenu menu = new JPopupMenu();
+        JPopupMenu menu = new JPopupMenu() {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(bg);
+                g2.fillRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 8, 8);
+                g2.dispose();
+            }
+
+            @Override
+            protected void paintBorder(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(border);
+                g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 8, 8);
+                g2.dispose();
+            }
+
+            @Override
+            public void setVisible(boolean b) {
+                if (b) {
+                    SwingUtilities.invokeLater(() -> {
+                        Window w = SwingUtilities.getWindowAncestor(this);
+                        if (w != null) {
+                            w.setBackground(new Color(0, 0, 0, 0));
+                        }
+                    });
+                }
+                super.setVisible(b);
+            }
+        };
         menu.setBackground(bg);
-        menu.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(border, 1),
-                BorderFactory.createEmptyBorder(3, 0, 3, 0)
-        ));
-        menu.setOpaque(true);
+        menu.setBorder(BorderFactory.createEmptyBorder(6, 0, 6, 0));
+        menu.setOpaque(false);
 
         // 临时覆盖 UIManager，让 JMenuItem 默认颜色跟随主题
         UIManager.put("MenuItem.background",          bg);
@@ -104,15 +142,38 @@ public class RefreshableTerminalPanel extends TerminalPanel {
                 item.setOpaque(true);
                 item.setEnabled(action.isEnabled(null));
                 item.addActionListener(e -> action.actionPerformed(null));
+                item.setBorder(BorderFactory.createEmptyBorder(4, 12, 4, 12));
+                // Hover highlight
+                Color hoverBg = hover;
+                Color normalBg = bg;
+                item.addMouseListener(new java.awt.event.MouseAdapter() {
+                    @Override public void mouseEntered(java.awt.event.MouseEvent e) {
+                        if (item.isEnabled()) item.setBackground(hoverBg);
+                    }
+                    @Override public void mouseExited(java.awt.event.MouseEvent e) {
+                        item.setBackground(normalBg);
+                    }
+                });
                 menu.add(item);
             }
 
             @Override
             public void addSeparator() {
-                JSeparator sep = new JSeparator();
-                sep.setBackground(border);
-                sep.setForeground(border);
-                menu.add(sep);
+                // Use a thin line with horizontal insets, matching the JavaFX context-menu separator style
+                javax.swing.JPanel sepPanel = new javax.swing.JPanel(null) {
+                    @Override
+                    protected void paintComponent(Graphics g) {
+                        super.paintComponent(g);
+                        Graphics2D g2 = (Graphics2D) g.create();
+                        g2.setColor(border);
+                        g2.drawLine(8, 0, getWidth() - 8, 0);
+                        g2.dispose();
+                    }
+                };
+                sepPanel.setOpaque(false);
+                sepPanel.setPreferredSize(new java.awt.Dimension(1, 6));
+                sepPanel.setBackground(bg);
+                menu.add(sepPanel);
             }
         });
 

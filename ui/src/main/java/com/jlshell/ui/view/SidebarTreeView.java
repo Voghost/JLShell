@@ -31,6 +31,7 @@ import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
+import javafx.stage.PopupWindow;
 
 /**
  * 侧边栏 TreeView：支持多选、拖拽到文件夹、分层文件夹（最多 maxFolderDepth 层）。
@@ -47,10 +48,14 @@ public class SidebarTreeView {
 
     private Runnable onConnect;
     private Consumer<SidebarItem> onEdit;
-    private Consumer<SidebarItem> onDelete;
+    private Consumer<List<SidebarItem>> onDelete;
+    private Consumer<SidebarItem> onDuplicate;
+    private Runnable onNewConnectionInEmpty;
+    private Runnable onNewFolderInEmpty;
     private BiConsumer<String, Integer> onNewSubFolder;
     private BiConsumer<String, String> onRenameFolder;
     private BiConsumer<List<SidebarItem>, String> onMove;
+    private Consumer<String> onNewConnectionInFolder;
 
     private final Map<String, Integer> folderDepths = new HashMap<>();
 
@@ -63,46 +68,88 @@ public class SidebarTreeView {
         treeView.setShowRoot(false);
         treeView.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
         treeView.setCellFactory(tv -> new SidebarTreeCell());
+        treeView.setContextMenu(createEmptyAreaContextMenu());
     }
 
-    // ── Icon helpers ──────────────────────────────────────────────────
+    private ContextMenu createEmptyAreaContextMenu() {
+        MenuItem newConn = new MenuItem(i18n.get("action.newConnection"));
+        newConn.setOnAction(e -> { if (onNewConnectionInEmpty != null) onNewConnectionInEmpty.run(); });
+        MenuItem newFolder = new MenuItem(i18n.get("sidebar.newFolder"));
+        newFolder.setOnAction(e -> { if (onNewFolderInEmpty != null) onNewFolderInEmpty.run(); });
+        return transparentPopup(new ContextMenu(newConn, newFolder));
+    }
 
-    // ── Icon helpers ──────────────────────────────────────────────────
+    /** Make the popup window transparent so rounded corners don't show corner fill. */
+    private static ContextMenu transparentPopup(ContextMenu menu) {
+        menu.setOnShown(e -> {
+            javafx.application.Platform.runLater(() -> {
+                // The ContextMenu itself is a PopupWindow; make its scene transparent
+                var scene = menu.getScene();
+                if (scene != null) {
+                    scene.setFill(javafx.scene.paint.Color.TRANSPARENT);
+                    // Also make the root pane transparent in case it has its own fill
+                    if (scene.getRoot() != null) {
+                        scene.getRoot().setStyle("-fx-background-color: transparent;");
+                    }
+                }
+            });
+        });
+        return menu;
+    }
 
-    /** 从 SVG 文件提取 path 数据，返回 Region（通过 -fx-shape CSS 显示） */
+    /** 从 SVG 文件提取 path 数据，返回 Region（通过 SVGPath shape 显示） */
     private static Region loadSvgShape(String resourcePath, double size) {
-        var url = SidebarTreeView.class.getResource(resourcePath);
-        if (url == null) return null;
-        try {
-            String content = new String(java.nio.file.Files.readAllBytes(
-                    java.nio.file.Path.of(url.toURI())));
-            int start = content.indexOf("d=\"");
-            if (start == -1) return null;
-            start += 3;
-            int end = content.indexOf("\"", start);
-            if (end == -1) return null;
-            String pathData = content.substring(start, end);
+        try (var is = SidebarTreeView.class.getResourceAsStream(resourcePath)) {
+            if (is == null) return null;
+            String content = new String(is.readAllBytes());
+            String pathData = extractSvgPath(content);
+            if (pathData == null) return null;
             Region region = new Region();
-            region.setStyle(String.format(
-                    "-fx-min-width:%.0fpx;-fx-min-height:%.0fpx;" +
-                    "-fx-max-width:%.0fpx;-fx-max-height:%.0fpx;" +
-                    "-fx-pref-width:%.0fpx;-fx-pref-height:%.0fpx;" +
-                    "-fx-shape:\"%s\";-fx-scale-shape:true;",
-                    size, size, size, size, size, size, pathData));
+            region.setMinSize(size, size);
+            region.setMaxSize(size, size);
+            region.setPrefSize(size, size);
+            javafx.scene.shape.SVGPath svg = new javafx.scene.shape.SVGPath();
+            svg.setContent(pathData);
+            region.setShape(svg);
+            region.setStyle("-fx-scale-shape:true;");
             return region;
         } catch (Exception e) {
             return null;
         }
     }
 
+    private static String extractSvgPath(String svgContent) {
+        StringBuilder sb = new StringBuilder();
+        int idx = 0;
+        while (idx < svgContent.length()) {
+            int start = svgContent.indexOf("d=\"", idx);
+            if (start == -1) break;
+            if (start > 0 && Character.isLetterOrDigit(svgContent.charAt(start - 1))) {
+                idx = start + 3;
+                continue;
+            }
+            start += 3;
+            int end = svgContent.indexOf("\"", start);
+            if (end == -1) break;
+            if (sb.length() > 0) sb.append(' ');
+            sb.append(svgContent.substring(start, end));
+            idx = end + 1;
+        }
+        return sb.isEmpty() ? null : sb.toString();
+    }
+
     public TreeView<SidebarItem> getTreeView() { return treeView; }
 
     public void setOnConnect(Runnable v) { this.onConnect = v; }
     public void setOnEdit(Consumer<SidebarItem> v) { this.onEdit = v; }
-    public void setOnDelete(Consumer<SidebarItem> v) { this.onDelete = v; }
+    public void setOnDelete(Consumer<List<SidebarItem>> v) { this.onDelete = v; }
+    public void setOnDuplicate(Consumer<SidebarItem> v) { this.onDuplicate = v; }
+    public void setOnNewConnectionInEmpty(Runnable v) { this.onNewConnectionInEmpty = v; }
+    public void setOnNewFolderInEmpty(Runnable v) { this.onNewFolderInEmpty = v; }
     public void setOnNewSubFolder(BiConsumer<String, Integer> v) { this.onNewSubFolder = v; }
     public void setOnRenameFolder(BiConsumer<String, String> v) { this.onRenameFolder = v; }
     public void setOnMove(BiConsumer<List<SidebarItem>, String> v) { this.onMove = v; }
+    public void setOnNewConnectionInFolder(Consumer<String> v) { this.onNewConnectionInFolder = v; }
 
     public void populate(List<FolderProfile> folders, List<ConnectionProfile> connections) {
         root.getChildren().clear();
@@ -273,8 +320,19 @@ public class SidebarTreeView {
                     setContextMenu(buildFolderContextMenu(folder, depth));
                 }
                 case SidebarItem.ConnectionItem conn -> {
-                    String iconPath = conn.connectionType() == ConnectionType.LOCAL_SHELL
-                            ? "/icons/mac.svg" : "/icons/linux.svg";
+                    String iconPath;
+                    if (conn.connectionType() == ConnectionType.LOCAL_SHELL) {
+                        String os = System.getProperty("os.name", "").toLowerCase();
+                        if (os.contains("mac") || os.contains("darwin")) {
+                            iconPath = "/icons/mac.svg";
+                        } else if (os.contains("win")) {
+                            iconPath = "/icons/windows.svg";
+                        } else {
+                            iconPath = "/icons/linux.svg";
+                        }
+                    } else {
+                        iconPath = "/icons/server.svg";
+                    }
                     Region icon = loadSvgShape(iconPath, 16);
                     icon.getStyleClass().add("sidebar-icon-server");
                     Label name = new Label(conn.displayName());
@@ -291,17 +349,24 @@ public class SidebarTreeView {
         }
 
         private ContextMenu buildConnectionContextMenu(SidebarItem.ConnectionItem conn) {
-            MenuItem connect = new MenuItem(i18n.get("action.connect"));
-            MenuItem edit    = new MenuItem(i18n.get("action.editConnection"));
-            MenuItem delete  = new MenuItem(i18n.get("action.deleteConnection"));
+            MenuItem connect  = new MenuItem(i18n.get("action.connect"));
+            MenuItem edit     = new MenuItem(i18n.get("action.editConnection"));
+            MenuItem duplicate = new MenuItem(i18n.get("action.duplicateConnection"));
+            MenuItem delete   = new MenuItem(i18n.get("action.deleteConnection"));
             connect.setOnAction(e -> { if (onConnect != null) onConnect.run(); });
             edit.setOnAction(e -> { if (onEdit != null) onEdit.accept(conn); });
-            delete.setOnAction(e -> { if (onDelete != null) onDelete.accept(conn); });
-            return new ContextMenu(connect, edit, new SeparatorMenuItem(), delete);
+            duplicate.setOnAction(e -> { if (onDuplicate != null) onDuplicate.accept(conn); });
+            delete.setOnAction(e -> { if (onDelete != null) onDelete.accept(getSelectedItems()); });
+            return transparentPopup(new ContextMenu(connect, edit, duplicate, new SeparatorMenuItem(), delete));
         }
 
         private ContextMenu buildFolderContextMenu(SidebarItem.FolderItem folder, int depth) {
             ContextMenu menu = new ContextMenu();
+
+            MenuItem newConn = new MenuItem(i18n.get("action.newConnection"));
+            newConn.setOnAction(e -> { if (onNewConnectionInFolder != null) onNewConnectionInFolder.accept(folder.id()); });
+            menu.getItems().add(newConn);
+
             if (depth + 1 < maxFolderDepth) {
                 MenuItem newSub = new MenuItem(i18n.get("folder.newSub"));
                 newSub.setOnAction(e -> { if (onNewSubFolder != null) onNewSubFolder.accept(folder.id(), depth); });
@@ -310,9 +375,9 @@ public class SidebarTreeView {
             MenuItem rename = new MenuItem(i18n.get("folder.rename"));
             rename.setOnAction(e -> { if (onRenameFolder != null) onRenameFolder.accept(folder.id(), folder.displayName()); });
             MenuItem delete = new MenuItem(i18n.get("folder.delete"));
-            delete.setOnAction(e -> { if (onDelete != null) onDelete.accept(folder); });
+            delete.setOnAction(e -> { if (onDelete != null) onDelete.accept(getSelectedItems()); });
             menu.getItems().addAll(rename, new SeparatorMenuItem(), delete);
-            return menu;
+            return transparentPopup(menu);
         }
     }
 }

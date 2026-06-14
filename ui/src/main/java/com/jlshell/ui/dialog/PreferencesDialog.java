@@ -4,6 +4,7 @@ import com.jlshell.core.model.FontProfile;
 import com.jlshell.core.service.AppSettingsService;
 import com.jlshell.core.service.FontProfileService;
 import com.jlshell.ui.service.I18nService;
+import com.jlshell.ui.theme.AppTheme;
 import com.jlshell.ui.theme.ThemeService;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -20,12 +21,15 @@ import javafx.scene.control.TabPane;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
+import javafx.scene.text.Font;
 import javafx.scene.text.Text;
+import javafx.scene.text.TextAlignment;
 import javafx.stage.Stage;
 
 import java.awt.Canvas;
-import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.GraphicsEnvironment;
 import java.util.Arrays;
@@ -38,9 +42,7 @@ import java.util.ArrayList;
 
 /**
  * 偏好设置对话框。
- * 采用 TabPane 结构，每个 Tab 对应一类配置，方便未来扩展新配置项。
- *
- * <p>扩展方式：新增配置类别时，在 {@link #buildTabPane} 中添加新 Tab 即可。
+ * 采用 TabPane 结构，每个 Tab 对应一类配置。
  */
 public class PreferencesDialog {
 
@@ -50,12 +52,13 @@ public class PreferencesDialog {
             "Consolas", "Courier New", "SF Mono", "Ubuntu Mono"
     );
 
-    /** language code → display name */
     private static final Map<String, String> LANGUAGES = new LinkedHashMap<>();
     static {
         LANGUAGES.put("en", "English");
         LANGUAGES.put("zh_CN", "中文 (简体)");
     }
+
+    private static final String VERSION = "0.1.0-SNAPSHOT";
 
     private PreferencesDialog() {}
 
@@ -69,8 +72,10 @@ public class PreferencesDialog {
 
         FontProfile[] pending = { fontProfileService.activeProfile() };
         String[] pendingLang = { appSettings.get("ui.language", "en") };
+        String[] pendingTheme = { appSettings.get("ui.theme", "DARK") };
+        String[] pendingConnTimeout = { appSettings.get("connection.timeout", "10") };
 
-        TabPane tabs = buildTabPane(fontProfileService, appSettings, i18n, pending, pendingLang);
+        TabPane tabs = buildTabPane(fontProfileService, appSettings, i18n, themeService, pending, pendingLang, pendingTheme, pendingConnTimeout);
         dialog.getDialogPane().setContent(tabs);
         dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
 
@@ -79,6 +84,16 @@ public class PreferencesDialog {
                 fontProfileService.updateActiveProfile(pending[0]);
                 String prevLang = appSettings.get("ui.language", "en");
                 appSettings.set("ui.language", pendingLang[0]);
+
+                String prevTheme = appSettings.get("ui.theme", "DARK");
+                appSettings.set("ui.theme", pendingTheme[0]);
+                if (!prevTheme.equals(pendingTheme[0])) {
+                    AppTheme newTheme = "LIGHT".equals(pendingTheme[0]) ? AppTheme.LIGHT : AppTheme.DARK;
+                    themeService.currentThemeProperty().set(newTheme);
+                }
+
+                appSettings.set("connection.timeout", pendingConnTimeout[0]);
+
                 if (!prevLang.equals(pendingLang[0])) {
                     showRestartPrompt(owner, i18n);
                 }
@@ -100,39 +115,44 @@ public class PreferencesDialog {
         System.exit(0);
     }
 
-    private static void applyLocale(String langCode, I18nService i18n) {
-        Locale locale = langCode.contains("_")
-                ? new Locale(langCode.split("_")[0], langCode.split("_")[1])
-                : new Locale(langCode);
-        i18n.setLocale(locale);
-    }
-
-    private static TabPane buildTabPane(FontProfileService fontProfileService, AppSettingsService appSettings, I18nService i18n, FontProfile[] pending, String[] pendingLang) {
+    private static TabPane buildTabPane(FontProfileService fontProfileService, AppSettingsService appSettings,
+                                         I18nService i18n, ThemeService themeService,
+                                         FontProfile[] pending, String[] pendingLang,
+                                         String[] pendingTheme, String[] pendingConnTimeout) {
         TabPane tabPane = new TabPane();
         tabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
 
-        // ── General Tab ───────────────────────────────────────────────
         Tab generalTab = new Tab(i18n.get("preferences.tab.general"));
-        generalTab.setContent(buildGeneralPane(appSettings, i18n, pendingLang));
+        generalTab.setContent(buildGeneralPane(appSettings, i18n, themeService, pendingLang, pendingTheme));
         tabPane.getTabs().add(generalTab);
 
-        // ── Terminal Tab ──────────────────────────────────────────────
+        Tab connectionTab = new Tab(i18n.get("preferences.tab.connection"));
+        connectionTab.setContent(buildConnectionPane(appSettings, i18n, pendingConnTimeout));
+        tabPane.getTabs().add(connectionTab);
+
         Tab terminalTab = new Tab(i18n.get("preferences.tab.terminal"));
         terminalTab.setContent(buildTerminalPane(fontProfileService.activeProfile(), i18n, pending));
         tabPane.getTabs().add(terminalTab);
 
+        Tab aboutTab = new Tab(i18n.get("preferences.tab.about"));
+        aboutTab.setContent(buildAboutPane(i18n));
+        tabPane.getTabs().add(aboutTab);
+
         return tabPane;
     }
 
-    private static VBox buildGeneralPane(AppSettingsService appSettings, I18nService i18n, String[] pendingLang) {
-        String currentLang = appSettings.get("ui.language", "en");
+    // ── General Tab ────────────────────────────────────────────────────────
 
+    private static VBox buildGeneralPane(AppSettingsService appSettings, I18nService i18n,
+                                          ThemeService themeService, String[] pendingLang, String[] pendingTheme) {
+        String currentLang = appSettings.get("ui.language", "en");
+        String currentTheme = appSettings.get("ui.theme", "DARK");
+
+        // Language
         ComboBox<String> langCombo = new ComboBox<>();
         langCombo.getItems().addAll(LANGUAGES.values());
-        String currentDisplay = LANGUAGES.getOrDefault(currentLang, "English");
-        langCombo.setValue(currentDisplay);
+        langCombo.setValue(LANGUAGES.getOrDefault(currentLang, "English"));
         langCombo.setPrefWidth(200);
-
         langCombo.valueProperty().addListener((o, ov, nv) -> {
             LANGUAGES.entrySet().stream()
                     .filter(e -> e.getValue().equals(nv))
@@ -141,17 +161,75 @@ public class PreferencesDialog {
                     .ifPresent(code -> pendingLang[0] = code);
         });
 
+        // Theme
+        ComboBox<String> themeCombo = new ComboBox<>();
+        themeCombo.getItems().addAll("Dark", "Light");
+        themeCombo.setValue("LIGHT".equals(currentTheme) ? "Light" : "Dark");
+        themeCombo.setPrefWidth(200);
+        themeCombo.valueProperty().addListener((o, ov, nv) ->
+                pendingTheme[0] = "Light".equals(nv) ? "LIGHT" : "DARK");
+
         GridPane grid = new GridPane();
         grid.setHgap(12);
         grid.setVgap(10);
         grid.setPadding(new Insets(16, 20, 8, 20));
         grid.add(new Label(i18n.get("preferences.general.language")), 0, 0);
         grid.add(langCombo, 1, 0);
+        grid.add(new Label(i18n.get("preferences.general.theme")), 0, 1);
+        grid.add(themeCombo, 1, 1);
 
         VBox pane = new VBox(grid);
         pane.setPadding(new Insets(8));
         return pane;
     }
+
+    // ── Connection Tab ─────────────────────────────────────────────────────
+
+    private static VBox buildConnectionPane(AppSettingsService appSettings, I18nService i18n, String[] pendingConnTimeout) {
+        String currentTimeout = appSettings.get("connection.timeout", "10");
+
+        // Connection timeout
+        TextField timeoutField = new TextField(currentTimeout);
+        timeoutField.setPrefWidth(80);
+        timeoutField.textProperty().addListener((o, ov, nv) -> {
+            try {
+                int v = Integer.parseInt(nv.trim());
+                if (v > 0) pendingConnTimeout[0] = String.valueOf(v);
+            } catch (NumberFormatException ignored) {}
+        });
+
+        Label timeoutUnit = new Label(i18n.get("preferences.connection.timeoutUnit"));
+
+        // Keep alive interval
+        String currentKeepAlive = appSettings.get("connection.keepAliveInterval", "60");
+        TextField keepAliveField = new TextField(currentKeepAlive);
+        keepAliveField.setPrefWidth(80);
+        keepAliveField.textProperty().addListener((o, ov, nv) -> {
+            try {
+                int v = Integer.parseInt(nv.trim());
+                if (v >= 0) appSettings.set("connection.keepAliveInterval", String.valueOf(v));
+            } catch (NumberFormatException ignored) {}
+        });
+
+        Label keepAliveUnit = new Label(i18n.get("preferences.connection.keepAliveUnit"));
+
+        GridPane grid = new GridPane();
+        grid.setHgap(12);
+        grid.setVgap(10);
+        grid.setPadding(new Insets(16, 20, 8, 20));
+
+        grid.add(new Label(i18n.get("preferences.connection.timeout")), 0, 0);
+        grid.add(new HBox(4, timeoutField, timeoutUnit), 1, 0);
+
+        grid.add(new Label(i18n.get("preferences.connection.keepAlive")), 0, 1);
+        grid.add(new HBox(4, keepAliveField, keepAliveUnit), 1, 1);
+
+        VBox pane = new VBox(grid);
+        pane.setPadding(new Insets(8));
+        return pane;
+    }
+
+    // ── Terminal Tab ───────────────────────────────────────────────────────
 
     private static VBox buildTerminalPane(FontProfile current, I18nService i18n, FontProfile[] pending) {
         List<String> monoFonts = loadMonospacedFonts();
@@ -189,7 +267,6 @@ public class PreferencesDialog {
         sizeSlider.valueProperty().addListener((o, ov, nv) -> updatePreview(preview, fontCombo.getValue(), nv.doubleValue()));
         updatePreview(preview, fontCombo.getValue(), sizeSlider.getValue());
 
-        // 任意控件变化时更新 pending
         Runnable sync = () -> {
             double size    = parseDouble(sizeField.getText(), current.size());
             double spacing = parseDouble(spacingField.getText(), current.lineSpacing());
@@ -228,8 +305,75 @@ public class PreferencesDialog {
         return pane;
     }
 
+    // ── About Tab ──────────────────────────────────────────────────────────
+
+    private static VBox buildAboutPane(I18nService i18n) {
+        VBox pane = new VBox(12);
+        pane.setPadding(new Insets(24, 28, 16, 28));
+        pane.setAlignment(Pos.TOP_CENTER);
+
+        // App name
+        Label appName = new Label("JLShell");
+        appName.setStyle("-fx-font-size:20px;-fx-font-weight:bold;");
+
+        // Version
+        Label version = new Label(i18n.get("preferences.about.version", VERSION));
+        version.setStyle("-fx-font-size:12px;");
+
+        // Description
+        Label desc = new Label(i18n.get("preferences.about.description"));
+        desc.setStyle("-fx-font-size:11px;");
+        desc.setWrapText(true);
+        desc.setMaxWidth(400);
+        desc.setTextAlignment(TextAlignment.CENTER);
+
+        // Separator
+        Region sep = new Region();
+        sep.setStyle("-fx-pref-height:1px;-fx-background-color:derive(-fx-text-fill, 50%);-fx-max-width:300;");
+        sep.setPrefWidth(300);
+
+        // Author info
+        VBox authorBox = new VBox(4);
+        authorBox.setAlignment(Pos.CENTER);
+
+        Label authorTitle = new Label(i18n.get("preferences.about.author"));
+        authorTitle.setStyle("-fx-font-size:11px;-fx-font-weight:bold;");
+
+        Label authorName = new Label("voghost");
+        authorName.setStyle("-fx-font-size:12px;");
+
+        Label github = new Label("https://www.github.com/Voghost");
+        github.setStyle("-fx-font-size:11px;-fx-text-fill:#4d9cf8;-fx-underline:true;");
+        github.setOnMouseClicked(e -> {
+            try { java.awt.Desktop.getDesktop().browse(java.net.URI.create("https://www.github.com/Voghost")); }
+            catch (Exception ignored) {}
+        });
+        github.setStyle("-fx-font-size:11px;-fx-text-fill:#4d9cf8;-fx-cursor:hand;");
+
+        authorBox.getChildren().addAll(authorTitle, authorName, github);
+
+        // Tech stack
+        Region sep2 = new Region();
+        sep2.setStyle("-fx-pref-height:1px;-fx-background-color:derive(-fx-text-fill, 50%);-fx-max-width:300;");
+        sep2.setPrefWidth(300);
+
+        Label techTitle = new Label(i18n.get("preferences.about.techStack"));
+        techTitle.setStyle("-fx-font-size:11px;-fx-font-weight:bold;");
+
+        Label techDetail = new Label("Java 21 · JavaFX 21 · SSHJ · JediTerm · JDBI 3 · SQLite");
+        techDetail.setStyle("-fx-font-size:10px;");
+        techDetail.setWrapText(true);
+        techDetail.setMaxWidth(400);
+        techDetail.setTextAlignment(TextAlignment.CENTER);
+
+        pane.getChildren().addAll(appName, version, desc, sep, authorBox, sep2, techTitle, techDetail);
+        return pane;
+    }
+
+    // ── Helpers ────────────────────────────────────────────────────────────
+
     private static void updatePreview(Text preview, String family, double size) {
-        preview.setFont(javafx.scene.text.Font.font(family, size));
+        preview.setFont(Font.font(family, size));
     }
 
     private static List<String> loadMonospacedFonts() {
@@ -246,7 +390,7 @@ public class PreferencesDialog {
 
     private static boolean isMonospaced(String family) {
         try {
-            Font font = new Font(family, Font.PLAIN, 12);
+            java.awt.Font font = new java.awt.Font(family, java.awt.Font.PLAIN, 12);
             FontMetrics fm = new Canvas().getFontMetrics(font);
             return fm.charWidth('i') == fm.charWidth('W');
         } catch (Exception e) { return false; }

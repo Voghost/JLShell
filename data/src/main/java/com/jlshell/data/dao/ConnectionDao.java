@@ -62,6 +62,9 @@ public interface ConnectionDao {
     @SqlUpdate("UPDATE connections SET project_id=NULL WHERE project_id=:projectId")
     void clearProjectIdForProject(@Bind("projectId") String projectId);
 
+    @SqlQuery("SELECT display_name FROM connections WHERE folder_id = :folderId ORDER BY display_name ASC")
+    List<String> findNamesByFolderId(@Bind("folderId") String folderId);
+
     @SqlUpdate("UPDATE connections SET folder_id=NULL WHERE folder_id=:folderId")
     void clearFolderIdForFolder(@Bind("folderId") String folderId);
 

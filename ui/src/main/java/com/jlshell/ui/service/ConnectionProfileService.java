@@ -1,13 +1,16 @@
 package com.jlshell.ui.service;
 
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 
 import com.jlshell.core.model.ConnectionType;
 import com.jlshell.core.model.AuthenticationMethod;
 import com.jlshell.core.model.ConnectionRequest;
 import com.jlshell.core.model.ConnectionTarget;
+import com.jlshell.core.service.AppSettingsService;
 import com.jlshell.core.model.HostKeyVerificationMode;
 import com.jlshell.core.model.SessionId;
 import com.jlshell.core.model.SessionState;
@@ -37,10 +40,12 @@ public class ConnectionProfileService {
 
     private final Jdbi jdbi;
     private final CredentialCipher credentialCipher;
+    private final AppSettingsService appSettings;
 
-    public ConnectionProfileService(Jdbi jdbi, CredentialCipher credentialCipher) {
+    public ConnectionProfileService(Jdbi jdbi, CredentialCipher credentialCipher, AppSettingsService appSettings) {
         this.jdbi = jdbi;
         this.credentialCipher = credentialCipher;
+        this.appSettings = appSettings;
     }
 
     // ── Connection queries ────────────────────────────────────────────
@@ -255,10 +260,44 @@ public class ConnectionProfileService {
                 .updateParentId(folderId, blankToNull(targetParentId), Instant.now()));
     }
 
+    /** Collect all connection names under a folder (recursively, including subfolders). */
+    public List<String> collectConnectionNamesUnderFolder(String folderId) {
+        return jdbi.withHandle(h -> {
+            List<String> names = new ArrayList<>();
+            collectConnectionNamesRecursive(h, folderId, names);
+            return names;
+        });
+    }
+
+    private void collectConnectionNamesRecursive(org.jdbi.v3.core.Handle h, String folderId, List<String> names) {
+        names.addAll(h.attach(ConnectionDao.class).findNamesByFolderId(folderId));
+        List<String> childFolderIds = h.attach(ConnectionFolderDao.class).findChildIdsByParentId(folderId);
+        for (String childId : childFolderIds) {
+            collectConnectionNamesRecursive(h, childId, names);
+        }
+    }
+
     public void deleteFolder(String id) {
         jdbi.useTransaction(h -> {
-            h.attach(ConnectionDao.class).clearFolderIdForFolder(id);
-            h.attach(ConnectionFolderDao.class).deleteById(id);
+            deleteFolderRecursive(h, id);
+        });
+    }
+
+    private void deleteFolderRecursive(org.jdbi.v3.core.Handle h, String folderId) {
+        List<String> childIds = h.attach(ConnectionFolderDao.class).findChildIdsByParentId(folderId);
+        for (String childId : childIds) {
+            deleteFolderRecursive(h, childId);
+        }
+        h.attach(ConnectionDao.class).clearFolderIdForFolder(folderId);
+        h.attach(ConnectionFolderDao.class).deleteById(folderId);
+    }
+
+    public void deleteConnections(List<String> ids) {
+        jdbi.useTransaction(h -> {
+            ConnectionDao dao = h.attach(ConnectionDao.class);
+            for (String id : ids) {
+                dao.deleteById(id);
+            }
         });
     }
 
@@ -327,9 +366,14 @@ public class ConnectionProfileService {
                 );
             }
 
+            int timeoutSeconds = 10;
+            try { timeoutSeconds = Integer.parseInt(appSettings.get("connection.timeout", "10")); }
+            catch (NumberFormatException ignored) {}
+
             return new ConnectionRequest(
                     entity.getDisplayName(),
-                    new ConnectionTarget(entity.getHost(), entity.getPort(), entity.getUsername(), null, null),
+                    new ConnectionTarget(entity.getHost(), entity.getPort(), entity.getUsername(),
+                            Duration.ofSeconds(timeoutSeconds), null),
                     entity.getAuthenticationType() == AuthenticationType.PASSWORD
                             ? AuthenticationMethod.PASSWORD
                             : AuthenticationMethod.PRIVATE_KEY,

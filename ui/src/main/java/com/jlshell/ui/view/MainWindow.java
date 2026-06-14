@@ -1,9 +1,12 @@
 package com.jlshell.ui.view;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
+import java.util.stream.Collectors;
 
 import com.jlshell.core.model.ConnectionType;
 import com.jlshell.core.service.AppSettingsService;
@@ -224,7 +227,8 @@ public class MainWindow {
         Menu projectsMenu = new Menu(i18nService.get("project.menu.projects"));
         MenuItem manageProjects = new MenuItem(i18nService.get("project.menu.manage"));
         manageProjects.setOnAction(e -> {
-            ProjectManagerDialog.show(stage, connectionProfileService, i18nService, themeService);
+            ProjectManagerDialog.show(stage, connectionProfileService, i18nService, themeService, activeProjectId,
+                    projectId -> FxThread.run(() -> switchProject(projectId)));
             rebuildProjectsMenu(projectsMenu, stage);
             refreshProjectCombo();
             loadConnections();
@@ -349,6 +353,7 @@ public class MainWindow {
         }
     }
 
+
     public void openPreferences(Stage stage) {
         PreferencesDialog.show(stage, fontProfileService, appSettingsService, i18nService, themeService);
     }
@@ -396,21 +401,49 @@ public class MainWindow {
                 }
             }
         });
-        sidebarTreeView.setOnDelete(item -> {
+        sidebarTreeView.setOnDelete(items -> {
+            List<SidebarItem.ConnectionItem> conns = items.stream()
+                    .filter(i -> i instanceof SidebarItem.ConnectionItem)
+                    .map(i -> (SidebarItem.ConnectionItem) i).toList();
+            List<SidebarItem.FolderItem> folders = items.stream()
+                    .filter(i -> i instanceof SidebarItem.FolderItem)
+                    .map(i -> (SidebarItem.FolderItem) i).toList();
+
+            if (conns.isEmpty() && folders.isEmpty()) return;
+
+            CompletableFuture.supplyAsync(() -> {
+                List<String> connNames = new ArrayList<>();
+                List<String> folderConnNames = new ArrayList<>();
+                for (SidebarItem.ConnectionItem ci : conns) connNames.add(ci.displayName());
+                for (SidebarItem.FolderItem fi : folders) {
+                    folderConnNames.addAll(connectionProfileService.collectConnectionNamesUnderFolder(fi.id()));
+                }
+                return new DeletePreview(connNames, folders.stream().map(SidebarItem.FolderItem::displayName).toList(), folderConnNames);
+            }, executor).thenAccept(preview -> FxThread.run(() -> {
+                String msg = buildDeleteConfirmMessage(preview);
+                Alert alert = new Alert(Alert.AlertType.CONFIRMATION, msg, ButtonType.OK, ButtonType.CANCEL);
+                themeService.applyToDialog(alert);
+                alert.showAndWait().filter(ButtonType.OK::equals).ifPresent(unused ->
+                        CompletableFuture.runAsync(() -> {
+                            for (SidebarItem.ConnectionItem ci : conns) connectionProfileService.delete(ci.id());
+                            for (SidebarItem.FolderItem fi : folders) connectionProfileService.deleteFolder(fi.id());
+                        }, executor).whenComplete((v, t) -> FxThread.run(this::loadConnections)));
+            }));
+        });
+        sidebarTreeView.setOnDuplicate(item -> {
             if (item instanceof SidebarItem.ConnectionItem conn) {
                 ConnectionProfile profile = cachedProfiles.stream()
                         .filter(p -> p.id().equals(conn.id())).findFirst().orElse(null);
                 if (profile != null) {
-                    viewModel.selectedConnectionProperty().set(profile);
-                    deleteSelectedConnection();
+                    duplicateConnection(stage, profile);
                 }
-            } else if (item instanceof SidebarItem.FolderItem folder) {
-                CompletableFuture.runAsync(() -> connectionProfileService.deleteFolder(folder.id()), executor)
-                        .whenComplete((v, t) -> FxThread.run(this::loadConnections));
             }
         });
         sidebarTreeView.setOnNewSubFolder((parentId, parentDepth) -> createSubFolder(stage, parentId));
         sidebarTreeView.setOnRenameFolder((folderId, currentName) -> renameFolder(stage, folderId, currentName));
+        sidebarTreeView.setOnNewConnectionInFolder(folderId -> createConnectionInFolder(stage, folderId));
+        sidebarTreeView.setOnNewConnectionInEmpty(() -> createConnection(stage));
+        sidebarTreeView.setOnNewFolderInEmpty(() -> createFolder(stage));
         sidebarTreeView.setOnMove((items, targetFolderId) ->
                 CompletableFuture.runAsync(() -> {
                     for (SidebarItem item : items) {
@@ -441,10 +474,11 @@ public class MainWindow {
         Button newFolderButton = svgIconButton("/icons/folder.svg",       i18nService.get("sidebar.newFolder"),       () -> createFolder(stage));
         Button connectButton   = svgIconButton("/icons/runo24.svg",       i18nService.get("action.connect"),          this::connectSelected);
         Button refreshButton   = svgIconButton("/icons/refresh.svg",      i18nService.get("action.refresh"), this::loadConnections);
+        Button settingsButton  = svgIconButton("/icons/settings.svg",     i18nService.get("action.preferences"), () -> openPreferences(stage));
         connectButton.getStyleClass().add("icon-btn-primary");
 
         HBox actionBar = new HBox(4, createButton, editButton, deleteButton, newFolderButton,
-                new javafx.scene.layout.Region(), connectButton, refreshButton);
+                new javafx.scene.layout.Region(), connectButton, refreshButton, settingsButton);
         HBox.setHgrow(actionBar.getChildren().get(4), Priority.ALWAYS);
         actionBar.getStyleClass().add("sidebar-action-bar");
 
@@ -475,11 +509,19 @@ public class MainWindow {
         projectCombo.getSelectionModel().selectedItemProperty().addListener((obs, oldVal, newVal) ->
                 switchProjectWithConfirm(newVal));
 
-        HBox projectRow = new HBox(6, projectSwitchLabel, projectCombo);
+        Button manageProjectBtn = svgIconButton("/icons/project.svg", i18nService.get("project.menu.manage"),
+                () -> {
+                    ProjectManagerDialog.show(stage, connectionProfileService, i18nService, themeService, activeProjectId,
+                            projectId -> FxThread.run(() -> switchProject(projectId)));
+                    refreshProjectCombo();
+                    loadConnections();
+                });
+
+        HBox projectRow = new HBox(6, projectSwitchLabel, projectCombo, manageProjectBtn);
         projectRow.getStyleClass().add("sidebar-project-row");
         HBox.setHgrow(projectCombo, Priority.ALWAYS);
 
-        VBox sidebar = new VBox(0, sectionLabel, projectRow, sidebarTreeView.getTreeView(), actionBar);
+        VBox sidebar = new VBox(0, projectRow, sectionLabel, sidebarTreeView.getTreeView(), actionBar);
         sidebar.getStyleClass().add("sidebar");
         VBox.setVgrow(sidebarTreeView.getTreeView(), Priority.ALWAYS);
         return sidebar;
@@ -506,29 +548,45 @@ public class MainWindow {
 
     /** 从 SVG 文件提取 path 数据，返回 Region（通过 -fx-shape CSS 显示） */
     private Region loadSvgShape(String resourcePath, double size) {
-        var url = MainWindow.class.getResource(resourcePath);
-        if (url == null) return null;
-        try {
-            String content = new String(java.nio.file.Files.readAllBytes(
-                    java.nio.file.Path.of(url.toURI())));
-            int start = content.indexOf("d=\"");
-            if (start == -1) return null;
-            start += 3;
-            int end = content.indexOf("\"", start);
-            if (end == -1) return null;
-            String pathData = content.substring(start, end);
+        try (var is = MainWindow.class.getResourceAsStream(resourcePath)) {
+            if (is == null) return null;
+            String content = new String(is.readAllBytes());
+            String pathData = extractSvgPath(content);
+            if (pathData == null) return null;
             Region region = new Region();
-            region.setStyle(String.format(
-                    "-fx-min-width:%.0fpx;-fx-min-height:%.0fpx;" +
-                    "-fx-max-width:%.0fpx;-fx-max-height:%.0fpx;" +
-                    "-fx-pref-width:%.0fpx;-fx-pref-height:%.0fpx;" +
-                    "-fx-shape:\"%s\";-fx-scale-shape:true;",
-                    size, size, size, size, size, size, pathData));
+            region.setMinSize(size, size);
+            region.setMaxSize(size, size);
+            region.setPrefSize(size, size);
+            javafx.scene.shape.SVGPath svg = new javafx.scene.shape.SVGPath();
+            svg.setContent(pathData);
+            region.setShape(svg);
+            region.setStyle("-fx-scale-shape:true;");
             region.getStyleClass().add("action-bar-icon");
             return region;
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private static String extractSvgPath(String svgContent) {
+        StringBuilder sb = new StringBuilder();
+        int idx = 0;
+        while (idx < svgContent.length()) {
+            int start = svgContent.indexOf("d=\"", idx);
+            if (start == -1) break;
+            // Ensure 'd' is a standalone attribute (preceded by whitespace or start-of-tag)
+            if (start > 0 && Character.isLetterOrDigit(svgContent.charAt(start - 1))) {
+                idx = start + 3;
+                continue;
+            }
+            start += 3;
+            int end = svgContent.indexOf("\"", start);
+            if (end == -1) break;
+            if (sb.length() > 0) sb.append(' ');
+            sb.append(svgContent.substring(start, end));
+            idx = end + 1;
+        }
+        return sb.isEmpty() ? null : sb.toString();
     }
 
     private Button iconButton(String icon, String tooltip, Runnable action) {
@@ -612,10 +670,33 @@ public class MainWindow {
                 .filter(s -> !s.isBlank());
     }
 
+    private int connectTimeoutSeconds() {
+        try { return Integer.parseInt(appSettingsService.get("connection.timeout", "10")); }
+        catch (NumberFormatException e) { return 10; }
+    }
+
     private void createConnection(Stage stage) {
         ConnectionDialog.show(stage, i18nService, themeService, ConnectionFormData.empty(),
                 connectionProfileService.listProjects(),
-                connectionProfileService.listFolders(activeProjectId))
+                connectionProfileService.listFolders(activeProjectId),
+                this::testConnection, connectTimeoutSeconds())
+                .ifPresent(form -> saveConnection(form));
+    }
+
+    private void createConnectionInFolder(Stage stage, String folderId) {
+        ConnectionDialog.show(stage, i18nService, themeService, ConnectionFormData.emptyWithFolder(folderId),
+                connectionProfileService.listProjects(),
+                connectionProfileService.listFolders(activeProjectId),
+                this::testConnection, connectTimeoutSeconds())
+                .ifPresent(form -> saveConnection(form));
+    }
+
+    private void duplicateConnection(Stage stage, ConnectionProfile source) {
+        ConnectionFormData copyData = source.toCopyFormData();
+        ConnectionDialog.show(stage, i18nService, themeService, copyData,
+                connectionProfileService.listProjects(),
+                connectionProfileService.listFolders(activeProjectId),
+                this::testConnection, connectTimeoutSeconds())
                 .ifPresent(form -> saveConnection(form));
     }
 
@@ -624,7 +705,6 @@ public class MainWindow {
         if (selected == null) {
             return;
         }
-        // loadForm 含 DB 查询，移到后台线程，拿到结果后回 FX 线程弹对话框
         CompletableFuture.supplyAsync(() -> connectionProfileService.loadForm(selected.id()), executor)
                 .whenComplete((formData, throwable) -> FxThread.run(() -> {
                     if (throwable != null) {
@@ -633,9 +713,19 @@ public class MainWindow {
                     }
                     ConnectionDialog.show(stage, i18nService, themeService, formData,
                             connectionProfileService.listProjects(),
-                            connectionProfileService.listFolders(activeProjectId))
+                            connectionProfileService.listFolders(activeProjectId),
+                            this::testConnection, connectTimeoutSeconds())
                             .ifPresent(this::saveConnection);
                 }));
+    }
+
+    private CompletableFuture<String> testConnection(com.jlshell.core.model.ConnectionRequest request) {
+        return sessionManager.openSession(request)
+                .thenCompose(session -> sessionManager.closeSession(session.sessionId())
+                        .thenApply(v -> i18nService.get("testConnection.success")))
+                .whenComplete((msg, ex) -> {
+                    if (ex == null && request.credential() != null) request.credential().clear();
+                });
     }
 
     private void saveConnection(ConnectionFormData formData) {
@@ -670,6 +760,40 @@ public class MainWindow {
                             loadConnections();
                         }))
         );
+    }
+
+    private record DeletePreview(List<String> connNames, List<String> folderNames, List<String> folderConnNames) {}
+
+    private String buildDeleteConfirmMessage(DeletePreview preview) {
+        StringBuilder sb = new StringBuilder();
+        if (!preview.connNames().isEmpty()) {
+            sb.append(i18nService.get("confirm.deleteConnections", preview.connNames().size()));
+            sb.append("\n");
+            for (String name : preview.connNames()) {
+                sb.append("  • ").append(name).append("\n");
+            }
+        }
+        if (!preview.folderNames().isEmpty()) {
+            if (sb.length() > 0) sb.append("\n");
+            sb.append(i18nService.get("confirm.deleteFolders", preview.folderNames().size()));
+            sb.append("\n");
+            for (String name : preview.folderNames()) {
+                sb.append("  📁 ").append(name).append("\n");
+            }
+        }
+        if (!preview.folderConnNames().isEmpty()) {
+            sb.append("\n");
+            sb.append(i18nService.get("confirm.deleteFolderConnections", preview.folderConnNames().size()));
+            sb.append("\n");
+            int limit = 10;
+            for (int i = 0; i < Math.min(preview.folderConnNames().size(), limit); i++) {
+                sb.append("  • ").append(preview.folderConnNames().get(i)).append("\n");
+            }
+            if (preview.folderConnNames().size() > limit) {
+                sb.append("  ... ").append(preview.folderConnNames().size() - limit).append(" more\n");
+            }
+        }
+        return sb.toString().trim();
     }
 
     private void connectSelected() {

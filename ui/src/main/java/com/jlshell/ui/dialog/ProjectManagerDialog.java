@@ -7,9 +7,9 @@ import com.jlshell.ui.theme.ThemeService;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
+import javafx.geometry.Pos;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
-import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
@@ -20,7 +20,10 @@ import javafx.scene.control.TextField;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
+import java.util.function.Consumer;
+
 import javafx.stage.Stage;
 
 /**
@@ -30,23 +33,50 @@ public class ProjectManagerDialog {
 
     private ProjectManagerDialog() {}
 
-    public static void show(Stage owner, ConnectionProfileService service, I18nService i18n, ThemeService themeService) {
+    public static void show(Stage owner, ConnectionProfileService service, I18nService i18n,
+                            ThemeService themeService, String activeProjectId, Consumer<String> onSwitchProject) {
         Dialog<Void> dialog = new Dialog<>();
         dialog.setTitle(i18n.get("project.manage.title"));
         dialog.setHeaderText(null);
         if (owner != null) dialog.initOwner(owner);
         themeService.applyToDialog(dialog);
-        dialog.getDialogPane().setPrefWidth(500);
-        dialog.getDialogPane().setPrefHeight(400);
+        dialog.getDialogPane().setPrefWidth(520);
+        dialog.getDialogPane().setPrefHeight(420);
         dialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
 
         ObservableList<ProjectProfile> items = FXCollections.observableArrayList(service.listProjects());
         ListView<ProjectProfile> listView = new ListView<>(items);
         listView.setCellFactory(lv -> new ListCell<>() {
+            private final Label nameLbl = new Label();
+            private final Label activeBadge = new Label();
+            private final HBox box = new HBox(8, nameLbl, activeBadge);
+
+            {
+                activeBadge.getStyleClass().add("project-active-badge");
+                activeBadge.setVisible(false);
+                HBox.setHgrow(nameLbl, Priority.ALWAYS);
+                box.setAlignment(Pos.CENTER_LEFT);
+            }
+
             @Override
             protected void updateItem(ProjectProfile item, boolean empty) {
                 super.updateItem(item, empty);
-                setText(empty || item == null ? null : item.name());
+                if (empty || item == null) {
+                    setGraphic(null);
+                    setText(null);
+                    return;
+                }
+                nameLbl.setText(item.name());
+                boolean isActive = item.id().equals(activeProjectId);
+                if (isActive) {
+                    activeBadge.setText("●");
+                    activeBadge.setStyle("-fx-text-fill:#4d9cf8;-fx-font-size:10px;");
+                    activeBadge.setVisible(true);
+                } else {
+                    activeBadge.setVisible(false);
+                }
+                setGraphic(box);
+                setText(null);
             }
         });
         listView.setPrefHeight(200);
@@ -67,6 +97,32 @@ public class ProjectManagerDialog {
         Button saveBtn = new Button(i18n.get("project.action.save"));
         Button newBtn = new Button(i18n.get("project.action.new"));
         Button deleteBtn = new Button(i18n.get("project.action.delete"));
+        Button switchBtn = new Button(i18n.get("project.action.switchTo"));
+        switchBtn.getStyleClass().add("button-primary");
+        switchBtn.setDisable(true);
+
+        switchBtn.setOnAction(e -> {
+            ProjectProfile selected = listView.getSelectionModel().getSelectedItem();
+            if (selected == null || selected.id().equals(activeProjectId)) return;
+            Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
+                    i18n.get("project.switch.detail", selected.name()),
+                    ButtonType.OK, ButtonType.CANCEL);
+            confirm.setHeaderText(i18n.get("project.switch.confirm", selected.name()));
+            themeService.applyToDialog(confirm);
+            confirm.showAndWait().filter(ButtonType.OK::equals).ifPresent(unused -> {
+                if (onSwitchProject != null) onSwitchProject.accept(selected.id());
+                dialog.close();
+            });
+        });
+
+        // Enable switch button only when a non-active project is selected
+        listView.getSelectionModel().selectedItemProperty().addListener((o, ov, nv) -> {
+            if (nv != null) {
+                switchBtn.setDisable(nv.id().equals(activeProjectId));
+            } else {
+                switchBtn.setDisable(true);
+            }
+        });
 
         newBtn.setOnAction(e -> {
             listView.getSelectionModel().clearSelection();
@@ -112,9 +168,13 @@ public class ProjectManagerDialog {
         GridPane.setHgrow(nameField, Priority.ALWAYS);
         GridPane.setHgrow(descField, Priority.ALWAYS);
 
-        HBox buttons = new HBox(8, newBtn, saveBtn, deleteBtn);
+        HBox editButtons = new HBox(8, newBtn, saveBtn, deleteBtn);
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        HBox bottomBar = new HBox(8, editButtons, spacer, switchBtn);
+        bottomBar.setAlignment(Pos.CENTER_LEFT);
 
-        VBox content = new VBox(8, listView, form, buttons);
+        VBox content = new VBox(8, listView, form, bottomBar);
         content.setPadding(new Insets(12));
         dialog.getDialogPane().setContent(content);
         dialog.showAndWait();

@@ -1,20 +1,32 @@
 package com.jlshell.ui.view;
 
+import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
 
+import com.jlshell.core.model.AuthenticationMethod;
+import com.jlshell.core.model.ConnectionRequest;
+import com.jlshell.core.model.ConnectionTarget;
 import com.jlshell.core.model.ConnectionType;
 import com.jlshell.core.model.HostKeyVerificationMode;
+import com.jlshell.core.security.CredentialPayload;
 import com.jlshell.data.entity.AuthenticationType;
 import com.jlshell.ui.model.ConnectionFormData;
 import com.jlshell.ui.model.FolderProfile;
 import com.jlshell.ui.model.ProjectProfile;
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.theme.ThemeService;
+import javafx.application.Platform;
 import javafx.beans.binding.Bindings;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
+import javafx.geometry.Pos;
+import javafx.scene.control.Button;
+import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Dialog;
@@ -25,6 +37,9 @@ import javafx.scene.control.PasswordField;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.GridPane;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.VBox;
+import javafx.scene.paint.Color;
 import javafx.stage.Window;
 
 /**
@@ -32,19 +47,20 @@ import javafx.stage.Window;
  */
 public final class ConnectionDialog {
 
-    private ConnectionDialog() {
-    }
+    private ConnectionDialog() {}
 
     public static Optional<ConnectionFormData> show(
             Window owner, I18nService i18n, ThemeService themeService, ConnectionFormData initialData,
-            List<ProjectProfile> projects, List<FolderProfile> folders) {
+            List<ProjectProfile> projects, List<FolderProfile> folders,
+            Function<ConnectionRequest, CompletableFuture<String>> testConnection,
+            int connectTimeoutSeconds) {
         Dialog<ConnectionFormData> dialog = new Dialog<>();
         dialog.initOwner(owner);
         dialog.setTitle(i18n.get(initialData.id() == null ? "dialog.connection.create" : "dialog.connection.edit"));
         themeService.applyToDialog(dialog);
 
         DialogPane dialogPane = dialog.getDialogPane();
-        dialogPane.getButtonTypes().addAll(javafx.scene.control.ButtonType.OK, javafx.scene.control.ButtonType.CANCEL);
+        dialogPane.getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
 
         // Connection type
         ComboBox<ConnectionType> typeBox = new ComboBox<>(FXCollections.observableArrayList(ConnectionType.values()));
@@ -176,15 +192,94 @@ public final class ConnectionDialog {
             remotePathLabel.setVisible(isSsh); defaultRemotePathField.setVisible(isSsh);
         };
         typeBox.valueProperty().addListener(typeListener);
-        // Apply initial state
         typeListener.changed(null, null, typeBox.getValue());
 
         passwordField.disableProperty().bind(authTypeBox.valueProperty().isEqualTo(AuthenticationType.PRIVATE_KEY));
         privateKeyPathField.disableProperty().bind(authTypeBox.valueProperty().isEqualTo(AuthenticationType.PASSWORD));
         passphraseField.disableProperty().bind(authTypeBox.valueProperty().isEqualTo(AuthenticationType.PASSWORD));
 
-        dialogPane.setContent(form);
-        dialogPane.lookupButton(javafx.scene.control.ButtonType.OK).disableProperty().bind(Bindings.createBooleanBinding(
+        // Test connection button + result label
+        Button testBtn = new Button(i18n.get("action.testConnection"));
+        testBtn.getStyleClass().add("button-primary");
+        testBtn.setStyle("-fx-padding:4 12;-fx-font-size:12px;");
+        Label testResult = new Label();
+        testResult.setStyle("-fx-font-size:11px;");
+
+        Runnable updateTestBtnVisibility = () -> {
+            boolean isSsh = typeBox.getValue() == ConnectionType.SSH;
+            testBtn.setVisible(isSsh);
+            testBtn.setManaged(isSsh);
+        };
+        typeBox.valueProperty().addListener((o, ov, nv) -> updateTestBtnVisibility.run());
+        updateTestBtnVisibility.run();
+
+        testBtn.setOnAction(e -> {
+            String host = hostField.getText() == null ? "" : hostField.getText().trim();
+            String portText = portField.getText() == null ? "" : portField.getText().trim();
+            String username = usernameField.getText() == null ? "" : usernameField.getText().trim();
+            if (host.isEmpty() || username.isEmpty()) {
+                testResult.setTextFill(Color.RED);
+                testResult.setText(i18n.get("testConnection.fillFields"));
+                return;
+            }
+            int port;
+            try { port = Integer.parseInt(portText.isEmpty() ? "22" : portText); }
+            catch (NumberFormatException ex) {
+                testResult.setTextFill(Color.RED);
+                testResult.setText(i18n.get("testConnection.invalidPort"));
+                return;
+            }
+
+            AuthenticationType authType = authTypeBox.getValue();
+            String pwd = passwordField.getText() == null ? "" : passwordField.getText();
+            String keyPath = privateKeyPathField.getText() == null ? "" : privateKeyPathField.getText().trim();
+            String passphr = passphraseField.getText() == null ? "" : passphraseField.getText();
+
+            if (authType == AuthenticationType.PASSWORD && pwd.isEmpty()) {
+                testResult.setTextFill(Color.RED);
+                testResult.setText(i18n.get("testConnection.fillFields"));
+                return;
+            }
+            if (authType == AuthenticationType.PRIVATE_KEY && keyPath.isEmpty()) {
+                testResult.setTextFill(Color.RED);
+                testResult.setText(i18n.get("testConnection.fillFields"));
+                return;
+            }
+
+            testBtn.setDisable(true);
+            testResult.setTextFill(Color.GRAY);
+            testResult.setText(i18n.get("testConnection.testing"));
+
+            ConnectionRequest request = buildTestRequest(
+                    displayNameField.getText() == null ? "" : displayNameField.getText().trim(),
+                    host, port, username,
+                    authType, pwd, keyPath, passphr,
+                    hostKeyBox.getValue(),
+                    connectTimeoutSeconds);
+
+            testConnection.apply(request).whenComplete((msg, ex) -> Platform.runLater(() -> {
+                testBtn.setDisable(false);
+                if (ex != null) {
+                    testResult.setTextFill(Color.RED);
+                    String err = ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage();
+                    testResult.setText(i18n.get("testConnection.failed", err));
+                } else {
+                    testResult.setTextFill(Color.web("#16a34a"));
+                    testResult.setText(msg != null ? msg : i18n.get("testConnection.success"));
+                }
+            }));
+        });
+
+        testResult.setWrapText(true);
+        testResult.setMaxWidth(Double.MAX_VALUE);
+
+        VBox testRow = new VBox(4, testBtn, testResult);
+        testRow.setPadding(new Insets(4, 20, 8, 20));
+
+        VBox content = new VBox(form, testRow);
+        dialogPane.setContent(content);
+
+        dialogPane.lookupButton(ButtonType.OK).disableProperty().bind(Bindings.createBooleanBinding(
                 () -> {
                     if (typeBox.getValue() == ConnectionType.LOCAL_SHELL) {
                         return displayNameField.getText().isBlank();
@@ -198,9 +293,7 @@ public final class ConnectionDialog {
         ));
 
         dialog.setResultConverter(buttonType -> {
-            if (buttonType != javafx.scene.control.ButtonType.OK) {
-                return null;
-            }
+            if (buttonType != ButtonType.OK) return null;
             ProjectProfile selectedProject = projectBox.getValue();
             FolderProfile selectedFolder = folderBox.getValue();
             return new ConnectionFormData(
@@ -224,5 +317,32 @@ public final class ConnectionDialog {
         });
 
         return dialog.showAndWait();
+    }
+
+    private static ConnectionRequest buildTestRequest(
+            String displayName, String host, int port, String username,
+            AuthenticationType authType, String password,
+            String privateKeyPath, String passphrase,
+            HostKeyVerificationMode hostKeyMode,
+            int timeoutSeconds) {
+
+        CredentialPayload credential;
+        if (authType == AuthenticationType.PASSWORD) {
+            credential = CredentialPayload.forPassword(
+                    password.toCharArray());
+        } else {
+            Path keyPath = Path.of(privateKeyPath);
+            credential = CredentialPayload.forPrivateKey(
+                    keyPath,
+                    passphrase.toCharArray());
+        }
+
+        return new ConnectionRequest(
+                displayName,
+                new ConnectionTarget(host, port, username, Duration.ofSeconds(timeoutSeconds), null),
+                authType == AuthenticationType.PASSWORD ? AuthenticationMethod.PASSWORD : AuthenticationMethod.PRIVATE_KEY,
+                credential,
+                hostKeyMode
+        );
     }
 }

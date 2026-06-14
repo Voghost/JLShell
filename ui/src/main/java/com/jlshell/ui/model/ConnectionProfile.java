@@ -29,4 +29,14 @@ public record ConnectionProfile(
         }
         return username + "@" + host + ":" + port;
     }
+
+    /** Create a form data for duplicating this connection (no id, no password/passphrase). */
+    public ConnectionFormData toCopyFormData() {
+        return new ConnectionFormData(
+                null, displayName, host, port, username,
+                authenticationType, "", "", "",
+                hostKeyVerificationMode, description, defaultRemotePath,
+                false, projectId, connectionType, folderId
+        );
+    }
 }

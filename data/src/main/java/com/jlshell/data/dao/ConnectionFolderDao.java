@@ -33,6 +33,9 @@ public interface ConnectionFolderDao {
             "sort_order=:sortOrder, updated_at=:updatedAt WHERE id=:id")
     void update(@BindBean ConnectionFolderEntity entity);
 
+    @SqlQuery("SELECT id FROM connection_folders WHERE parent_id = :parentId")
+    List<String> findChildIdsByParentId(@Bind("parentId") String parentId);
+
     @SqlUpdate("DELETE FROM connection_folders WHERE id = :id")
     void deleteById(@Bind("id") String id);
 

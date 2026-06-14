@@ -107,7 +107,7 @@ public class AppContext implements AutoCloseable {
         JediTermTerminalViewFactory terminalViewFactory = new JediTermTerminalViewFactory(
                 fontProfileService, executor, i18nService::get);
 
-        ConnectionProfileService connectionProfileService = new ConnectionProfileService(jdbi, credentialCipher);
+        ConnectionProfileService connectionProfileService = new ConnectionProfileService(jdbi, credentialCipher, appSettingsService);
         LocalShellLauncher localShellLauncher = new LocalShellLauncher(fontProfileService, executor, i18nService);
 
         // 7. Main window

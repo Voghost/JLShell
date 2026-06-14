@@ -48,18 +48,28 @@
     -fx-font-size: 13px;
 }
 
-.context-menu,
-.menu-item {
+.context-menu {
     -fx-background-color: #2b2d30;
     -fx-border-color: #43454a;
+    -fx-border-width: 1;
     -fx-border-radius: 6;
     -fx-background-radius: 6;
+    -fx-background-insets: 0;
     -fx-padding: 2 0;
+    -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.25), 10, 0.2, 0, 3);
+}
+
+.context-menu .separator .line {
+    -fx-border-color: #43454a;
+    -fx-border-width: 1 0 0 0;
 }
 
 .menu-item {
-    -fx-padding: 5 12;
+    -fx-background-color: transparent;
     -fx-border-color: transparent;
+    -fx-padding: 5 12;
+    -fx-background-radius: 4;
+    -fx-border-radius: 4;
 }
 
 .menu-item:hover,
@@ -216,7 +226,7 @@
     -fx-background-color: transparent;
     -fx-background-radius: 0;
     -fx-border-color: transparent;
-    -fx-padding: 4 16 4 12;
+    -fx-padding: 4 4 4 12;
     -fx-focus-color: transparent;
     -fx-faint-focus-color: transparent;
 }
@@ -224,6 +234,7 @@
 .tab-pane .tab .tab-label {
     -fx-text-fill: #9da0a8;
     -fx-font-size: 12px;
+    -fx-padding: 0 8 0 0;
 }
 
 .tab-pane .tab:selected {
@@ -243,11 +254,25 @@
 }
 
 .tab-pane .tab-close-button {
-    -fx-background-color: #9da0a8;
+    -fx-background-color: #6b6e73;
     -fx-shape: "M 0,0 H1 L 4,3 7,0 H8 V1 L 5,4 8,7 V8 H7 L 4,5 1,8 H0 V7 L 3,4 0,1 Z";
     -fx-scale-shape: true;
-    -fx-pref-width: 8;
-    -fx-pref-height: 8;
+    -fx-pref-width: 10;
+    -fx-pref-height: 10;
+    -fx-padding: 2;
+    -fx-cursor: hand;
+}
+
+.tab-pane .tab-close-button:hover {
+    -fx-background-color: #ef4444;
+}
+
+.tab-pane .tab:hover .tab-close-button {
+    -fx-background-color: #9da0a8;
+}
+
+.tab-pane .tab:hover .tab-close-button:hover {
+    -fx-background-color: #ef4444;
 }
 
 /* ---------- Workspace / Terminal ---------- */
@@ -322,6 +347,22 @@
     -fx-border-color: #43454a;
     -fx-border-radius: 5;
     -fx-background-radius: 5;
+}
+
+.combo-box-popup .list-cell {
+    -fx-text-fill: #dfe1e5;
+    -fx-font-size: 12px;
+    -fx-padding: 4 8;
+}
+
+.combo-box-popup .list-cell:hover {
+    -fx-background-color: #3c3f41;
+    -fx-text-fill: #ffffff;
+}
+
+.combo-box-popup .list-cell:filled:selected {
+    -fx-background-color: #2d5fa3;
+    -fx-text-fill: #ffffff;
 }
 
 /* ---------- Labels ---------- */
@@ -596,6 +637,86 @@
 .tree-cell:filled:selected .sidebar-icon-server,
 .tree-cell:filled:selected .sidebar-icon-terminal {
     -fx-background-color: #ffffff;
+}
+
+/* ---------- Sysinfo separator ---------- */
+.sysinfo-sep {
+    -fx-background-color: #43454a;
+    -fx-pref-width: 1;
+    -fx-min-width: 1;
+    -fx-max-width: 1;
+    -fx-pref-height: 10;
+    -fx-min-height: 10;
+    -fx-max-height: 10;
+    -fx-translate-y: 8;
+}
+
+/* ---------- Sysinfo clickable sections ---------- */
+.sysinfo-section {
+    -fx-alignment: center-left;
+    -fx-spacing: 2;
+    -fx-padding: 2 4;
+    -fx-cursor: hand;
+}
+
+.sysinfo-section:hover {
+    -fx-background-color: #3c3f44;
+    -fx-background-radius: 3;
+}
+
+.sysinfo-section:hover .sysinfo-label {
+    -fx-text-fill: #ffffff;
+}
+
+.sysinfo-section:hover .action-bar-icon {
+    -fx-background-color: #dfe1e5;
+}
+
+/* ---------- Floating card ---------- */
+.hover-card {
+    -fx-background-color: #2b2d30;
+    -fx-border-color: #43454a;
+    -fx-border-width: 1;
+    -fx-border-radius: 6;
+    -fx-background-radius: 6;
+    -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.45), 12, 0.25, 0, 4);
+}
+
+.card-row {
+    -fx-alignment: center-left;
+    -fx-spacing: 6;
+    -fx-padding: 2 0;
+}
+
+.card-key {
+    -fx-text-fill: #9da0a8;
+    -fx-font-size: 11px;
+    -fx-pref-width: 130px;
+    -fx-min-width: 130px;
+}
+
+.card-val {
+    -fx-text-fill: #dfe1e5;
+    -fx-font-size: 11px;
+    -fx-font-family: "JetBrains Mono", "Menlo", "Consolas", monospace;
+}
+
+.card-section {
+    -fx-text-fill: #4d9cf8;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-padding: 6 0 2 0;
+}
+
+.card-mono {
+    -fx-text-fill: #b0b3b8;
+    -fx-font-size: 10px;
+    -fx-font-family: "JetBrains Mono", "Menlo", "Consolas", monospace;
+}
+
+.card-bar-track {
+    -fx-background-color: #3c3f41;
+    -fx-background-radius: 3;
 }
 
 /* ---------- SFTP Browser ---------- */
