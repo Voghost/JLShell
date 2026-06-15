@@ -41,11 +41,14 @@ public class ConnectionProfileService {
     private final Jdbi jdbi;
     private final CredentialCipher credentialCipher;
     private final AppSettingsService appSettings;
+    private final VaultService vaultService;
 
-    public ConnectionProfileService(Jdbi jdbi, CredentialCipher credentialCipher, AppSettingsService appSettings) {
+    public ConnectionProfileService(Jdbi jdbi, CredentialCipher credentialCipher,
+                                     AppSettingsService appSettings, VaultService vaultService) {
         this.jdbi = jdbi;
         this.credentialCipher = credentialCipher;
         this.appSettings = appSettings;
+        this.vaultService = vaultService;
     }
 
     // ── Connection queries ────────────────────────────────────────────
@@ -72,13 +75,31 @@ public class ConnectionProfileService {
             ConnectionEntity entity = h.attach(ConnectionDao.class).findById(id)
                     .orElseThrow(() -> new IllegalArgumentException("Connection not found: " + id));
 
-            CredentialEntity credential = entity.getCredentialId() != null
-                    ? h.attach(CredentialDao.class).findById(entity.getCredentialId()).orElse(null)
-                    : null;
+            String vaultEntryId = entity.getVaultEntryId();
+            String plainPassword;
+            String plainPassphrase;
+            String privateKeyPath;
+            String keyContent = null;
+            AuthenticationType authType;
 
-            // DB 中存储的是密文，解密后返回明文给 UI
-            String plainPassword = decryptOrNull(credential != null ? credential.getEncryptedPassword() : null);
-            String plainPassphrase = decryptOrNull(credential != null ? credential.getEncryptedPassphrase() : null);
+            if (vaultEntryId != null) {
+                // 从凭据库加载
+                com.jlshell.ui.model.VaultEntryFormData vaultForm = vaultService.loadForm(vaultEntryId);
+                authType = vaultForm.authenticationType();
+                plainPassword = vaultForm.password();
+                plainPassphrase = vaultForm.passphrase();
+                privateKeyPath = vaultForm.privateKeyPath();
+                keyContent = vaultForm.keyContent();
+            } else {
+                // 从旧凭证加载
+                CredentialEntity credential = entity.getCredentialId() != null
+                        ? h.attach(CredentialDao.class).findById(entity.getCredentialId()).orElse(null)
+                        : null;
+                plainPassword = decryptOrNull(credential != null ? credential.getEncryptedPassword() : null);
+                plainPassphrase = decryptOrNull(credential != null ? credential.getEncryptedPassphrase() : null);
+                privateKeyPath = credential != null ? credential.getPrivateKeyPath() : null;
+                authType = credential != null ? credential.getAuthenticationType() : null;
+            }
 
             return new ConnectionFormData(
                     entity.getId(),
@@ -86,9 +107,9 @@ public class ConnectionProfileService {
                     entity.getHost(),
                     entity.getPort(),
                     entity.getUsername(),
-                    credential != null ? credential.getAuthenticationType() : null,
+                    authType != null ? authType : AuthenticationType.PASSWORD,
                     plainPassword,
-                    credential != null ? credential.getPrivateKeyPath() : null,
+                    privateKeyPath,
                     plainPassphrase,
                     HostKeyVerificationMode.valueOf(entity.getHostKeyVerificationMode()),
                     entity.getDescription(),
@@ -96,7 +117,9 @@ public class ConnectionProfileService {
                     entity.isFavorite(),
                     entity.getProjectId(),
                     entity.getConnectionType() != null ? entity.getConnectionType() : ConnectionType.SSH,
-                    entity.getFolderId()
+                    entity.getFolderId(),
+                    vaultEntryId,
+                    keyContent
             );
         });
     }
@@ -132,24 +155,32 @@ public class ConnectionProfileService {
                 entity.setHostKeyVerificationMode(formData.hostKeyVerificationMode().name());
                 entity.setDefaultRemotePath(blankToNull(formData.defaultRemotePath()));
 
-                // 处理凭证（明文 → 加密后存入 DB）
-                CredentialEntity credential = isNew || entity.getCredentialId() == null
-                        ? new CredentialEntity()
-                        : credDao.findById(entity.getCredentialId()).orElse(new CredentialEntity());
+                // 设置凭据库引用
+                entity.setVaultEntryId(blankToNull(formData.vaultEntryId()));
 
-                credential.setAuthenticationType(formData.authenticationType());
-                credential.setEncryptedPassword(encryptOrNull(blankToNull(formData.password())));
-                credential.setPrivateKeyPath(blankToNull(formData.privateKeyPath()));
-                credential.setEncryptedPassphrase(encryptOrNull(blankToNull(formData.passphrase())));
-
-                if (credential.getId() == null) {
-                    credential.prepareInsert();
-                    credDao.insert(credential);
+                if (formData.vaultEntryId() != null && !formData.vaultEntryId().isBlank()) {
+                    // 使用凭据库：不需要创建 per-connection CredentialEntity
+                    entity.setCredentialId(null);
                 } else {
-                    credential.prepareUpdate();
-                    credDao.update(credential);
+                    // 手动输入：创建/更新 per-connection CredentialEntity
+                    CredentialEntity credential = isNew || entity.getCredentialId() == null
+                            ? new CredentialEntity()
+                            : credDao.findById(entity.getCredentialId()).orElse(new CredentialEntity());
+
+                    credential.setAuthenticationType(formData.authenticationType());
+                    credential.setEncryptedPassword(encryptOrNull(blankToNull(formData.password())));
+                    credential.setPrivateKeyPath(blankToNull(formData.privateKeyPath()));
+                    credential.setEncryptedPassphrase(encryptOrNull(blankToNull(formData.passphrase())));
+
+                    if (credential.getId() == null) {
+                        credential.prepareInsert();
+                        credDao.insert(credential);
+                    } else {
+                        credential.prepareUpdate();
+                        credDao.update(credential);
+                    }
+                    entity.setCredentialId(credential.getId());
                 }
-                entity.setCredentialId(credential.getId());
             } else {
                 // LOCAL_SHELL：清空 SSH 专用字段，保留一个存根凭证
                 entity.setHost("");
@@ -337,6 +368,7 @@ public class ConnectionProfileService {
         jdbi.useTransaction(h -> {
             h.attach(ConnectionDao.class).clearProjectIdForProject(id);
             h.attach(ConnectionFolderDao.class).clearProjectIdForProject(id);
+            vaultService.clearProjectIdForProject(id);
             h.attach(ProjectDao.class).deleteById(id);
         });
     }
@@ -348,22 +380,29 @@ public class ConnectionProfileService {
             ConnectionEntity entity = h.attach(ConnectionDao.class).findById(connectionId)
                     .orElseThrow(() -> new IllegalArgumentException("Connection not found: " + connectionId));
 
-            CredentialEntity credential = entity.getCredentialId() != null
-                    ? h.attach(CredentialDao.class).findById(entity.getCredentialId()).orElse(null)
-                    : null;
-
-            // DB 存储的是密文，解密后传给 CredentialPayload
             CredentialPayload credentialPayload;
-            if (entity.getAuthenticationType() == AuthenticationType.PASSWORD) {
-                String pwd = decryptOrNull(credential != null ? credential.getEncryptedPassword() : null);
-                credentialPayload = CredentialPayload.forPassword(value(pwd).toCharArray());
+            String vaultEntryId = entity.getVaultEntryId();
+
+            if (vaultEntryId != null) {
+                // 使用凭据库
+                credentialPayload = vaultService.toCredentialPayload(vaultEntryId);
             } else {
-                String keyPath = credential != null ? credential.getPrivateKeyPath() : null;
-                String passphrase = decryptOrNull(credential != null ? credential.getEncryptedPassphrase() : null);
-                credentialPayload = CredentialPayload.forPrivateKey(
-                        Path.of(value(keyPath)),
-                        value(passphrase).toCharArray()
-                );
+                // 使用旧凭证
+                CredentialEntity credential = entity.getCredentialId() != null
+                        ? h.attach(CredentialDao.class).findById(entity.getCredentialId()).orElse(null)
+                        : null;
+
+                if (entity.getAuthenticationType() == AuthenticationType.PASSWORD) {
+                    String pwd = decryptOrNull(credential != null ? credential.getEncryptedPassword() : null);
+                    credentialPayload = CredentialPayload.forPassword(value(pwd).toCharArray());
+                } else {
+                    String keyPath = credential != null ? credential.getPrivateKeyPath() : null;
+                    String passphrase = decryptOrNull(credential != null ? credential.getEncryptedPassphrase() : null);
+                    credentialPayload = CredentialPayload.forPrivateKey(
+                            Path.of(value(keyPath)),
+                            value(passphrase).toCharArray()
+                    );
+                }
             }
 
             int timeoutSeconds = 10;
@@ -428,7 +467,8 @@ public class ConnectionProfileService {
                 entity.isFavorite(),
                 entity.getProjectId(),
                 entity.getConnectionType() != null ? entity.getConnectionType() : ConnectionType.SSH,
-                entity.getFolderId()
+                entity.getFolderId(),
+                entity.getVaultEntryId()
         );
     }
 
@@ -449,6 +489,10 @@ public class ConnectionProfileService {
     private void validate(ConnectionFormData formData) {
         if (isBlank(formData.host()) || isBlank(formData.username())) {
             throw new IllegalArgumentException("Host and username are required");
+        }
+        // 使用凭据库时不验证密码/密钥（由 vault 保证）
+        if (formData.vaultEntryId() != null && !formData.vaultEntryId().isBlank()) {
+            return;
         }
         if (formData.authenticationType() == AuthenticationType.PASSWORD && isBlank(formData.password())) {
             throw new IllegalArgumentException("Password is required for password authentication");

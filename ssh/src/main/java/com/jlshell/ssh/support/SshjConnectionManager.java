@@ -1,7 +1,10 @@
 package com.jlshell.ssh.support;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
+import java.io.StringReader;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 
@@ -10,6 +13,7 @@ import com.jlshell.core.model.AuthenticationMethod;
 import com.jlshell.core.model.ConnectionRequest;
 import com.jlshell.core.model.HostKeyVerificationMode;
 import com.jlshell.core.model.SessionId;
+import com.jlshell.core.security.CredentialPayload;
 import com.jlshell.core.service.ConnectionManager;
 import com.jlshell.core.session.SshSession;
 import com.jlshell.ssh.support.session.SshjSession;
@@ -17,6 +21,8 @@ import net.schmizz.sshj.SSHClient;
 import net.schmizz.sshj.transport.verification.OpenSSHKnownHosts;
 import net.schmizz.sshj.transport.verification.PromiscuousVerifier;
 import net.schmizz.sshj.userauth.keyprovider.KeyProvider;
+import net.schmizz.sshj.userauth.keyprovider.OpenSSHKeyFile;
+import net.schmizz.sshj.userauth.password.PasswordUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -116,12 +122,20 @@ public class SshjConnectionManager implements ConnectionManager {
             return;
         }
 
-        // 私钥口令允许为空，对应无 passphrase 的 key 文件。
-        KeyProvider keyProvider = client.loadKeys(
-                request.credential().privateKeyPath().toString(),
-                emptyToNull(request.credential().secret())
-        );
-        client.authPublickey(request.target().username(), keyProvider);
+        CredentialPayload cred = request.credential();
+        if (cred.privateKeyPath() != null) {
+            KeyProvider keyProvider = client.loadKeys(
+                    cred.privateKeyPath().toString(),
+                    emptyToNull(cred.secret())
+            );
+            client.authPublickey(request.target().username(), keyProvider);
+        } else if (cred.privateKeyContent() != null) {
+            OpenSSHKeyFile keyFile = new OpenSSHKeyFile();
+            String passphrase = emptyToNull(cred.secret());
+            keyFile.init(new StringReader(new String(cred.privateKeyContent(), StandardCharsets.UTF_8)),
+                    passphrase != null ? PasswordUtils.createOneOff(passphrase.toCharArray()) : null);
+            client.authPublickey(request.target().username(), keyFile);
+        }
     }
 
     private String emptyToNull(char[] value) {

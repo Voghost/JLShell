@@ -50,6 +50,20 @@ CREATE TABLE IF NOT EXISTS connections (
     updated_at               INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS credential_vault (
+    id                    TEXT PRIMARY KEY NOT NULL,
+    name                  TEXT NOT NULL,
+    authentication_type   TEXT NOT NULL,
+    encryption_mode       TEXT NOT NULL DEFAULT 'SYSTEM',
+    encrypted_password    TEXT,
+    encrypted_passphrase  TEXT,
+    encrypted_key_content TEXT,
+    private_key_path      TEXT,
+    project_id            TEXT REFERENCES projects(id),
+    created_at            INTEGER NOT NULL,
+    updated_at            INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS session_history (
     id                 TEXT    PRIMARY KEY NOT NULL,
     connection_id      TEXT    NOT NULL REFERENCES connections(id),

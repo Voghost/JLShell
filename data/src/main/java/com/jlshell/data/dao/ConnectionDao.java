@@ -42,10 +42,10 @@ public interface ConnectionDao {
 
     @SqlUpdate("INSERT INTO connections (id, display_name, host, port, username, authentication_type, " +
             "host_key_verification_mode, description, default_remote_path, favorite, connection_type, " +
-            "project_id, folder_id, credential_id, created_at, updated_at) " +
+            "project_id, folder_id, credential_id, vault_entry_id, created_at, updated_at) " +
             "VALUES (:id, :displayName, :host, :port, :username, :authenticationType, " +
             ":hostKeyVerificationMode, :description, :defaultRemotePath, :favorite, :connectionType, " +
-            ":projectId, :folderId, :credentialId, :createdAt, :updatedAt)")
+            ":projectId, :folderId, :credentialId, :vaultEntryId, :createdAt, :updatedAt)")
     void insert(@BindBean ConnectionEntity entity);
 
     @SqlUpdate("UPDATE connections SET display_name=:displayName, host=:host, port=:port, " +
@@ -53,7 +53,7 @@ public interface ConnectionDao {
             "host_key_verification_mode=:hostKeyVerificationMode, description=:description, " +
             "default_remote_path=:defaultRemotePath, favorite=:favorite, connection_type=:connectionType, " +
             "project_id=:projectId, folder_id=:folderId, credential_id=:credentialId, " +
-            "updated_at=:updatedAt WHERE id=:id")
+            "vault_entry_id=:vaultEntryId, updated_at=:updatedAt WHERE id=:id")
     void update(@BindBean ConnectionEntity entity);
 
     @SqlUpdate("DELETE FROM connections WHERE id = :id")
@@ -72,4 +72,12 @@ public interface ConnectionDao {
     void updateFolderId(@Bind("connectionId") String connectionId,
                         @Bind("folderId") String folderId,
                         @Bind("updatedAt") java.time.Instant updatedAt);
+
+    @SqlUpdate("UPDATE connections SET vault_entry_id=:vaultEntryId, updated_at=:updatedAt WHERE id=:id")
+    void updateVaultEntryId(@Bind("id") String id,
+                            @Bind("vaultEntryId") String vaultEntryId,
+                            @Bind("updatedAt") java.time.Instant updatedAt);
+
+    @SqlQuery("SELECT id FROM connections WHERE vault_entry_id = :vaultEntryId LIMIT 1")
+    Optional<String> findIdByVaultEntryId(@Bind("vaultEntryId") String vaultEntryId);
 }

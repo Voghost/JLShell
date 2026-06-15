@@ -24,6 +24,7 @@ import com.jlshell.ui.model.SidebarItem;
 import com.jlshell.ui.service.ConnectionProfileService;
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.service.LocalShellLauncher;
+import com.jlshell.ui.service.VaultService;
 import com.jlshell.ui.support.FxThread;
 import com.jlshell.ui.theme.AppTheme;
 import com.jlshell.ui.theme.ThemeService;
@@ -86,6 +87,7 @@ public class MainWindow {
     private final LocalShellLauncher localShellLauncher;
     private final ExecutorService executor;
     private final PluginManager pluginManager;
+    private final VaultService vaultService;
     private final TabPane workspaceTabs = new TabPane();
     private final ListView<ConnectionProfile> connectionListView = new ListView<>();
     private SidebarTreeView sidebarTreeView;
@@ -116,6 +118,7 @@ public class MainWindow {
             I18nService i18nService,
             LocalShellLauncher localShellLauncher,
             ExecutorService sshConnectionExecutor,
+            VaultService vaultService,
             int maxFolderDepth,
             PluginManager pluginManager
     ) {
@@ -130,6 +133,7 @@ public class MainWindow {
         this.i18nService = i18nService;
         this.localShellLauncher = localShellLauncher;
         this.executor = sshConnectionExecutor;
+        this.vaultService = vaultService;
         this.maxFolderDepth = maxFolderDepth;
         this.pluginManager = pluginManager;
 
@@ -236,7 +240,15 @@ public class MainWindow {
         projectsMenu.getItems().add(manageProjects);
         rebuildProjectsMenu(projectsMenu, stage);
 
-        fileMenu.getItems().addAll(newConnection, refreshConnections, projectsMenu, new SeparatorMenuItem(), exit);
+        // Manage Vault
+        MenuItem manageVault = new MenuItem(i18nService.get("vault.menu.manage"));
+        manageVault.setOnAction(e -> {
+            com.jlshell.ui.dialog.VaultManagerDialog.show(
+                    stage, vaultService, i18nService, themeService, activeProjectId,
+                    connectionProfileService.listProjects(), () -> FxThread.run(this::loadConnections));
+        });
+
+        fileMenu.getItems().addAll(newConnection, refreshConnections, projectsMenu, manageVault, new SeparatorMenuItem(), exit);
 
         // View 菜单
         Menu viewMenu = new Menu(i18nService.get("menu.view"));
@@ -255,7 +267,7 @@ public class MainWindow {
         boolean isMac = System.getProperty("os.name", "").toLowerCase().contains("mac");
         if (isMac) {
             // Add to fileMenu; JavaFX moves Preferences with Cmd+, to the macOS app menu
-            fileMenu.getItems().add(3, preferences);
+            fileMenu.getItems().add(4, preferences);
             menuBar.getMenus().addAll(fileMenu, viewMenu);
         } else {
             Menu settingsMenu = new Menu(i18nService.get("menu.settings"));
@@ -679,6 +691,7 @@ public class MainWindow {
         ConnectionDialog.show(stage, i18nService, themeService, ConnectionFormData.empty(activeProjectId),
                 connectionProfileService.listProjects(),
                 connectionProfileService.listFolders(activeProjectId),
+                vaultService,
                 this::testConnection, connectTimeoutSeconds())
                 .ifPresent(form -> saveConnection(form));
     }
@@ -687,6 +700,7 @@ public class MainWindow {
         ConnectionDialog.show(stage, i18nService, themeService, ConnectionFormData.emptyWithFolder(activeProjectId, folderId),
                 connectionProfileService.listProjects(),
                 connectionProfileService.listFolders(activeProjectId),
+                vaultService,
                 this::testConnection, connectTimeoutSeconds())
                 .ifPresent(form -> saveConnection(form));
     }
@@ -696,6 +710,7 @@ public class MainWindow {
         ConnectionDialog.show(stage, i18nService, themeService, copyData,
                 connectionProfileService.listProjects(),
                 connectionProfileService.listFolders(activeProjectId),
+                vaultService,
                 this::testConnection, connectTimeoutSeconds())
                 .ifPresent(form -> saveConnection(form));
     }
@@ -714,6 +729,7 @@ public class MainWindow {
                     ConnectionDialog.show(stage, i18nService, themeService, formData,
                             connectionProfileService.listProjects(),
                             connectionProfileService.listFolders(activeProjectId),
+                            vaultService,
                             this::testConnection, connectTimeoutSeconds())
                             .ifPresent(this::saveConnection);
                 }));

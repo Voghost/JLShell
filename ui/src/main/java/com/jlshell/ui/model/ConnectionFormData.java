@@ -23,15 +23,14 @@ public record ConnectionFormData(
         boolean favorite,
         String projectId,
         ConnectionType connectionType,
-        String folderId
+        String folderId,
+        String vaultEntryId,
+        String keyContent
 ) {
 
     public ConnectionFormData {
         port = port <= 0 ? 22 : port;
         authenticationType = authenticationType == null ? AuthenticationType.PASSWORD : authenticationType;
-        hostKeyVerificationMode = hostKeyVerificationMode == null
-                ? HostKeyVerificationMode.STRICT
-                : hostKeyVerificationMode;
         connectionType = connectionType == null ? ConnectionType.SSH : connectionType;
     }
 
@@ -40,7 +39,7 @@ public record ConnectionFormData(
                 null, "", "", 22, "",
                 AuthenticationType.PASSWORD, "", "", "",
                 HostKeyVerificationMode.STRICT, "", "", false, projectId,
-                ConnectionType.SSH, null
+                ConnectionType.SSH, null, null, null
         );
     }
 
@@ -49,7 +48,7 @@ public record ConnectionFormData(
                 null, "", "", 22, "",
                 AuthenticationType.PASSWORD, "", "", "",
                 HostKeyVerificationMode.STRICT, "", "", false, projectId,
-                ConnectionType.SSH, folderId
+                ConnectionType.SSH, folderId, null, null
         );
     }
 }

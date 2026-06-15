@@ -31,6 +31,8 @@ import com.jlshell.ui.service.ConnectionProfileService;
 import com.jlshell.ui.service.HostKeyConfirmationService;
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.service.LocalShellLauncher;
+import com.jlshell.ui.service.VaultKeyService;
+import com.jlshell.ui.service.VaultService;
 import com.jlshell.ui.theme.ThemeService;
 import com.jlshell.ui.view.MainWindow;
 import com.jlshell.ui.viewmodel.MainViewModel;
@@ -101,13 +103,20 @@ public class AppContext implements AutoCloseable {
         PluginManager pluginManager = new PluginManager();
         pluginManager.loadPlugins();
 
+        // 6.5. Vault service + migration
+        VaultKeyService vaultKeyService = new VaultKeyService(appSettingsService);
+        VaultService vaultService = new VaultService(jdbi, credentialCipher, vaultKeyService);
+        DatabaseFactory.migrateVault(jdbi);
+        DatabaseFactory.migrateVaultEncryptionMode(jdbi);
+
         // 7. UI services
         MainViewModel viewModel = new MainViewModel();
 
         JediTermTerminalViewFactory terminalViewFactory = new JediTermTerminalViewFactory(
                 fontProfileService, executor, i18nService::get);
 
-        ConnectionProfileService connectionProfileService = new ConnectionProfileService(jdbi, credentialCipher, appSettingsService);
+        ConnectionProfileService connectionProfileService = new ConnectionProfileService(
+                jdbi, credentialCipher, appSettingsService, vaultService);
         LocalShellLauncher localShellLauncher = new LocalShellLauncher(fontProfileService, executor, i18nService);
 
         // 7. Main window
@@ -123,6 +132,7 @@ public class AppContext implements AutoCloseable {
                 i18nService,
                 localShellLauncher,
                 executor,
+                vaultService,
                 5,
                 pluginManager
         );

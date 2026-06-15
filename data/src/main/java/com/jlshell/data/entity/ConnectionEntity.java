@@ -18,10 +18,11 @@ public class ConnectionEntity extends AbstractAuditableEntity {
     private boolean favorite;
     private ConnectionType connectionType = ConnectionType.SSH;
 
-    // FK 字段，由 JDBI 直接映射（列名: project_id, folder_id, credential_id）
+    // FK 字段，由 JDBI 直接映射（列名: project_id, folder_id, credential_id, vault_entry_id）
     private String projectId;
     private String folderId;
     private String credentialId;
+    private String vaultEntryId;
 
     public String getDisplayName() { return displayName; }
     public void setDisplayName(String displayName) { this.displayName = displayName; }
@@ -61,4 +62,7 @@ public class ConnectionEntity extends AbstractAuditableEntity {
 
     public String getCredentialId() { return credentialId; }
     public void setCredentialId(String credentialId) { this.credentialId = credentialId; }
+
+    public String getVaultEntryId() { return vaultEntryId; }
+    public void setVaultEntryId(String vaultEntryId) { this.vaultEntryId = vaultEntryId; }
 }

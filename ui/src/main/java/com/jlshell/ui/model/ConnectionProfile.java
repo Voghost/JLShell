@@ -20,7 +20,8 @@ public record ConnectionProfile(
         boolean favorite,
         String projectId,
         ConnectionType connectionType,
-        String folderId
+        String folderId,
+        String vaultEntryId
 ) {
 
     public String summary() {
@@ -36,7 +37,7 @@ public record ConnectionProfile(
                 null, displayName, host, port, username,
                 authenticationType, "", "", "",
                 hostKeyVerificationMode, description, defaultRemotePath,
-                false, projectId, connectionType, folderId
+                false, projectId, connectionType, folderId, vaultEntryId, null
         );
     }
 }
