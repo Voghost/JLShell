@@ -69,12 +69,12 @@
 
 .menu-item:hover,
 .menu-item:focused {
-    -fx-background-color: #2563eb;
+    -fx-background-color: #e2e8f0;
 }
 
 .menu-item:hover .label,
 .menu-item:focused .label {
-    -fx-text-fill: #ffffff;
+    -fx-text-fill: #0f172a;
 }
 
 .separator .line {

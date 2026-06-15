@@ -74,12 +74,12 @@
 
 .menu-item:hover,
 .menu-item:focused {
-    -fx-background-color: #4d9cf8;
+    -fx-background-color: #3c3e44;
 }
 
 .menu-item:hover .label,
 .menu-item:focused .label {
-    -fx-text-fill: #ffffff;
+    -fx-text-fill: #dfe1e5;
 }
 
 .separator .line {

@@ -676,7 +676,7 @@ public class MainWindow {
     }
 
     private void createConnection(Stage stage) {
-        ConnectionDialog.show(stage, i18nService, themeService, ConnectionFormData.empty(),
+        ConnectionDialog.show(stage, i18nService, themeService, ConnectionFormData.empty(activeProjectId),
                 connectionProfileService.listProjects(),
                 connectionProfileService.listFolders(activeProjectId),
                 this::testConnection, connectTimeoutSeconds())
@@ -684,7 +684,7 @@ public class MainWindow {
     }
 
     private void createConnectionInFolder(Stage stage, String folderId) {
-        ConnectionDialog.show(stage, i18nService, themeService, ConnectionFormData.emptyWithFolder(folderId),
+        ConnectionDialog.show(stage, i18nService, themeService, ConnectionFormData.emptyWithFolder(activeProjectId, folderId),
                 connectionProfileService.listProjects(),
                 connectionProfileService.listFolders(activeProjectId),
                 this::testConnection, connectTimeoutSeconds())

@@ -35,20 +35,20 @@ public record ConnectionFormData(
         connectionType = connectionType == null ? ConnectionType.SSH : connectionType;
     }
 
-    public static ConnectionFormData empty() {
+    public static ConnectionFormData empty(String projectId) {
         return new ConnectionFormData(
                 null, "", "", 22, "",
                 AuthenticationType.PASSWORD, "", "", "",
-                HostKeyVerificationMode.STRICT, "", "", false, null,
+                HostKeyVerificationMode.STRICT, "", "", false, projectId,
                 ConnectionType.SSH, null
         );
     }
 
-    public static ConnectionFormData emptyWithFolder(String folderId) {
+    public static ConnectionFormData emptyWithFolder(String projectId, String folderId) {
         return new ConnectionFormData(
                 null, "", "", 22, "",
                 AuthenticationType.PASSWORD, "", "", "",
-                HostKeyVerificationMode.STRICT, "", "", false, null,
+                HostKeyVerificationMode.STRICT, "", "", false, projectId,
                 ConnectionType.SSH, folderId
         );
     }
