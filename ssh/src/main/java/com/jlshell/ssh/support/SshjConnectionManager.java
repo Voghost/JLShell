@@ -69,10 +69,6 @@ public class SshjConnectionManager implements ConnectionManager {
             // 每 60 秒发一次，服务端无响应时 transport 抛异常，让 JediTerm 读取线程感知断连。
             client.getConnection().getKeepAlive().setKeepAliveInterval(60);
 
-            // 认证完成后调大窗口以提升 SFTP 传输吞吐
-            client.getConnection().setWindowSize(2 * 1024 * 1024);
-            client.getConnection().setMaxPacketSize(64 * 1024);
-
             log.info("SSH session established for {}@{}:{}", request.target().username(),
                     request.target().host(), request.target().port());
 
