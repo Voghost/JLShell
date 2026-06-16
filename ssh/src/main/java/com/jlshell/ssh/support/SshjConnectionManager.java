@@ -57,6 +57,10 @@ public class SshjConnectionManager implements ConnectionManager {
     private SshSession connectBlocking(ConnectionRequest request) {
         SSHClient client = new SSHClient();
         try {
+            // 调大 SSH 窗口以提升 SFTP 传输吞吐（默认约 64KB，每次 write 都要等 ACK）
+            client.getConnection().setWindowSize(2 * 1024 * 1024);
+            client.getConnection().setMaxPacketSize(64 * 1024);
+
             configureHostKeyVerification(client, request.hostKeyVerificationMode());
             client.setConnectTimeout(Math.toIntExact(request.target().connectTimeout().toMillis()));
             // shell 连接不设 socket read timeout（设为 0），避免长时间无输出时误断。

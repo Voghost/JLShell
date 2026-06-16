@@ -36,9 +36,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * 基于 SSHJ 的 SFTP 服务实现。
- * 使用 pipelined async write/read 加速传输：
- * - 上传：RemoteFileOutputStream(maxUnconfirmedWrites=64) 允许 64 个并发写请求
- * - 下载：ReadAheadRemoteFileInputStream 预取数据实现并发读
+ * 单线程流式传输，调大 SSH 窗口以提升吞吐。
  */
 public class SshjSftpService implements SftpService {
 
@@ -151,46 +149,47 @@ public class SshjSftpService implements SftpService {
             throw new SftpOperationException("Local upload source must be an existing file: " + localPath);
         }
 
-        try {
+        try (SFTPClient sftpClient = newSftpClient(sshSession)) {
             long totalBytes = Files.size(localPath);
-            listener.onStarted(new TransferProgress(TransferDirection.UPLOAD, localPath.toString(), request.remotePath(), 0, totalBytes));
+            long offset = request.resumeMode() == TransferResumeMode.RESUME_IF_POSSIBLE
+                    ? existingRemoteSize(sftpClient, request.remotePath())
+                    : 0L;
+            if (offset > totalBytes) {
+                offset = 0L;
+            }
 
-            try (SFTPClient sftp = newSftpClient(sshSession)) {
-                // Use pipelined RemoteFile.OutputStream for write concurrency
-                try (RemoteFile rf = sftp.open(request.remotePath(), EnumSet.of(OpenMode.WRITE, OpenMode.CREAT, OpenMode.TRUNC));
-                     InputStream in = new BufferedInputStream(Files.newInputStream(localPath), BUFFER_SIZE)) {
+            Set<OpenMode> openModes = offset > 0
+                    ? EnumSet.of(OpenMode.WRITE, OpenMode.CREAT)
+                    : EnumSet.of(OpenMode.WRITE, OpenMode.CREAT, OpenMode.TRUNC);
 
-                    // maxUnconfirmedWrites=64 allows 64 in-flight SFTP write requests
-                    var out = rf.new RemoteFileOutputStream(64, BUFFER_SIZE);
+            listener.onStarted(new TransferProgress(TransferDirection.UPLOAD, localPath.toString(), request.remotePath(), offset, totalBytes));
 
-                    byte[] buf = new byte[BUFFER_SIZE];
-                    long position = 0;
-                    long lastReport = 0;
-                    int read;
-                    while ((read = in.read(buf)) >= 0) {
-                        if (read == 0) continue;
-                        if (listener.isCancelled()) {
-                            out.close();
-                            throw new IOException("Transfer cancelled");
-                        }
-                        out.write(buf, 0, read);
-                        position += read;
-                        long now = System.currentTimeMillis();
-                        if (now - lastReport >= PROGRESS_INTERVAL_MS) {
-                            lastReport = now;
-                            listener.onProgress(new TransferProgress(TransferDirection.UPLOAD, localPath.toString(), request.remotePath(), position, totalBytes));
-                        }
+            try (InputStream in = new BufferedInputStream(Files.newInputStream(localPath), BUFFER_SIZE);
+                 RemoteFile remoteFile = sftpClient.open(request.remotePath(), openModes)) {
+
+                skipFully(in, offset);
+                byte[] buf = new byte[BUFFER_SIZE];
+                long position = offset;
+                long lastReport = 0;
+                int read;
+                while ((read = in.read(buf)) >= 0) {
+                    if (read == 0) continue;
+                    if (listener.isCancelled()) throw new IOException("Transfer cancelled");
+                    remoteFile.write(position, buf, 0, read);
+                    position += read;
+                    long now = System.currentTimeMillis();
+                    if (now - lastReport >= PROGRESS_INTERVAL_MS) {
+                        lastReport = now;
+                        listener.onProgress(new TransferProgress(TransferDirection.UPLOAD, localPath.toString(), request.remotePath(), position, totalBytes));
                     }
-                    out.flush();
-                    out.close();
-                    listener.onProgress(new TransferProgress(TransferDirection.UPLOAD, localPath.toString(), request.remotePath(), totalBytes, totalBytes));
                 }
+                listener.onProgress(new TransferProgress(TransferDirection.UPLOAD, localPath.toString(), request.remotePath(), position, totalBytes));
             }
 
             listener.onCompleted(new TransferProgress(TransferDirection.UPLOAD, localPath.toString(), request.remotePath(), totalBytes, totalBytes));
-        } catch (Throwable t) {
-            listener.onFailed(new TransferProgress(TransferDirection.UPLOAD, localPath.toString(), request.remotePath(), 0, 0), t);
-            throw t instanceof SftpOperationException e ? e : new SftpOperationException("Upload failed", t);
+        } catch (IOException exception) {
+            listener.onFailed(new TransferProgress(TransferDirection.UPLOAD, localPath.toString(), request.remotePath(), 0, 0), exception);
+            throw new SftpOperationException("Failed to upload file to remote path: " + request.remotePath(), exception);
         }
     }
 
@@ -198,55 +197,53 @@ public class SshjSftpService implements SftpService {
 
     private void doDownload(SshSession sshSession, TransferRequest request, TransferProgressListener listener) {
         Path localPath = request.localPath();
-        try {
-            long totalBytes;
-            String canonicalRemotePath;
-            try (SFTPClient sftp = newSftpClient(sshSession)) {
-                canonicalRemotePath = sftp.canonicalize(request.remotePath());
-                totalBytes = sftp.size(canonicalRemotePath);
-            }
+        try (SFTPClient sftpClient = newSftpClient(sshSession)) {
+            String remotePath = sftpClient.canonicalize(request.remotePath());
+            long totalBytes = sftpClient.size(remotePath);
 
             if (localPath.toAbsolutePath().getParent() != null) {
                 Files.createDirectories(localPath.toAbsolutePath().getParent());
             }
 
-            listener.onStarted(new TransferProgress(TransferDirection.DOWNLOAD, canonicalRemotePath, localPath.toString(), 0, totalBytes));
-
-            try (SFTPClient sftp = newSftpClient(sshSession)) {
-                try (RemoteFile rf = sftp.open(canonicalRemotePath, EnumSet.of(OpenMode.READ));
-                     OutputStream out = new BufferedOutputStream(
-                             Files.newOutputStream(localPath, StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING), BUFFER_SIZE)) {
-
-                    // ReadAheadRemoteFileInputStream prefetches data for read-ahead concurrency
-                    var in = rf.new ReadAheadRemoteFileInputStream(BUFFER_SIZE, 64);
-
-                    byte[] buf = new byte[BUFFER_SIZE];
-                    long position = 0;
-                    long lastReport = 0;
-                    int read;
-                    while ((read = in.read(buf)) >= 0) {
-                        if (read == 0) continue;
-                        if (listener.isCancelled()) {
-                            in.close();
-                            throw new IOException("Transfer cancelled");
-                        }
-                        out.write(buf, 0, read);
-                        position += read;
-                        long now = System.currentTimeMillis();
-                        if (now - lastReport >= PROGRESS_INTERVAL_MS) {
-                            lastReport = now;
-                            listener.onProgress(new TransferProgress(TransferDirection.DOWNLOAD, canonicalRemotePath, localPath.toString(), position, totalBytes));
-                        }
-                    }
-                    out.flush();
-                    listener.onProgress(new TransferProgress(TransferDirection.DOWNLOAD, canonicalRemotePath, localPath.toString(), totalBytes, totalBytes));
-                }
+            long offset = request.resumeMode() == TransferResumeMode.RESUME_IF_POSSIBLE && Files.exists(localPath)
+                    ? Files.size(localPath)
+                    : 0L;
+            if (offset > totalBytes) {
+                offset = 0L;
             }
 
-            listener.onCompleted(new TransferProgress(TransferDirection.DOWNLOAD, canonicalRemotePath, localPath.toString(), totalBytes, totalBytes));
-        } catch (Throwable t) {
-            listener.onFailed(new TransferProgress(TransferDirection.DOWNLOAD, request.remotePath(), localPath.toString(), 0, 0), t);
-            throw t instanceof SftpOperationException e ? e : new SftpOperationException("Download failed", t);
+            listener.onStarted(new TransferProgress(TransferDirection.DOWNLOAD, remotePath, localPath.toString(), offset, totalBytes));
+
+            StandardOpenOption[] openOptions = offset > 0
+                    ? new StandardOpenOption[]{StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND}
+                    : new StandardOpenOption[]{StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING};
+
+            try (RemoteFile remoteFile = sftpClient.open(remotePath, EnumSet.of(OpenMode.READ));
+                 OutputStream out = new BufferedOutputStream(Files.newOutputStream(localPath, openOptions), BUFFER_SIZE)) {
+
+                byte[] buf = new byte[BUFFER_SIZE];
+                long position = offset;
+                long lastReport = 0;
+                while (position < totalBytes) {
+                    if (listener.isCancelled()) throw new IOException("Transfer cancelled");
+                    int read = remoteFile.read(position, buf, 0, (int) Math.min(buf.length, totalBytes - position));
+                    if (read < 0) break;
+                    out.write(buf, 0, read);
+                    out.flush();
+                    position += read;
+                    long now = System.currentTimeMillis();
+                    if (now - lastReport >= PROGRESS_INTERVAL_MS) {
+                        lastReport = now;
+                        listener.onProgress(new TransferProgress(TransferDirection.DOWNLOAD, remotePath, localPath.toString(), position, totalBytes));
+                    }
+                }
+                listener.onProgress(new TransferProgress(TransferDirection.DOWNLOAD, remotePath, localPath.toString(), position, totalBytes));
+            }
+
+            listener.onCompleted(new TransferProgress(TransferDirection.DOWNLOAD, remotePath, localPath.toString(), totalBytes, totalBytes));
+        } catch (IOException exception) {
+            listener.onFailed(new TransferProgress(TransferDirection.DOWNLOAD, request.remotePath(), localPath.toString(), 0, 0), exception);
+            throw new SftpOperationException("Failed to download remote file: " + request.remotePath(), exception);
         }
     }
 
@@ -277,6 +274,33 @@ public class SshjSftpService implements SftpService {
         SSHClient sshClient = sshSession.unwrap(SSHClient.class)
                 .orElseThrow(() -> new SftpOperationException("SFTP requires an SSHJ-backed session"));
         return sshClient.newSFTPClient();
+    }
+
+    private long existingRemoteSize(SFTPClient sftpClient, String remotePath) {
+        try {
+            FileAttributes attributes = sftpClient.statExistence(remotePath);
+            if (attributes == null || attributes.getType() != net.schmizz.sshj.sftp.FileMode.Type.REGULAR) {
+                return 0L;
+            }
+            return attributes.getSize();
+        } catch (IOException exception) {
+            log.debug("Unable to inspect existing remote size for {}", remotePath, exception);
+            return 0L;
+        }
+    }
+
+    private void skipFully(InputStream inputStream, long offset) throws IOException {
+        long remaining = offset;
+        while (remaining > 0) {
+            long skipped = inputStream.skip(remaining);
+            if (skipped <= 0) {
+                if (inputStream.read() == -1) {
+                    break;
+                }
+                skipped = 1;
+            }
+            remaining -= skipped;
+        }
     }
 
     private boolean isCurrentOrParentDirectory(String name) {
