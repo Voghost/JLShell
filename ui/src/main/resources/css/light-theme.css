@@ -562,6 +562,49 @@
     -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.12), 12, 0.25, 0, 4);
 }
 
+.plugin-quick-item {
+    -fx-text-fill: #334155;
+    -fx-font-size: 12px;
+    -fx-padding: 5 10;
+    -fx-cursor: hand;
+    -fx-background-radius: 4;
+}
+
+.plugin-quick-item:hover {
+    -fx-background-color: #e2e8f0;
+    -fx-text-fill: #0f172a;
+}
+
+.sysinfo-sep-group {
+    -fx-background-color: #cbd5e1;
+    -fx-pref-width: 1;
+    -fx-margin: 0 4;
+    -fx-min-height: 16;
+    -fx-pref-height: 16;
+    -fx-max-height: 16;
+    -fx-alignment: center;
+}
+
+.plugin-pinned-btn {
+    -fx-alignment: center-left;
+    -fx-spacing: 2;
+    -fx-padding: 2 6;
+    -fx-cursor: hand;
+    -fx-background-radius: 3;
+}
+
+.plugin-pinned-btn:hover {
+    -fx-background-color: #e2e8f0;
+}
+
+.plugin-pinned-btn:hover .sysinfo-label {
+    -fx-text-fill: #0f172a;
+}
+
+.plugin-pinned-btn:hover .action-bar-icon {
+    -fx-background-color: #334155;
+}
+
 .card-row {
     -fx-alignment: center-left;
     -fx-spacing: 6;
@@ -823,6 +866,75 @@
 .welcome-pane .separator .line {
     -fx-border-color: #e0e0e0;
     -fx-border-width: 1 0 0 0;
+}
+
+.welcome-pane .welcome-connection-row {
+    -fx-alignment: center-left;
+    -fx-spacing: 8;
+    -fx-padding: 6 10;
+    -fx-cursor: hand;
+    -fx-background-color: transparent;
+    -fx-background-radius: 4;
+}
+
+.welcome-pane .welcome-connection-row:hover {
+    -fx-background-color: derive(#ffffff, -5%);
+}
+
+.welcome-pane .welcome-conn-name {
+    -fx-text-fill: #333333;
+    -fx-font-size: 12px;
+}
+
+.welcome-pane .welcome-conn-summary {
+    -fx-text-fill: #888888;
+    -fx-font-size: 11px;
+}
+
+.welcome-pane .welcome-conn-folder {
+    -fx-text-fill: #666666;
+    -fx-font-size: 11px;
+}
+
+.welcome-pane .welcome-conn-time {
+    -fx-text-fill: #888888;
+    -fx-font-size: 10px;
+    -fx-alignment: center-right;
+}
+
+.welcome-pane .welcome-empty-label {
+    -fx-text-fill: #888888;
+    -fx-font-size: 12px;
+    -fx-padding: 8 0;
+}
+
+.welcome-pane .welcome-scroll-pane {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-fit-to-width: true;
+}
+
+.welcome-pane .welcome-scroll-pane .viewport {
+    -fx-background-color: transparent;
+}
+
+.welcome-pane .welcome-scroll-pane .scroll-bar:vertical .thumb {
+    -fx-background-color: derive(#ffffff, -20%);
+    -fx-background-radius: 4;
+}
+
+/* ---------- Transfer Progress ---------- */
+.progress-bar > .track {
+    -fx-background-color: #e2e8f0;
+    -fx-background-radius: 3;
+}
+.progress-bar > .bar {
+    -fx-background-color: #6b8eb5;
+    -fx-background-insets: 0;
+    -fx-background-radius: 3;
+}
+.progress-bar > .bar:disabled {
+    -fx-opacity: 0.4;
 }
 
 /* ---------- Custom Title Bar (Windows) ---------- */
