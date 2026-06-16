@@ -80,4 +80,7 @@ public interface ConnectionDao {
 
     @SqlQuery("SELECT id FROM connections WHERE vault_entry_id = :vaultEntryId LIMIT 1")
     Optional<String> findIdByVaultEntryId(@Bind("vaultEntryId") String vaultEntryId);
+
+    @SqlQuery("SELECT * FROM connections WHERE favorite = 1 ORDER BY display_name ASC")
+    List<ConnectionEntity> findAllFavorites();
 }

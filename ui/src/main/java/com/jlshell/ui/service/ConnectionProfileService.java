@@ -26,11 +26,14 @@ import com.jlshell.data.entity.ConnectionEntity;
 import com.jlshell.data.entity.ConnectionFolderEntity;
 import com.jlshell.data.entity.CredentialEntity;
 import com.jlshell.data.entity.ProjectEntity;
+import com.jlshell.data.entity.RecentSessionEntry;
 import com.jlshell.data.entity.SessionHistoryEntity;
 import com.jlshell.ui.model.ConnectionFormData;
 import com.jlshell.ui.model.ConnectionProfile;
+import com.jlshell.ui.model.FavoriteConnectionProfile;
 import com.jlshell.ui.model.FolderProfile;
 import com.jlshell.ui.model.ProjectProfile;
+import com.jlshell.ui.model.RecentSessionProfile;
 import org.jdbi.v3.core.Jdbi;
 
 /**
@@ -450,6 +453,26 @@ public class ConnectionProfileService {
         });
     }
 
+    // ── Recent sessions & favorites ──────────────────────────────────
+
+    public List<RecentSessionProfile> listRecentSessions(int limit) {
+        return jdbi.withHandle(h -> {
+            List<RecentSessionEntry> entries = h.attach(SessionHistoryDao.class)
+                    .findRecentWithConnectionInfo(limit);
+            return entries.stream().map(this::toRecentSessionProfile).toList();
+        });
+    }
+
+    public List<FavoriteConnectionProfile> listFavoriteProfiles() {
+        return jdbi.withHandle(h -> {
+            List<ConnectionEntity> entities = h.attach(ConnectionDao.class).findAllFavorites();
+            return entities.stream().map(entity -> {
+                String folderPath = resolveFolderPathForFolderId(h, entity.getFolderId());
+                return toFavoriteProfile(entity, folderPath);
+            }).toList();
+        });
+    }
+
     // ── Mapping ───────────────────────────────────────────────────────
 
     private ConnectionProfile toProfile(ConnectionEntity entity) {
@@ -484,6 +507,47 @@ public class ConnectionProfileService {
 
     private ProjectProfile toProjectProfile(ProjectEntity entity) {
         return new ProjectProfile(entity.getId(), entity.getName(), entity.getDescription());
+    }
+
+    private RecentSessionProfile toRecentSessionProfile(RecentSessionEntry entry) {
+        return new RecentSessionProfile(
+                entry.getConnectionId(),
+                entry.getDisplayName(),
+                entry.getHost(),
+                entry.getPort(),
+                entry.getUsername(),
+                entry.getConnectionType(),
+                entry.getOpenedAt(),
+                entry.getClosedAt(),
+                entry.getState()
+        );
+    }
+
+    private FavoriteConnectionProfile toFavoriteProfile(ConnectionEntity entity, String folderPath) {
+        return new FavoriteConnectionProfile(
+                entity.getId(),
+                entity.getDisplayName(),
+                entity.getHost(),
+                entity.getPort(),
+                entity.getUsername(),
+                entity.getConnectionType() != null ? entity.getConnectionType() : ConnectionType.SSH,
+                folderPath
+        );
+    }
+
+    private String resolveFolderPathForFolderId(org.jdbi.v3.core.Handle h, String folderId) {
+        if (folderId == null) return null;
+        ConnectionFolderDao folderDao = h.attach(ConnectionFolderDao.class);
+        List<String> parts = new ArrayList<>();
+        String current = folderId;
+        while (current != null) {
+            ConnectionFolderEntity entity = folderDao.findById(current).orElse(null);
+            if (entity == null) break;
+            parts.add(0, entity.getName());
+            current = entity.getParentId();
+            if (parts.size() > 20) break;
+        }
+        return String.join(" / ", parts);
     }
 
     private void validate(ConnectionFormData formData) {

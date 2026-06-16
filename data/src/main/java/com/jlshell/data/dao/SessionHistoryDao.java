@@ -2,6 +2,7 @@ package com.jlshell.data.dao;
 
 import java.util.Optional;
 
+import com.jlshell.data.entity.RecentSessionEntry;
 import com.jlshell.data.entity.SessionHistoryEntity;
 import org.jdbi.v3.sqlobject.config.RegisterBeanMapper;
 import org.jdbi.v3.sqlobject.customizer.Bind;
@@ -27,4 +28,15 @@ public interface SessionHistoryDao {
     @SqlUpdate("UPDATE session_history SET state=:state, closed_at=:closedAt, exit_code=:exitCode, " +
             "failure_reason=:failureReason, updated_at=:updatedAt WHERE id=:id")
     void update(@BindBean SessionHistoryEntity entity);
+
+    @SqlQuery("SELECT sh.id, sh.connection_id, sh.opened_at, sh.closed_at, sh.state, " +
+            "c.display_name, c.host, c.port, c.username, c.connection_type, c.favorite " +
+            "FROM session_history sh " +
+            "JOIN connections c ON c.id = sh.connection_id " +
+            "WHERE sh.opened_at = (" +
+            "  SELECT MAX(sh2.opened_at) FROM session_history sh2 WHERE sh2.connection_id = sh.connection_id" +
+            ") " +
+            "ORDER BY sh.opened_at DESC LIMIT :limit")
+    @RegisterBeanMapper(RecentSessionEntry.class)
+    java.util.List<RecentSessionEntry> findRecentWithConnectionInfo(@Bind("limit") int limit);
 }

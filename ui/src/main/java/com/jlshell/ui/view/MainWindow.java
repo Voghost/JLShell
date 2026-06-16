@@ -91,6 +91,7 @@ public class MainWindow {
     private final TabPane workspaceTabs = new TabPane();
     private final ListView<ConnectionProfile> connectionListView = new ListView<>();
     private SidebarTreeView sidebarTreeView;
+    private WelcomePane welcomePane;
     private VBox topArea; // stored for locale rebuild
     private Label sectionLabel;
     private Label projectSwitchLabel;
@@ -172,11 +173,11 @@ public class MainWindow {
         double initW = Math.min(1480, Math.floor(availW * 0.90));
         double initH = Math.min(920, Math.floor(availH * 0.90));
 
-        // Minimum size: allow the window to shrink to 85 % of the screen
-        // (so it never locks the user out of resizing), but never below
-        // 800×560 which is the absolute usable minimum for our layout.
-        double minW = Math.max(800, Math.floor(availW * 0.85));
-        double minH = Math.max(560, Math.floor(availH * 0.85));
+        // Minimum size: never below 640×480 (absolute usable minimum),
+        // but allow shrinking well below the screen size (60 %) so the
+        // window does not feel locked to nearly-fullscreen on small screens.
+        double minW = Math.max(640, Math.floor(availW * 0.60));
+        double minH = Math.max(480, Math.floor(availH * 0.60));
 
         Scene scene = new Scene(root, initW, initH);
 
@@ -377,10 +378,25 @@ public class MainWindow {
         } else {
             root.setTop(buildTopArea(stage));
         }
-        // Rebuild sidebar to refresh all labels, buttons, and tooltips
-        // Center area (SplitPane) has the sidebar as first child
-        if (root.getCenter() instanceof SplitPane splitPane && !splitPane.getItems().isEmpty()) {
+        // Rebuild sidebar and welcome pane to refresh all labels
+        if (root.getCenter() instanceof SplitPane splitPane && splitPane.getItems().size() >= 2) {
             splitPane.getItems().set(0, buildSidebar(stage));
+            // Rebuild the workspace StackPane with fresh WelcomePane
+            welcomePane = new WelcomePane(i18nService, connectionProfileService, executor,
+                    () -> createConnection(stage),
+                    () -> createFolder(stage),
+                    connectionId -> {
+                        cachedProfiles.stream()
+                                .filter(p -> p.id().equals(connectionId))
+                                .findFirst()
+                                .ifPresent(profile -> {
+                                    viewModel.selectedConnectionProperty().set(profile);
+                                    connectSelected();
+                                });
+                    });
+            welcomePane.visibleProperty().bind(Bindings.isEmpty(workspaceTabs.getTabs()));
+            StackPane workspace = new StackPane(welcomePane, workspaceTabs);
+            splitPane.getItems().set(1, workspace);
         }
     }
 
@@ -388,9 +404,18 @@ public class MainWindow {
         VBox sidebar = buildSidebar(stage);
         workspaceTabs.getStyleClass().add("workspace-tabs");
 
-        WelcomePane welcomePane = new WelcomePane(i18nService,
+        welcomePane = new WelcomePane(i18nService, connectionProfileService, executor,
                 () -> createConnection(stage),
-                () -> createFolder(stage));
+                () -> createFolder(stage),
+                connectionId -> {
+                    cachedProfiles.stream()
+                            .filter(p -> p.id().equals(connectionId))
+                            .findFirst()
+                            .ifPresent(profile -> {
+                                viewModel.selectedConnectionProperty().set(profile);
+                                connectSelected();
+                            });
+                });
         welcomePane.visibleProperty().bind(Bindings.isEmpty(workspaceTabs.getTabs()));
         workspaceTabs.visibleProperty().bind(Bindings.isNotEmpty(workspaceTabs.getTabs()));
 
@@ -630,6 +655,9 @@ public class MainWindow {
             viewModel.replaceConnections(entry.getValue());
             if (sidebarTreeView != null) {
                 sidebarTreeView.populate(entry.getKey(), entry.getValue());
+            }
+            if (welcomePane != null) {
+                welcomePane.refresh();
             }
             viewModel.statusMessageProperty().set(
                     i18nService.get("status.connectionsLoaded", viewModel.connections().size()));
@@ -916,6 +944,9 @@ public class MainWindow {
                 event.consume();
                 tab.closeWorkspace().whenComplete((unused, t) -> FxThread.run(() -> {
                     workspaceTabs.getTabs().remove(tab);
+                    if (workspaceTabs.getTabs().isEmpty() && welcomePane != null) {
+                        welcomePane.refresh();
+                    }
                     if (t != null) {
                         showError(i18nService.get("status.sessionCloseFailed", t.getMessage()));
                     }
