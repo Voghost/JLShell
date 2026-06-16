@@ -39,4 +39,19 @@ public interface PluginContext {
     String resolveI18n(String key, String fallback);
 
     void showNotification(String message, NotificationLevel level);
+
+    /** Log a message at DEBUG level. Tagged with the plugin's id for filtering. */
+    default void debug(String message) {}
+
+    /** Log a message at INFO level. */
+    default void info(String message) {}
+
+    /** Log a message at WARN level. */
+    default void warn(String message) {}
+
+    /** Log a message at ERROR level. */
+    default void error(String message) {}
+
+    /** Log a message at ERROR level with an exception. */
+    default void error(String message, Throwable t) {}
 }

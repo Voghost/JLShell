@@ -76,7 +76,7 @@ public class PluginsTabView extends BorderPane {
                         Optional<SshSessionContext> sshCtx = (sshSession != null)
                                 ? Optional.of(new com.jlshell.plugin.loader.SshSessionContextAdapter(sshSession, sftpService))
                                 : Optional.empty();
-                        DefaultPluginContext ctx = new DefaultPluginContext(sshCtx, new DefaultPluginContext.Callbacks() {
+                        DefaultPluginContext ctx = new DefaultPluginContext(item.id(), sshCtx, new DefaultPluginContext.Callbacks() {
                             private Tab openedTab;
 
                             @Override

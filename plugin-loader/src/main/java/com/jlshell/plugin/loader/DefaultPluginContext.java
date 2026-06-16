@@ -13,9 +13,14 @@ import javafx.beans.property.SimpleObjectProperty;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.beans.property.StringProperty;
 import javafx.scene.Node;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class DefaultPluginContext implements PluginContext {
 
+    private static final Logger hostLog = LoggerFactory.getLogger("jlshell.plugin");
+
+    private final String pluginId;
     private final StringProperty themeName = new SimpleStringProperty("dark");
     private final SimpleObjectProperty<Locale> locale = new SimpleObjectProperty<>(Locale.getDefault());
     private final Optional<SshSessionContext> sshSession;
@@ -28,7 +33,8 @@ public class DefaultPluginContext implements PluginContext {
         String resolveI18n(String key, String fallback);
     }
 
-    public DefaultPluginContext(Optional<SshSessionContext> sshSession, Callbacks callbacks) {
+    public DefaultPluginContext(String pluginId, Optional<SshSessionContext> sshSession, Callbacks callbacks) {
+        this.pluginId = pluginId;
         this.sshSession = sshSession;
         this.callbacks = callbacks;
     }
@@ -89,5 +95,30 @@ public class DefaultPluginContext implements PluginContext {
     @Override
     public void showNotification(String message, NotificationLevel level) {
         // TODO: implement notification UI
+    }
+
+    @Override
+    public void debug(String message) {
+        hostLog.debug("[{}] {}", pluginId, message);
+    }
+
+    @Override
+    public void info(String message) {
+        hostLog.info("[{}] {}", pluginId, message);
+    }
+
+    @Override
+    public void warn(String message) {
+        hostLog.warn("[{}] {}", pluginId, message);
+    }
+
+    @Override
+    public void error(String message) {
+        hostLog.error("[{}] {}", pluginId, message);
+    }
+
+    @Override
+    public void error(String message, Throwable t) {
+        hostLog.error("[{}] {}", pluginId, message, t);
     }
 }
