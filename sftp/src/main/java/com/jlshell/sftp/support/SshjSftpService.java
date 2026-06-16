@@ -202,22 +202,8 @@ public class SshjSftpService implements SftpService {
         AtomicLong transferred = new AtomicLong(0);
         long lastReport = 0;
 
-        // Create all SFTP clients and open remote file handles sequentially
-        // to avoid concurrent subsystem requests causing EOF errors
-        SFTPClient[] sftpClients = new SFTPClient[chunks];
-        RemoteFile[] remoteFiles = new RemoteFile[chunks];
-        try {
-            // Pre-create remote file with first client
-            sftpClients[0] = newSftpClient(sshSession);
-            try (RemoteFile rf = sftpClients[0].open(remotePath, EnumSet.of(OpenMode.WRITE, OpenMode.CREAT, OpenMode.TRUNC))) {
-                // just create and truncate
-            }
-            remoteFiles[0] = sftpClients[0].open(remotePath, EnumSet.of(OpenMode.WRITE));
-
-            for (int i = 1; i < chunks; i++) {
-                sftpClients[i] = newSftpClient(sshSession);
-                remoteFiles[i] = sftpClients[i].open(remotePath, EnumSet.of(OpenMode.WRITE));
-            }
+        try (SFTPClient sftp = newSftpClient(sshSession);
+             RemoteFile rf = sftp.open(remotePath, EnumSet.of(OpenMode.WRITE, OpenMode.CREAT, OpenMode.TRUNC))) {
 
             @SuppressWarnings("unchecked")
             CompletableFuture<Void>[] futures = new CompletableFuture[chunks];
@@ -228,7 +214,6 @@ public class SshjSftpService implements SftpService {
                     futures[i] = CompletableFuture.completedFuture(null);
                     continue;
                 }
-                final RemoteFile rf = remoteFiles[i];
                 futures[i] = CompletableFuture.runAsync(() -> {
                     try (RandomAccessFile raf = new RandomAccessFile(localPath.toFile(), "r")) {
                         byte[] buf = new byte[BUFFER_SIZE];
@@ -249,14 +234,8 @@ public class SshjSftpService implements SftpService {
                 }, executorService);
             }
 
-            // Progress polling loop
             while (!CompletableFuture.allOf(futures).isDone()) {
-                try {
-                    Thread.sleep(PROGRESS_INTERVAL_MS);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
+                try { Thread.sleep(PROGRESS_INTERVAL_MS); } catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
                 if (listener.isCancelled()) {
                     for (var f : futures) f.cancel(true);
                     throw new IOException("Transfer cancelled");
@@ -268,19 +247,10 @@ public class SshjSftpService implements SftpService {
                 }
             }
 
-            try {
-                CompletableFuture.allOf(futures).join();
-            } catch (Exception e) {
-                throw new IOException("Parallel upload failed", e.getCause() != null ? e.getCause() : e);
-            }
+            try { CompletableFuture.allOf(futures).join(); }
+            catch (Exception e) { throw new IOException("Parallel upload failed", e.getCause() != null ? e.getCause() : e); }
 
             listener.onProgress(new TransferProgress(TransferDirection.UPLOAD, localPath.toString(), remotePath, totalBytes, totalBytes));
-        } finally {
-            // Close all resources
-            for (int i = 0; i < chunks; i++) {
-                try { if (remoteFiles[i] != null) remoteFiles[i].close(); } catch (Exception ignored) {}
-                try { if (sftpClients[i] != null) sftpClients[i].close(); } catch (Exception ignored) {}
-            }
         }
     }
 
@@ -347,18 +317,12 @@ public class SshjSftpService implements SftpService {
         long lastReport = 0;
 
         // Pre-allocate local file
-        try (RandomAccessFile raf = new RandomAccessFile(localPath.toFile(), "rw")) {
-            raf.setLength(totalBytes);
+        try (RandomAccessFile preRaf = new RandomAccessFile(localPath.toFile(), "rw")) {
+            preRaf.setLength(totalBytes);
         }
 
-        // Create all SFTP clients and open remote file handles sequentially
-        SFTPClient[] sftpClients = new SFTPClient[chunks];
-        RemoteFile[] remoteFiles = new RemoteFile[chunks];
-        try {
-            for (int i = 0; i < chunks; i++) {
-                sftpClients[i] = newSftpClient(sshSession);
-                remoteFiles[i] = sftpClients[i].open(remotePath, EnumSet.of(OpenMode.READ));
-            }
+        try (SFTPClient sftp = newSftpClient(sshSession);
+             RemoteFile rf = sftp.open(remotePath, EnumSet.of(OpenMode.READ))) {
 
             @SuppressWarnings("unchecked")
             CompletableFuture<Void>[] futures = new CompletableFuture[chunks];
@@ -369,7 +333,6 @@ public class SshjSftpService implements SftpService {
                     futures[i] = CompletableFuture.completedFuture(null);
                     continue;
                 }
-                final RemoteFile rf = remoteFiles[i];
                 futures[i] = CompletableFuture.runAsync(() -> {
                     try (RandomAccessFile raf = new RandomAccessFile(localPath.toFile(), "rw")) {
                         byte[] buf = new byte[BUFFER_SIZE];
@@ -390,14 +353,8 @@ public class SshjSftpService implements SftpService {
                 }, executorService);
             }
 
-            // Progress polling loop
             while (!CompletableFuture.allOf(futures).isDone()) {
-                try {
-                    Thread.sleep(PROGRESS_INTERVAL_MS);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
+                try { Thread.sleep(PROGRESS_INTERVAL_MS); } catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
                 if (listener.isCancelled()) {
                     for (var f : futures) f.cancel(true);
                     throw new IOException("Transfer cancelled");
@@ -409,18 +366,10 @@ public class SshjSftpService implements SftpService {
                 }
             }
 
-            try {
-                CompletableFuture.allOf(futures).join();
-            } catch (Exception e) {
-                throw new IOException("Parallel download failed", e.getCause() != null ? e.getCause() : e);
-            }
+            try { CompletableFuture.allOf(futures).join(); }
+            catch (Exception e) { throw new IOException("Parallel download failed", e.getCause() != null ? e.getCause() : e); }
 
             listener.onProgress(new TransferProgress(TransferDirection.DOWNLOAD, remotePath, localPath.toString(), totalBytes, totalBytes));
-        } finally {
-            for (int i = 0; i < chunks; i++) {
-                try { if (remoteFiles[i] != null) remoteFiles[i].close(); } catch (Exception ignored) {}
-                try { if (sftpClients[i] != null) sftpClients[i].close(); } catch (Exception ignored) {}
-            }
         }
     }
 
