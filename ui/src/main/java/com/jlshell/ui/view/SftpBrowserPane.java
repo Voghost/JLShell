@@ -252,6 +252,10 @@ public class SftpBrowserPane extends BorderPane {
         fileNameLabel.textProperty().bind(viewModel.transferFileNameProperty());
         fileNameLabel.setStyle("-fx-font-weight: bold;");
 
+        Label speedLabel = new Label();
+        speedLabel.textProperty().bind(viewModel.transferSpeedProperty());
+        speedLabel.setStyle("-fx-text-fill: #8b949e; -fx-font-size: 11px;");
+
         ProgressBar progressBar = new ProgressBar();
         progressBar.progressProperty().bind(viewModel.transferProgressProperty());
         progressBar.setPrefWidth(200);
@@ -265,7 +269,7 @@ public class SftpBrowserPane extends BorderPane {
         });
         cancelBtn.visibleProperty().bind(viewModel.transferringProperty());
 
-        HBox progressBox = new HBox(8, fileIndexLabel, fileNameLabel, progressBar, cancelBtn);
+        HBox progressBox = new HBox(8, fileIndexLabel, fileNameLabel, speedLabel, progressBar, cancelBtn);
         progressBox.visibleProperty().bind(viewModel.transferringProperty());
         progressBox.managedProperty().bind(viewModel.transferringProperty());
 
@@ -1286,27 +1290,47 @@ public class SftpBrowserPane extends BorderPane {
     // ── Transfer helpers ──────────────────────────────────────────────────────
 
     private TransferProgressListener progressListener() {
+        final long[] lastBytes = {0};
+        final long[] lastTime = {0};
         return new TransferProgressListener() {
             @Override public void onStarted(TransferProgress p) {
+                lastBytes[0] = p.transferredBytes();
+                lastTime[0] = System.currentTimeMillis();
                 FxThread.run(() -> {
                     viewModel.transferringProperty().set(true);
                     viewModel.transferFileNameProperty().set(extractTransferName(p));
                     viewModel.transferStatusProperty().set(
                             i18nService.get("status.transferStarted", p.source(), p.target()));
                     viewModel.transferProgressProperty().set(p.progressRatio());
+                    viewModel.transferSpeedProperty().set("");
                 });
             }
             @Override public void onProgress(TransferProgress p) {
+                long now = System.currentTimeMillis();
+                long elapsed = now - lastTime[0];
+                long delta = p.transferredBytes() - lastBytes[0];
+                final String speedText;
+                if (elapsed > 200 && delta > 0) {
+                    speedText = formatSpeed(delta * 1000.0 / elapsed);
+                    lastBytes[0] = p.transferredBytes();
+                    lastTime[0] = now;
+                } else {
+                    speedText = null;
+                }
                 FxThread.run(() -> {
                     viewModel.transferStatusProperty().set(i18nService.get("status.transferRunning",
                             formatSize(p.transferredBytes()), formatSize(p.totalBytes())));
                     viewModel.transferProgressProperty().set(p.progressRatio());
+                    if (speedText != null) {
+                        viewModel.transferSpeedProperty().set(speedText);
+                    }
                 });
             }
             @Override public void onCompleted(TransferProgress p) {
                 FxThread.run(() -> {
                     viewModel.transferStatusProperty().set(i18nService.get("status.transferCompleted"));
                     viewModel.transferProgressProperty().set(1.0);
+                    viewModel.transferSpeedProperty().set("");
                 });
             }
             @Override public void onFailed(TransferProgress p, Throwable t) {
@@ -1314,7 +1338,11 @@ public class SftpBrowserPane extends BorderPane {
                     viewModel.transferStatusProperty().set(
                             i18nService.get("status.transferFailed", t.getMessage()));
                     viewModel.transferProgressProperty().set(0);
+                    viewModel.transferSpeedProperty().set("");
                 });
+            }
+            @Override public boolean isCancelled() {
+                return transferCancelled;
             }
         };
     }
@@ -1353,6 +1381,13 @@ public class SftpBrowserPane extends BorderPane {
         if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0);
         if (bytes < 1024L * 1024L * 1024L) return String.format("%.1f MB", bytes / (1024.0 * 1024.0));
         return String.format("%.1f GB", bytes / (1024.0 * 1024.0 * 1024.0));
+    }
+
+    private String formatSpeed(double bytesPerSecond) {
+        if (bytesPerSecond < 1024) return String.format("%.0f B/s", bytesPerSecond);
+        if (bytesPerSecond < 1024 * 1024) return String.format("%.1f KB/s", bytesPerSecond / 1024.0);
+        if (bytesPerSecond < 1024L * 1024L * 1024L) return String.format("%.1f MB/s", bytesPerSecond / (1024.0 * 1024.0));
+        return String.format("%.1f GB/s", bytesPerSecond / (1024.0 * 1024.0 * 1024.0));
     }
 
     private String formatTime(Instant instant) {

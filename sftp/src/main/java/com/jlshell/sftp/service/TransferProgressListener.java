@@ -22,4 +22,9 @@ public interface TransferProgressListener {
 
     default void onFailed(TransferProgress progress, Throwable throwable) {
     }
+
+    /** Return true to cancel the in-progress transfer. */
+    default boolean isCancelled() {
+        return false;
+    }
 }

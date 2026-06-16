@@ -24,6 +24,7 @@ public class SftpBrowserViewModel {
     private final StringProperty localPath = new SimpleStringProperty();
     private final StringProperty remotePath = new SimpleStringProperty();
     private final StringProperty transferStatus = new SimpleStringProperty();
+    private final StringProperty transferSpeed = new SimpleStringProperty();
     private final DoubleProperty transferProgress = new SimpleDoubleProperty(0);
     private final BooleanProperty transferring = new SimpleBooleanProperty(false);
     private final StringProperty transferFileName = new SimpleStringProperty();
@@ -65,6 +66,10 @@ public class SftpBrowserViewModel {
         return transferFileIndex;
     }
 
+    public StringProperty transferSpeedProperty() {
+        return transferSpeed;
+    }
+
     public void setLocalEntries(Path directory, List<LocalFileEntry> entries) {
         localPath.set(directory.toString());
         localEntries.setAll(entries);
@@ -80,6 +85,7 @@ public class SftpBrowserViewModel {
         transferProgress.set(0);
         transferFileName.set("");
         transferFileIndex.set("");
+        transferSpeed.set("");
         transferStatus.set("");
     }
 }

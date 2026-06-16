@@ -254,6 +254,9 @@ public class SshjSftpService implements SftpService {
             if (read == 0) {
                 continue;
             }
+            if (listener.isCancelled()) {
+                throw new IOException("Transfer cancelled");
+            }
             remoteFile.write(position, buffer, 0, read);
             position += read;
             listener.onProgress(new TransferProgress(
@@ -279,6 +282,9 @@ public class SshjSftpService implements SftpService {
         byte[] buffer = new byte[request.bufferSize()];
         long position = offset;
         while (position < totalBytes) {
+            if (listener.isCancelled()) {
+                throw new IOException("Transfer cancelled");
+            }
             int read = remoteFile.read(position, buffer, 0, (int) Math.min(buffer.length, totalBytes - position));
             if (read < 0) {
                 break;
