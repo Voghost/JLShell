@@ -14,6 +14,7 @@ import java.util.function.Function;
 import java.util.stream.Stream;
 
 import com.jlshell.core.session.SshSession;
+import com.jlshell.sftp.exception.TransferCancelledException;
 import com.jlshell.sftp.model.RemoteFileEntry;
 import com.jlshell.sftp.model.TransferDirection;
 import com.jlshell.sftp.model.TransferProgress;
@@ -791,6 +792,7 @@ public class SftpBrowserPane extends BorderPane {
     }
 
     private void uploadFile(Path localPath) {
+        transferCancelled = false;
         String target = appendRemotePath(viewModel.remotePathProperty().get(),
                 localPath.getFileName().toString());
         viewModel.transferringProperty().set(true);
@@ -836,8 +838,11 @@ public class SftpBrowserPane extends BorderPane {
                 progressListener())
             .whenComplete((u, t) -> {
                 if (t != null) {
-                    FxThread.run(() -> viewModel.transferStatusProperty().set(
-                            i18nService.get("status.transferFailed", t.getMessage())));
+                    Throwable cause = t.getCause() == null ? t : t.getCause();
+                    if (!(cause instanceof TransferCancelledException)) {
+                        FxThread.run(() -> viewModel.transferStatusProperty().set(
+                                i18nService.get("status.transferFailed", cause.getMessage())));
+                    }
                 }
                 uploadSequentially(files, index + 1, total);
             });
@@ -855,6 +860,7 @@ public class SftpBrowserPane extends BorderPane {
     }
 
     private void downloadFile(String remotePath) {
+        transferCancelled = false;
         Path localTarget = Path.of(viewModel.localPathProperty().get(),
                 remotePath.substring(remotePath.lastIndexOf('/') + 1));
         viewModel.transferringProperty().set(true);
@@ -899,8 +905,11 @@ public class SftpBrowserPane extends BorderPane {
                 progressListener())
             .whenComplete((u, t) -> {
                 if (t != null) {
-                    FxThread.run(() -> viewModel.transferStatusProperty().set(
-                            i18nService.get("status.transferFailed", t.getMessage())));
+                    Throwable cause = t.getCause() == null ? t : t.getCause();
+                    if (!(cause instanceof TransferCancelledException)) {
+                        FxThread.run(() -> viewModel.transferStatusProperty().set(
+                                i18nService.get("status.transferFailed", cause.getMessage())));
+                    }
                 }
                 downloadSequentially(files, index + 1, total);
             });
@@ -1361,10 +1370,10 @@ public class SftpBrowserPane extends BorderPane {
     private void executeTransfer(CompletableFuture<Void> future, Runnable onSuccess) {
         future.whenComplete((u, t) -> FxThread.run(() -> {
             if (t != null) {
-                if (transferCancelled) {
+                Throwable cause = t.getCause() == null ? t : t.getCause();
+                if (cause instanceof TransferCancelledException) {
                     viewModel.transferStatusProperty().set(i18nService.get("status.transferCancelled"));
                 } else {
-                    Throwable cause = t.getCause() == null ? t : t.getCause();
                     viewModel.transferStatusProperty().set(
                             i18nService.get("status.transferFailed", cause.getMessage()));
                 }

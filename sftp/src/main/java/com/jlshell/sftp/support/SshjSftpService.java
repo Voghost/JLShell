@@ -17,6 +17,7 @@ import java.util.concurrent.ExecutorService;
 
 import com.jlshell.core.session.SshSession;
 import com.jlshell.sftp.exception.SftpOperationException;
+import com.jlshell.sftp.exception.TransferCancelledException;
 import com.jlshell.sftp.model.RemoteDirectoryListing;
 import com.jlshell.sftp.model.RemoteFileEntry;
 import com.jlshell.sftp.model.TransferDirection;
@@ -180,10 +181,16 @@ public class SshjSftpService implements SftpService {
                         totalBytes,
                         totalBytes
                 ));
+            } catch (TransferCancelledException e) {
+                deleteRemoteFileQuietly(sftpClient, request.remotePath());
+                listener.onFailed(started, e);
+                throw e;
             } catch (Throwable throwable) {
                 listener.onFailed(started, throwable);
                 throw throwable;
             }
+        } catch (TransferCancelledException e) {
+            throw e;
         } catch (IOException exception) {
             throw new SftpOperationException("Failed to upload file to remote path: " + request.remotePath(), exception);
         }
@@ -230,10 +237,16 @@ public class SshjSftpService implements SftpService {
                         totalBytes,
                         totalBytes
                 ));
+            } catch (TransferCancelledException e) {
+                deleteLocalFileQuietly(localPath);
+                listener.onFailed(started, e);
+                throw e;
             } catch (Throwable throwable) {
                 listener.onFailed(started, throwable);
                 throw throwable;
             }
+        } catch (TransferCancelledException e) {
+            throw e;
         } catch (IOException exception) {
             throw new SftpOperationException("Failed to download remote file: " + request.remotePath(), exception);
         }
@@ -255,7 +268,7 @@ public class SshjSftpService implements SftpService {
                 continue;
             }
             if (listener.isCancelled()) {
-                throw new IOException("Transfer cancelled");
+                throw new TransferCancelledException();
             }
             remoteFile.write(position, buffer, 0, read);
             position += read;
@@ -283,7 +296,7 @@ public class SshjSftpService implements SftpService {
         long position = offset;
         while (position < totalBytes) {
             if (listener.isCancelled()) {
-                throw new IOException("Transfer cancelled");
+                throw new TransferCancelledException();
             }
             int read = remoteFile.read(position, buffer, 0, (int) Math.min(buffer.length, totalBytes - position));
             if (read < 0) {
@@ -363,5 +376,21 @@ public class SshjSftpService implements SftpService {
     private String fileName(String canonicalPath) {
         int index = canonicalPath.lastIndexOf('/');
         return index >= 0 ? canonicalPath.substring(index + 1) : canonicalPath;
+    }
+
+    private void deleteRemoteFileQuietly(SFTPClient sftpClient, String remotePath) {
+        try {
+            sftpClient.rm(remotePath);
+        } catch (Exception e) {
+            log.debug("Failed to delete partial remote file after cancel: {}", remotePath, e);
+        }
+    }
+
+    private void deleteLocalFileQuietly(Path localPath) {
+        try {
+            Files.deleteIfExists(localPath);
+        } catch (Exception e) {
+            log.debug("Failed to delete partial local file after cancel: {}", localPath, e);
+        }
     }
 }

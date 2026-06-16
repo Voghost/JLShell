@@ -65,6 +65,10 @@ public class SshjConnectionManager implements ConnectionManager {
             client.connect(request.target().host(), request.target().port());
             authenticate(client, request);
 
+            // 认证完成后调大窗口以提升 SFTP 传输吞吐
+            client.getConnection().setWindowSize(2 * 1024 * 1024);
+            client.getConnection().setMaxPacketSize(64 * 1024);
+
             // keepalive 必须在认证完成后设置，否则会破坏 strict KEX 握手顺序。
             // 每 60 秒发一次，服务端无响应时 transport 抛异常，让 JediTerm 读取线程感知断连。
             client.getConnection().getKeepAlive().setKeepAliveInterval(60);
