@@ -1054,11 +1054,16 @@ public class MainWindow {
             stage.setY(newY);
             stage.setWidth(newW);
             stage.setHeight(newH);
+            // Keep cursor consistent during drag
+            scene.setCursor(activeCursor[0]);
             e.consume();
         });
 
         scene.setOnMouseReleased(e -> {
-            activeCursor[0] = null;
+            if (activeCursor[0] != null) {
+                activeCursor[0] = null;
+                scene.setCursor(javafx.scene.Cursor.DEFAULT);
+            }
         });
     }
 
