@@ -1361,13 +1361,18 @@ public class SftpBrowserPane extends BorderPane {
     private void executeTransfer(CompletableFuture<Void> future, Runnable onSuccess) {
         future.whenComplete((u, t) -> FxThread.run(() -> {
             if (t != null) {
-                Throwable cause = t.getCause() == null ? t : t.getCause();
-                viewModel.transferStatusProperty().set(
-                        i18nService.get("status.transferFailed", cause.getMessage()));
+                if (transferCancelled) {
+                    viewModel.transferStatusProperty().set(i18nService.get("status.transferCancelled"));
+                } else {
+                    Throwable cause = t.getCause() == null ? t : t.getCause();
+                    viewModel.transferStatusProperty().set(
+                            i18nService.get("status.transferFailed", cause.getMessage()));
+                }
             } else {
                 onSuccess.run();
             }
             viewModel.transferringProperty().set(false);
+            viewModel.transferSpeedProperty().set("");
         }));
     }
 
