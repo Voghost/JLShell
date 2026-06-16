@@ -249,6 +249,7 @@ public class SshjSftpService implements SftpService {
     ) throws IOException {
         byte[] buffer = new byte[request.bufferSize()];
         long position = offset;
+        long lastReportTime = 0;
         int read;
         while ((read = inputStream.read(buffer)) >= 0) {
             if (read == 0) {
@@ -259,6 +260,20 @@ public class SshjSftpService implements SftpService {
             }
             remoteFile.write(position, buffer, 0, read);
             position += read;
+            long now = System.currentTimeMillis();
+            if (now - lastReportTime >= 200) {
+                lastReportTime = now;
+                listener.onProgress(new TransferProgress(
+                        TransferDirection.UPLOAD,
+                        request.localPath().toString(),
+                        request.remotePath(),
+                        position,
+                        totalBytes
+                ));
+            }
+        }
+        // Final progress update
+        if (position > offset) {
             listener.onProgress(new TransferProgress(
                     TransferDirection.UPLOAD,
                     request.localPath().toString(),
@@ -281,6 +296,7 @@ public class SshjSftpService implements SftpService {
     ) throws IOException {
         byte[] buffer = new byte[request.bufferSize()];
         long position = offset;
+        long lastReportTime = 0;
         while (position < totalBytes) {
             if (listener.isCancelled()) {
                 throw new IOException("Transfer cancelled");
@@ -292,6 +308,20 @@ public class SshjSftpService implements SftpService {
             outputStream.write(buffer, 0, read);
             outputStream.flush();
             position += read;
+            long now = System.currentTimeMillis();
+            if (now - lastReportTime >= 200) {
+                lastReportTime = now;
+                listener.onProgress(new TransferProgress(
+                        TransferDirection.DOWNLOAD,
+                        remotePath,
+                        localPath.toString(),
+                        position,
+                        totalBytes
+                ));
+            }
+        }
+        // Final progress update
+        if (position > offset) {
             listener.onProgress(new TransferProgress(
                     TransferDirection.DOWNLOAD,
                     remotePath,

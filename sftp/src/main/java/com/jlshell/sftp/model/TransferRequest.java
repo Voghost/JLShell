@@ -20,6 +20,6 @@ public record TransferRequest(
             throw new IllegalArgumentException("remotePath must not be blank");
         }
         resumeMode = resumeMode == null ? TransferResumeMode.OVERWRITE : resumeMode;
-        bufferSize = bufferSize <= 0 ? 64 * 1024 : bufferSize;
+        bufferSize = bufferSize <= 0 ? 256 * 1024 : bufferSize;
     }
 }
