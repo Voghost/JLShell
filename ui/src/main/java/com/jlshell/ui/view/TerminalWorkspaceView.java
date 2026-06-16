@@ -1,8 +1,15 @@
 package com.jlshell.ui.view;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 import com.jlshell.core.model.CommandRequest;
 import com.jlshell.core.model.FontProfile;
@@ -11,6 +18,12 @@ import com.jlshell.core.model.TerminalSize;
 import com.jlshell.core.service.AppSettingsService;
 import com.jlshell.core.service.FontProfileService;
 import com.jlshell.core.session.SshSession;
+import com.jlshell.plugin.api.JlShellPlugin;
+import com.jlshell.plugin.api.SshSessionContext;
+import com.jlshell.plugin.loader.DefaultPluginContext;
+import com.jlshell.plugin.loader.PluginDescriptor;
+import com.jlshell.plugin.loader.PluginManager;
+import com.jlshell.sftp.service.SftpService;
 import com.jlshell.terminal.model.TerminalViewRequest;
 import com.jlshell.terminal.service.TerminalViewFactory;
 import com.jlshell.terminal.service.TerminalViewHandle;
@@ -20,21 +33,20 @@ import com.jlshell.ui.support.FxThread;
 import com.jlshell.ui.support.SwingNodeImeBridge;
 import com.jlshell.ui.theme.AppTheme;
 import com.jlshell.ui.theme.ThemeService;
-import javafx.animation.Animation;
-import javafx.animation.KeyFrame;
-import javafx.animation.Timeline;
+import javafx.application.Platform;
 import javafx.embed.swing.SwingNode;
 import javafx.geometry.Insets;
 import javafx.geometry.Point2D;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressIndicator;
-import javafx.scene.control.ScrollPane;
+import javafx.scene.control.Tab;
+import javafx.scene.control.TabPane;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.BorderPane;
-import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
@@ -43,7 +55,6 @@ import javafx.scene.layout.VBox;
 import javafx.scene.shape.SVGPath;
 import javafx.stage.Stage;
 import javafx.stage.Window;
-import javafx.util.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -60,26 +71,34 @@ public class TerminalWorkspaceView extends BorderPane {
     private final AppSettingsService appSettingsService;
     private final I18nService i18nService;
     private final ThemeService themeService;
+    private final PluginManager pluginManager;
+    private final SftpService sftpService;
     private final StackPane terminalHost = new StackPane();
     private final List<TerminalViewHandle> handles = new ArrayList<>();
+    private final Set<String> activatedPluginIds = ConcurrentHashMap.newKeySet();
 
     private AppTheme appTheme;
     private Node primaryNode;
+    private TabPane workspaceTabPane;
 
     // System info bar labels
-    private Label hostLabel;
     private Label ipLabel;
     private Label osLabel;
     private Label cpuLabel;
     private Label memLabel;
     private Label diskLabel;
-    private Timeline infoTimeline;
-    private volatile boolean pollingInProgress;
 
     // Floating card state
     private javafx.stage.Popup floatingPopup;
     private VBox floatingContent;
     private String floatingPendingType;
+    private Button pluginQuickLaunchBtn;
+    private HBox toolbar;
+    private Region pluginDivider;
+    private final List<HBox> pinnedPluginButtons = new ArrayList<>();
+
+    private static final String PINNED_PLUGINS_KEY = "toolbar.pinnedPlugins";
+    private static final int MAX_PINNED = 5;
 
     public TerminalWorkspaceView(
             SshSession sshSession,
@@ -88,7 +107,9 @@ public class TerminalWorkspaceView extends BorderPane {
             AppSettingsService appSettingsService,
             I18nService i18nService,
             AppTheme appTheme,
-            ThemeService themeService
+            ThemeService themeService,
+            PluginManager pluginManager,
+            SftpService sftpService
     ) {
         this.sshSession = sshSession;
         this.terminalViewFactory = terminalViewFactory;
@@ -97,6 +118,8 @@ public class TerminalWorkspaceView extends BorderPane {
         this.i18nService = i18nService;
         this.themeService = themeService;
         this.appTheme = appTheme;
+        this.pluginManager = pluginManager;
+        this.sftpService = sftpService;
 
         getStyleClass().add("workspace-panel");
         setTop(buildToolbar());
@@ -110,7 +133,6 @@ public class TerminalWorkspaceView extends BorderPane {
             primaryNode = node;
             terminalHost.getChildren().setAll(node);
             log.info("Terminal workspace initialized for session {}", sshSession.sessionId());
-            startInfoPolling();
         }));
     }
 
@@ -119,8 +141,11 @@ public class TerminalWorkspaceView extends BorderPane {
         handles.forEach(handle -> handle.updateColorScheme(theme.terminalColorScheme()));
     }
 
+    public void setWorkspaceTabPane(TabPane tabPane) {
+        this.workspaceTabPane = tabPane;
+    }
+
     public CompletableFuture<Void> closeAsync() {
-        stopInfoPolling();
         return CompletableFuture.allOf(
                 handles.stream()
                         .map(TerminalViewHandle::closeAsync)
@@ -133,17 +158,15 @@ public class TerminalWorkspaceView extends BorderPane {
     private HBox buildToolbar() {
         Button fontSettings = iconBtn("/icons/font.svg", i18nService.get("terminal.fontSettings"), this::openFontSettings);
 
-        hostLabel = new Label(sshSession.displayName());
-        hostLabel.getStyleClass().add("sysinfo-label");
-        ipLabel = new Label();
+        ipLabel = new Label(i18nService.get("sysinfo.ip"));
         ipLabel.getStyleClass().add("sysinfo-label");
-        osLabel = new Label();
+        osLabel = new Label(i18nService.get("sysinfo.os"));
         osLabel.getStyleClass().add("sysinfo-label");
-        cpuLabel = new Label();
+        cpuLabel = new Label(i18nService.get("sysinfo.cpu"));
         cpuLabel.getStyleClass().add("sysinfo-label");
-        memLabel = new Label();
+        memLabel = new Label(i18nService.get("sysinfo.mem"));
         memLabel.getStyleClass().add("sysinfo-label");
-        diskLabel = new Label();
+        diskLabel = new Label(i18nService.get("sysinfo.disk"));
         diskLabel.getStyleClass().add("sysinfo-label");
 
         HBox ipSection = sysinfoSection(loadSvgShape("/icons/ip.svg", 14), ipLabel, "ip");
@@ -155,16 +178,83 @@ public class TerminalWorkspaceView extends BorderPane {
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        HBox toolbar = new HBox(4,
-                hostLabel, makeSep(),
+        Button pluginBtn = iconBtn("/icons/add.svg", i18nService.get("workspace.plugins"), this::showPluginPicker);
+        pluginQuickLaunchBtn = pluginBtn;
+
+        pluginDivider = new Region();
+        pluginDivider.getStyleClass().add("sysinfo-sep-group");
+
+        toolbar = new HBox(4,
                 ipSection, makeSep(),
                 osSection, makeSep(),
                 cpuSection, makeSep(),
                 memSection, makeSep(),
-                diskSection,
-                spacer, fontSettings);
+                diskSection);
+        toolbar.getChildren().addAll(pluginDivider);
+        rebuildPinnedPluginButtons();
+        toolbar.getChildren().addAll(spacer, pluginBtn, fontSettings);
         toolbar.getStyleClass().add("toolbar-strip");
         return toolbar;
+    }
+
+    private List<String> loadPinnedPluginIds() {
+        String raw = appSettingsService.get(PINNED_PLUGINS_KEY, "");
+        if (raw.isBlank()) return Collections.emptyList();
+        return Arrays.stream(raw.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .limit(MAX_PINNED)
+                .collect(Collectors.toList());
+    }
+
+    private void savePinnedPluginIds(List<String> ids) {
+        appSettingsService.set(PINNED_PLUGINS_KEY, String.join(",", ids));
+    }
+
+    private void rebuildPinnedPluginButtons() {
+        // Remove old pinned buttons (between pluginDivider and spacer)
+        toolbar.getChildren().removeAll(pinnedPluginButtons);
+        pinnedPluginButtons.clear();
+
+        if (pluginManager == null) {
+            pluginDivider.setVisible(false);
+            pluginDivider.setManaged(false);
+            return;
+        }
+
+        List<String> pinned = loadPinnedPluginIds();
+        List<PluginDescriptor> allPlugins = pluginManager.getAvailablePlugins();
+
+        for (String id : pinned) {
+            allPlugins.stream()
+                    .filter(d -> d.id().equals(id))
+                    .findFirst()
+                    .ifPresent(desc -> {
+                        JlShellPlugin plugin = desc.instance();
+                        Label lbl = new Label(plugin.displayName(i18nService.getLocale()));
+                        lbl.getStyleClass().add("sysinfo-label");
+                        HBox btn = new HBox(2, loadSvgShape("/icons/plugins.svg", 14), lbl);
+                        if (btn.getChildren().get(0) != null) {
+                            btn.getChildren().get(0).getStyleClass().add("action-bar-icon");
+                        }
+                        btn.getStyleClass().add("plugin-pinned-btn");
+                        btn.setOnMouseClicked(e -> {
+                            e.consume();
+                            activatePlugin(desc);
+                        });
+                        pinnedPluginButtons.add(btn);
+                    });
+        }
+
+        boolean hasPinned = !pinnedPluginButtons.isEmpty();
+        pluginDivider.setVisible(hasPinned);
+        pluginDivider.setManaged(hasPinned);
+
+        // Insert after pluginDivider, before spacer
+        int insertIdx = toolbar.getChildren().indexOf(pluginDivider) + 1;
+        for (int i = 0; i < pinnedPluginButtons.size(); i++) {
+            toolbar.getChildren().add(insertIdx + i, pinnedPluginButtons.get(i));
+        }
     }
 
     private HBox sysinfoSection(Region icon, Label label, String type) {
@@ -587,120 +677,125 @@ public class TerminalWorkspaceView extends BorderPane {
         handles.forEach(h -> h.updateFontProfile(profile));
     }
 
-    // ── System info polling ──────────────────────────────────────────────────
+    // ── Plugin quick launch ─────────────────────────────────────────────────
 
-    private void startInfoPolling() {
-        pollSystemInfo();
-        infoTimeline = new Timeline(new KeyFrame(javafx.util.Duration.seconds(5), e -> pollSystemInfo()));
-        infoTimeline.setCycleCount(Animation.INDEFINITE);
-        infoTimeline.play();
-    }
+    private void showPluginPicker() {
+        if (pluginManager == null) return;
+        List<PluginDescriptor> plugins = pluginManager.getAvailablePlugins();
+        if (plugins.isEmpty()) return;
 
-    private void stopInfoPolling() {
-        if (infoTimeline != null) {
-            infoTimeline.stop();
-            infoTimeline = null;
-        }
-    }
+        hideFloatingCard();
 
-    private void pollSystemInfo() {
-        // Skip if previous poll is still running (avoid command queue buildup)
-        if (pollingInProgress) return;
-        pollingInProgress = true;
+        List<String> currentPinned = loadPinnedPluginIds();
 
-        String script = loadScript("/scripts/sysinfo.sh");
-        if (script == null) {
-            log.warn("sysinfo.sh not found, polling disabled");
-            pollingInProgress = false;
-            return;
-        }
-        // Pass script via heredoc — single-quoted EOF prevents any shell expansion
-        String cmd = "sh <<'JLSHELL_EOF'\n" + script + "\nJLSHELL_EOF";
-        sshSession.execute(new CommandRequest(cmd, java.time.Duration.ofSeconds(8), false, null))
-                .thenAccept(output -> FxThread.run(() -> {
-                    log.debug("sysinfo poll result: {}", output.stdout().trim());
-                    parseInfoOutput(output.stdout());
-                }))
-                .exceptionally(ex -> {
-                    log.debug("System info poll failed: {}", ex.getMessage());
-                    return null;
-                })
-                .whenComplete((r, ex) -> pollingInProgress = false);
-    }
+        VBox content = new VBox(4);
+        content.setPadding(new Insets(8));
+        content.setPrefWidth(220);
+        content.getStyleClass().add("hover-card");
 
-    private static String loadScript(String resourcePath) {
-        try (var is = TerminalWorkspaceView.class.getResourceAsStream(resourcePath)) {
-            if (is == null) return null;
-            return new String(is.readAllBytes());
-        } catch (Exception e) {
-            return null;
-        }
-    }
+        Label header = new Label(i18nService.getOrDefault("plugin.pinToToolbar", "Pin to Toolbar"));
+        header.getStyleClass().add("card-section");
+        content.getChildren().add(header);
 
-    private void parseInfoOutput(String output) {
-        try {
-            String[] parts = output.trim().split("\\|\\|\\|");
-            String osArch = parts.length > 0 ? parts[0].trim() : "";
-            String cpuVal = parts.length > 1 ? parts[1].trim() : "";
-            String memVal = parts.length > 2 ? parts[2].trim() : "";
-            String diskVal = parts.length > 3 ? parts[3].trim() : "";
-            String ipVal = parts.length > 4 ? parts[4].trim() : "";
-
-            if (!osArch.isEmpty()) {
-                osLabel.setText(osArch);
-            }
-
-            // CPU: if top returned a percentage (small number 0-100), show as %;
-            // if nproc returned core count, show as "N CPU"
-            if (!cpuVal.isEmpty() && !cpuVal.equals("?")) {
-                try {
-                    int v = Integer.parseInt(cpuVal);
-                    cpuLabel.setText(v <= 100 ? v + "% CPU" : v + " CPU");
-                } catch (NumberFormatException e) {
-                    try {
-                        double v = Double.parseDouble(cpuVal);
-                        cpuLabel.setText((int) v + "% CPU");
-                    } catch (NumberFormatException e2) {
-                        cpuLabel.setText(cpuVal + " CPU");
-                    }
+        List<CheckBox> boxes = new ArrayList<>();
+        for (PluginDescriptor desc : plugins) {
+            JlShellPlugin plugin = desc.instance();
+            CheckBox cb = new CheckBox(plugin.displayName(i18nService.getLocale()));
+            cb.setSelected(currentPinned.contains(desc.id()));
+            cb.setUserData(desc.id());
+            cb.selectedProperty().addListener((obs, oldVal, newVal) -> {
+                long selectedCount = boxes.stream().filter(CheckBox::isSelected).count();
+                if (selectedCount > MAX_PINNED) {
+                    cb.setSelected(false);
                 }
-            } else {
-                cpuLabel.setText("--");
-            }
-
-            // MEM percentage
-            if (!memVal.isEmpty()) {
-                try {
-                    int v = Integer.parseInt(memVal);
-                    memLabel.setText(v + "% MEM");
-                } catch (NumberFormatException e) {
-                    try {
-                        double v = Double.parseDouble(memVal);
-                        memLabel.setText((int) v + "% MEM");
-                    } catch (NumberFormatException e2) {
-                        memLabel.setText("--");
-                    }
-                }
-            } else {
-                memLabel.setText("--");
-            }
-
-            // Disk percentage
-            if (!diskVal.isEmpty()) {
-                diskLabel.setText(diskVal + "% DISK");
-            } else {
-                diskLabel.setText("--");
-            }
-
-            // IP
-            if (!ipVal.isEmpty()) {
-                ipLabel.setText(ipVal);
-            } else {
-                ipLabel.setText("--");
-            }
-        } catch (Exception e) {
-            log.debug("Failed to parse system info: {}", e.getMessage());
+            });
+            boxes.add(cb);
+            content.getChildren().add(cb);
         }
+
+        javafx.stage.Popup popup = new javafx.stage.Popup();
+        popup.getContent().setAll(content);
+        popup.setAutoHide(true);
+        popup.setAutoFix(true);
+
+        // Save on close: listen for when popup hides
+        popup.setOnHiding(e -> {
+            List<String> newPinned = boxes.stream()
+                    .filter(CheckBox::isSelected)
+                    .map(cb -> (String) cb.getUserData())
+                    .limit(MAX_PINNED)
+                    .collect(Collectors.toList());
+            savePinnedPluginIds(newPinned);
+            rebuildPinnedPluginButtons();
+        });
+
+        if (pluginQuickLaunchBtn == null) return;
+        Point2D pos = pluginQuickLaunchBtn.localToScreen(0, pluginQuickLaunchBtn.getHeight() + 4);
+        popup.show(pluginQuickLaunchBtn, pos.getX(), pos.getY());
+        floatingPopup = popup;
+    }
+
+    private void activatePlugin(PluginDescriptor desc) {
+        if (workspaceTabPane == null) return;
+
+        // Prevent duplicate: if already open, just select
+        for (Tab tab : workspaceTabPane.getTabs()) {
+            String existingId = (String) tab.getProperties().get("pluginId");
+            if (existingId != null && existingId.equals(desc.id())) {
+                workspaceTabPane.getSelectionModel().select(tab);
+                return;
+            }
+        }
+
+        Optional<SshSessionContext> sshCtx = Optional.of(
+                new com.jlshell.plugin.loader.SshSessionContextAdapter(sshSession, sftpService));
+        DefaultPluginContext ctx = new DefaultPluginContext(desc.id(), sshCtx, new DefaultPluginContext.Callbacks() {
+            private Tab openedTab;
+
+            @Override
+            public void openTab(String title, Node content) {
+                Platform.runLater(() -> {
+                    openedTab = new Tab(title, content);
+                    openedTab.setClosable(true);
+                    openedTab.getProperties().put("pluginId", desc.id());
+                    workspaceTabPane.getTabs().add(openedTab);
+                    workspaceTabPane.getSelectionModel().select(openedTab);
+                });
+            }
+
+            @Override
+            public void closeTab() {
+                if (openedTab != null) {
+                    Platform.runLater(() -> {
+                        if (openedTab.getTabPane() != null) {
+                            openedTab.getTabPane().getTabs().remove(openedTab);
+                        }
+                        openedTab = null;
+                    });
+                }
+            }
+
+            @Override
+            public void updateTabTitle(String title) {
+                if (openedTab != null) {
+                    Platform.runLater(() -> openedTab.setText(title));
+                }
+            }
+
+            @Override
+            public String resolveI18n(String key, String fallback) {
+                return i18nService.getOrDefault(key, fallback);
+            }
+        });
+        ctx.writableThemeNameProperty().bind(pluginManager.themeNameProperty());
+        ctx.writableLocaleProperty().bind(pluginManager.localeProperty());
+        pluginManager.activatePlugin(desc.id(), ctx);
+        activatedPluginIds.add(desc.id());
+    }
+
+    public void stopPlugins() {
+        activatedPluginIds.forEach(pluginManager::deactivatePlugin);
+        activatedPluginIds.clear();
     }
 
     // ── Terminal node creation ────────────────────────────────────────────────

@@ -73,7 +73,9 @@ public class SessionWorkspaceTab extends Tab {
                 appSettingsService,
                 i18nService,
                 theme,
-                themeService
+                themeService,
+                pluginManager,
+                sftpService
         );
 
         Tab terminalTab = new Tab(i18nService.get("workspace.terminal"), terminalWorkspaceView);
@@ -88,6 +90,7 @@ public class SessionWorkspaceTab extends Tab {
         });
 
         TabPane workspaceTabs = new TabPane(terminalTab, filesTab);
+        terminalWorkspaceView.setWorkspaceTabPane(workspaceTabs);
 
         if (pluginManager != null) {
             pluginsTab = new Tab(i18nService.get("workspace.plugins"));
@@ -116,6 +119,7 @@ public class SessionWorkspaceTab extends Tab {
     }
 
     public CompletableFuture<Void> closeWorkspace() {
+        terminalWorkspaceView.stopPlugins();
         if (pluginsTabView != null) {
             pluginsTabView.stopPlugins();
         }
