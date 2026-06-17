@@ -7,7 +7,7 @@
     <parent>
         <groupId>com.jlshell.plugins</groupId>
         <artifactId>jlshell-plugins-parent</artifactId>
-        <version>0.1.0-SNAPSHOT</version>
+        <version>0.1.0.RELEASE</version>
     </parent>
 
     <artifactId>plugin-demo</artifactId>

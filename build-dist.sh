@@ -16,7 +16,7 @@ set -euo pipefail
 APP_NAME="JLShell"
 APP_VERSION="0.1.0"
 MAIN_CLASS="com.jlshell.app.Launcher"
-MAIN_JAR="app-0.1.0-SNAPSHOT.jar"
+MAIN_JAR="app-0.1.0.RELEASE.jar"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET_DIR="$SCRIPT_DIR/app/target"

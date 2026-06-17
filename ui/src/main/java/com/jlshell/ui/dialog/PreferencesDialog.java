@@ -68,7 +68,7 @@ public class PreferencesDialog {
         LANGUAGES.put("zh_CN", "中文 (简体)");
     }
 
-    private static final String VERSION = "0.1.0-SNAPSHOT";
+    private static final String VERSION = "0.1.0.RELEASE";
 
     private static final ButtonType applyButtonType = new ButtonType("Apply", ButtonBar.ButtonData.APPLY);
 
