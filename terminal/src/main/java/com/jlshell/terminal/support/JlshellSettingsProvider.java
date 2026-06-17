@@ -8,7 +8,6 @@ import com.jediterm.terminal.HyperlinkStyle;
 import com.jediterm.terminal.TerminalColor;
 import com.jediterm.terminal.TextStyle;
 import com.jediterm.terminal.emulator.ColorPalette;
-import com.jediterm.terminal.emulator.ColorPaletteImpl;
 import com.jediterm.terminal.ui.settings.DefaultSettingsProvider;
 import com.jlshell.core.model.FontProfile;
 import com.jlshell.terminal.model.TerminalColorScheme;
@@ -21,10 +20,12 @@ public class JlshellSettingsProvider extends DefaultSettingsProvider {
 
     private final AtomicReference<FontProfile> fontProfile;
     private final AtomicReference<TerminalColorScheme> colorScheme;
+    private final AtomicReference<ColorPalette> colorPalette;
 
     public JlshellSettingsProvider(FontProfile fontProfile, TerminalColorScheme colorScheme) {
         this.fontProfile = new AtomicReference<>(fontProfile);
         this.colorScheme = new AtomicReference<>(colorScheme);
+        this.colorPalette = new AtomicReference<>(buildPalette(colorScheme));
     }
 
     public void updateFontProfile(FontProfile updatedFontProfile) {
@@ -33,10 +34,7 @@ public class JlshellSettingsProvider extends DefaultSettingsProvider {
 
     public void updateColorScheme(TerminalColorScheme updatedColorScheme) {
         colorScheme.set(updatedColorScheme);
-    }
-
-    public TextStyle defaultTextStyle() {
-        return new TextStyle(toTerminalColor(colorScheme.get().foreground()), toTerminalColor(colorScheme.get().background()));
+        colorPalette.set(buildPalette(updatedColorScheme));
     }
 
     public Color backgroundColor() {
@@ -45,6 +43,14 @@ public class JlshellSettingsProvider extends DefaultSettingsProvider {
 
     public Color foregroundColor() {
         return colorScheme.get().foreground();
+    }
+
+    public double opacity() {
+        return colorScheme.get().opacity();
+    }
+
+    public TextStyle defaultTextStyle() {
+        return new TextStyle(toTerminalColor(colorScheme.get().foreground()), toTerminalColor(colorScheme.get().background()));
     }
 
     @Override
@@ -59,7 +65,7 @@ public class JlshellSettingsProvider extends DefaultSettingsProvider {
 
     @Override
     public ColorPalette getTerminalColorPalette() {
-        return ColorPaletteImpl.XTERM_PALETTE;
+        return colorPalette.get();
     }
 
     @Override
@@ -103,7 +109,6 @@ public class JlshellSettingsProvider extends DefaultSettingsProvider {
 
     @Override
     public boolean altSendsEscape() {
-        // macOS 上 Option 键不发送 Escape 前缀，避免干扰密码输入
         return false;
     }
 
@@ -154,5 +159,24 @@ public class JlshellSettingsProvider extends DefaultSettingsProvider {
 
     private TerminalColor toTerminalColor(Color color) {
         return TerminalColor.rgb(color.getRed(), color.getGreen(), color.getBlue());
+    }
+
+    private static ColorPalette buildPalette(TerminalColorScheme scheme) {
+        java.awt.Color[] ansi = scheme.ansiColors();
+        com.jediterm.core.Color[] jediColors = new com.jediterm.core.Color[16];
+        for (int i = 0; i < 16; i++) {
+            jediColors[i] = new com.jediterm.core.Color(ansi[i].getRed(), ansi[i].getGreen(), ansi[i].getBlue());
+        }
+        return new ColorPalette() {
+            @Override
+            protected com.jediterm.core.Color getForegroundByColorIndex(int colorIndex) {
+                return jediColors[colorIndex];
+            }
+
+            @Override
+            protected com.jediterm.core.Color getBackgroundByColorIndex(int colorIndex) {
+                return jediColors[colorIndex];
+            }
+        };
     }
 }

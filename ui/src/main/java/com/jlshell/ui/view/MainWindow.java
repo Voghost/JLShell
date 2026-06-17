@@ -13,6 +13,7 @@ import com.jlshell.core.service.AppSettingsService;
 import com.jlshell.core.service.FontProfileService;
 import com.jlshell.core.service.SessionManager;
 import com.jlshell.sftp.service.SftpService;
+import com.jlshell.terminal.model.TerminalColorScheme;
 import com.jlshell.terminal.service.TerminalViewFactory;
 import com.jlshell.plugin.loader.PluginManager;
 import com.jlshell.ui.dialog.ProjectManagerDialog;
@@ -89,6 +90,7 @@ public class MainWindow {
     private final PluginManager pluginManager;
     private final VaultService vaultService;
     private final TabPane workspaceTabs = new TabPane();
+    private final List<com.jlshell.terminal.service.TerminalViewHandle> localShellHandles = new ArrayList<>();
     private final ListView<ConnectionProfile> connectionListView = new ListView<>();
     private SidebarTreeView sidebarTreeView;
     private WelcomePane welcomePane;
@@ -199,11 +201,20 @@ public class MainWindow {
         viewModel.activeThemeProperty().bind(themeService.currentThemeProperty());
         themeService.currentThemeProperty().addListener((obs, oldTheme, newTheme) -> {
             themeService.apply(scene);
+            TerminalColorScheme scheme = themeService.activeColorScheme();
             workspaceTabs.getTabs().stream()
                     .filter(SessionWorkspaceTab.class::isInstance)
                     .map(SessionWorkspaceTab.class::cast)
-                    .forEach(tab -> tab.applyTheme(newTheme));
+                    .forEach(tab -> tab.applyColorScheme(scheme));
             pluginManager.setThemeName(newTheme.name().toLowerCase());
+        });
+
+        themeService.activeColorSchemeProperty().addListener((obs, oldScheme, newScheme) -> {
+            workspaceTabs.getTabs().stream()
+                    .filter(SessionWorkspaceTab.class::isInstance)
+                    .map(SessionWorkspaceTab.class::cast)
+                    .forEach(tab -> tab.applyColorScheme(newScheme));
+            localShellHandles.forEach(handle -> handle.updateColorScheme(newScheme));
         });
 
         i18nService.localeProperty().addListener((obs, oldLocale, newLocale) -> {
@@ -871,6 +882,7 @@ public class MainWindow {
     }
 
     private void openLocalShellTab(ConnectionProfile profile, com.jlshell.terminal.service.TerminalViewHandle viewHandle) {
+        localShellHandles.add(viewHandle);
         javafx.scene.control.Tab tab = new javafx.scene.control.Tab(profile.displayName());
         tab.setClosable(true);
         javax.swing.JComponent component = (javax.swing.JComponent) viewHandle.component();
@@ -888,6 +900,7 @@ public class MainWindow {
         tab.setOnCloseRequest(event -> {
             event.consume();
             viewHandle.closeAsync().whenComplete((unused, t) -> FxThread.run(() -> {
+                localShellHandles.remove(viewHandle);
                 workspaceTabs.getTabs().remove(tab);
             }));
         });
@@ -935,7 +948,6 @@ public class MainWindow {
                     appSettingsService,
                     sftpService,
                     i18nService,
-                    themeService.currentTheme(),
                     themeService,
                     pluginManager
             );

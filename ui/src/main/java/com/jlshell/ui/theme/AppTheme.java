@@ -1,27 +1,20 @@
 package com.jlshell.ui.theme;
 
-import com.jlshell.terminal.model.TerminalColorScheme;
-
 /**
  * 应用主题定义。
+ * 仅控制 JavaFX UI 样式表；终端配色方案独立管理。
  */
 public enum AppTheme {
-    DARK("/css/dark-theme.css", TerminalColorScheme.dark()),
-    LIGHT("/css/light-theme.css", TerminalColorScheme.light());
+    DARK("/css/dark-theme.css"),
+    LIGHT("/css/light-theme.css");
 
     private final String stylesheet;
-    private final TerminalColorScheme terminalColorScheme;
 
-    AppTheme(String stylesheet, TerminalColorScheme terminalColorScheme) {
+    AppTheme(String stylesheet) {
         this.stylesheet = stylesheet;
-        this.terminalColorScheme = terminalColorScheme;
     }
 
     public String stylesheet() {
         return stylesheet;
-    }
-
-    public TerminalColorScheme terminalColorScheme() {
-        return terminalColorScheme;
     }
 }

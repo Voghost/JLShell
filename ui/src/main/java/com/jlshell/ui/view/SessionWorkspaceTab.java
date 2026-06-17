@@ -8,12 +8,12 @@ import com.jlshell.core.service.FontProfileService;
 import com.jlshell.core.service.SessionManager;
 import com.jlshell.core.session.SshSession;
 import com.jlshell.sftp.service.SftpService;
+import com.jlshell.terminal.model.TerminalColorScheme;
 import com.jlshell.terminal.service.TerminalViewFactory;
 import com.jlshell.ui.model.ConnectionProfile;
 import com.jlshell.ui.service.ConnectionProfileService;
 import com.jlshell.plugin.loader.PluginManager;
 import com.jlshell.ui.service.I18nService;
-import com.jlshell.ui.theme.AppTheme;
 import com.jlshell.ui.theme.ThemeService;
 import javafx.scene.control.Label;
 import javafx.scene.control.Tab;
@@ -51,7 +51,6 @@ public class SessionWorkspaceTab extends Tab {
             AppSettingsService appSettingsService,
             SftpService sftpService,
             I18nService i18nService,
-            AppTheme theme,
             ThemeService themeService,
             PluginManager pluginManager
     ) {
@@ -72,7 +71,6 @@ public class SessionWorkspaceTab extends Tab {
                 fontProfileService,
                 appSettingsService,
                 i18nService,
-                theme,
                 themeService,
                 pluginManager,
                 sftpService
@@ -114,8 +112,8 @@ public class SessionWorkspaceTab extends Tab {
         return terminalWorkspaceView.initialize();
     }
 
-    public void applyTheme(AppTheme theme) {
-        terminalWorkspaceView.applyTheme(theme);
+    public void applyColorScheme(TerminalColorScheme scheme) {
+        terminalWorkspaceView.applyColorScheme(scheme);
     }
 
     public CompletableFuture<Void> closeWorkspace() {

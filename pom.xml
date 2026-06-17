@@ -132,6 +132,12 @@
                 <artifactId>pty4j</artifactId>
                 <version>0.13.10</version>
             </dependency>
+            <!-- JSON -->
+            <dependency>
+                <groupId>com.google.code.gson</groupId>
+                <artifactId>gson</artifactId>
+                <version>2.11.0</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 

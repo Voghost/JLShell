@@ -71,16 +71,20 @@ public class JlshellJediTermWidget extends JediTermWidget {
     public void refreshVisuals() {
         java.awt.Color bg = settingsProvider.backgroundColor();
         java.awt.Color fg = settingsProvider.foregroundColor();
-        // 设置 widget 自身背景，消除白色边框
-        setBackground(bg);
-        setOpaque(true);
+        double opacity = settingsProvider.opacity();
+        boolean transparent = opacity < 1.0;
+        java.awt.Color effectiveBg = transparent
+                ? new java.awt.Color(bg.getRed(), bg.getGreen(), bg.getBlue(), (int) (opacity * 255))
+                : bg;
+        setBackground(effectiveBg);
+        setOpaque(!transparent);
         if (terminalPanel != null) {
-            terminalPanel.setBackground(bg);
+            terminalPanel.setBackground(effectiveBg);
             terminalPanel.setForeground(fg);
-            terminalPanel.setOpaque(true);
+            terminalPanel.setOpaque(!transparent);
             terminalPanel.refreshVisuals();
         }
-        getTerminalPanel().setBackground(bg);
+        getTerminalPanel().setBackground(effectiveBg);
         getTerminalPanel().setForeground(fg);
         getTerminalPanel().revalidate();
         getTerminalPanel().repaint();

@@ -24,6 +24,7 @@ import com.jlshell.plugin.loader.DefaultPluginContext;
 import com.jlshell.plugin.loader.PluginDescriptor;
 import com.jlshell.plugin.loader.PluginManager;
 import com.jlshell.sftp.service.SftpService;
+import com.jlshell.terminal.model.TerminalColorScheme;
 import com.jlshell.terminal.model.TerminalViewRequest;
 import com.jlshell.terminal.service.TerminalViewFactory;
 import com.jlshell.terminal.service.TerminalViewHandle;
@@ -31,7 +32,6 @@ import com.jlshell.ui.dialog.PreferencesDialog;
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.support.FxThread;
 import com.jlshell.ui.support.SwingNodeImeBridge;
-import com.jlshell.ui.theme.AppTheme;
 import com.jlshell.ui.theme.ThemeService;
 import javafx.application.Platform;
 import javafx.embed.swing.SwingNode;
@@ -77,7 +77,6 @@ public class TerminalWorkspaceView extends BorderPane {
     private final List<TerminalViewHandle> handles = new ArrayList<>();
     private final Set<String> activatedPluginIds = ConcurrentHashMap.newKeySet();
 
-    private AppTheme appTheme;
     private Node primaryNode;
     private TabPane workspaceTabPane;
 
@@ -106,7 +105,6 @@ public class TerminalWorkspaceView extends BorderPane {
             FontProfileService fontProfileService,
             AppSettingsService appSettingsService,
             I18nService i18nService,
-            AppTheme appTheme,
             ThemeService themeService,
             PluginManager pluginManager,
             SftpService sftpService
@@ -117,7 +115,6 @@ public class TerminalWorkspaceView extends BorderPane {
         this.appSettingsService = appSettingsService;
         this.i18nService = i18nService;
         this.themeService = themeService;
-        this.appTheme = appTheme;
         this.pluginManager = pluginManager;
         this.sftpService = sftpService;
 
@@ -136,9 +133,8 @@ public class TerminalWorkspaceView extends BorderPane {
         }));
     }
 
-    public void applyTheme(AppTheme theme) {
-        this.appTheme = theme;
-        handles.forEach(handle -> handle.updateColorScheme(theme.terminalColorScheme()));
+    public void applyColorScheme(TerminalColorScheme scheme) {
+        handles.forEach(handle -> handle.updateColorScheme(scheme));
     }
 
     public void setWorkspaceTabPane(TabPane tabPane) {
@@ -806,7 +802,7 @@ public class TerminalWorkspaceView extends BorderPane {
                 sshSession.displayName(),
                 new ShellRequest("xterm-256color", new TerminalSize(120, 40, 0, 0), null),
                 fontProfile,
-                appTheme.terminalColorScheme()
+                themeService.activeColorScheme()
         );
         return terminalViewFactory.createTerminalView(sshSession, request)
                 .thenCompose(handle -> {

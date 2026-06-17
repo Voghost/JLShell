@@ -85,3 +85,11 @@ CREATE TABLE IF NOT EXISTS app_settings (
     created_at    INTEGER NOT NULL,
     updated_at    INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS terminal_color_schemes (
+    id          TEXT PRIMARY KEY NOT NULL,
+    name        TEXT NOT NULL UNIQUE,
+    colors_json TEXT NOT NULL,
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+);

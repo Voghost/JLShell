@@ -21,11 +21,14 @@ import com.jlshell.data.crypto.AesGcmCredentialCipher;
 import com.jlshell.data.crypto.CredentialCipher;
 import com.jlshell.data.crypto.FileSystemMasterKeyProvider;
 import com.jlshell.data.service.JdbiAppSettingsService;
+import com.jlshell.data.service.JdbiCustomColorSchemeStore;
 import com.jlshell.plugin.loader.PluginManager;
 import com.jlshell.sftp.service.SftpService;
 import com.jlshell.sftp.support.SshjSftpService;
 import com.jlshell.ssh.support.EphemeralTrustHostKeyVerifier;
 import com.jlshell.ssh.support.SshjConnectionManager;
+import com.jlshell.terminal.service.BuiltInColorSchemeLoader;
+import com.jlshell.terminal.service.ColorSchemeRegistry;
 import com.jlshell.terminal.support.JediTermTerminalViewFactory;
 import com.jlshell.ui.service.ConnectionProfileService;
 import com.jlshell.ui.service.HostKeyConfirmationService;
@@ -91,7 +94,13 @@ public class AppContext implements AutoCloseable {
                 : new Locale(savedLang);
         log.info("Initial locale from settings: {} (savedLang={})", initialLocale, savedLang);
         I18nService i18nService = new I18nService(initialLocale);
-        ThemeService themeService = new ThemeService();
+
+        // Color scheme registry (built-in + custom persistence)
+        BuiltInColorSchemeLoader builtInLoader = new BuiltInColorSchemeLoader();
+        JdbiCustomColorSchemeStore customStore = new JdbiCustomColorSchemeStore(jdbi);
+        ColorSchemeRegistry colorSchemeRegistry = new ColorSchemeRegistry(builtInLoader, customStore);
+
+        ThemeService themeService = new ThemeService(appSettingsService, colorSchemeRegistry);
 
         // 5. SSH / SFTP
         SshjConnectionManager connectionManager = new SshjConnectionManager(
