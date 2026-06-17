@@ -10,7 +10,6 @@ on:
 
 env:
   VERSION: ${{ github.event.inputs.version }}
-  JAR: app/target/app-0.1.0-SNAPSHOT.jar
   MODULES: "java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.management.rmi,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.transaction.xa,java.xml,java.xml.crypto,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.jfr,jdk.localedata,jdk.management,jdk.naming.dns,jdk.net,jdk.unsupported,jdk.unsupported.desktop,jdk.zipfs,javafx.base,javafx.controls,javafx.fxml,javafx.graphics,javafx.swing"
 
 jobs:
@@ -31,6 +30,12 @@ jobs:
       - name: Build
         run: |
           mvn package -DskipTests -pl app -am -q
+
+          # Discover the built jar dynamically (no hardcoded version)
+          JAR=$(ls app/target/app-*.jar | head -1)
+          JAR_NAME=$(basename "$JAR")
+          echo "JAR=$JAR" >> $GITHUB_ENV
+          echo "JAR_NAME=$JAR_NAME" >> $GITHUB_ENV
 
           JDK=$JAVA_HOME
 
@@ -59,14 +64,14 @@ jobs:
           PKG_VERSION="1.${PKG_VERSION}"
 
           mkdir -p dist/input
-          cp $JAR dist/input/
+          cp "$JAR" dist/input/
 
           $JDK/bin/jpackage \
             --type app-image \
             --name JLShell \
             --app-version "$PKG_VERSION" \
             --input dist/input \
-            --main-jar app-0.1.0-SNAPSHOT.jar \
+            --main-jar "$JAR_NAME" \
             --main-class com.jlshell.app.Launcher \
             --runtime-image dist/jre \
             --icon dist/AppIcon.icns \
@@ -108,6 +113,10 @@ jobs:
         run: |
           mvn package -DskipTests -pl app -am -q
 
+          # Discover the built jar dynamically (no hardcoded version)
+          JAR=$(ls app/target/app-*.jar | head -1)
+          echo "JAR=$JAR" >> $GITHUB_ENV
+
           JDK=$JAVA_HOME
           mkdir -p dist
           $JDK/bin/jlink \
@@ -116,7 +125,7 @@ jobs:
             --output dist/runtime \
             --strip-debug --no-man-pages --no-header-files --compress zip-6
 
-          cp $JAR dist/app.jar
+          cp "$JAR" dist/app.jar
 
       # ── tar.gz ──────────────────────────────────────────────────────────────
       - name: Package tar.gz
