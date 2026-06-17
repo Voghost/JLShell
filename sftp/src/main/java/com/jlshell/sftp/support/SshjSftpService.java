@@ -169,11 +169,8 @@ public class SshjSftpService implements SftpService {
             );
             listener.onStarted(started);
 
-            try (InputStream inputStream = new BufferedInputStream(Files.newInputStream(localPath), request.bufferSize());
-                 RemoteFile remoteFile = sftpClient.open(request.remotePath(), openModes)) {
-
-                skipFully(inputStream, offset);
-                copyLocalToRemote(inputStream, remoteFile, offset, totalBytes, request, listener);
+            try {
+                uploadStreaming(sftpClient, localPath, request, offset, totalBytes, listener);
                 listener.onCompleted(new TransferProgress(
                         TransferDirection.UPLOAD,
                         localPath.toString(),
@@ -185,14 +182,50 @@ public class SshjSftpService implements SftpService {
                 deleteRemoteFileQuietly(sftpClient, request.remotePath());
                 listener.onFailed(started, e);
                 throw e;
+            } catch (IOException e) {
+                log.warn("Streaming upload failed, falling back to sftp.put(): {}", e.getMessage());
+                try (SFTPClient fallbackClient = newSftpClient(sshSession)) {
+                    fallbackClient.put(localPath.toString(), request.remotePath());
+                    listener.onCompleted(new TransferProgress(
+                            TransferDirection.UPLOAD,
+                            localPath.toString(),
+                            request.remotePath(),
+                            totalBytes,
+                            totalBytes
+                    ));
+                } catch (IOException fallbackEx) {
+                    listener.onFailed(started, fallbackEx);
+                    throw new SftpOperationException("Failed to upload file to remote path: " + request.remotePath(), fallbackEx);
+                }
             } catch (Throwable throwable) {
                 listener.onFailed(started, throwable);
                 throw throwable;
             }
         } catch (TransferCancelledException e) {
             throw e;
+        } catch (SftpOperationException e) {
+            throw e;
         } catch (IOException exception) {
             throw new SftpOperationException("Failed to upload file to remote path: " + request.remotePath(), exception);
+        }
+    }
+
+    private void uploadStreaming(
+            SFTPClient sftpClient,
+            Path localPath,
+            TransferRequest request,
+            long offset,
+            long totalBytes,
+            TransferProgressListener listener
+    ) throws IOException {
+        try (InputStream inputStream = new BufferedInputStream(Files.newInputStream(localPath), request.bufferSize());
+             RemoteFile remoteFile = sftpClient.open(request.remotePath(),
+                     offset > 0
+                             ? EnumSet.of(OpenMode.WRITE, OpenMode.CREAT)
+                             : EnumSet.of(OpenMode.WRITE, OpenMode.CREAT, OpenMode.TRUNC))) {
+
+            skipFully(inputStream, offset);
+            copyLocalToRemote(inputStream, remoteFile, offset, totalBytes, request, listener);
         }
     }
 

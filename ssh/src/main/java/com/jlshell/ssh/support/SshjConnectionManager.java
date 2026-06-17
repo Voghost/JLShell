@@ -66,8 +66,9 @@ public class SshjConnectionManager implements ConnectionManager {
             authenticate(client, request);
 
             // 认证完成后调大窗口以提升 SFTP 传输吞吐
+            // 注：windowSize 默认已是 2MB，显式设置确保一致；
+            // maxPacketSize 保持默认 32KB（SFTP 协议单消息上限），不要超过否则部分服务器会 EOF
             client.getConnection().setWindowSize(2 * 1024 * 1024);
-            client.getConnection().setMaxPacketSize(64 * 1024);
 
             // keepalive 必须在认证完成后设置，否则会破坏 strict KEX 握手顺序。
             // 每 60 秒发一次，服务端无响应时 transport 抛异常，让 JediTerm 读取线程感知断连。
