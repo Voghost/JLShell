@@ -181,6 +181,7 @@
                                     <opt>--add-opens java.desktop/sun.awt=ALL-UNNAMED</opt>
                                 </opts>
                             </jre>
+                            <disableVersionInfoDefaults>true</disableVersionInfoDefaults>
                             <versionInfo>
                                 <fileVersion>0.1.0.0</fileVersion>
                                 <productVersion>0.1.0.0</productVersion>
