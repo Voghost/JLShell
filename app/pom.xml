@@ -191,6 +191,7 @@
                                 <productName>JLShell</productName>
                                 <internalName>JLShell</internalName>
                                 <originalFilename>JLShell.exe</originalFilename>
+                                <copyright>JLShell</copyright>
                             </versionInfo>
                         </configuration>
                     </plugin>
