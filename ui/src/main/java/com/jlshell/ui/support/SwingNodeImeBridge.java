@@ -19,9 +19,14 @@ public final class SwingNodeImeBridge {
                 if (swingNode.getScene() == null || swingNode.getScene().getWindow() == null) {
                     return Point2D.ZERO;
                 }
+                // 光标在 SwingNode 内的像素偏移（逻辑坐标，1:1 对应 AWT 逻辑坐标）
+                java.awt.Point cursorInComponent = handle.getCursorLocationInComponent();
+                // SwingNode 左上角的屏幕坐标（JavaFX localToScreen 返回逻辑坐标）
                 Bounds bounds = swingNode.localToScreen(swingNode.getBoundsInLocal());
                 if (bounds == null) return Point2D.ZERO;
-                return new Point2D(bounds.getMinX(), bounds.getMaxY());
+                double screenX = bounds.getMinX() + cursorInComponent.x;
+                double screenY = bounds.getMinY() + cursorInComponent.y;
+                return new Point2D(screenX, screenY);
             }
 
             @Override

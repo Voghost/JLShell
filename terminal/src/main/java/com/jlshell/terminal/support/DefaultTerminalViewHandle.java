@@ -95,4 +95,12 @@ public class DefaultTerminalViewHandle implements TerminalViewHandle {
             }
         });
     }
+
+    @Override
+    public java.awt.Point getCursorLocationInComponent() {
+        if (widget.getTerminalPanel() instanceof RefreshableTerminalPanel rtp) {
+            return rtp.getCursorLocationInComponent();
+        }
+        return new java.awt.Point(0, 0);
+    }
 }

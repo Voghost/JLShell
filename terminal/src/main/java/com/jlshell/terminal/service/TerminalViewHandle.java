@@ -37,6 +37,14 @@ public interface TerminalViewHandle extends AutoCloseable {
         // 默认 no-op
     }
 
+    /**
+     * 返回终端光标在 Swing 组件内的像素坐标，用于 IME 候选窗定位。
+     * 默认返回 (0,0)，不影响不支持的实现。
+     */
+    default java.awt.Point getCursorLocationInComponent() {
+        return new java.awt.Point(0, 0);
+    }
+
     @Override
     default void close() {
         closeAsync().join();

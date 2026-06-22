@@ -4,6 +4,7 @@ import java.awt.Color;
 import java.awt.Font;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.Point;
 import java.awt.RenderingHints;
 import java.awt.Window;
 import java.awt.event.KeyEvent;
@@ -17,6 +18,7 @@ import javax.swing.JSeparator;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 
+import com.jediterm.core.TerminalCoordinates;
 import com.jediterm.terminal.TextStyle;
 import com.jediterm.terminal.model.StyleState;
 import com.jediterm.terminal.model.TerminalTextBuffer;
@@ -50,6 +52,12 @@ public class RefreshableTerminalPanel extends TerminalPanel {
     private final JlshellSettingsProvider jlshellSettings;
     private final Function<String, String> i18n;
 
+    /**
+     * JediTermWidget 在 init 时通过 setCoordAccessor 注入 TerminalCoordinates，
+     * 这里捕获引用用于 IME 候选窗定位（见 getCursorLocationInComponent）。
+     */
+    private volatile TerminalCoordinates capturedCoordAccessor;
+
     public RefreshableTerminalPanel(
             SettingsProvider settingsProvider,
             TerminalTextBuffer terminalTextBuffer,
@@ -65,6 +73,30 @@ public class RefreshableTerminalPanel extends TerminalPanel {
     public void refreshVisuals() {
         reinitFontAndResize();
         repaint();
+    }
+
+    @Override
+    public void setCoordAccessor(TerminalCoordinates coordAccessor) {
+        this.capturedCoordAccessor = coordAccessor;
+        super.setCoordAccessor(coordAccessor);
+    }
+
+    /**
+     * 返回终端光标在 Swing 组件内的像素坐标（用于 IME 候选窗定位）。
+     * 复刻 JediTerm MyInputMethodRequests.getTextLocation 的算法：
+     *   x = cursorX * charWidth + insetX
+     *   y = (cursorY + 1) * charHeight  （+1 让候选窗落在光标行下方）
+     * 光标坐标通过 capturedCoordAccessor 获取（JediTermWidget init 时注入）。
+     * 未初始化时返回 (0,0)，候选窗退化为组件左上角。
+     */
+    public Point getCursorLocationInComponent() {
+        TerminalCoordinates coord = capturedCoordAccessor;
+        if (coord == null || myCharSize.width <= 0 || myCharSize.height <= 0) {
+            return new Point(0, 0);
+        }
+        int x = coord.getX() * myCharSize.width + getInsetX();
+        int y = (coord.getY() + 1) * myCharSize.height;
+        return new Point(x, y);
     }
 
     @Override
@@ -245,7 +277,40 @@ public class RefreshableTerminalPanel extends TerminalPanel {
             return;
         }
 
+        // Windows SwingNode forwards Ctrl+letter KEY_PRESSED with a wrong keyChar
+        // ('\0' or 'U' from JavaFX "Undefined" string), but the keyCode (VK_A..VK_Z)
+        // is correct. JediTerm's TerminalKeyEncoder has no Ctrl+letter entries, so
+        // it falls into the isISOControl(keyChar) branch and sends the wrong byte —
+        // Ctrl+C/D etc. either do nothing or send NUL.
+        // Fix: when Ctrl is held (no Alt/Meta) and keyCode is A-Z, rewrite keyChar
+        // to the matching control character (Ctrl+A= ... Ctrl+Z=) so
+        // JediTerm's processCharacter sends the right byte.
+        if (id == KeyEvent.KEY_PRESSED
+                && (e.getModifiersEx() & KeyEvent.CTRL_DOWN_MASK) != 0
+                && (e.getModifiersEx() & KeyEvent.ALT_DOWN_MASK) == 0
+                && (e.getModifiersEx() & KeyEvent.META_DOWN_MASK) == 0) {
+            char controlChar = ctrlToControlChar(code);
+            if (controlChar != '\0' && c != controlChar) {
+                e = new KeyEvent(
+                        (java.awt.Component) e.getSource(),
+                        e.getID(), e.getWhen(), e.getModifiersEx(),
+                        e.getKeyCode(), controlChar, e.getKeyLocation()
+                );
+            }
+        }
+
         super.processKeyEvent(e);
+    }
+
+    /**
+     * Map A-Z keyCode to the control char produced by Ctrl+A..Ctrl+Z
+     * (Ctrl+A= ... Ctrl+Z=). Non A-Z returns '\0'.
+     */
+    private static char ctrlToControlChar(int keyCode) {
+        if (keyCode >= KeyEvent.VK_A && keyCode <= KeyEvent.VK_Z) {
+            return (char) (keyCode - KeyEvent.VK_A + 1);
+        }
+        return '\0';
     }
 
     private static boolean isModifierOnly(int keyCode) {
