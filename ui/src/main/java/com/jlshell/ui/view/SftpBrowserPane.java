@@ -52,6 +52,7 @@ import javafx.scene.control.TreeItem;
 import javafx.scene.control.TreeView;
 import javafx.scene.input.ClipboardContent;
 import javafx.scene.input.Dragboard;
+import javafx.scene.input.MouseButton;
 import javafx.scene.input.TransferMode;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
@@ -349,9 +350,15 @@ public class SftpBrowserPane extends BorderPane {
         );
         localFileTable.setRowFactory(tv -> {
             TableRow<LocalFileEntry> row = new TableRow<>();
-            row.setOnMouseClicked(ev -> {
-                if (ev.getClickCount() == 2 && !row.isEmpty() && row.getItem().directory()) {
+            // 用 MousePressed 而不是 MouseClicked：Windows 上 MouseClicked 的 clickCount
+            // 在 selection 改变时可能被重置，导致双击文件夹进不去；MousePressed 更可靠。
+            row.setOnMousePressed(ev -> {
+                if (ev.getButton() == MouseButton.PRIMARY
+                        && ev.getClickCount() == 2
+                        && !row.isEmpty()
+                        && row.getItem().directory()) {
                     selectLocalTreeNode(row.getItem().path().toString());
+                    ev.consume();
                 }
             });
             row.contextMenuProperty().bind(javafx.beans.binding.Bindings.when(row.emptyProperty())
@@ -428,13 +435,19 @@ public class SftpBrowserPane extends BorderPane {
         );
         remoteFileTable.setRowFactory(tv -> {
             TableRow<RemoteFileEntry> row = new TableRow<>();
-            row.setOnMouseClicked(ev -> {
-                if (ev.getClickCount() == 2 && !row.isEmpty() && row.getItem().isDirectory()) {
+            // 用 MousePressed 而不是 MouseClicked：Windows 上 MouseClicked 的 clickCount
+            // 在 selection 改变时可能被重置，导致双击文件夹进不去；MousePressed 更可靠。
+            row.setOnMousePressed(ev -> {
+                if (ev.getButton() == MouseButton.PRIMARY
+                        && ev.getClickCount() == 2
+                        && !row.isEmpty()
+                        && row.getItem().isDirectory()) {
                     TreeItem<FileNode> found = findTreeItem(remoteDirTree.getRoot(), row.getItem().path());
                     if (found != null) {
                         remoteDirTree.getSelectionModel().select(found);
                         found.setExpanded(true);
                     }
+                    ev.consume();
                 }
             });
             row.contextMenuProperty().bind(javafx.beans.binding.Bindings.when(row.emptyProperty())
