@@ -36,6 +36,7 @@ import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.service.LocalShellLauncher;
 import com.jlshell.ui.service.VaultKeyService;
 import com.jlshell.ui.service.VaultService;
+import com.jlshell.ui.support.BundledFontLoader;
 import com.jlshell.ui.theme.ThemeService;
 import com.jlshell.ui.view.MainWindow;
 import com.jlshell.ui.viewmodel.MainViewModel;
@@ -100,7 +101,7 @@ public class AppContext implements AutoCloseable {
         JdbiCustomColorSchemeStore customStore = new JdbiCustomColorSchemeStore(jdbi);
         ColorSchemeRegistry colorSchemeRegistry = new ColorSchemeRegistry(builtInLoader, customStore);
 
-        ThemeService themeService = new ThemeService(appSettingsService, colorSchemeRegistry);
+        ThemeService themeService = new ThemeService(appSettingsService, colorSchemeRegistry, executor);
 
         // 5. SSH / SFTP
         SshjConnectionManager connectionManager = new SshjConnectionManager(
@@ -108,9 +109,8 @@ public class AppContext implements AutoCloseable {
         SessionManager sessionManager = new DefaultSessionManager(connectionManager, sessionRegistry);
         SftpService sftpService = new SshjSftpService(executor);
 
-        // 6. Plugins
+        // 6. Plugins — 延迟到首次 getAvailablePlugins()/activatePlugin() 才扫描 JAR
         PluginManager pluginManager = new PluginManager();
-        pluginManager.loadPlugins();
 
         // 6.5. Vault service + migration
         VaultKeyService vaultKeyService = new VaultKeyService(appSettingsService);
@@ -122,11 +122,12 @@ public class AppContext implements AutoCloseable {
         MainViewModel viewModel = new MainViewModel();
 
         JediTermTerminalViewFactory terminalViewFactory = new JediTermTerminalViewFactory(
-                fontProfileService, executor, i18nService::get);
+                fontProfileService, executor, i18nService::get, BundledFontLoader::ensureAwtRegistered);
 
         ConnectionProfileService connectionProfileService = new ConnectionProfileService(
                 jdbi, credentialCipher, appSettingsService, vaultService);
-        LocalShellLauncher localShellLauncher = new LocalShellLauncher(fontProfileService, executor, i18nService);
+        LocalShellLauncher localShellLauncher = new LocalShellLauncher(
+                fontProfileService, executor, i18nService, BundledFontLoader::ensureAwtRegistered);
 
         // 7. Main window
         mainWindow = new MainWindow(

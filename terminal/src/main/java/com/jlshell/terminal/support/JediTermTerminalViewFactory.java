@@ -26,12 +26,19 @@ public class JediTermTerminalViewFactory implements TerminalViewFactory {
     private final FontProfileService fontProfileService;
     private final ExecutorService executorService;
     private final Function<String, String> i18n;
+    private final Runnable awtFontReadyHook;
 
     public JediTermTerminalViewFactory(FontProfileService fontProfileService, ExecutorService executorService,
                                        Function<String, String> i18n) {
+        this(fontProfileService, executorService, i18n, () -> {});
+    }
+
+    public JediTermTerminalViewFactory(FontProfileService fontProfileService, ExecutorService executorService,
+                                       Function<String, String> i18n, Runnable awtFontReadyHook) {
         this.fontProfileService = fontProfileService;
         this.executorService = executorService;
         this.i18n = i18n != null ? i18n : key -> key;
+        this.awtFontReadyHook = awtFontReadyHook != null ? awtFontReadyHook : () -> {};
     }
 
     @Override
@@ -63,6 +70,7 @@ public class JediTermTerminalViewFactory implements TerminalViewFactory {
     ) {
         return SwingExecutors.supplyOnEdtAsync(() -> {
             try {
+                awtFontReadyHook.run();
                 JlshellSettingsProvider settingsProvider =
                         new JlshellSettingsProvider(request.fontProfile(), request.colorScheme());
                 ShellTtyConnector ttyConnector =

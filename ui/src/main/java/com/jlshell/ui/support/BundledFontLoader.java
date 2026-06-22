@@ -9,6 +9,10 @@ import org.slf4j.LoggerFactory;
 /**
  * Loads bundled Nerd Font TTF files so they are available to both
  * JavaFX (via Font.loadFont) and AWT/Swing terminal (via Font.createFont).
+ *
+ * JavaFX 字体在启动时同步加载（CSS -fx-font-family 需要它）；
+ * AWT 注册延迟到首次创建终端时（{@link #ensureAwtRegistered()}），
+ * 把 2MB TTF 的二次 I/O 从启动路径移到首次开终端。
  */
 public final class BundledFontLoader {
 
@@ -16,22 +20,36 @@ public final class BundledFontLoader {
 
     public static final String BUNDLED_FONT_FAMILY = "SauceCodePro Nerd Font Mono";
 
-    private static boolean loaded = false;
+    private static volatile boolean javafxLoaded = false;
+    private static volatile boolean awtRegistered = false;
 
     private BundledFontLoader() {}
 
+    /** 加载 JavaFX 字体。必须在 JavaFX init 阶段调用（FX 线程或 FX init 线程）。 */
     public static synchronized void load() {
-        if (loaded) return;
+        if (javafxLoaded) return;
 
         loadFont("/fonts/SauceCodeProNerdFontMono-Regular.ttf");
         loadFont("/fonts/SauceCodeProNerdFontMono-Bold.ttf");
 
-        // Also register with AWT so the JediTerm terminal (Swing) can find it
-        registerAwtFont("/fonts/SauceCodeProNerdFontMono-Regular.ttf");
-        registerAwtFont("/fonts/SauceCodeProNerdFontMono-Bold.ttf");
+        javafxLoaded = true;
+        log.info("Bundled JavaFX fonts loaded: {}", BUNDLED_FONT_FAMILY);
+    }
 
-        loaded = true;
-        log.info("Bundled fonts loaded: {}", BUNDLED_FONT_FAMILY);
+    /**
+     * 首次创建终端时调用：把 TTF 注册到 AWT GraphicsEnvironment，
+     * 让 JediTerm (Swing) 能按 family 名找到 Nerd Font。
+     * 双检锁保证只注册一次，后续调用直接返回。
+     */
+    public static void ensureAwtRegistered() {
+        if (awtRegistered) return;
+        synchronized (BundledFontLoader.class) {
+            if (awtRegistered) return;
+            registerAwtFont("/fonts/SauceCodeProNerdFontMono-Regular.ttf");
+            registerAwtFont("/fonts/SauceCodeProNerdFontMono-Bold.ttf");
+            awtRegistered = true;
+            log.info("Bundled AWT fonts registered: {}", BUNDLED_FONT_FAMILY);
+        }
     }
 
     private static void loadFont(String resourcePath) {

@@ -1,8 +1,12 @@
 package com.jlshell.ui.theme;
 
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+
 import com.jlshell.core.service.AppSettingsService;
 import com.jlshell.terminal.model.TerminalColorScheme;
 import com.jlshell.terminal.service.ColorSchemeRegistry;
+import javafx.application.Platform;
 import javafx.beans.property.ObjectProperty;
 import javafx.beans.property.SimpleObjectProperty;
 import javafx.scene.Scene;
@@ -12,6 +16,10 @@ import javafx.scene.control.DialogPane;
 /**
  * 主题管理服务。
  * UI 主题（CSS 样式表）与终端配色方案独立管理。
+ *
+ * 启动优化：构造时先用 {@link TerminalColorScheme#dark()} 占位，
+ * 异步从 registry 解析保存的方案名；解析完成后在 FX 线程更新 property。
+ * 这样 305 主题 JSON 的解析就不在启动关键路径上了。
  */
 public class ThemeService {
 
@@ -20,14 +28,24 @@ public class ThemeService {
     private final AppSettingsService appSettings;
     private final ColorSchemeRegistry registry;
 
-    public ThemeService(AppSettingsService appSettings, ColorSchemeRegistry registry) {
+    public ThemeService(AppSettingsService appSettings, ColorSchemeRegistry registry, ExecutorService executor) {
         this.appSettings = appSettings;
         this.registry = registry;
         String savedTheme = appSettings.get("ui.theme", "DARK");
         currentTheme.set("LIGHT".equals(savedTheme) ? AppTheme.LIGHT : AppTheme.DARK);
+
+        // 占位：立即可用，避免启动时阻塞解析 305 主题 JSON
+        this.activeColorScheme = new SimpleObjectProperty<>(TerminalColorScheme.dark());
+
+        // 异步解析保存的方案名；失败则保持 dark()。
+        // 启动时还没有 terminal，set 触发的 listener 体里 workspaceTabs 是空的，安全。
         String savedScheme = appSettings.get("terminal.colorScheme.active", "dark");
-        TerminalColorScheme scheme = registry.findByName(savedScheme).orElse(TerminalColorScheme.dark());
-        this.activeColorScheme = new SimpleObjectProperty<>(scheme);
+        CompletableFuture.supplyAsync(() -> registry.findByName(savedScheme).orElse(null), executor)
+                .thenAcceptAsync(scheme -> {
+                    if (scheme != null && !scheme.equals(activeColorScheme.get())) {
+                        activeColorScheme.set(scheme);
+                    }
+                }, Platform::runLater);
     }
 
     public ObjectProperty<AppTheme> currentThemeProperty() {

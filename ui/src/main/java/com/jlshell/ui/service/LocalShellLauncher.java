@@ -33,15 +33,26 @@ public class LocalShellLauncher {
     private final FontProfileService fontProfileService;
     private final ExecutorService executorService;
     private final Function<String, String> i18n;
+    private final Runnable awtFontReadyHook;
 
     public LocalShellLauncher(
             FontProfileService fontProfileService,
             ExecutorService executorService,
             I18nService i18nService
     ) {
+        this(fontProfileService, executorService, i18nService, () -> {});
+    }
+
+    public LocalShellLauncher(
+            FontProfileService fontProfileService,
+            ExecutorService executorService,
+            I18nService i18nService,
+            Runnable awtFontReadyHook
+    ) {
         this.fontProfileService = fontProfileService;
         this.executorService = executorService;
         this.i18n = i18nService::get;
+        this.awtFontReadyHook = awtFontReadyHook != null ? awtFontReadyHook : () -> {};
     }
 
     public CompletableFuture<TerminalViewHandle> launch(String displayName, TerminalViewRequest request) {
@@ -76,6 +87,7 @@ public class LocalShellLauncher {
             String displayName, TerminalViewRequest request, String[] command, Charset charset) {
         return SwingExecutors.supplyOnEdtAsync(() -> {
             try {
+                awtFontReadyHook.run();
                 int cols = request.shellRequest().terminalSize().columns();
                 int rows = request.shellRequest().terminalSize().rows();
                 JlshellSettingsProvider settingsProvider =

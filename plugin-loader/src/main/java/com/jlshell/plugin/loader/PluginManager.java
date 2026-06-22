@@ -34,6 +34,7 @@ public class PluginManager {
     private final String userPluginsDir;
     private final List<PluginDescriptor> plugins = new ArrayList<>();
     private final Map<String, JlShellPlugin> activePlugins = new ConcurrentHashMap<>();
+    private volatile boolean loaded = false;
 
     private final StringProperty themeName = new SimpleStringProperty("dark");
     private final ObjectProperty<Locale> locale = new SimpleObjectProperty<>(Locale.getDefault());
@@ -46,11 +47,28 @@ public class PluginManager {
         this(System.getProperty("user.home") + "/.jlshell/plugins");
     }
 
+    /**
+     * 显式触发加载。通常由 {@link #ensureLoaded()} 在首次访问时自动调用，
+     * 保留 public 仅供测试或特殊场景使用。
+     */
     public void loadPlugins() {
         plugins.clear();
         loadFromClassLoader(Thread.currentThread().getContextClassLoader());
         loadFromExternalDirs();
         log.info("Loaded {} plugin(s)", plugins.size());
+    }
+
+    /**
+     * 延迟加载入口：首次访问插件列表/激活插件时才扫描 JAR。
+     * 把 4.7MB sysmon JAR 的加载从启动路径移到首次开终端/插件 Tab。
+     */
+    public void ensureLoaded() {
+        if (loaded) return;
+        synchronized (this) {
+            if (loaded) return;
+            loadPlugins();
+            loaded = true;
+        }
     }
 
     private void loadFromClassLoader(ClassLoader classLoader) {
@@ -113,6 +131,7 @@ public class PluginManager {
     }
 
     public List<PluginDescriptor> getAvailablePlugins() {
+        ensureLoaded();
         return List.copyOf(plugins);
     }
 
@@ -135,6 +154,7 @@ public class PluginManager {
     }
 
     public void activatePlugin(String pluginId, PluginContext context) {
+        ensureLoaded();
         plugins.stream()
                 .filter(d -> d.id().equals(pluginId))
                 .findFirst()

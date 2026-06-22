@@ -22,6 +22,7 @@ public class JlShellDesktopApplication extends Application {
 
     private AppContext appContext;
     private TrayIcon trayIcon;
+    private SplashStage splash;
 
     public static void main(String[] args) {
         launch(args);
@@ -30,11 +31,16 @@ public class JlShellDesktopApplication extends Application {
     @Override
     public void init() {
         BundledFontLoader.load();
-        appContext = new AppContext();
+        // AppContext 里 305 主题 JSON / 4.7MB 插件 JAR / 2MB AWT 字体都已延迟加载，
+        // 所以 init() 阶段很快；splash 在 start() 显示遮盖 JavaFX 冷启动。
+        splash = new SplashStage();
     }
 
     @Override
     public void start(Stage stage) {
+        splash.show();
+
+        appContext = new AppContext();
         MainWindow mainWindow = appContext.getMainWindow();
 
         // On Windows, remove the OS title bar and use a custom one embedded in the app.
@@ -87,6 +93,7 @@ public class JlShellDesktopApplication extends Application {
         });
 
         stage.show();
+        splash.hide();
         installSystemTray(stage, awtIcon);
     }
 
