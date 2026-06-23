@@ -6,6 +6,7 @@ import java.util.Optional;
 import com.jlshell.plugin.api.NotificationLevel;
 import com.jlshell.plugin.api.PluginContext;
 import com.jlshell.plugin.api.SshSessionContext;
+import com.jlshell.plugin.api.rpc.CapabilityRegistry;
 
 import javafx.beans.property.ReadOnlyObjectProperty;
 import javafx.beans.property.ReadOnlyStringProperty;
@@ -21,6 +22,8 @@ public class DefaultPluginContext implements PluginContext {
     private static final Logger hostLog = LoggerFactory.getLogger("jlshell.plugin");
 
     private final String pluginId;
+    private final String sessionId;
+    private final CapabilityRegistry registry;
     private final StringProperty themeName = new SimpleStringProperty("dark");
     private final SimpleObjectProperty<Locale> locale = new SimpleObjectProperty<>(Locale.getDefault());
     private final Optional<SshSessionContext> sshSession;
@@ -33,10 +36,30 @@ public class DefaultPluginContext implements PluginContext {
         String resolveI18n(String key, String fallback);
     }
 
-    public DefaultPluginContext(String pluginId, Optional<SshSessionContext> sshSession, Callbacks callbacks) {
+    public DefaultPluginContext(String pluginId, String sessionId,
+                                CapabilityRegistry registry,
+                                Optional<SshSessionContext> sshSession, Callbacks callbacks) {
         this.pluginId = pluginId;
+        this.sessionId = sessionId;
+        this.registry = registry;
         this.sshSession = sshSession;
         this.callbacks = callbacks;
+    }
+
+    public DefaultPluginContext(String pluginId, Optional<SshSessionContext> sshSession, Callbacks callbacks) {
+        this(pluginId, null, CapabilityRegistry.empty(), sshSession, callbacks);
+    }
+
+    public String sessionId() {
+        return sessionId;
+    }
+
+    @Override
+    public CapabilityRegistry capabilityRegistry() {
+        if (registry instanceof CapabilityRegistryImpl impl) {
+            return new PluginCapabilityRegistryView(impl, pluginId);
+        }
+        return registry;
     }
 
     @Override
