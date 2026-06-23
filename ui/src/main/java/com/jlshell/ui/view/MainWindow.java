@@ -463,7 +463,7 @@ public class MainWindow {
         welcomePane.visibleProperty().bind(Bindings.isEmpty(workspaceTabs.getTabs()));
         workspaceTabs.visibleProperty().bind(Bindings.isNotEmpty(workspaceTabs.getTabs()));
 
-        // 侧边栏折叠后的 reveal 按钮（workspace 左上角）
+        // 侧边栏折叠后的 reveal 按钮（workspace 左下角，避免遮挡 tab 标签）
         revealSidebarBtn = new Button();
         Region panelIcon = loadSvgShape("/icons/sidebar-left.svg", 14);
         if (panelIcon != null) revealSidebarBtn.setGraphic(panelIcon);
@@ -471,8 +471,8 @@ public class MainWindow {
         revealSidebarBtn.getStyleClass().add("sidebar-reveal-btn");
         revealSidebarBtn.setOnAction(e -> toggleSidebar());
         revealSidebarBtn.setVisible(false);
-        StackPane.setAlignment(revealSidebarBtn, javafx.geometry.Pos.TOP_LEFT);
-        StackPane.setMargin(revealSidebarBtn, new Insets(8, 0, 0, 8));
+        StackPane.setAlignment(revealSidebarBtn, javafx.geometry.Pos.BOTTOM_LEFT);
+        StackPane.setMargin(revealSidebarBtn, new Insets(0, 0, 8, 8));
 
         StackPane workspace = new StackPane(welcomePane, workspaceTabs, revealSidebarBtn);
         centerSplitPane = new SplitPane(sidebarVBox, workspace);
