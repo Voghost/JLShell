@@ -13,6 +13,7 @@ import com.jlshell.plugin.api.PluginView;
 import com.jlshell.plugin.api.rpc.CapabilityBus;
 import com.jlshell.plugin.api.rpc.RpcRequest;
 import com.jlshell.plugin.api.rpc.RpcResponse;
+import com.jlshell.plugin.api.storage.PluginStorage;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
@@ -242,6 +243,64 @@ public class ScriptSnippetsPlugin implements JlShellPlugin, PluginView {
             });
             buttonBar.getChildren().add(metricsBtn);
         }
+
+        // ── Storage Test：测试 PluginStorage 持久化 ──
+        PluginStorage store = context.storage();
+        if (store != null) {
+            Button storageBtn = new Button("💾 Storage Test");
+            storageBtn.setStyle("-fx-font-size: 11px;");
+            storageBtn.setTooltip(new javafx.scene.control.Tooltip(
+                    "Test PluginStorage: put, get, keys, remove"));
+            storageBtn.setOnAction(e -> {
+                StringBuilder sb = new StringBuilder();
+                sb.append("═══ PluginStorage Test ═══\n\n");
+
+                // 1. 写入
+                String testKey = "test.key";
+                String testValue = "Hello from ScriptSnippets! ts=" + System.currentTimeMillis();
+                store.put(testKey, testValue);
+                sb.append("1. PUT  ").append(testKey).append(" = ").append(testValue).append("\n");
+
+                // 2. 读取
+                String read = store.get(testKey);
+                sb.append("2. GET  ").append(testKey).append(" → ").append(read).append("\n");
+                sb.append("   Match: ").append(testValue.equals(read) ? "✅ YES" : "❌ NO").append("\n");
+
+                // 3. 读取不存在的 key
+                String missing = store.get("nonexistent.key");
+                sb.append("3. GET  nonexistent.key → ").append(missing).append(" (expect null)\n");
+
+                // 4. 默认值
+                String withDefault = store.get("nonexistent.key", "fallback-value");
+                sb.append("4. GET  nonexistent.key (default) → ").append(withDefault).append("\n");
+
+                // 5. 列出所有 key
+                java.util.Set<String> keys = store.keys();
+                sb.append("5. KEYS: ").append(keys).append("\n");
+
+                // 6. 写入多个值
+                store.put("prefs.theme", "dark");
+                store.put("prefs.fontSize", "14");
+                sb.append("6. PUT  prefs.theme=dark, prefs.fontSize=14\n");
+                sb.append("   KEYS now: ").append(store.keys()).append("\n");
+
+                // 7. 删除
+                store.remove("prefs.fontSize");
+                sb.append("7. REMOVE prefs.fontSize\n");
+                sb.append("   GET prefs.fontSize → ").append(store.get("prefs.fontSize")).append(" (expect null)\n");
+                sb.append("   KEYS now: ").append(store.keys()).append("\n");
+
+                // 8. 覆盖写入
+                store.put(testKey, "updated-value");
+                sb.append("8. PUT  ").append(testKey).append(" = updated-value\n");
+                sb.append("   GET → ").append(store.get(testKey)).append("\n");
+
+                sb.append("\n✅ All storage operations completed!");
+                outputArea.setText(sb.toString());
+            });
+            buttonBar.getChildren().add(storageBtn);
+        }
+
         buttonBar.setPadding(new Insets(4, 0, 0, 0));
 
         VBox rightPane = new VBox(4, descArea, outputLabel, outputArea, buttonBar);
