@@ -191,6 +191,9 @@ public class SidebarTreeView {
                 root.getChildren().add(item);
             }
         }
+
+        // 保存完整树结构快照，供搜索过滤使用
+        saveOriginalStructure();
     }
 
     // ── 搜索过滤 ──────────────────────────────────────────────────────
@@ -212,7 +215,7 @@ public class SidebarTreeView {
     /**
      * 应用搜索过滤。filterText 为空或 null 时恢复完整树。
      * 按文件夹名、连接名、连接 summary（user@host:port）做大小写无关匹配。
-     * 匹配连接的祖先文件夹也会被保留并展开。
+     * 匹配文件夹的子项也会全部显示；匹配连接的祖先文件夹也会被保留并展开。
      */
     public void applyFilter(String filterText) {
         currentFilter = (filterText == null || filterText.isBlank()) ? null : filterText.toLowerCase();
@@ -224,7 +227,15 @@ public class SidebarTreeView {
         Set<TreeItem<SidebarItem>> matchingItems = new HashSet<>();
         Set<TreeItem<SidebarItem>> requiredParents = new HashSet<>();
 
-        // 遍历所有原始 children，找出匹配节点及其祖先
+        // 构建 child → parent 的映射（从 originalChildren 推导，不依赖实时 getParent）
+        Map<TreeItem<SidebarItem>, TreeItem<SidebarItem>> childToOriginalParent = new HashMap<>();
+        for (Map.Entry<TreeItem<SidebarItem>, List<TreeItem<SidebarItem>>> entry : originalChildren.entrySet()) {
+            for (TreeItem<SidebarItem> child : entry.getValue()) {
+                childToOriginalParent.put(child, entry.getKey());
+            }
+        }
+
+        // 遍历所有原始 children，找出匹配节点
         for (List<TreeItem<SidebarItem>> children : originalChildren.values()) {
             for (TreeItem<SidebarItem> child : children) {
                 SidebarItem value = child.getValue();
@@ -240,11 +251,15 @@ public class SidebarTreeView {
 
                 if (matches) {
                     matchingItems.add(child);
+                    // 匹配文件夹时，其所有子节点也应该显示
+                    if (value instanceof SidebarItem.FolderItem) {
+                        addAllDescendants(child, matchingItems);
+                    }
                     // 将所有祖先加入 requiredParents
-                    TreeItem<SidebarItem> ancestor = child.getParent();
+                    TreeItem<SidebarItem> ancestor = childToOriginalParent.get(child);
                     while (ancestor != null && ancestor.getValue() != null) {
                         requiredParents.add(ancestor);
-                        ancestor = ancestor.getParent();
+                        ancestor = childToOriginalParent.get(ancestor);
                     }
                 }
             }
@@ -264,6 +279,17 @@ public class SidebarTreeView {
             parent.getChildren().setAll(visibleChildren);
             if (requiredParents.contains(parent)) {
                 parent.setExpanded(true);
+            }
+        }
+    }
+
+    /** 递归添加所有后代节点到 matchingItems。 */
+    private void addAllDescendants(TreeItem<SidebarItem> item, Set<TreeItem<SidebarItem>> matchingItems) {
+        List<TreeItem<SidebarItem>> children = originalChildren.get(item);
+        if (children != null) {
+            for (TreeItem<SidebarItem> child : children) {
+                matchingItems.add(child);
+                addAllDescendants(child, matchingItems);
             }
         }
     }
