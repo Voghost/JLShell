@@ -7,6 +7,7 @@ import java.util.ResourceBundle;
 import com.jlshell.plugin.api.JlShellPlugin;
 import com.jlshell.plugin.api.PluginContext;
 import com.jlshell.plugin.api.PluginView;
+import com.jlshell.plugin.api.rpc.Capability;
 
 import javafx.scene.Node;
 
@@ -51,6 +52,40 @@ public class SystemMonitorPlugin implements JlShellPlugin, PluginView {
         PluginView view = view();
         if (view != null) {
             context.openTab(displayName(context.locale()), view.createView(context));
+        }
+        // 注册 getMetrics 能力 — 其他插件或外部 API 可通过 CapabilityBus 调用
+        try {
+            context.capabilityRegistry().register(
+                Capability.builder("getMetrics")
+                    .description("Get current system metrics (CPU, memory, network, disk) from the remote server.")
+                    .requiresSession(true)
+                    .handler((args, capCtx) -> {
+                        com.jlshell.plugin.api.SshSessionContext ssh = capCtx.sshSession().orElseThrow();
+                        com.jlshell.sysmon.RemoteMetricsCollector collector = new com.jlshell.sysmon.RemoteMetricsCollector(ssh);
+                        return collector.collect().thenApply(metrics -> {
+                            com.google.gson.JsonObject result = new com.google.gson.JsonObject();
+                            result.addProperty("cpuUsage", metrics.cpuUsage());
+                            result.addProperty("cpuCores", metrics.cpuCores());
+                            result.addProperty("loadAvg1m", metrics.cpuLoadAvg1m());
+                            result.addProperty("memTotalBytes", metrics.memTotal());
+                            result.addProperty("memUsedBytes", metrics.memUsed());
+                            result.addProperty("netRecvBytes", metrics.netBytesRecv());
+                            result.addProperty("netSentBytes", metrics.netBytesSent());
+                            com.google.gson.JsonArray disksArr = new com.google.gson.JsonArray();
+                            for (com.jlshell.sysmon.SystemMetrics.DiskInfo d : metrics.disks()) {
+                                com.google.gson.JsonObject diskObj = new com.google.gson.JsonObject();
+                                diskObj.addProperty("mount", d.mount());
+                                diskObj.addProperty("totalBytes", d.total());
+                                diskObj.addProperty("usedBytes", d.used());
+                                disksArr.add(diskObj);
+                            }
+                            result.add("disks", disksArr);
+                            return (com.google.gson.JsonElement) result;
+                        });
+                    })
+                    .build());
+        } catch (Throwable t) {
+            // 旧 host 无 capabilityRegistry — register 静默失败，不影响插件其余功能
         }
     }
 

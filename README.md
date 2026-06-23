@@ -1,6 +1,8 @@
 # JLShell
 
-A modern SSH client built with JavaFX, featuring a clean IDE-inspired UI, SFTP file browser, and a plugin system.
+[中文文档](README_zh.md)
+
+A modern cross-platform SSH/SFTP client built with JavaFX, featuring an IDE-inspired UI, SFTP file browser, plugin system with inter-plugin RPC, and an external JSON-RPC API.
 
 ![Java](https://img.shields.io/badge/Java-21-orange)
 ![JavaFX](https://img.shields.io/badge/JavaFX-21-blue)
@@ -11,13 +13,40 @@ A modern SSH client built with JavaFX, featuring a clean IDE-inspired UI, SFTP f
 
 ## Features
 
-- **SSH Terminal** — Full terminal emulation with split-pane support (vertical / horizontal)
-- **SFTP Browser** — Dual-panel file manager with folder tree + file list for both local and remote, upload/download/rename/delete
-- **Connection Manager** — Save and organize connections into projects and folders (nested, up to N levels)
-- **Plugin System** — Drop a JAR into `~/.jlshell/plugins/` to extend the app; includes a Script Snippets demo plugin
-- **Themes** — Dark (IntelliJ-style) and Light themes, switchable at runtime
-- **i18n** — English and Simplified Chinese, switchable in Preferences
-- **Preferences** — Font family, size, line spacing, ligatures for the terminal
+### Terminal
+- Full terminal emulation powered by JediTerm, with split-pane support (vertical / horizontal)
+- 305+ built-in color schemes (Dracula, Solarized, One Half, etc.) + custom scheme editor
+- Font family, size, line spacing, and ligature controls
+- Local shell sessions (zsh / bash / cmd.exe)
+
+### SFTP Browser
+- Dual-panel file manager with folder tree + file list for both local and remote
+- Upload, download, rename, delete, create folder
+- Follow terminal directory (OSC 7 prompt hook injection)
+
+### Connection Management
+- Save and organize connections into **projects** and **folders** (nested, up to 5 levels)
+- Host key verification modes (auto-trust / ask on first connect / strict)
+- **Vault** — encrypted credential storage (AES-256-GCM) with optional master password
+- **Import** — bulk import from MobaXterm INI, Xshell .xsh, or manual JSON
+
+### Plugin System
+- Drop a JAR into `~/.jlshell/plugins/` to extend the app
+- Plugins get full SSH session access: command execution, SFTP, interactive sessions
+- **Inter-plugin RPC** — plugins declare capabilities and invoke each other
+- Includes Script Snippets demo plugin + System Monitor plugin
+
+### External API (JSON-RPC)
+- HTTP JSON-RPC 2.0 server on `127.0.0.1`, bearer token authentication
+- Create connections, run commands, invoke plugin capabilities — all from external tools
+- Foundation for future AI / MCP integration
+- Enable/configure in **Preferences → API**
+
+### Appearance
+- Dark and Light themes, switchable at runtime
+- English and Simplified Chinese, switchable in Preferences (restart required)
+
+---
 
 ## Screenshots
 
@@ -25,7 +54,7 @@ A modern SSH client built with JavaFX, featuring a clean IDE-inspired UI, SFTP f
 
 ## Download
 
-Pre-built packages with bundled JRE (no JDK required):
+Pre-built packages with bundled JRE (~50 MB, no JDK required):
 
 | Platform | Download | How to run |
 |----------|----------|------------|
@@ -54,7 +83,11 @@ JDK21_WIN=/path/to/win-jdk21 \
 
 Output is in `dist/`.
 
+---
+
 ## Plugin Development
+
+### Quick Start
 
 Implement `JlShellPlugin` from the `plugin-api` module:
 
@@ -74,7 +107,6 @@ public class MyPlugin implements JlShellPlugin, PluginView {
 
     @Override
     public Node createView(PluginContext ctx) {
-        // return your JavaFX UI
         Button btn = new Button("Run df -h");
         btn.setOnAction(e ->
             ctx.sshSession().ifPresent(ssh ->
@@ -89,30 +121,204 @@ public class MyPlugin implements JlShellPlugin, PluginView {
 
 Register via `META-INF/services/com.jlshell.plugin.api.JlShellPlugin`, build a fat JAR, and drop it into `~/.jlshell/plugins/`. The plugin appears in the **Plugins** tab on next launch.
 
-See `plugin-demo/` for a complete working example (8 predefined SSH command snippets).
+See `plugins/plugin-demo/` for a complete working example.
+
+### Plugin Context API
+
+`PluginContext` provides access to:
+
+| API | Description |
+|-----|-------------|
+| `sshSession()` | Active SSH session (commands, SFTP, interactive shell) |
+| `capabilityRegistry()` | Register capabilities for inter-plugin RPC |
+| `capabilityBus()` | Invoke other plugins' capabilities (returns `null` on old hosts) |
+| `openTab()` / `closeTab()` | Manage plugin tab in workspace |
+| `showNotification()` | Display in-app notifications |
+| `themeNameProperty()` | Observable theme changes |
+| `localeProperty()` | Observable locale changes |
+
+### SSH Session Capabilities
+
+`SshSessionContext` exposes:
+
+| Capability | Description |
+|------------|-------------|
+| `commandExecutor()` | Execute one-shot shell commands |
+| `interactiveCommandExecutor()` | Multi-step interactive sessions (sudo, 2FA) |
+| `fileExplorer()` | SFTP operations (list, read, write, delete) |
+
+### Inter-Plugin RPC
+
+Plugins can declare **capabilities** that other plugins (or the external API) invoke:
+
+```java
+@Override
+public void activate(PluginContext ctx) {
+    ctx.capabilityRegistry().register(
+        Capability.builder("readConfig")
+            .description("Read a remote file and return its content.")
+            .requiresSession(true)
+            .handler((args, capCtx) -> {
+                String path = args.getAsJsonObject().get("path").getAsString();
+                return capCtx.sshSession().orElseThrow()
+                    .fileExplorer().readFile(path)
+                    .thenApply(bytes -> {
+                        JsonObject result = new JsonObject();
+                        result.addProperty("path", path);
+                        result.addProperty("content", new String(bytes, UTF_8));
+                        return result;
+                    });
+            })
+            .build());
+}
+```
+
+Capabilities are routed by `(sessionId, pluginId, capabilityName)` and share the same `CapabilityBus` as the external API — so external callers can invoke them directly.
+
+### Invoking Other Plugins' Capabilities
+
+Use `ctx.capabilityBus()` to call another plugin's capability from within your plugin:
+
+```java
+CapabilityBus bus = ctx.capabilityBus();
+if (bus != null) {
+    RpcRequest req = new RpcRequest(
+        sessionId, "com.jlshell.sysmon", "getMetrics", null, "req-1");
+    bus.invoke(req).thenAccept(resp -> {
+        if (resp.error() == null) {
+            JsonObject metrics = resp.result().getAsJsonObject();
+            double cpu = metrics.get("cpuUsage").getAsDouble();
+            // ...
+        }
+    });
+}
+```
+
+### Real-World Example: Script Snippets ↔ System Monitor
+
+The bundled demo plugins demonstrate the full RPC cycle:
+
+1. **System Monitor** registers a `getMetrics` capability that collects CPU, memory, network, and disk metrics from the remote server via SSH
+2. **Script Snippets** has a "📊 Fetch Metrics" button that calls `getMetrics` on System Monitor through the `CapabilityBus`
+3. Both capabilities are also available to external callers via the HTTP API:
+
+```bash
+# Get metrics from System Monitor plugin
+curl -s -H "Authorization: Bearer $TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"jsonrpc":"2.0","id":1,"method":"capability.invoke","params":{"sessionId":"...","pluginId":"com.jlshell.sysmon","capability":"getMetrics"}}' \
+     http://127.0.0.1:$PORT/rpc
+
+# Read a remote file via Script Snippets plugin
+curl -s -H "Authorization: Bearer $TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"jsonrpc":"2.0","id":2,"method":"capability.invoke","params":{"sessionId":"...","pluginId":"com.jlshell.demo.script-snippets","capability":"readConfig","args":{"path":"/etc/hostname"}}}' \
+     http://127.0.0.1:$PORT/rpc
+```
+
+---
+
+## External API
+
+JLShell exposes a JSON-RPC 2.0 server on `127.0.0.1`. Enable it in **Preferences → API**.
+
+### Authentication
+
+A bearer token is stored at `~/.jlshell/api.token` (file mode 600 on POSIX). Pass it in the `Authorization` header:
+
+```
+Authorization: Bearer <token>
+```
+
+### Available Methods
+
+| Method | Description |
+|--------|-------------|
+| `session.connect` | Establish an SSH connection |
+| `session.disconnect` | Close a session |
+| `session.list` | List active sessions |
+| `session.info` | Get session details |
+| `command.run` | Execute a remote command |
+| `capability.list` | List plugin capabilities for a session |
+| `capability.invoke` | Invoke a plugin capability |
+| `api.token` | Get current API token |
+| `api.methods` | List available API methods |
+
+### Example
+
+```bash
+# List active sessions
+curl -s -H "Authorization: Bearer $TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"jsonrpc":"2.0","id":1,"method":"session.list"}' \
+     http://127.0.0.1:$PORT/rpc
+
+# Run a command
+curl -s -H "Authorization: Bearer $TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"jsonrpc":"2.0","id":2,"method":"command.run","params":{"sessionId":"...","command":"uname -a"}}' \
+     http://127.0.0.1:$PORT/rpc
+```
+
+For capability invocation examples, see [Inter-Plugin RPC → Real-World Example](#real-world-example-script-snippets--system-monitor) above.
+
+---
+
+## Connection Import
+
+Import connections from other SSH clients or manual entry in **Preferences → Import**:
+
+| Source | Format | Notes |
+|--------|--------|-------|
+| MobaXterm | `.ini` | Parses `[SessionSettings\...]` sections; folder hierarchy preserved |
+| Xshell | `.xsh` | Single file or directory batch; GBK fallback for Chinese versions |
+| Manual | JSON | `[{name, host, port, user, authType, ...}]`; also supports table row editing |
+
+Passwords are not imported (fill in later via Edit Connection).
+
+---
+
+## Vault (Credential Management)
+
+Encrypt and manage credentials in the built-in vault:
+
+- **AES-256-GCM** encryption with 12-byte IV
+- Two modes: system key (transparent) or user master password (PBKDF2, 310K iterations)
+- Store passwords, private keys, and key content
+- Project-scoped entries
+- Lock / unlock at runtime
+
+---
 
 ## Project Structure
 
 ```
 jlshell-parent
-├── app            — JavaFX Application entry point, AppContext (manual DI), packaging
+├── app            — Application entry point, AppContext (manual DI), packaging
+├── api-server     — External JSON-RPC API server (JDK HttpServer)
 ├── core           — Shared domain models and interfaces
-├── data           — JDBI DAOs, SQLite persistence, AES-GCM credential cipher
+├── data           — JDBI DAOs, SQLite persistence, AES-256-GCM credential cipher
 ├── ssh            — SSHJ-based SSH session management
 ├── sftp           — SFTP file transfer service
-├── ui             — JavaFX views, themes, i18n
+├── terminal       — JediTerm integration, 305+ color schemes
+├── ui             — JavaFX views, themes, i18n, connection import
 ├── plugin-api     — Public SPI for plugin developers (standalone publishable JAR)
-├── plugin-loader  — Plugin discovery and lifecycle
-└── plugin-demo    — Example plugin: Script Snippets
+├── plugin-loader  — Plugin discovery, lifecycle, per-session capability bus
+└── plugins
+    ├── plugin-demo    — Script Snippets example (readConfig capability)
+    └── plugin-sysmon  — System Monitor with real-time charts + getMetrics capability
 ```
 
 ## Tech Stack
 
-- **Java 21** + **JavaFX 21**
-- **JDBI 3** + **HikariCP** (SQL, SQLite local storage)
-- **SSHJ** (SSH/SFTP)
-- **JediTerm** (terminal emulator)
-- **jlink** (bundled JRE, ~50 MB)
+- **Java 21** + **JavaFX 21** (UI)
+- **SSHJ** (SSH/SFTP client)
+- **JediTerm** (terminal emulator, Swing → SwingNode)
+- **JDBI 3** + **HikariCP** + **SQLite** (persistence, WAL mode)
+- **Bouncy Castle** (AES-256-GCM credential encryption)
+- **Gson** (JSON / JSON-RPC codec)
+- **OSHI** (system metrics, used by plugin-sysmon)
+- **jlink** (self-contained JRE, ~50 MB)
 
 ## License
 

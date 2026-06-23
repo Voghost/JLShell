@@ -10,6 +10,9 @@ import com.jlshell.plugin.api.JlShellPlugin;
 import com.jlshell.plugin.api.NotificationLevel;
 import com.jlshell.plugin.api.PluginContext;
 import com.jlshell.plugin.api.PluginView;
+import com.jlshell.plugin.api.rpc.CapabilityBus;
+import com.jlshell.plugin.api.rpc.RpcRequest;
+import com.jlshell.plugin.api.rpc.RpcResponse;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
@@ -76,6 +79,31 @@ public class ScriptSnippetsPlugin implements JlShellPlugin, PluginView {
         PluginView view = view();
         if (view != null) {
             context.openTab(displayName(context.locale()), view.createView(context));
+        }
+        // 注册 readConfig 能力 — 旧 host 无 capabilityRegistry 时静默失败，不影响插件其余功能
+        try {
+            context.capabilityRegistry().register(
+                com.jlshell.plugin.api.rpc.Capability.builder("readConfig")
+                    .description("Read a remote file and return its text content.")
+                    .requiresSession(true)
+                    .handler((args, capCtx) -> {
+                        String path = args != null && args.isJsonObject()
+                                ? args.getAsJsonObject().get("path").getAsString() : null;
+                        if (path == null || path.isBlank()) {
+                            return java.util.concurrent.CompletableFuture.failedFuture(
+                                    new IllegalArgumentException("path required"));
+                        }
+                        return capCtx.sshSession().orElseThrow().fileExplorer().readFile(path)
+                                .thenApply(bytes -> {
+                                    com.google.gson.JsonObject o = new com.google.gson.JsonObject();
+                                    o.addProperty("path", path);
+                                    o.addProperty("content", new String(bytes, java.nio.charset.StandardCharsets.UTF_8));
+                                    return (com.google.gson.JsonElement) o;
+                                });
+                    })
+                    .build());
+        } catch (Throwable t) {
+            // 旧 host 无 capabilityRegistry（default no-op）— register 静默失败
         }
     }
 
@@ -159,6 +187,61 @@ public class ScriptSnippetsPlugin implements JlShellPlugin, PluginView {
         });
 
         HBox buttonBar = new HBox(runButton);
+
+        // ── Fetch Metrics：通过 CapabilityBus 调用 sysmon 的 getMetrics 能力 ──
+        CapabilityBus bus = context.capabilityBus();
+        if (bus != null) {
+            Button metricsBtn = new Button("📊 Fetch Metrics");
+            metricsBtn.setStyle("-fx-font-size: 11px;");
+            metricsBtn.setTooltip(new javafx.scene.control.Tooltip(
+                    "Fetch system metrics from System Monitor plugin via inter-plugin RPC"));
+            metricsBtn.setOnAction(e -> {
+                String sid = context.sshSession().map(com.jlshell.plugin.api.SshSessionContext::sessionId).orElse(null);
+                if (sid == null) {
+                    outputArea.setText("No session context available for RPC.");
+                    return;
+                }
+                metricsBtn.setDisable(true);
+                outputArea.setText("Fetching metrics via RPC…");
+                RpcRequest req = new RpcRequest(sid, "com.jlshell.sysmon", "getMetrics", null, "snippets-" + System.nanoTime());
+                bus.invoke(req).whenComplete((resp, err) -> Platform.runLater(() -> {
+                    metricsBtn.setDisable(false);
+                    if (err != null) {
+                        outputArea.setText("RPC error: " + err.getMessage());
+                    } else if (resp.error() != null) {
+                        outputArea.setText("RPC error: " + resp.error().message());
+                    } else if (resp.result() != null && resp.result().isJsonObject()) {
+                        com.google.gson.JsonObject m = resp.result().getAsJsonObject();
+                        StringBuilder sb = new StringBuilder();
+                        sb.append("═══ System Metrics (via RPC) ═══\n\n");
+                        sb.append(String.format("  CPU:      %.1f%% (%d cores, load %.2f)%n",
+                                m.get("cpuUsage").getAsDouble(),
+                                m.get("cpuCores").getAsInt(),
+                                m.get("loadAvg1m").getAsDouble()));
+                        sb.append(String.format("  Memory:   %s / %s%n",
+                                formatBytes(m.get("memUsedBytes").getAsLong()),
+                                formatBytes(m.get("memTotalBytes").getAsLong())));
+                        sb.append(String.format("  Network:  ↓%s  ↑%s%n",
+                                formatBytes(m.get("netRecvBytes").getAsLong()),
+                                formatBytes(m.get("netSentBytes").getAsLong())));
+                        if (m.has("disks") && m.get("disks").isJsonArray()) {
+                            sb.append("  Disks:\n");
+                            for (com.google.gson.JsonElement de : m.get("disks").getAsJsonArray()) {
+                                com.google.gson.JsonObject d = de.getAsJsonObject();
+                                sb.append(String.format("    %s  %s / %s%n",
+                                        d.get("mount").getAsString(),
+                                        formatBytes(d.get("usedBytes").getAsLong()),
+                                        formatBytes(d.get("totalBytes").getAsLong())));
+                            }
+                        }
+                        outputArea.setText(sb.toString());
+                    } else {
+                        outputArea.setText("Unexpected RPC response.");
+                    }
+                }));
+            });
+            buttonBar.getChildren().add(metricsBtn);
+        }
         buttonBar.setPadding(new Insets(4, 0, 0, 0));
 
         VBox rightPane = new VBox(4, descArea, outputLabel, outputArea, buttonBar);
@@ -184,4 +267,14 @@ public class ScriptSnippetsPlugin implements JlShellPlugin, PluginView {
     // ── Inner record ─────────────────────────────────────────────────────────
 
     public record ScriptSnippet(String name, String command, String description) {}
+
+    // ── Helper ────────────────────────────────────────────────────────────────
+
+    private static String formatBytes(long bytes) {
+        if (bytes < 0) return "0 B";
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0);
+        if (bytes < 1024L * 1024 * 1024) return String.format("%.1f MB", bytes / (1024.0 * 1024));
+        return String.format("%.1f GB", bytes / (1024.0 * 1024 * 1024));
+    }
 }

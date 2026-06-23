@@ -30,10 +30,15 @@ import org.slf4j.LoggerFactory;
 public class PluginManager {
 
     private static final Logger log = LoggerFactory.getLogger(PluginManager.class);
+    private static final String GLOBAL_KEY = "__global__";
+
+    // 未知 sessionId 的共享只读空哨兵 registry：resolve/specs 返回空，禁止向其 register。
+    // 任何 register 到此对象的调用都是调用方 bug（host 只经真实 session 桶的 DefaultPluginContext 注册）。
+    private static final CapabilityRegistryImpl EMPTY_TRANSIENT = new CapabilityRegistryImpl();
 
     private final String userPluginsDir;
     private final List<PluginDescriptor> plugins = new ArrayList<>();
-    private final Map<String, JlShellPlugin> activePlugins = new ConcurrentHashMap<>();
+    private final Map<String, SessionPluginSet> activeBySession = new ConcurrentHashMap<>();
     private volatile boolean loaded = false;
 
     private final StringProperty themeName = new SimpleStringProperty("dark");
@@ -158,40 +163,127 @@ public class PluginManager {
         plugins.stream()
                 .filter(d -> d.id().equals(pluginId))
                 .findFirst()
-                .ifPresent(descriptor -> {
-                    JlShellPlugin plugin = descriptor.instance();
-                    plugin.activate(context);
-                    activePlugins.put(pluginId, plugin);
-                    log.debug("Activated plugin: {}", pluginId);
-                });
+                .ifPresent(descriptor -> activateInstance(descriptor.instance(), context));
     }
 
-    public void deactivatePlugin(String pluginId) {
-        JlShellPlugin plugin = activePlugins.remove(pluginId);
+    /**
+     * 经 per-session 路径激活一个已构造的插件实例。供测试 + host 已持有 descriptor 时使用。
+     * 若 context 是 DefaultPluginContext，按其 sessionId 路由；否则落到 __global__ 桶。
+     */
+    public void activateInstance(JlShellPlugin plugin, PluginContext context) {
+        ensureLoaded();
+        String sid = (context instanceof DefaultPluginContext dpc) ? dpc.sessionId() : null;
+        SessionPluginSet set = activeBySession.computeIfAbsent(
+                sid == null ? GLOBAL_KEY : sid, SessionPluginSet::new);
+        set.plugins.put(plugin.id(), plugin);
+        set.contexts.put(plugin.id(), context);
+        plugin.activate(context);
+        log.debug("Activated plugin {} in session {}", plugin.id(), sid);
+    }
+
+    /** 供 CapabilityBus 用：按 sessionId 取该会话的 registry。sessionId 为 null 取全局桶。 */
+    public CapabilityRegistryImpl registryFor(String sessionId) {
+        if (sessionId == null) {
+            return activeBySession.computeIfAbsent(GLOBAL_KEY, SessionPluginSet::new).registry;
+        }
+        SessionPluginSet set = activeBySession.get(sessionId);
+        return set != null ? set.registry : EMPTY_TRANSIENT;
+    }
+
+    /**
+     * 确保某 session 的桶存在并返回其 registry（host 构建 DefaultPluginContext 前调用）。
+     * 与 {@link #registryFor(String)} 的区别：后者对未知 sessionId 返回只读空哨兵，
+     * 仅供 CapabilityBus 做只读查找；本方法始终创建并返回真实桶的 registry，
+     * 供 host 在新建插件上下文时拿到与桶一致、可写入的 registry。
+     */
+    public CapabilityRegistryImpl registryForSession(String sessionId) {
+        return activeBySession.computeIfAbsent(
+                (sessionId == null) ? GLOBAL_KEY : sessionId, SessionPluginSet::new).registry;
+    }
+
+    public CapabilityRegistryImpl globalRegistry() { return registryFor(null); }
+
+    /** 供 CapabilityBus 构造 CapabilityContext 时取插件的 PluginContext。 */
+    public PluginContext contextFor(String sessionId, String pluginId) {
+        SessionPluginSet set = activeBySession.get((sessionId == null) ? GLOBAL_KEY : sessionId);
+        return set == null ? null : set.contexts.get(pluginId);
+    }
+
+    /** 供 host 在自建 context 后挂到某 session 桶（激活由 host 完成）。 */
+    public void adoptContext(String sessionId, String pluginId, PluginContext ctx) {
+        SessionPluginSet set = activeBySession.computeIfAbsent(
+                (sessionId == null) ? GLOBAL_KEY : sessionId, SessionPluginSet::new);
+        set.contexts.put(pluginId, ctx);
+    }
+
+    /** 按会话停用单个插件。 */
+    public void deactivatePlugin(String sessionId, String pluginId) {
+        String key = (sessionId == null) ? GLOBAL_KEY : sessionId;
+        SessionPluginSet set = activeBySession.get(key);
+        if (set == null) return;
+        JlShellPlugin plugin = set.plugins.remove(pluginId);
+        set.contexts.remove(pluginId);
         if (plugin != null) {
+            set.registry.clearForPlugin(pluginId);
             PluginView view = plugin.view();
             if (view != null) view.onSessionClosed();
             plugin.deactivate();
-            log.debug("Deactivated plugin: {}", pluginId);
+            log.debug("Deactivated plugin {} in session {}", pluginId, sessionId);
+        }
+        // 桶空了就回收；2-arg remove 仅在值仍为 set 时移除，避免误删他线程重建的桶。
+        if (set.plugins.isEmpty()) {
+            activeBySession.remove(key, set);
         }
     }
 
+    /** 旧接口：跨所有会话停用某个插件。签名保持不变以兼容现有 host 调用点。 */
+    public void deactivatePlugin(String pluginId) {
+        activeBySession.forEach((key, set) -> {
+            JlShellPlugin plugin = set.plugins.remove(pluginId);
+            set.contexts.remove(pluginId);
+            if (plugin != null) {
+                set.registry.clearForPlugin(pluginId);
+                PluginView view = plugin.view();
+                if (view != null) view.onSessionClosed();
+                plugin.deactivate();
+            }
+            // 桶空了就回收；2-arg remove 仅在值仍为 set 时移除，避免误删他线程重建的桶。
+            if (set.plugins.isEmpty()) {
+                activeBySession.remove(key, set);
+            }
+        });
+    }
+
     public void deactivateAll() {
-        new ArrayList<>(activePlugins.keySet()).forEach(this::deactivatePlugin);
+        activeBySession.values().forEach(set -> {
+            set.plugins.values().forEach(p -> {
+                PluginView view = p.view();
+                if (view != null) view.onSessionClosed();
+                p.deactivate();
+            });
+            set.plugins.clear();
+            set.contexts.clear();
+            set.registry.clear();
+        });
+        activeBySession.clear();
     }
 
     private void notifyThemeChanged(String themeName) {
-        activePlugins.values().forEach(p -> {
-            PluginView view = p.view();
-            if (view != null) view.onThemeChanged(themeName);
-        });
+        activeBySession.values().stream()
+                .flatMap(s -> s.plugins.values().stream())
+                .forEach(p -> {
+                    PluginView view = p.view();
+                    if (view != null) view.onThemeChanged(themeName);
+                });
     }
 
     private void notifyLocaleChanged(Locale locale) {
-        activePlugins.values().forEach(p -> {
-            PluginView view = p.view();
-            if (view != null) view.onLocaleChanged(locale);
-        });
+        activeBySession.values().stream()
+                .flatMap(s -> s.plugins.values().stream())
+                .forEach(p -> {
+                    PluginView view = p.view();
+                    if (view != null) view.onLocaleChanged(locale);
+                });
     }
 
     private static PluginDescriptor toDescriptor(JlShellPlugin plugin) {

@@ -4,9 +4,11 @@ import java.util.Optional;
 
 import com.jlshell.plugin.api.JlShellPlugin;
 import com.jlshell.plugin.api.SshSessionContext;
+import com.jlshell.plugin.loader.CapabilityRegistryImpl;
 import com.jlshell.plugin.loader.DefaultPluginContext;
 import com.jlshell.plugin.loader.PluginDescriptor;
 import com.jlshell.plugin.loader.PluginManager;
+import com.jlshell.plugin.api.rpc.CapabilityBus;
 import com.jlshell.core.session.SshSession;
 import com.jlshell.sftp.service.SftpService;
 import com.jlshell.ui.service.I18nService;
@@ -31,20 +33,27 @@ public class PluginsTabView extends BorderPane {
 
     private final I18nService i18nService;
     private final PluginManager pluginManager;
+    private final CapabilityBus capabilityBus;
     private final SftpService sftpService;
+    /** 本工作区 Tab 对应的会话 id（SSH 会话或合成的 local-uuid），用于 per-session registry 路由 */
+    private final String sessionId;
     private final java.util.Set<String> activatedPluginIds = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     public PluginsTabView(
             PluginManager pluginManager,
+            String sessionId,
             SshSession sshSession,
             TabPane workspaceTabs,
             I18nService i18nService,
             ThemeService themeService,
-            SftpService sftpService
+            SftpService sftpService,
+            CapabilityBus capabilityBus
     ) {
         this.i18nService = i18nService;
         this.pluginManager = pluginManager;
         this.sftpService = sftpService;
+        this.sessionId = sessionId;
+        this.capabilityBus = capabilityBus;
         setPadding(new Insets(8));
 
         ListView<PluginDescriptor> listView = new ListView<>();
@@ -76,7 +85,8 @@ public class PluginsTabView extends BorderPane {
                         Optional<SshSessionContext> sshCtx = (sshSession != null)
                                 ? Optional.of(new com.jlshell.plugin.loader.SshSessionContextAdapter(sshSession, sftpService))
                                 : Optional.empty();
-                        DefaultPluginContext ctx = new DefaultPluginContext(item.id(), sshCtx, new DefaultPluginContext.Callbacks() {
+                        CapabilityRegistryImpl sessionRegistry = pluginManager.registryForSession(sessionId);
+                        DefaultPluginContext ctx = new DefaultPluginContext(item.id(), sessionId, sessionRegistry, capabilityBus, sshCtx, new DefaultPluginContext.Callbacks() {
                             private Tab openedTab;
 
                             @Override
@@ -116,6 +126,7 @@ public class PluginsTabView extends BorderPane {
                         });
                         ctx.writableThemeNameProperty().bind(pluginManager.themeNameProperty());
                         ctx.writableLocaleProperty().bind(pluginManager.localeProperty());
+                        pluginManager.adoptContext(sessionId, item.id(), ctx);
                         pluginManager.activatePlugin(item.id(), ctx);
                         activatedPluginIds.add(item.id());
                     });
@@ -138,7 +149,7 @@ public class PluginsTabView extends BorderPane {
     }
 
     public void stopPlugins() {
-        activatedPluginIds.forEach(pluginManager::deactivatePlugin);
+        activatedPluginIds.forEach(id -> pluginManager.deactivatePlugin(sessionId, id));
         activatedPluginIds.clear();
     }
 }
