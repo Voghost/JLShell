@@ -77,6 +77,31 @@ public class ScriptSnippetsPlugin implements JlShellPlugin, PluginView {
         if (view != null) {
             context.openTab(displayName(context.locale()), view.createView(context));
         }
+        // 注册 readConfig 能力 — 旧 host 无 capabilityRegistry 时静默失败，不影响插件其余功能
+        try {
+            context.capabilityRegistry().register(
+                com.jlshell.plugin.api.rpc.Capability.builder("readConfig")
+                    .description("Read a remote file and return its text content.")
+                    .requiresSession(true)
+                    .handler((args, capCtx) -> {
+                        String path = args != null && args.isJsonObject()
+                                ? args.getAsJsonObject().get("path").getAsString() : null;
+                        if (path == null || path.isBlank()) {
+                            return java.util.concurrent.CompletableFuture.failedFuture(
+                                    new IllegalArgumentException("path required"));
+                        }
+                        return capCtx.sshSession().orElseThrow().fileExplorer().readFile(path)
+                                .thenApply(bytes -> {
+                                    com.google.gson.JsonObject o = new com.google.gson.JsonObject();
+                                    o.addProperty("path", path);
+                                    o.addProperty("content", new String(bytes, java.nio.charset.StandardCharsets.UTF_8));
+                                    return (com.google.gson.JsonElement) o;
+                                });
+                    })
+                    .build());
+        } catch (Throwable t) {
+            // 旧 host 无 capabilityRegistry（default no-op）— register 静默失败
+        }
     }
 
     @Override
