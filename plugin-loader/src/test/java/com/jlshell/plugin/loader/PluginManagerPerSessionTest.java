@@ -29,7 +29,18 @@ class PluginManagerPerSessionTest {
     }
 
     private DefaultPluginContext ctxFor(PluginManager mgr, String pluginId, String sessionId) {
-        return new DefaultPluginContext(pluginId, sessionId,
+        // Fix 1 后 registryFor 对未知 sessionId 返回共享空哨兵、不再自动建桶。
+        // 这里需先确保 session 桶存在，再取桶的 registry 构造 ctx，使 ctx 的 registry
+        // 与桶的 registry 是同一对象（activateInstance 注册进桶，registryFor 读桶）。
+        // adoptContext 的 contexts 是 ConcurrentHashMap 不接受 null，故用占位 ctx 先建桶。
+        DefaultPluginContext placeholder = new DefaultPluginContext(pluginId, Optional.empty(), new DefaultPluginContext.Callbacks() {
+            @Override public void openTab(String t, javafx.scene.Node n) {}
+            @Override public void closeTab() {}
+            @Override public void updateTabTitle(String t) {}
+            @Override public String resolveI18n(String k, String f) { return f; }
+        });
+        mgr.adoptContext(sessionId, pluginId, placeholder);
+        DefaultPluginContext ctx = new DefaultPluginContext(pluginId, sessionId,
                 mgr.registryFor(sessionId),
                 Optional.empty(), new DefaultPluginContext.Callbacks() {
                     @Override public void openTab(String t, javafx.scene.Node n) {}
@@ -37,6 +48,8 @@ class PluginManagerPerSessionTest {
                     @Override public void updateTabTitle(String t) {}
                     @Override public String resolveI18n(String k, String f) { return f; }
                 });
+        mgr.adoptContext(sessionId, pluginId, ctx);
+        return ctx;
     }
 
     @Test

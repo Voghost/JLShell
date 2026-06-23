@@ -55,12 +55,24 @@ public class CapabilityBusImpl implements CapabilityBus {
                     .thenApply(RpcResponse::ok)
                     .exceptionally(t -> RpcResponse.error(
                             RpcError.of(CODE_INTERNAL,
-                                    t.getMessage() == null ? t.getClass().getSimpleName() : t.getMessage())));
+                                    rootMessage(t))));
         } catch (Exception e) {
             return CompletableFuture.completedFuture(RpcResponse.error(
                     RpcError.of(CODE_INTERNAL,
-                            e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage())));
+                            rootMessage(e))));
         }
+    }
+
+    /** 取根因的 message：CompletableFuture 异常路径会把真实异常包成 CompletionException，需解包。 */
+    private static String rootMessage(Throwable t) {
+        Throwable cause = t;
+        while ((cause instanceof java.util.concurrent.CompletionException
+                || cause instanceof java.util.concurrent.ExecutionException)
+                && cause.getCause() != null) {
+            cause = cause.getCause();
+        }
+        String msg = cause.getMessage();
+        return msg == null ? cause.getClass().getSimpleName() : msg;
     }
 
     @Override

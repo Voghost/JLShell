@@ -32,6 +32,10 @@ public class PluginManager {
     private static final Logger log = LoggerFactory.getLogger(PluginManager.class);
     private static final String GLOBAL_KEY = "__global__";
 
+    // 未知 sessionId 的共享只读空哨兵 registry：resolve/specs 返回空，禁止向其 register。
+    // 任何 register 到此对象的调用都是调用方 bug（host 只经真实 session 桶的 DefaultPluginContext 注册）。
+    private static final CapabilityRegistryImpl EMPTY_TRANSIENT = new CapabilityRegistryImpl();
+
     private final String userPluginsDir;
     private final List<PluginDescriptor> plugins = new ArrayList<>();
     private final Map<String, SessionPluginSet> activeBySession = new ConcurrentHashMap<>();
@@ -179,8 +183,11 @@ public class PluginManager {
 
     /** 供 CapabilityBus 用：按 sessionId 取该会话的 registry。sessionId 为 null 取全局桶。 */
     public CapabilityRegistryImpl registryFor(String sessionId) {
-        String key = (sessionId == null) ? GLOBAL_KEY : sessionId;
-        return activeBySession.computeIfAbsent(key, SessionPluginSet::new).registry;
+        if (sessionId == null) {
+            return activeBySession.computeIfAbsent(GLOBAL_KEY, SessionPluginSet::new).registry;
+        }
+        SessionPluginSet set = activeBySession.get(sessionId);
+        return set != null ? set.registry : EMPTY_TRANSIENT;
     }
 
     public CapabilityRegistryImpl globalRegistry() { return registryFor(null); }
@@ -200,7 +207,8 @@ public class PluginManager {
 
     /** 按会话停用单个插件。 */
     public void deactivatePlugin(String sessionId, String pluginId) {
-        SessionPluginSet set = activeBySession.get((sessionId == null) ? GLOBAL_KEY : sessionId);
+        String key = (sessionId == null) ? GLOBAL_KEY : sessionId;
+        SessionPluginSet set = activeBySession.get(key);
         if (set == null) return;
         JlShellPlugin plugin = set.plugins.remove(pluginId);
         set.contexts.remove(pluginId);
@@ -211,11 +219,15 @@ public class PluginManager {
             plugin.deactivate();
             log.debug("Deactivated plugin {} in session {}", pluginId, sessionId);
         }
+        // 桶空了就回收；2-arg remove 仅在值仍为 set 时移除，避免误删他线程重建的桶。
+        if (set.plugins.isEmpty()) {
+            activeBySession.remove(key, set);
+        }
     }
 
     /** 旧接口：跨所有会话停用某个插件。签名保持不变以兼容现有 host 调用点。 */
     public void deactivatePlugin(String pluginId) {
-        activeBySession.values().forEach(set -> {
+        activeBySession.forEach((key, set) -> {
             JlShellPlugin plugin = set.plugins.remove(pluginId);
             set.contexts.remove(pluginId);
             if (plugin != null) {
@@ -223,6 +235,10 @@ public class PluginManager {
                 PluginView view = plugin.view();
                 if (view != null) view.onSessionClosed();
                 plugin.deactivate();
+            }
+            // 桶空了就回收；2-arg remove 仅在值仍为 set 时移除，避免误删他线程重建的桶。
+            if (set.plugins.isEmpty()) {
+                activeBySession.remove(key, set);
             }
         });
     }
