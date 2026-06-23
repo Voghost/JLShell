@@ -22,6 +22,7 @@ import com.jlshell.data.crypto.CredentialCipher;
 import com.jlshell.data.crypto.FileSystemMasterKeyProvider;
 import com.jlshell.data.service.JdbiAppSettingsService;
 import com.jlshell.data.service.JdbiCustomColorSchemeStore;
+import com.jlshell.plugin.loader.CapabilityBusImpl;
 import com.jlshell.plugin.loader.PluginManager;
 import com.jlshell.sftp.service.SftpService;
 import com.jlshell.sftp.support.SshjSftpService;
@@ -56,6 +57,7 @@ public class AppContext implements AutoCloseable {
     private final HikariDataSource dataSource;
     private final ExecutorService executor;
     private final MainWindow mainWindow;
+    private final com.jlshell.api.server.ApiServer apiServer;
 
     public AppContext() {
         String userHome = System.getProperty("user.home");
@@ -119,6 +121,20 @@ public class AppContext implements AutoCloseable {
         // 6. Plugins — 延迟到首次 getAvailablePlugins()/activatePlugin() 才扫描 JAR
         PluginManager pluginManager = new PluginManager();
 
+        // 6b. RPC 内核 + 外部 API
+        CapabilityBusImpl capabilityBus = new CapabilityBusImpl(pluginManager);
+        boolean apiEnabled = "true".equalsIgnoreCase(appSettingsService.get("api.enabled", "false"));
+        int apiPort = parsePortOrDefault(appSettingsService.get("api.port", "0"), 0);
+        String apiToken;
+        try {
+            apiToken = apiEnabled ? com.jlshell.api.server.ApiTokenStore.loadOrCreate() : "";
+        } catch (Exception e) {
+            log.warn("Failed to init API token (non-fatal): {}", e.getMessage());
+            apiToken = "";
+        }
+        com.jlshell.api.server.ApiServerConfig apiCfg =
+                new com.jlshell.api.server.ApiServerConfig(apiPort, apiToken, apiEnabled);
+
         // 6.5. Vault service + migration
         VaultKeyService vaultKeyService = new VaultKeyService(appSettingsService);
         VaultService vaultService = new VaultService(jdbi, credentialCipher, vaultKeyService);
@@ -136,6 +152,20 @@ public class AppContext implements AutoCloseable {
         LocalShellLauncher localShellLauncher = new LocalShellLauncher(
                 fontProfileService, executor, i18nService, BundledFontLoader::ensureAwtRegistered);
 
+        // 7b. Host methods + API server
+        com.jlshell.app.api.HostMethodsImpl hostMethods = new com.jlshell.app.api.HostMethodsImpl(
+                connectionProfileService, sessionManager, executor, apiToken);
+        com.jlshell.api.server.ApiServer apiServer =
+                new com.jlshell.api.server.ApiServer(apiCfg, capabilityBus, hostMethods);
+        if (apiEnabled) {
+            try {
+                apiServer.start();
+                log.info("External API on 127.0.0.1:{} (token at ~/.jlshell/api.token)", apiServer.port());
+            } catch (java.io.IOException e) {
+                log.warn("API server failed to start (non-fatal): {}", e.getMessage());
+            }
+        }
+
         // 7. Main window
         mainWindow = new MainWindow(
                 viewModel,
@@ -151,8 +181,11 @@ public class AppContext implements AutoCloseable {
                 executor,
                 vaultService,
                 5,
-                pluginManager
+                pluginManager,
+                apiServer
         );
+
+        this.apiServer = apiServer;
 
         log.info("AppContext initialised");
     }
@@ -164,7 +197,13 @@ public class AppContext implements AutoCloseable {
     @Override
     public void close() {
         log.info("AppContext shutting down");
+        if (apiServer != null) apiServer.stop();
         executor.shutdownNow();
         dataSource.close();
+    }
+
+    private static int parsePortOrDefault(String s, int def) {
+        try { int p = Integer.parseInt(s); return (p >= 0 && p <= 65535) ? p : def; }
+        catch (NumberFormatException e) { return def; }
     }
 }

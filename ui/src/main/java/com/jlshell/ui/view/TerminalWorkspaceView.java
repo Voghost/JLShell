@@ -717,7 +717,7 @@ public class TerminalWorkspaceView extends BorderPane {
         // 从终端 Tab 打开偏好设置时没有 ConnectionProfileService 上下文，
         // 传 null 让导入 Tab 显示提示信息（用户可从主菜单打开完整偏好设置）
         PreferencesDialog.show(stage, fontProfileService, appSettingsService, i18nService, themeService,
-                null, null);
+                null, null, null);
         FontProfile profile = fontProfileService.activeProfile();
         handles.forEach(h -> h.updateFontProfile(profile));
     }

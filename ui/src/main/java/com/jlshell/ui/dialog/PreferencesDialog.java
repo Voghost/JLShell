@@ -75,7 +75,8 @@ public class PreferencesDialog {
     public static void show(Stage owner, FontProfileService fontProfileService, AppSettingsService appSettings,
                             I18nService i18n, ThemeService themeService,
                             com.jlshell.ui.service.ConnectionProfileService connectionProfileService,
-                            String activeProjectId) {
+                            String activeProjectId,
+                            com.jlshell.api.server.ApiServer apiServer) {
         Dialog<Void> dialog = new Dialog<>();
         dialog.setTitle(i18n.get("preferences.title"));
         dialog.setHeaderText(null);
@@ -88,10 +89,12 @@ public class PreferencesDialog {
         String[] pendingTheme = { appSettings.get("ui.theme", "DARK") };
         String[] pendingConnTimeout = { appSettings.get("connection.timeout", "10") };
         TerminalColorScheme[] pendingScheme = { themeService.activeColorScheme() };
+        String[] pendingApiEnabled = { appSettings.get("api.enabled", "false") };
+        String[] pendingApiPort = { appSettings.get("api.port", "0") };
 
         TabPane tabs = buildTabPane(fontProfileService, appSettings, i18n, themeService,
                 pending, pendingLang, pendingTheme, pendingConnTimeout, pendingScheme,
-                connectionProfileService, activeProjectId);
+                connectionProfileService, activeProjectId, apiServer, pendingApiEnabled, pendingApiPort);
         dialog.getDialogPane().setContent(tabs);
 
         // Apply 按钮：用 APPLY 类型让 ButtonBar 自动放左侧
@@ -102,16 +105,14 @@ public class PreferencesDialog {
         Button applyButton = (Button) dialog.getDialogPane().lookupButton(applyBtnType);
         applyButton.addEventFilter(javafx.event.ActionEvent.ACTION, e -> {
             e.consume(); // 阻止 Dialog 默认的关闭逻辑
-            applyPendingSettings(fontProfileService, appSettings, themeService, pending, pendingLang, pendingTheme, pendingConnTimeout, pendingScheme);
+            boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending, pendingLang, pendingTheme, pendingConnTimeout, pendingScheme, pendingApiEnabled, pendingApiPort);
+            if (needRestart) showRestartPrompt(owner, i18n);
         });
 
         dialog.setResultConverter(btn -> {
             if (btn.getButtonData() == ButtonBar.ButtonData.OK_DONE) {
-                String prevLang = appSettings.get("ui.language", null);
-                applyPendingSettings(fontProfileService, appSettings, themeService, pending, pendingLang, pendingTheme, pendingConnTimeout, pendingScheme);
-                if (!prevLang.equals(pendingLang[0])) {
-                    showRestartPrompt(owner, i18n);
-                }
+                boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending, pendingLang, pendingTheme, pendingConnTimeout, pendingScheme, pendingApiEnabled, pendingApiPort);
+                if (needRestart) showRestartPrompt(owner, i18n);
             }
             return null;
         });
@@ -130,10 +131,12 @@ public class PreferencesDialog {
         System.exit(0);
     }
 
-    private static void applyPendingSettings(FontProfileService fontProfileService, AppSettingsService appSettings,
+    private static boolean applyPendingSettings(FontProfileService fontProfileService, AppSettingsService appSettings,
                                               ThemeService themeService, FontProfile[] pending, String[] pendingLang,
                                               String[] pendingTheme, String[] pendingConnTimeout,
-                                              TerminalColorScheme[] pendingScheme) {
+                                              TerminalColorScheme[] pendingScheme,
+                                              String[] pendingApiEnabled, String[] pendingApiPort) {
+        String prevLang = appSettings.get("ui.language", null);
         fontProfileService.updateActiveProfile(pending[0]);
         appSettings.set("ui.language", pendingLang[0]);
 
@@ -149,6 +152,16 @@ public class PreferencesDialog {
         if (pendingScheme[0] != null) {
             themeService.setActiveColorScheme(pendingScheme[0]);
         }
+
+        // API settings
+        String prevApiEnabled = appSettings.get("api.enabled", "false");
+        String prevApiPort = appSettings.get("api.port", "0");
+        appSettings.set("api.enabled", pendingApiEnabled[0]);
+        appSettings.set("api.port", pendingApiPort[0]);
+        boolean apiChanged = !prevApiEnabled.equalsIgnoreCase(pendingApiEnabled[0])
+                || !prevApiPort.equals(pendingApiPort[0]);
+        boolean langChanged = !prevLang.equals(pendingLang[0]);
+        return langChanged || apiChanged;
     }
 
     private static TabPane buildTabPane(FontProfileService fontProfileService, AppSettingsService appSettings,
@@ -157,7 +170,9 @@ public class PreferencesDialog {
                                          String[] pendingTheme, String[] pendingConnTimeout,
                                          TerminalColorScheme[] pendingScheme,
                                          com.jlshell.ui.service.ConnectionProfileService connectionProfileService,
-                                         String activeProjectId) {
+                                         String activeProjectId,
+                                         com.jlshell.api.server.ApiServer apiServer,
+                                         String[] pendingApiEnabled, String[] pendingApiPort) {
         TabPane tabPane = new TabPane();
         tabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
 
@@ -176,6 +191,10 @@ public class PreferencesDialog {
         Tab importTab = new Tab(i18n.get("preferences.tab.import"));
         importTab.setContent(buildImportPane(i18n, connectionProfileService, activeProjectId));
         tabPane.getTabs().add(importTab);
+
+        Tab apiTab = new Tab(i18n.get("preferences.tab.api"));
+        apiTab.setContent(buildApiPane(appSettings, i18n, apiServer, pendingApiEnabled, pendingApiPort));
+        tabPane.getTabs().add(apiTab);
 
         Tab aboutTab = new Tab(i18n.get("preferences.tab.about"));
         aboutTab.setContent(buildAboutPane(i18n));
@@ -542,6 +561,54 @@ public class PreferencesDialog {
                 scheme.brightBlue(), scheme.brightPurple(), scheme.brightCyan(), scheme.brightWhite(),
                 opacity
         );
+    }
+
+    // ── API Tab ────────────────────────────────────────────────────────────
+
+    private static VBox buildApiPane(AppSettingsService appSettings, I18nService i18n,
+                                     com.jlshell.api.server.ApiServer apiServer,
+                                     String[] pendingApiEnabled, String[] pendingApiPort) {
+        VBox box = new VBox(8);
+        box.setPadding(new Insets(16, 20, 12, 20));
+
+        CheckBox enableCb = new CheckBox(i18n.get("api.enabled"));
+        enableCb.setSelected("true".equalsIgnoreCase(pendingApiEnabled[0]));
+        enableCb.selectedProperty().addListener((o, ov, nv) -> pendingApiEnabled[0] = String.valueOf(nv));
+
+        Label portLabel = new Label(i18n.get("api.port"));
+        TextField portField = new TextField(pendingApiPort[0]);
+        portField.setPrefWidth(80);
+        portField.setPromptText(i18n.get("api.port.hint"));
+        portField.disableProperty().bind(enableCb.selectedProperty().not());
+        portField.textProperty().addListener((o, ov, nv) -> pendingApiPort[0] = nv);
+
+        String current = apiServer != null && apiServer.enabled()
+                ? i18n.get("api.current", String.valueOf(apiServer.port()))
+                : i18n.get("api.disabled");
+        Label currentLabel = new Label(current);
+        currentLabel.setWrapText(true);
+
+        Label tokenHint = new Label(i18n.get("api.tokenHint"));
+        tokenHint.setWrapText(true);
+        tokenHint.setStyle("-fx-font-size: 11px;");
+
+        Button copyToken = new Button(i18n.get("api.copyToken"));
+        copyToken.setDisable(apiServer == null || apiServer.token() == null || apiServer.token().isEmpty());
+        copyToken.setOnAction(e -> {
+            String t = apiServer == null ? "" : apiServer.token();
+            javafx.scene.input.Clipboard cb = javafx.scene.input.Clipboard.getSystemClipboard();
+            javafx.scene.input.ClipboardContent cc = new javafx.scene.input.ClipboardContent();
+            cc.putString(t);
+            cb.setContent(cc);
+        });
+
+        Label restart = new Label(i18n.get("api.restartRequired"));
+        restart.setStyle("-fx-text-fill: gray; -fx-font-size: 11px;");
+        restart.setWrapText(true);
+
+        box.getChildren().addAll(enableCb, new HBox(8, portLabel, portField),
+                currentLabel, new HBox(8, tokenHint, copyToken), restart);
+        return box;
     }
 
     // ── Import Tab ─────────────────────────────────────────────────────────

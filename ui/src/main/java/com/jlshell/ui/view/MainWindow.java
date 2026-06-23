@@ -8,6 +8,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
 
+import com.jlshell.api.server.ApiServer;
 import com.jlshell.core.model.ConnectionType;
 import com.jlshell.core.service.AppSettingsService;
 import com.jlshell.core.service.FontProfileService;
@@ -89,6 +90,7 @@ public class MainWindow {
     private final LocalShellLauncher localShellLauncher;
     private final ExecutorService executor;
     private final PluginManager pluginManager;
+    private final ApiServer apiServer;
     private final VaultService vaultService;
     private final TabPane workspaceTabs = new TabPane();
     private final List<com.jlshell.terminal.service.TerminalViewHandle> localShellHandles = new ArrayList<>();
@@ -124,7 +126,8 @@ public class MainWindow {
             ExecutorService sshConnectionExecutor,
             VaultService vaultService,
             int maxFolderDepth,
-            PluginManager pluginManager
+            PluginManager pluginManager,
+            ApiServer apiServer
     ) {
         this.viewModel = viewModel;
         this.connectionProfileService = connectionProfileService;
@@ -140,6 +143,7 @@ public class MainWindow {
         this.vaultService = vaultService;
         this.maxFolderDepth = maxFolderDepth;
         this.pluginManager = pluginManager;
+        this.apiServer = apiServer;
 
         // Restore saved active project
         String savedProject = appSettingsService.get("ui.activeProject", "");
@@ -381,7 +385,7 @@ public class MainWindow {
 
     public void openPreferences(Stage stage) {
         PreferencesDialog.show(stage, fontProfileService, appSettingsService, i18nService, themeService,
-                connectionProfileService, activeProjectId);
+                connectionProfileService, activeProjectId, apiServer);
         // 导入后刷新侧边栏
         loadConnections();
     }

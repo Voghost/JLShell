@@ -52,6 +52,17 @@
             <artifactId>javafx-swing</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.jlshell</groupId>
+            <artifactId>api-server</artifactId>
+            <version>${project.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.openjfx</groupId>
+                    <artifactId>javafx-controls</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
         </dependency>
