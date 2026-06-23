@@ -132,6 +132,30 @@ public class ConnectionProfileService {
         if (connType == ConnectionType.SSH) {
             validate(formData);
         }
+        return doSave(formData);
+    }
+
+    /**
+     * 导入用：跳过密码/私钥的非空校验（导入时密码通常留空，用户后续补）。
+     * 仍要求 host + username 非空。只走 SSH 类型。
+     */
+    public ConnectionProfile saveImported(ConnectionFormData formData) {
+        if (isBlank(formData.host()) || isBlank(formData.username())) {
+            throw new IllegalArgumentException("Host and username are required");
+        }
+        ConnectionFormData sshForm = formData.connectionType() == null
+                ? new ConnectionFormData(formData.id(), formData.displayName(), formData.host(), formData.port(),
+                        formData.username(), formData.authenticationType(), formData.password(),
+                        formData.privateKeyPath(), formData.passphrase(), formData.hostKeyVerificationMode(),
+                        formData.description(), formData.defaultRemotePath(), formData.favorite(),
+                        formData.projectId(), ConnectionType.SSH, formData.folderId(),
+                        formData.vaultEntryId(), formData.keyContent())
+                : formData;
+        return doSave(sshForm);
+    }
+
+    private ConnectionProfile doSave(ConnectionFormData formData) {
+        ConnectionType connType = formData.connectionType() != null ? formData.connectionType() : ConnectionType.SSH;
 
         return jdbi.inTransaction(h -> {
             ConnectionDao connDao = h.attach(ConnectionDao.class);

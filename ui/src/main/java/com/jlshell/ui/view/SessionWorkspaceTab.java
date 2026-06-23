@@ -31,6 +31,11 @@ public class SessionWorkspaceTab extends Tab {
     private final ConnectionProfileService connectionProfileService;
     private final TerminalWorkspaceView terminalWorkspaceView;
     private final ConnectionProfile connectionProfile;
+
+    /** 返回此 Tab 关联的连接配置，用于右键菜单"复制连接"等操作。 */
+    public ConnectionProfile getConnectionProfile() {
+        return connectionProfile;
+    }
     private final SftpService sftpService;
     private final I18nService i18nService;
     private final ThemeService themeService;
@@ -39,6 +44,8 @@ public class SessionWorkspaceTab extends Tab {
     private boolean filePaneInitialized;
     private Tab pluginsTab;
     private PluginsTabView pluginsTabView;
+    /** SFTP 面板，首次激活时创建 */
+    private SftpBrowserPane sftpPane;
 
     public SessionWorkspaceTab(
             ConnectionProfile connectionProfile,
@@ -146,6 +153,10 @@ public class SessionWorkspaceTab extends Tab {
             return;
         }
         filePaneInitialized = true;
-        filesTab.setContent(new SftpBrowserPane(connectionProfile, sshSession, sftpService, i18nService, themeService));
+        sftpPane = new SftpBrowserPane(connectionProfile, sshSession, sftpService, i18nService, themeService);
+        // 连接终端 cwd 属性，实现"跟随终端目录"
+        sftpPane.setTerminalCwdProperty(terminalWorkspaceView.cwdProperty());
+        sftpPane.setInjectOsc7HookCallback(() -> terminalWorkspaceView.injectOsc7PromptHook());
+        filesTab.setContent(sftpPane);
     }
 }

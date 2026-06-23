@@ -42,6 +42,7 @@ import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
+import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Menu;
 import javafx.scene.control.MenuBar;
 import javafx.scene.control.MenuItem;
@@ -379,7 +380,10 @@ public class MainWindow {
 
 
     public void openPreferences(Stage stage) {
-        PreferencesDialog.show(stage, fontProfileService, appSettingsService, i18nService, themeService);
+        PreferencesDialog.show(stage, fontProfileService, appSettingsService, i18nService, themeService,
+                connectionProfileService, activeProjectId);
+        // 导入后刷新侧边栏
+        loadConnections();
     }
 
     private void refreshAllTexts(Stage stage, BorderPane root) {
@@ -414,6 +418,7 @@ public class MainWindow {
     private SplitPane buildCenterArea(Stage stage) {
         VBox sidebar = buildSidebar(stage);
         workspaceTabs.getStyleClass().add("workspace-tabs");
+        installTabDragReorder(workspaceTabs);
 
         welcomePane = new WelcomePane(i18nService, connectionProfileService, executor,
                 () -> createConnection(stage),
@@ -885,6 +890,7 @@ public class MainWindow {
         localShellHandles.add(viewHandle);
         javafx.scene.control.Tab tab = new javafx.scene.control.Tab(profile.displayName());
         tab.setClosable(true);
+        tab.setContextMenu(buildTabContextMenu(tab));
         javax.swing.JComponent component = (javax.swing.JComponent) viewHandle.component();
         javafx.embed.swing.SwingNode swingNode = new javafx.embed.swing.SwingNode();
         swingNode.setFocusTraversable(true);
@@ -952,6 +958,7 @@ public class MainWindow {
                     pluginManager
             );
             tab.setClosable(true);
+            tab.setContextMenu(buildTabContextMenu(tab));
             tab.setOnCloseRequest(event -> {
                 event.consume();
                 tab.closeWorkspace().whenComplete((unused, t) -> FxThread.run(() -> {
@@ -978,6 +985,177 @@ public class MainWindow {
                 }
             }));
         }));
+    }
+
+    /**
+     * 为工作区 Tab 构建右键菜单：关闭当前 / 关闭左边所有 / 关闭右边所有 / 关闭所有 / 复制会话。
+     */
+    private ContextMenu buildTabContextMenu(javafx.scene.control.Tab tab) {
+        I18nService i18n = i18nService;
+
+        MenuItem closeCurrent = new MenuItem(i18n.get("tab.close"));
+        closeCurrent.setOnAction(e -> closeTab(tab));
+
+        MenuItem closeLeft = new MenuItem(i18n.get("tab.closeLeft"));
+        closeLeft.setOnAction(e -> closeTabsLeftOf(tab));
+
+        MenuItem closeRight = new MenuItem(i18n.get("tab.closeRight"));
+        closeRight.setOnAction(e -> closeTabsRightOf(tab));
+
+        MenuItem closeAll = new MenuItem(i18n.get("tab.closeAll"));
+        closeAll.setOnAction(e -> closeAllTabs());
+
+        MenuItem duplicate = new MenuItem(i18n.get("tab.duplicateSession"));
+        duplicate.setOnAction(e -> {
+            if (tab instanceof SessionWorkspaceTab swt) {
+                // 复制会话：用同一连接配置新建 SSH 连接
+                connectSsh(swt.getConnectionProfile());
+            }
+        });
+
+        // 非会话 Tab（本地 Shell）不显示"复制会话"
+        ContextMenu menu = new ContextMenu();
+        if (tab instanceof SessionWorkspaceTab) {
+            menu.getItems().addAll(closeCurrent, closeLeft, closeRight, closeAll,
+                    new SeparatorMenuItem(), duplicate);
+        } else {
+            menu.getItems().addAll(closeCurrent, closeLeft, closeRight, closeAll);
+        }
+
+        // 菜单显示时刷新禁用状态
+        menu.setOnShowing(ev -> {
+            int idx = workspaceTabs.getTabs().indexOf(tab);
+            closeLeft.setDisable(idx <= 0);
+            closeRight.setDisable(idx >= workspaceTabs.getTabs().size() - 1);
+            closeAll.setDisable(workspaceTabs.getTabs().isEmpty());
+        });
+
+        return menu;
+    }
+
+    /** 关闭单个 Tab（SSH / 本地 Shell 通用） */
+    private void closeTab(javafx.scene.control.Tab tab) {
+        if (tab instanceof SessionWorkspaceTab swt) {
+            swt.closeWorkspace().whenComplete((unused, t) -> FxThread.run(() -> {
+                workspaceTabs.getTabs().remove(swt);
+                if (workspaceTabs.getTabs().isEmpty() && welcomePane != null) {
+                    welcomePane.refresh();
+                }
+                if (t != null) {
+                    showError(i18nService.get("status.sessionCloseFailed", t.getMessage()));
+                }
+            }));
+        } else {
+            // 本地 Shell Tab
+            tab.getOnCloseRequest().handle(new javafx.event.Event(tab, tab, javafx.scene.control.Tab.TAB_CLOSE_REQUEST_EVENT));
+        }
+    }
+
+    /** 关闭目标 Tab 左侧的所有 Tab */
+    private void closeTabsLeftOf(javafx.scene.control.Tab target) {
+        int idx = workspaceTabs.getTabs().indexOf(target);
+        if (idx <= 0) return;
+        // 复制列表避免 ConcurrentModification
+        List<javafx.scene.control.Tab> toClose = new ArrayList<>(workspaceTabs.getTabs().subList(0, idx));
+        toClose.forEach(this::closeTab);
+    }
+
+    /** 关闭目标 Tab 右侧的所有 Tab */
+    private void closeTabsRightOf(javafx.scene.control.Tab target) {
+        int idx = workspaceTabs.getTabs().indexOf(target);
+        if (idx < 0 || idx >= workspaceTabs.getTabs().size() - 1) return;
+        List<javafx.scene.control.Tab> toClose = new ArrayList<>(workspaceTabs.getTabs().subList(idx + 1, workspaceTabs.getTabs().size()));
+        toClose.forEach(this::closeTab);
+    }
+
+    /** 关闭所有工作区 Tab */
+    private void closeAllTabs() {
+        List<javafx.scene.control.Tab> toClose = new ArrayList<>(workspaceTabs.getTabs());
+        toClose.forEach(this::closeTab);
+    }
+
+    /**
+     * 为 TabPane 安装 Tab 拖动重排功能。
+     * 拖动时根据鼠标位移计算目标位置并重排 Tab 顺序。
+     */
+    private void installTabDragReorder(TabPane tabPane) {
+        // 记录拖动起始信息，存储在 TabPane 的 properties 中避免反射
+        final String DRAG_TAB = "tabDragSourceTab";
+        final String DRAG_START_X = "tabDragStartX";
+        final String DRAG_INDEX = "tabDragFromIndex";
+
+        tabPane.addEventFilter(javafx.scene.input.MouseEvent.MOUSE_PRESSED, e -> {
+            if (e.getButton() != javafx.scene.input.MouseButton.PRIMARY) return;
+            // 点击时 TabPane 已自动切换选中 Tab
+            javafx.scene.control.Tab selected = tabPane.getSelectionModel().getSelectedItem();
+            if (selected == null) return;
+            // 只在 Tab 头部区域响应（y 在 Tab 头部高度内）
+            double headerHeight = getTabHeaderAreaHeight(tabPane);
+            if (e.getY() > headerHeight) return;
+
+            tabPane.getProperties().put(DRAG_TAB, selected);
+            tabPane.getProperties().put(DRAG_START_X, e.getScreenX());
+            tabPane.getProperties().put(DRAG_INDEX, tabPane.getTabs().indexOf(selected));
+        });
+
+        tabPane.addEventFilter(javafx.scene.input.MouseEvent.MOUSE_DRAGGED, e -> {
+            if (!tabPane.getProperties().containsKey(DRAG_TAB)) return;
+            Object dragTabObj = tabPane.getProperties().get(DRAG_TAB);
+            if (!(dragTabObj instanceof javafx.scene.control.Tab dragTab)) return;
+            if (!tabPane.getTabs().contains(dragTab)) return;
+
+            double startX = (Double) tabPane.getProperties().get(DRAG_START_X);
+            double dx = e.getScreenX() - startX;
+            if (Math.abs(dx) < 20) return; // 至少拖动 20px
+
+            double tabWidth = estimateTabHeaderWidth(tabPane);
+            if (tabWidth <= 0) return;
+
+            int fromIndex = tabPane.getTabs().indexOf(dragTab);
+            int offset = (int) Math.round(dx / tabWidth);
+            int toIndex = Math.max(0, Math.min(tabPane.getTabs().size() - 1, fromIndex + offset));
+            if (toIndex == fromIndex) return;
+
+            tabPane.getTabs().remove(dragTab);
+            tabPane.getTabs().add(toIndex, dragTab);
+            tabPane.getSelectionModel().select(dragTab);
+
+            // 更新基准，实现连续拖动
+            tabPane.getProperties().put(DRAG_START_X, e.getScreenX());
+        });
+
+        tabPane.addEventFilter(javafx.scene.input.MouseEvent.MOUSE_RELEASED, e -> {
+            tabPane.getProperties().remove(DRAG_TAB);
+            tabPane.getProperties().remove(DRAG_START_X);
+            tabPane.getProperties().remove(DRAG_INDEX);
+        });
+    }
+
+    /** 获取 Tab 头部区域高度 */
+    private double getTabHeaderAreaHeight(TabPane tabPane) {
+        for (javafx.scene.Node node : tabPane.getChildrenUnmodifiable()) {
+            if (node.getStyleClass().contains("tab-header-area")) {
+                return node.getLayoutBounds().getHeight();
+            }
+        }
+        return 36; // 默认值
+    }
+
+    /** 估算单个 Tab 头部的宽度 */
+    private double estimateTabHeaderWidth(TabPane tabPane) {
+        int count = tabPane.getTabs().size();
+        if (count <= 0) return 0;
+        if (count == 1) return tabPane.getWidth();
+        for (javafx.scene.Node node : tabPane.getChildrenUnmodifiable()) {
+            if (node.getStyleClass().contains("tab-header-area")) {
+                for (javafx.scene.Node child : ((javafx.scene.layout.Pane) node).getChildrenUnmodifiable()) {
+                    if (child.getStyleClass().contains("headers-region")) {
+                        return child.getLayoutBounds().getWidth() / count;
+                    }
+                }
+            }
+        }
+        return tabPane.getWidth() / count;
     }
 
     private ConnectionProfile selectedConnection() {

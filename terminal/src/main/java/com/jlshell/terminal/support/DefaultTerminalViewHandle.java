@@ -9,6 +9,7 @@ import com.jlshell.core.model.FontProfile;
 import com.jlshell.core.model.SessionId;
 import com.jlshell.terminal.model.TerminalColorScheme;
 import com.jlshell.terminal.service.TerminalViewHandle;
+import javafx.beans.property.StringProperty;
 
 /**
  * JediTerm 终端句柄默认实现。
@@ -102,5 +103,10 @@ public class DefaultTerminalViewHandle implements TerminalViewHandle {
             return rtp.getCursorLocationInComponent();
         }
         return new java.awt.Point(0, 0);
+    }
+
+    @Override
+    public StringProperty cwdProperty() {
+        return ttyConnector.cwdProperty();
     }
 }

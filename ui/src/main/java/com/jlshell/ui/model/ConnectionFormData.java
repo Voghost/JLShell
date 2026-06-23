@@ -51,4 +51,13 @@ public record ConnectionFormData(
                 ConnectionType.SSH, folderId, null, null
         );
     }
+
+    /** 导入用：复制当前表单，替换 folderId（导入时统一放到自动建的文件夹里）。 */
+    public ConnectionFormData withFolderId(String newFolderId) {
+        return new ConnectionFormData(
+                id, displayName, host, port, username, authenticationType,
+                password, privateKeyPath, passphrase, hostKeyVerificationMode, description,
+                defaultRemotePath, favorite, projectId, connectionType, newFolderId, vaultEntryId, keyContent
+        );
+    }
 }

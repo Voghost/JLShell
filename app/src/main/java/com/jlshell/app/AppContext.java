@@ -89,11 +89,18 @@ public class AppContext implements AutoCloseable {
         FontProfileService fontProfileService = new PersistentFontProfileService(appSettingsService);
 
         // 4. I18n & Theme (needed before SSH for host key confirmation dialogs)
-        String savedLang = appSettingsService.get("ui.language", "en");
-        Locale initialLocale = savedLang.contains("_")
-                ? new Locale(savedLang.split("_")[0], savedLang.split("_")[1])
-                : new Locale(savedLang);
-        log.info("Initial locale from settings: {} (savedLang={})", initialLocale, savedLang);
+        // 首次启动：根据系统语言环境设置语言
+        String savedLang = appSettingsService.get("ui.language", null);
+        Locale initialLocale;
+        if (savedLang != null) {
+            initialLocale = savedLang.contains("_")
+                    ? new Locale(savedLang.split("_")[0], savedLang.split("_")[1])
+                    : new Locale(savedLang);
+        } else {
+            initialLocale = Locale.getDefault();
+            log.info("No saved language preference, using system locale: {}", initialLocale);
+        }
+        log.info("Initial locale: {} (savedLang={})", initialLocale, savedLang);
         I18nService i18nService = new I18nService(initialLocale);
 
         // Color scheme registry (built-in + custom persistence)

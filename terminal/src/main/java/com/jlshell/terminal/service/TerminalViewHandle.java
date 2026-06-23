@@ -8,6 +8,9 @@ import com.jlshell.core.model.FontProfile;
 import com.jlshell.core.model.SessionId;
 import com.jlshell.terminal.model.TerminalColorScheme;
 
+import javafx.beans.property.SimpleStringProperty;
+import javafx.beans.property.StringProperty;
+
 /**
  * 已创建的终端视图句柄。
  * UI 层只应持有该句柄，而不应直接操作 JediTerm 实现细节。
@@ -43,6 +46,15 @@ public interface TerminalViewHandle extends AutoCloseable {
      */
     default java.awt.Point getCursorLocationInComponent() {
         return new java.awt.Point(0, 0);
+    }
+
+    /**
+     * 终端当前工作目录（通过 OSC 7 序列追踪）。
+     * 可观察属性，目录变化时自动更新。
+     */
+    default StringProperty cwdProperty() {
+        // 默认返回一个不可变的空属性
+        return new SimpleStringProperty("");
     }
 
     @Override

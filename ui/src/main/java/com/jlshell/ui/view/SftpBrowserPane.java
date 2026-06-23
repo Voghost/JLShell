@@ -29,11 +29,14 @@ import com.jlshell.ui.support.FxThread;
 import com.jlshell.ui.theme.ThemeService;
 import com.jlshell.ui.viewmodel.SftpBrowserViewModel;
 import javafx.beans.property.ReadOnlyStringWrapper;
+import javafx.beans.property.SimpleBooleanProperty;
+import javafx.beans.property.StringProperty;
 import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
 import javafx.scene.control.Alert;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.Button;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
 import javafx.scene.control.MenuItem;
@@ -65,6 +68,8 @@ import javafx.scene.layout.VBox;
  */
 public class SftpBrowserPane extends BorderPane {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(SftpBrowserPane.class);
+
     private static final DateTimeFormatter TIME_FMT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneId.systemDefault());
 
@@ -95,6 +100,17 @@ public class SftpBrowserPane extends BorderPane {
 
     /** Set to true to cancel an in-progress sequential transfer. */
     private volatile boolean transferCancelled;
+
+    /** 跟随终端目录 */
+    private final SimpleBooleanProperty followTerminalCwd = new SimpleBooleanProperty(false);
+    /** 终端的 cwd 属性引用，由 SessionWorkspaceTab 设置 */
+    private StringProperty terminalCwdProperty;
+    /** 注入 OSC 7 钩子的回调，由 SessionWorkspaceTab 设置 */
+    private Runnable injectOsc7HookCallback;
+    /** 钩子是否已注入 */
+    private boolean osc7HookInjected;
+    /** 标记当前树选择是否由程序触发（而非用户点击），程序触发时自动滚动 */
+    private boolean programmaticTreeSelection;
 
     public SftpBrowserPane(
             ConnectionProfile connectionProfile,
@@ -128,6 +144,29 @@ public class SftpBrowserPane extends BorderPane {
         }
         loadRemoteDirectory(Optional.ofNullable(connectionProfile.defaultRemotePath())
                 .filter(p -> !p.isBlank()).orElse("."));
+    }
+
+    /**
+     * 设置终端当前目录的可观察属性，用于"跟随终端目录"功能。
+     * 由 SessionWorkspaceTab 在创建 SftpBrowserPane 后调用。
+     */
+    public void setTerminalCwdProperty(StringProperty cwdProperty) {
+        this.terminalCwdProperty = cwdProperty;
+        // 当 cwd 变化且"跟随"启用时，自动导航到该目录
+        cwdProperty.addListener((obs, oldCwd, newCwd) -> {
+            if (followTerminalCwd.get() && newCwd != null && !newCwd.isBlank()) {
+                loadRemoteFilesOnly(newCwd);
+                selectRemoteTreeNode(newCwd);
+            }
+        });
+    }
+
+    /**
+     * 设置注入 OSC 7 钩子的回调。
+     * 当用户勾选"跟随终端目录"且钩子未注入时，弹出确认对话框后调用。
+     */
+    public void setInjectOsc7HookCallback(Runnable callback) {
+        this.injectOsc7HookCallback = callback;
     }
 
     // ── Layout ────────────────────────────────────────────────────────────────
@@ -235,12 +274,48 @@ public class SftpBrowserPane extends BorderPane {
         deleteBtn.setOnAction(e -> deleteSelectedRemoteFile());
         Button mkdirBtn = svgActionButton(RES_MKDIR, i18nService.get("sftp.newFolder"));
         mkdirBtn.setOnAction(e -> createRemoteDirectory());
-        return buildPane("sftp.remote", remoteDirTree, remoteFileTable,
+
+        CheckBox followCwdCheckBox = new CheckBox(i18nService.get("sftp.followTerminal"));
+        followCwdCheckBox.getStyleClass().add("sftp-follow-cwd-checkbox");
+        followCwdCheckBox.setOnAction(e -> {
+            if (followCwdCheckBox.isSelected()) {
+                if (!osc7HookInjected && injectOsc7HookCallback != null) {
+                    // 弹出确认对话框
+                    Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+                    alert.setTitle(i18nService.get("sftp.followTerminal"));
+                    alert.setHeaderText(i18nService.get("sftp.followTerminal.injectTitle"));
+                    alert.setContentText(i18nService.get("sftp.followTerminal.injectMessage"));
+                    themeService.applyToDialog(alert);
+                    alert.showAndWait().ifPresent(btn -> {
+                        if (btn == ButtonType.OK) {
+                            injectOsc7HookCallback.run();
+                            osc7HookInjected = true;
+                        } else {
+                            followCwdCheckBox.setSelected(false);
+                        }
+                    });
+                }
+            }
+        });
+        followCwdCheckBox.selectedProperty().addListener((obs, ov, nv) -> {
+            followTerminalCwd.set(nv);
+        });
+
+        VBox result = buildPane("sftp.remote", remoteDirTree, remoteFileTable,
                 this::goUpRemote,
                 () -> loadRemoteFilesOnly(viewModel.remotePathProperty().get()),
                 this::goHomeRemote,
                 viewModel.remotePathProperty(), true,
                 List.of(downloadBtn, renameBtn, deleteBtn, mkdirBtn));
+
+        // 在导航栏后插入跟随终端目录复选框
+        // buildPane 返回的 VBox: header(0), nav(1), vert(2)
+        if (result.getChildren().size() > 1) {
+            HBox navBar = (HBox) result.getChildren().get(1);
+            navBar.getChildren().add(followCwdCheckBox);
+        }
+
+        return result;
     }
 
     private BorderPane buildStatusBar() {
@@ -293,6 +368,10 @@ public class SftpBrowserPane extends BorderPane {
             FileNode node = item.getValue();
             if (!node.isDirectory() || node.path().isBlank()) return;
             loadLocalFilesOnly(Path.of(node.path()));
+            if (programmaticTreeSelection) {
+                scrollToTreeNode(localDirTree, item);
+                programmaticTreeSelection = false;
+            }
         });
         localDirTree.expandedItemCountProperty().addListener((obs, ov, nv) -> {
             TreeItem<FileNode> expanded = findRecentlyExpanded(localDirTree);
@@ -357,7 +436,10 @@ public class SftpBrowserPane extends BorderPane {
                         && ev.getClickCount() == 2
                         && !row.isEmpty()
                         && row.getItem().directory()) {
-                    selectLocalTreeNode(row.getItem().path().toString());
+                    // 直接加载目录，不依赖树选择监听器（避免树节点已选中时监听器不触发的问题）
+                    Path dir = row.getItem().path();
+                    loadLocalFilesOnly(dir);
+                    selectLocalTreeNode(dir.toString());
                     ev.consume();
                 }
             });
@@ -377,6 +459,10 @@ public class SftpBrowserPane extends BorderPane {
             FileNode node = item.getValue();
             if (!node.isDirectory() || node.path().isBlank()) return;
             loadRemoteFilesOnly(node.path());
+            if (programmaticTreeSelection) {
+                scrollToTreeNode(remoteDirTree, item);
+                programmaticTreeSelection = false;
+            }
         });
         remoteDirTree.expandedItemCountProperty().addListener((obs, ov, nv) -> {
             TreeItem<FileNode> expanded = findRecentlyExpanded(remoteDirTree);
@@ -442,11 +528,10 @@ public class SftpBrowserPane extends BorderPane {
                         && ev.getClickCount() == 2
                         && !row.isEmpty()
                         && row.getItem().isDirectory()) {
-                    TreeItem<FileNode> found = findTreeItem(remoteDirTree.getRoot(), row.getItem().path());
-                    if (found != null) {
-                        remoteDirTree.getSelectionModel().select(found);
-                        found.setExpanded(true);
-                    }
+                    // 直接加载目录，不依赖树选择监听器（避免树节点已选中时监听器不触发的问题）
+                    String dir = row.getItem().path();
+                    loadRemoteFilesOnly(dir);
+                    selectRemoteTreeNode(dir);
                     ev.consume();
                 }
             });
@@ -663,39 +748,33 @@ public class SftpBrowserPane extends BorderPane {
 
     /** Full remote load: rebuilds dir tree (first call) + refreshes file table. */
     private void loadRemoteDirectory(String directory) {
-        sftpService.listDirectory(sshSession, directory)
-                .whenComplete((listing, t) -> FxThread.run(() -> {
-                    if (t != null) {
-                        Throwable cause = t.getCause() == null ? t : t.getCause();
-                        viewModel.transferStatusProperty().set(
-                                i18nService.get("status.remoteLoadFailed", cause.getMessage()));
-                        return;
-                    }
-                    List<RemoteFileEntry> sorted = listing.entries().stream()
-                            .sorted(Comparator.comparing(RemoteFileEntry::isDirectory).reversed()
-                                    .thenComparing(RemoteFileEntry::name, String.CASE_INSENSITIVE_ORDER))
-                            .toList();
-                    viewModel.setRemoteEntries(listing.canonicalPath(), sorted);
-                    viewModel.transferStatusProperty().set(
-                            i18nService.get("status.remoteLoaded", listing.canonicalPath()));
-
-                    // build dir tree on first load only
-                    if (remoteDirTree.getRoot() == null) {
-                        TreeItem<FileNode> root = new TreeItem<>(
-                                new FileNode(listing.canonicalPath(), listing.canonicalPath(), true, 0, null));
-                        root.setExpanded(true);
-                        listing.entries().stream()
-                                .filter(RemoteFileEntry::isDirectory)
-                                .sorted(Comparator.comparing(RemoteFileEntry::name, String.CASE_INSENSITIVE_ORDER))
-                                .forEach(e -> {
-                                    TreeItem<FileNode> child = new TreeItem<>(
-                                            new FileNode(e.name(), e.path(), true, 0, null));
-                                    child.getChildren().add(placeholder());
-                                    root.getChildren().add(child);
-                                });
-                        remoteDirTree.setRoot(root);
-                    }
-                }));
+        // 首次加载时，以 "/" 为树根，让用户可以浏览整个文件系统
+        if (remoteDirTree.getRoot() == null) {
+            sftpService.listDirectory(sshSession, "/")
+                    .whenComplete((rootListing, rootErr) -> FxThread.run(() -> {
+                        if (rootErr == null && rootListing != null) {
+                            TreeItem<FileNode> root = new TreeItem<>(
+                                    new FileNode("/", "/", true, 0, null));
+                            root.setExpanded(true);
+                            rootListing.entries().stream()
+                                    .filter(RemoteFileEntry::isDirectory)
+                                    .sorted(Comparator.comparing(RemoteFileEntry::name, String.CASE_INSENSITIVE_ORDER))
+                                    .forEach(e -> {
+                                        TreeItem<FileNode> child = new TreeItem<>(
+                                                new FileNode(e.name(), e.path(), true, 0, null));
+                                        child.getChildren().add(placeholder());
+                                        root.getChildren().add(child);
+                                    });
+                            remoteDirTree.setRoot(root);
+                        }
+                        // 无论树是否加载成功，都加载文件表
+                        loadRemoteFilesOnly(directory);
+                        selectRemoteTreeNode(directory);
+                    }));
+        } else {
+            loadRemoteFilesOnly(directory);
+            selectRemoteTreeNode(directory);
+        }
     }
 
     /** Refresh only the file table for a given remote path (no tree rebuild). */
@@ -717,10 +796,33 @@ public class SftpBrowserPane extends BorderPane {
     private void selectLocalTreeNode(String path) {
         TreeItem<FileNode> found = findTreeItem(localDirTree.getRoot(), path);
         if (found != null) {
+            programmaticTreeSelection = true;
+            localDirTree.getSelectionModel().clearSelection();
             localDirTree.getSelectionModel().select(found);
-            // trigger lazy expansion if needed
             found.setExpanded(true);
         }
+    }
+
+    /** Find and select a remote tree node matching the given path, expanding ancestors as needed. */
+    private void selectRemoteTreeNode(String path) {
+        TreeItem<FileNode> found = findTreeItem(remoteDirTree.getRoot(), path);
+        if (found != null) {
+            programmaticTreeSelection = true;
+            remoteDirTree.getSelectionModel().clearSelection();
+            remoteDirTree.getSelectionModel().select(found);
+            found.setExpanded(true);
+        }
+    }
+
+    /** 滚动 TreeView 使选中的节点可见 */
+    private void scrollToTreeNode(TreeView<FileNode> tree, TreeItem<FileNode> item) {
+        // TreeView.scrollTo() 需要行索引，选择后须延迟到下一帧以确保 skin 已更新行映射
+        javafx.application.Platform.runLater(() -> {
+            int row = tree.getRow(item);
+            if (row >= 0) {
+                tree.scrollTo(row);
+            }
+        });
     }
 
     /** Find the tree item that most recently expanded by comparing expanded items before/after the count change. */

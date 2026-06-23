@@ -70,37 +70,44 @@ public class PreferencesDialog {
 
     private static final String VERSION = "0.1.0.RELEASE";
 
-    private static final ButtonType applyButtonType = new ButtonType("Apply", ButtonBar.ButtonData.APPLY);
-
     private PreferencesDialog() {}
 
     public static void show(Stage owner, FontProfileService fontProfileService, AppSettingsService appSettings,
-                            I18nService i18n, ThemeService themeService) {
+                            I18nService i18n, ThemeService themeService,
+                            com.jlshell.ui.service.ConnectionProfileService connectionProfileService,
+                            String activeProjectId) {
         Dialog<Void> dialog = new Dialog<>();
         dialog.setTitle(i18n.get("preferences.title"));
         dialog.setHeaderText(null);
         if (owner != null) dialog.initOwner(owner);
         themeService.applyToDialog(dialog);
-        dialog.getDialogPane().setPrefWidth(580);
+        dialog.getDialogPane().setPrefWidth(620);
 
         FontProfile[] pending = { fontProfileService.activeProfile() };
-        String[] pendingLang = { appSettings.get("ui.language", "en") };
+        String[] pendingLang = { appSettings.get("ui.language", null) };
         String[] pendingTheme = { appSettings.get("ui.theme", "DARK") };
         String[] pendingConnTimeout = { appSettings.get("connection.timeout", "10") };
         TerminalColorScheme[] pendingScheme = { themeService.activeColorScheme() };
 
         TabPane tabs = buildTabPane(fontProfileService, appSettings, i18n, themeService,
-                pending, pendingLang, pendingTheme, pendingConnTimeout, pendingScheme);
+                pending, pendingLang, pendingTheme, pendingConnTimeout, pendingScheme,
+                connectionProfileService, activeProjectId);
         dialog.getDialogPane().setContent(tabs);
-        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL, applyButtonType);
 
-        // Apply button: apply settings without closing the dialog
-        Button applyButton = (Button) dialog.getDialogPane().lookupButton(applyButtonType);
-        applyButton.setOnAction(e -> applyPendingSettings(fontProfileService, appSettings, themeService, pending, pendingLang, pendingTheme, pendingConnTimeout, pendingScheme));
+        // Apply 按钮：用 APPLY 类型让 ButtonBar 自动放左侧
+        ButtonType applyBtnType = new ButtonType(i18n.get("preferences.apply"), ButtonBar.ButtonData.APPLY);
+        dialog.getDialogPane().getButtonTypes().addAll(applyBtnType, ButtonType.CANCEL, ButtonType.OK);
+
+        // Apply 按钮：拦截默认关闭行为，只应用设置
+        Button applyButton = (Button) dialog.getDialogPane().lookupButton(applyBtnType);
+        applyButton.addEventFilter(javafx.event.ActionEvent.ACTION, e -> {
+            e.consume(); // 阻止 Dialog 默认的关闭逻辑
+            applyPendingSettings(fontProfileService, appSettings, themeService, pending, pendingLang, pendingTheme, pendingConnTimeout, pendingScheme);
+        });
 
         dialog.setResultConverter(btn -> {
             if (btn.getButtonData() == ButtonBar.ButtonData.OK_DONE) {
-                String prevLang = appSettings.get("ui.language", "en");
+                String prevLang = appSettings.get("ui.language", null);
                 applyPendingSettings(fontProfileService, appSettings, themeService, pending, pendingLang, pendingTheme, pendingConnTimeout, pendingScheme);
                 if (!prevLang.equals(pendingLang[0])) {
                     showRestartPrompt(owner, i18n);
@@ -148,7 +155,9 @@ public class PreferencesDialog {
                                          I18nService i18n, ThemeService themeService,
                                          FontProfile[] pending, String[] pendingLang,
                                          String[] pendingTheme, String[] pendingConnTimeout,
-                                         TerminalColorScheme[] pendingScheme) {
+                                         TerminalColorScheme[] pendingScheme,
+                                         com.jlshell.ui.service.ConnectionProfileService connectionProfileService,
+                                         String activeProjectId) {
         TabPane tabPane = new TabPane();
         tabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
 
@@ -164,6 +173,10 @@ public class PreferencesDialog {
         terminalTab.setContent(buildTerminalPane(fontProfileService.activeProfile(), i18n, themeService, pending, pendingScheme));
         tabPane.getTabs().add(terminalTab);
 
+        Tab importTab = new Tab(i18n.get("preferences.tab.import"));
+        importTab.setContent(buildImportPane(i18n, connectionProfileService, activeProjectId));
+        tabPane.getTabs().add(importTab);
+
         Tab aboutTab = new Tab(i18n.get("preferences.tab.about"));
         aboutTab.setContent(buildAboutPane(i18n));
         tabPane.getTabs().add(aboutTab);
@@ -175,7 +188,13 @@ public class PreferencesDialog {
 
     private static VBox buildGeneralPane(AppSettingsService appSettings, I18nService i18n,
                                           ThemeService themeService, String[] pendingLang, String[] pendingTheme) {
-        String currentLang = appSettings.get("ui.language", "en");
+        // 首次启动：未设置语言时根据系统语言环境推断
+        String currentLang = appSettings.get("ui.language", null);
+        if (currentLang == null) {
+            Locale sys = Locale.getDefault();
+            currentLang = "zh".equals(sys.getLanguage()) ? "zh_CN" : "en";
+            pendingLang[0] = currentLang; // 同步到 pending，确保 Apply/OK 能保存
+        }
         String currentTheme = appSettings.get("ui.theme", "DARK");
 
         ComboBox<String> langCombo = new ComboBox<>();
@@ -523,6 +542,637 @@ public class PreferencesDialog {
                 scheme.brightBlue(), scheme.brightPurple(), scheme.brightCyan(), scheme.brightWhite(),
                 opacity
         );
+    }
+
+    // ── Import Tab ─────────────────────────────────────────────────────────
+
+    private static VBox buildImportPane(I18nService i18n,
+                                        com.jlshell.ui.service.ConnectionProfileService connectionProfileService,
+                                        String activeProjectId) {
+        VBox pane = new VBox(16);
+        pane.setPadding(new Insets(16, 20, 12, 20));
+
+        // 三个 section 共享一个结果标签，显示最近一次导入结果
+        Label globalResult = new Label();
+        globalResult.setStyle("-fx-text-fill: #38bdf8; -fx-font-size: 12px;");
+
+        if (connectionProfileService == null) {
+            // 从终端 Tab 打开的偏好设置没有连接服务上下文，提示用户从主菜单打开
+            Label hint = new Label(i18n.get("import.noFile"));
+            hint.setStyle("-fx-text-fill: #9ca3af; -fx-font-size: 12px;");
+            pane.getChildren().add(hint);
+            return pane;
+        }
+
+        // ── MobaXterm section ──
+        VBox mobaxtermSection = buildMobaxtermSection(i18n, connectionProfileService, activeProjectId, globalResult);
+
+        // ── Xshell section ──
+        VBox xshellSection = buildXshellSection(i18n, connectionProfileService, activeProjectId, globalResult);
+
+        // ── Manual section ──
+        VBox manualSection = buildManualSection(i18n, connectionProfileService, activeProjectId, globalResult);
+
+        pane.getChildren().addAll(mobaxtermSection, xshellSection, manualSection, globalResult);
+        return pane;
+    }
+
+    private static VBox buildMobaxtermSection(I18nService i18n,
+                                              com.jlshell.ui.service.ConnectionProfileService service,
+                                              String projectId, Label globalResult) {
+        Label title = new Label(i18n.get("import.section.mobaxterm"));
+        title.setStyle("-fx-font-size:14px;-fx-font-weight:bold;");
+
+        Label hint = new Label(i18n.get("import.mobaxterm.hint"));
+        hint.setStyle("-fx-text-fill: #9ca3af; -fx-font-size: 11px;");
+        hint.setWrapText(true);
+
+        Label foundLabel = new Label();
+        javafx.scene.control.Button browseBtn = new javafx.scene.control.Button(i18n.get("import.mobaxterm.browse"));
+        javafx.scene.control.Button importBtn = new javafx.scene.control.Button(i18n.get("import.button.import"));
+        importBtn.setDisable(true);
+
+        // 持有待导入的表单列表（数组绕过 lambda effectively-final 限制）
+        java.util.List<com.jlshell.ui.model.ConnectionFormData>[] pending =
+                new java.util.List[]{java.util.List.of()};
+
+        browseBtn.setOnAction(e -> {
+            javafx.stage.FileChooser fc = new javafx.stage.FileChooser();
+            fc.setTitle(i18n.get("import.mobaxterm.browse"));
+            fc.getExtensionFilters().add(new javafx.stage.FileChooser.ExtensionFilter(
+                    i18n.get("import.filter.ini"), "*.ini"));
+            java.io.File file = fc.showOpenDialog(browseBtn.getScene().getWindow());
+            if (file == null) return;
+            try {
+                pending[0] = new com.jlshell.ui.service.importer.MobaXtermIniParser(projectId).parse(file.toPath());
+                foundLabel.setText(i18n.get("import.found", pending[0].size()));
+                importBtn.setDisable(pending[0].isEmpty());
+            } catch (Exception ex) {
+                foundLabel.setText(ex.getMessage());
+                importBtn.setDisable(true);
+            }
+        });
+
+        importBtn.setOnAction(e -> {
+            if (pending[0].isEmpty()) return;
+            performImport(service, projectId, pending[0], "MobaXterm", globalResult, i18n);
+        });
+
+        HBox buttonRow = new HBox(8, browseBtn, importBtn);
+        VBox section = new VBox(6, title, hint, buttonRow, foundLabel);
+        section.setStyle("-fx-background-color: rgba(255,255,255,0.03); -fx-background-radius: 8; -fx-padding: 12;");
+        return section;
+    }
+
+    private static VBox buildXshellSection(I18nService i18n,
+                                           com.jlshell.ui.service.ConnectionProfileService service,
+                                           String projectId, Label globalResult) {
+        Label title = new Label(i18n.get("import.section.xshell"));
+        title.setStyle("-fx-font-size:14px;-fx-font-weight:bold;");
+
+        Label hint = new Label(i18n.get("import.xshell.hint"));
+        hint.setStyle("-fx-text-fill: #9ca3af; -fx-font-size: 11px;");
+        hint.setWrapText(true);
+
+        Label foundLabel = new Label();
+        javafx.scene.control.Button browseBtn = new javafx.scene.control.Button(i18n.get("import.xshell.browse"));
+        javafx.scene.control.Button browseDirBtn = new javafx.scene.control.Button(i18n.get("import.xshell.browseDir"));
+        javafx.scene.control.Button importBtn = new javafx.scene.control.Button(i18n.get("import.button.import"));
+        importBtn.setDisable(true);
+
+        java.util.List<com.jlshell.ui.model.ConnectionFormData>[] pending =
+                new java.util.List[]{java.util.List.of()};
+
+        browseBtn.setOnAction(e -> {
+            javafx.stage.FileChooser fc = new javafx.stage.FileChooser();
+            fc.setTitle(i18n.get("import.xshell.browse"));
+            fc.getExtensionFilters().add(new javafx.stage.FileChooser.ExtensionFilter(
+                    i18n.get("import.filter.xsh"), "*.xsh"));
+            java.io.File file = fc.showOpenDialog(browseBtn.getScene().getWindow());
+            if (file == null) return;
+            try {
+                pending[0] = new com.jlshell.ui.service.importer.XshellXshParser(projectId).parseFile(file.toPath());
+                foundLabel.setText(i18n.get("import.found", pending[0].size()));
+                importBtn.setDisable(pending[0].isEmpty());
+            } catch (Exception ex) {
+                foundLabel.setText(ex.getMessage());
+                importBtn.setDisable(true);
+            }
+        });
+
+        browseDirBtn.setOnAction(e -> {
+            javafx.stage.DirectoryChooser dc = new javafx.stage.DirectoryChooser();
+            dc.setTitle(i18n.get("import.xshell.browseDir"));
+            java.io.File dir = dc.showDialog(browseDirBtn.getScene().getWindow());
+            if (dir == null) return;
+            try {
+                pending[0] = new com.jlshell.ui.service.importer.XshellXshParser(projectId).parseDirectory(dir.toPath());
+                foundLabel.setText(i18n.get("import.found", pending[0].size()));
+                importBtn.setDisable(pending[0].isEmpty());
+            } catch (Exception ex) {
+                foundLabel.setText(ex.getMessage());
+                importBtn.setDisable(true);
+            }
+        });
+
+        importBtn.setOnAction(e -> {
+            if (pending[0].isEmpty()) return;
+            performImport(service, projectId, pending[0], "Xshell", globalResult, i18n);
+        });
+
+        HBox buttonRow = new HBox(8, browseBtn, browseDirBtn, importBtn);
+        VBox section = new VBox(6, title, hint, buttonRow, foundLabel);
+        section.setStyle("-fx-background-color: rgba(255,255,255,0.03); -fx-background-radius: 8; -fx-padding: 12;");
+        return section;
+    }
+
+    private static VBox buildManualSection(I18nService i18n,
+                                           com.jlshell.ui.service.ConnectionProfileService service,
+                                           String projectId, Label globalResult) {
+        Label title = new Label(i18n.get("import.section.manual"));
+        title.setStyle("-fx-font-size:14px;-fx-font-weight:bold;");
+
+        Label hint = new Label(i18n.get("import.manual.hint"));
+        hint.setStyle("-fx-text-fill: #9ca3af; -fx-font-size: 11px;");
+        hint.setWrapText(true);
+
+        // 手动表格：name/host/port/user/authType/password/passphrase + 删除按钮
+        ObservableList<ManualRow> rows = FXCollections.observableArrayList();
+        javafx.scene.control.TableView<ManualRow> table = new javafx.scene.control.TableView<>(rows);
+        table.setEditable(true);
+        table.getStyleClass().add("import-manual-table");
+        table.setPrefHeight(200);
+        table.setMinWidth(Region.USE_COMPUTED_SIZE);
+        // 列宽固定，超出时显示横向滚动条
+        table.setColumnResizePolicy(javafx.scene.control.TableView.UNCONSTRAINED_RESIZE_POLICY);
+
+        // 序号列
+        javafx.scene.control.TableColumn<ManualRow, Number> idxCol =
+                new javafx.scene.control.TableColumn<>("#");
+        idxCol.setPrefWidth(36);
+        idxCol.setMinWidth(36);
+        idxCol.setMaxWidth(36);
+        idxCol.setSortable(false);
+        idxCol.setCellValueFactory(c -> new javafx.beans.property.SimpleIntegerProperty(
+                c.getTableView().getItems().indexOf(c.getValue()) + 1));
+        table.getColumns().add(idxCol);
+
+        table.getColumns().add(editableCol(i18n.get("import.column.name"), ManualRow::nameProperty, 130));
+        table.getColumns().add(editableCol(i18n.get("import.column.host"), ManualRow::hostProperty, 140));
+        table.getColumns().add(editableCol(i18n.get("import.column.port"), ManualRow::portProperty, 60));
+        table.getColumns().add(editableCol(i18n.get("import.column.user"), ManualRow::userProperty, 100));
+
+        // 认证类型用 ComboBox 列
+        javafx.scene.control.TableColumn<ManualRow, String> authCol =
+                new javafx.scene.control.TableColumn<>(i18n.get("import.column.authType"));
+        authCol.setCellFactory(col -> new javafx.scene.control.cell.ComboBoxTableCell<>(
+                FXCollections.observableArrayList("PASSWORD", "PRIVATE_KEY")));
+        authCol.setCellValueFactory(c -> c.getValue().authTypeProperty());
+        authCol.setOnEditCommit(e -> e.getRowValue().authTypeProperty().set(e.getNewValue()));
+        authCol.setPrefWidth(110);
+        authCol.setMinWidth(80);
+        table.getColumns().add(authCol);
+
+        // 密码列：默认密文，编辑时显示明文
+        javafx.scene.control.TableColumn<ManualRow, String> pwdCol =
+                new javafx.scene.control.TableColumn<>(i18n.get("import.column.password"));
+        pwdCol.setPrefWidth(130);
+        pwdCol.setMinWidth(80);
+        pwdCol.setCellValueFactory(c -> {
+            ManualRow row = c.getValue();
+            return new javafx.beans.property.SimpleStringProperty(
+                    row.passwordVisible() ? row.password() : mask(row.password()));
+        });
+        pwdCol.setCellFactory(col -> new javafx.scene.control.cell.TextFieldTableCell<ManualRow, String>(
+                new javafx.util.StringConverter<String>() {
+                    @Override public String toString(String s) { return s == null ? "" : s; }
+                    @Override public String fromString(String s) { return s; }
+                }) {
+            @Override
+            public void startEdit() {
+                super.startEdit();
+                if (isEditing() && getTableRow() != null && getTableRow().getItem() != null) {
+                    ManualRow row = (ManualRow) getTableRow().getItem();
+                    setText(row.password());
+                }
+            }
+            @Override
+            public void commitEdit(String newValue) {
+                super.commitEdit(newValue);
+                if (getTableRow() != null && getTableRow().getItem() != null) {
+                    ((ManualRow) getTableRow().getItem()).setPassword(newValue);
+                }
+            }
+            @Override
+            public void updateItem(String item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || getTableRow() == null || getTableRow().getItem() == null) return;
+                ManualRow row = (ManualRow) getTableRow().getItem();
+                if (!isEditing()) {
+                    setText(row.passwordVisible() ? row.password() : mask(row.password()));
+                }
+            }
+        });
+        table.getColumns().add(pwdCol);
+
+        // 私钥口令列
+        javafx.scene.control.TableColumn<ManualRow, String> ppCol =
+                new javafx.scene.control.TableColumn<>(i18n.get("import.column.passphrase"));
+        ppCol.setPrefWidth(120);
+        ppCol.setMinWidth(80);
+        ppCol.setCellValueFactory(c -> {
+            ManualRow row = c.getValue();
+            return new javafx.beans.property.SimpleStringProperty(
+                    row.passphraseVisible() ? row.passphrase() : mask(row.passphrase()));
+        });
+        ppCol.setCellFactory(col -> new javafx.scene.control.cell.TextFieldTableCell<ManualRow, String>(
+                new javafx.util.StringConverter<String>() {
+                    @Override public String toString(String s) { return s == null ? "" : s; }
+                    @Override public String fromString(String s) { return s; }
+                }) {
+            @Override
+            public void startEdit() {
+                super.startEdit();
+                if (isEditing() && getTableRow() != null && getTableRow().getItem() != null) {
+                    ManualRow row = (ManualRow) getTableRow().getItem();
+                    setText(row.passphrase());
+                }
+            }
+            @Override
+            public void commitEdit(String newValue) {
+                super.commitEdit(newValue);
+                if (getTableRow() != null && getTableRow().getItem() != null) {
+                    ((ManualRow) getTableRow().getItem()).setPassphrase(newValue);
+                }
+            }
+            @Override
+            public void updateItem(String item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || getTableRow() == null || getTableRow().getItem() == null) return;
+                ManualRow row = (ManualRow) getTableRow().getItem();
+                if (!isEditing()) {
+                    setText(row.passphraseVisible() ? row.passphrase() : mask(row.passphrase()));
+                }
+            }
+        });
+        table.getColumns().add(ppCol);
+
+        // 删除行按钮列
+        javafx.scene.control.TableColumn<ManualRow, Void> delCol =
+                new javafx.scene.control.TableColumn<>("");
+        delCol.setPrefWidth(36);
+        delCol.setMinWidth(36);
+        delCol.setMaxWidth(36);
+        delCol.setSortable(false);
+        delCol.setCellFactory(col -> new javafx.scene.control.TableCell<ManualRow, Void>() {
+            private final javafx.scene.control.Button btn = new javafx.scene.control.Button("✕");
+            {
+                btn.setStyle("-fx-background-color:transparent;-fx-text-fill:#9ca3af;-fx-padding:0;-fx-font-size:12px;-fx-cursor:hand;-fx-min-width:24px;-fx-min-height:20px;");
+                btn.setOnAction(e -> {
+                    ManualRow row = getTableView().getItems().get(getIndex());
+                    getTableView().getItems().remove(row);
+                });
+                btn.setOnMouseEntered(e -> btn.setStyle("-fx-background-color:transparent;-fx-text-fill:#ef4444;-fx-padding:0;-fx-font-size:12px;-fx-cursor:hand;-fx-min-width:24px;-fx-min-height:20px;"));
+                btn.setOnMouseExited(e -> btn.setStyle("-fx-background-color:transparent;-fx-text-fill:#9ca3af;-fx-padding:0;-fx-font-size:12px;-fx-cursor:hand;-fx-min-width:24px;-fx-min-height:20px;"));
+            }
+            @Override
+            protected void updateItem(Void item, boolean empty) {
+                super.updateItem(item, empty);
+                setGraphic(empty ? null : btn);
+            }
+        });
+        table.getColumns().add(delCol);
+
+        // ScrollPane 包裹：横向纵向都有滚动条
+        // fitToWidth/Height=false 让表格保持自然尺寸，超出视口时显示滚动条
+        javafx.scene.control.ScrollPane tableScroll = new javafx.scene.control.ScrollPane(table);
+        tableScroll.setFitToWidth(false);
+        tableScroll.setFitToHeight(false);
+        tableScroll.setPrefHeight(200);
+        tableScroll.setStyle("-fx-background: transparent; -fx-background-color: transparent;");
+        tableScroll.setHbarPolicy(javafx.scene.control.ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        tableScroll.setVbarPolicy(javafx.scene.control.ScrollPane.ScrollBarPolicy.AS_NEEDED);
+
+        javafx.scene.control.Button loadJsonBtn = new javafx.scene.control.Button(i18n.get("import.manual.browseJson"));
+        javafx.scene.control.Button addRowBtn = new javafx.scene.control.Button(i18n.get("import.manual.addRow"));
+        javafx.scene.control.Button sampleBtn = new javafx.scene.control.Button(i18n.get("import.manual.sample"));
+        javafx.scene.control.Button pasteJsonBtn = new javafx.scene.control.Button(i18n.get("import.manual.pasteJson"));
+        javafx.scene.control.Button importBtn = new javafx.scene.control.Button(i18n.get("import.button.import"));
+
+        sampleBtn.setOnAction(e -> showJsonSamplePopup(sampleBtn, i18n));
+        pasteJsonBtn.setOnAction(e -> showPasteJsonPopup(pasteJsonBtn, i18n, rows, projectId, service, globalResult));
+
+        loadJsonBtn.setOnAction(e -> {
+            javafx.stage.FileChooser fc = new javafx.stage.FileChooser();
+            fc.setTitle(i18n.get("import.manual.browseJson"));
+            fc.getExtensionFilters().add(new javafx.stage.FileChooser.ExtensionFilter(
+                    i18n.get("import.filter.json"), "*.json"));
+            java.io.File file = fc.showOpenDialog(loadJsonBtn.getScene().getWindow());
+            if (file == null) return;
+            try {
+                java.util.List<com.jlshell.ui.model.ConnectionFormData> parsed =
+                        new com.jlshell.ui.service.importer.ManualJsonParser(projectId).parse(file.toPath());
+                rows.clear();
+                for (com.jlshell.ui.model.ConnectionFormData f : parsed) {
+                    rows.add(new ManualRow(f.displayName(), f.host(), String.valueOf(f.port()),
+                            f.username(), f.authenticationType().name(), f.password(), f.passphrase()));
+                }
+            } catch (Exception ex) {
+                globalResult.setText(ex.getMessage());
+            }
+        });
+
+        addRowBtn.setOnAction(e -> rows.add(new ManualRow("", "", "22", "", "PASSWORD")));
+
+        importBtn.setOnAction(e -> {
+            if (rows.isEmpty()) return;
+            java.util.List<java.util.Map<String, String>> rowMaps = new java.util.ArrayList<>();
+            for (ManualRow r : rows) {
+                if (r.host() == null || r.host().isBlank()) continue;
+                java.util.Map<String, String> m = new java.util.LinkedHashMap<>();
+                m.put("name", r.name() == null ? "" : r.name());
+                m.put("host", r.host());
+                m.put("port", r.port() == null ? "22" : r.port());
+                m.put("user", r.user() == null ? "" : r.user());
+                m.put("authType", r.authType() == null ? "PASSWORD" : r.authType());
+                m.put("password", r.password() == null ? "" : r.password());
+                m.put("passphrase", r.passphrase() == null ? "" : r.passphrase());
+                rowMaps.add(m);
+            }
+            java.util.List<com.jlshell.ui.model.ConnectionFormData> forms =
+                    new com.jlshell.ui.service.importer.ManualJsonParser(projectId).fromRows(rowMaps);
+            performImport(service, projectId, forms, i18n.get("import.section.manual"), globalResult, i18n);
+        });
+
+        HBox buttonRow = new HBox(8, loadJsonBtn, addRowBtn, sampleBtn, pasteJsonBtn, importBtn);
+        VBox section = new VBox(6, title, hint, tableScroll, buttonRow);
+        section.setStyle("-fx-background-color: rgba(255,255,255,0.03); -fx-background-radius: 8; -fx-padding: 12;");
+        return section;
+    }
+
+    /** 密文遮罩：非空显示 "•••"，空显示空串。 */
+    private static String mask(String value) {
+        return (value == null || value.isEmpty()) ? "" : "•••";
+    }
+
+    /**
+     * 弹出一个悬浮的 JSON 格式示例窗口，包含密码认证和私钥认证两种形式，
+     * 用户可一键复制。点空白处或复制后自动关闭。
+     * 使用 CSS 样式类适配当前主题，不硬编码颜色。
+     */
+    private static void showJsonSamplePopup(javafx.scene.control.Button anchor, I18nService i18n) {
+        String sample =
+                "[\n"
+                + "  {\n"
+                + "    \"name\": \"web-server\",\n"
+                + "    \"host\": \"192.168.1.10\",\n"
+                + "    \"port\": 22,\n"
+                + "    \"user\": \"deploy\",\n"
+                + "    \"authType\": \"PASSWORD\",\n"
+                + "    \"password\": \"secret-password-here\",\n"
+                + "    \"description\": \"Production web server\"\n"
+                + "  },\n"
+                + "  {\n"
+                + "    \"name\": \"db-server\",\n"
+                + "    \"host\": \"192.168.1.20\",\n"
+                + "    \"port\": 22,\n"
+                + "    \"user\": \"admin\",\n"
+                + "    \"authType\": \"PRIVATE_KEY\",\n"
+                + "    \"privateKeyPath\": \"/Users/you/.ssh/id_ed25519\",\n"
+                + "    \"passphrase\": \"optional-key-passphrase\",\n"
+                + "    \"description\": \"Database server\"\n"
+                + "  }\n"
+                + "]";
+
+        javafx.scene.control.TextArea codeArea = new javafx.scene.control.TextArea(sample);
+        codeArea.setWrapText(true);
+        codeArea.setPrefSize(440, 280);
+        codeArea.setEditable(false);
+        codeArea.getStyleClass().add("import-json-code");
+
+        javafx.scene.control.Button copyBtn = new javafx.scene.control.Button(i18n.get("import.manual.sample.copy"));
+
+        javafx.stage.Popup popup = new javafx.stage.Popup();
+        popup.setAutoHide(true);
+        popup.setAutoFix(true);
+
+        copyBtn.setOnAction(ev -> {
+            java.awt.Toolkit.getDefaultToolkit()
+                    .getSystemClipboard()
+                    .setContents(new java.awt.datatransfer.StringSelection(sample), null);
+            popup.hide();
+        });
+
+        VBox content = new VBox(8, codeArea, copyBtn);
+        content.getStyleClass().addAll("import-json-sample", "dialog-pane");
+        content.setPadding(new Insets(12));
+        content.setPrefWidth(460);
+
+        popup.getContent().add(content);
+        // Popup 创建独立的 Scene，不会继承父窗口的样式表，需要手动添加
+        popup.getScene().getStylesheets().addAll(anchor.getScene().getStylesheets());
+        popup.show(anchor, anchor.getScene().getWindow().getX() + anchor.getLayoutX(),
+                anchor.getScene().getWindow().getY() + anchor.getLayoutY() + anchor.getHeight() + 4);
+    }
+
+    /**
+     * 弹出一个悬浮窗口让用户粘贴 JSON，点击导入后解析并添加到表格。
+     * 使用 CSS 样式类适配当前主题。
+     */
+    private static void showPasteJsonPopup(javafx.scene.control.Button anchor, I18nService i18n,
+                                           ObservableList<ManualRow> rows, String projectId,
+                                           com.jlshell.ui.service.ConnectionProfileService service,
+                                           Label globalResult) {
+        javafx.scene.control.TextArea pasteArea = new javafx.scene.control.TextArea();
+        pasteArea.setPromptText(i18n.get("import.manual.pasteJson.hint"));
+        pasteArea.setWrapText(true);
+        pasteArea.setPrefSize(440, 260);
+        pasteArea.getStyleClass().add("import-json-code");
+
+        javafx.scene.control.Button importBtn = new javafx.scene.control.Button(i18n.get("import.button.import"));
+        Label errorLabel = new Label();
+        errorLabel.setStyle("-fx-text-fill: #ef4444; -fx-font-size: 11px;");
+
+        javafx.stage.Popup popup = new javafx.stage.Popup();
+        popup.setAutoHide(true);
+        popup.setAutoFix(true);
+
+        importBtn.setOnAction(ev -> {
+            String text = pasteArea.getText().trim();
+            if (text.isEmpty()) return;
+            try {
+                java.util.List<com.jlshell.ui.model.ConnectionFormData> parsed =
+                        new com.jlshell.ui.service.importer.ManualJsonParser(projectId)
+                                .parseJsonText(text);
+                rows.clear();
+                for (com.jlshell.ui.model.ConnectionFormData f : parsed) {
+                    rows.add(new ManualRow(f.displayName(), f.host(), String.valueOf(f.port()),
+                            f.username(), f.authenticationType().name(), f.password(), f.passphrase()));
+                }
+                popup.hide();
+                globalResult.setText(i18n.get("import.found", parsed.size()));
+            } catch (Exception ex) {
+                errorLabel.setText(ex.getMessage());
+            }
+        });
+
+        VBox content = new VBox(8, pasteArea, errorLabel, importBtn);
+        content.getStyleClass().addAll("import-json-sample", "dialog-pane");
+        content.setPadding(new Insets(12));
+        content.setPrefWidth(460);
+
+        popup.getContent().add(content);
+        // Popup 创建独立的 Scene，不会继承父窗口的样式表，需要手动添加
+        popup.getScene().getStylesheets().addAll(anchor.getScene().getStylesheets());
+        popup.show(anchor, anchor.getScene().getWindow().getX() + anchor.getLayoutX(),
+                anchor.getScene().getWindow().getY() + anchor.getLayoutY() + anchor.getHeight() + 4);
+    }
+
+    /**
+     * 创建可编辑的文本列。使用自定义 CellFactory，确保焦点丢失时也会提交编辑，
+     * 而不是 JavaFX 默认的 cancelEdit 行为（点击其他单元格会丢失输入）。
+     */
+    private static javafx.scene.control.TableColumn<ManualRow, String> editableCol(
+            String title, java.util.function.Function<ManualRow, javafx.beans.property.SimpleStringProperty> propGetter,
+            double width) {
+        javafx.scene.control.TableColumn<ManualRow, String> col = new javafx.scene.control.TableColumn<>(title);
+        col.setCellValueFactory(c -> propGetter.apply(c.getValue()));
+        col.setCellFactory(tc -> new CommitOnFocusLostTableCell());
+        col.setOnEditCommit(e -> propGetter.apply(e.getRowValue()).set(e.getNewValue()));
+        col.setPrefWidth(width);
+        col.setMinWidth(width * 0.6);
+        return col;
+    }
+
+    /**
+     * 自定义 TextFieldTableCell：在 cancelEdit 时（点击其他单元格、焦点丢失）
+     * 提交输入值而非丢弃，解决 JavaFX 默认编辑丢失的 bug。
+     */
+    private static class CommitOnFocusLostTableCell extends javafx.scene.control.cell.TextFieldTableCell<ManualRow, String> {
+        CommitOnFocusLostTableCell() {
+            super(new javafx.util.StringConverter<String>() {
+                @Override public String toString(String s) { return s == null ? "" : s; }
+                @Override public String fromString(String s) { return s; }
+            });
+        }
+
+        @Override
+        public void cancelEdit() {
+            if (getGraphic() instanceof javafx.scene.control.TextField tf) {
+                commitEdit(tf.getText());
+            } else {
+                super.cancelEdit();
+            }
+        }
+    }
+
+    /**
+     * 执行导入：在当前项目下建三级文件夹分层：
+     *   导入（根）→ 来源（MobaXterm/Xshell/手动）→ 日期时间（yyyy-MM-dd HH:mm:ss）
+     * 如果"导入"根文件夹已存在则复用，否则新建。
+     */
+    private static void performImport(com.jlshell.ui.service.ConnectionProfileService service,
+                                      String projectId,
+                                      java.util.List<com.jlshell.ui.model.ConnectionFormData> profiles,
+                                      String sourceLabel,
+                                      Label resultLabel,
+                                      I18nService i18n) {
+        if (profiles.isEmpty()) return;
+        int success = 0;
+        try {
+            // 第一级："导入" 根文件夹（复用已有）
+            String importRootName = i18n.get("import.folder.root");
+            com.jlshell.ui.model.FolderProfile importRoot = findOrCreateFolder(service, importRootName, null, projectId);
+
+            // 第二级：来源子文件夹（MobaXterm / Xshell / 手动）
+            com.jlshell.ui.model.FolderProfile sourceFolder = findOrCreateFolder(service, sourceLabel, importRoot.id(), projectId);
+
+            // 第三级：日期时间
+            String dateTime = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            com.jlshell.ui.model.FolderProfile dateFolder = service.saveFolder(null, dateTime, sourceFolder.id(), projectId);
+
+            for (com.jlshell.ui.model.ConnectionFormData form : profiles) {
+                try {
+                    service.saveImported(form.withFolderId(dateFolder.id()));
+                    success++;
+                } catch (Exception ex) {
+                    org.slf4j.LoggerFactory.getLogger(PreferencesDialog.class)
+                            .warn("Skip failed import entry: {}", ex.getMessage());
+                }
+            }
+            resultLabel.setText(i18n.get("import.result.count", success, profiles.size()));
+        } catch (Exception ex) {
+            resultLabel.setText(ex.getMessage());
+        }
+    }
+
+    /**
+     * 在指定 parentId 下查找同名文件夹，找到则返回，否则新建。
+     */
+    private static com.jlshell.ui.model.FolderProfile findOrCreateFolder(
+            com.jlshell.ui.service.ConnectionProfileService service,
+            String name, String parentId, String projectId) {
+        java.util.List<com.jlshell.ui.model.FolderProfile> allFolders = service.listFolders(projectId);
+        for (com.jlshell.ui.model.FolderProfile f : allFolders) {
+            if (name.equals(f.name()) && java.util.Objects.equals(parentId, f.parentId())) {
+                return f;
+            }
+        }
+        return service.saveFolder(null, name, parentId, projectId);
+    }
+
+    /** 手动表格的行模型，使用 JavaFX StringProperty 以支持 TableView 编辑自动刷新。 */
+    public static class ManualRow {
+        private final javafx.beans.property.SimpleStringProperty name = new javafx.beans.property.SimpleStringProperty("");
+        private final javafx.beans.property.SimpleStringProperty host = new javafx.beans.property.SimpleStringProperty("");
+        private final javafx.beans.property.SimpleStringProperty port = new javafx.beans.property.SimpleStringProperty("22");
+        private final javafx.beans.property.SimpleStringProperty user = new javafx.beans.property.SimpleStringProperty("");
+        private final javafx.beans.property.SimpleStringProperty authType = new javafx.beans.property.SimpleStringProperty("PASSWORD");
+        private final javafx.beans.property.SimpleStringProperty password = new javafx.beans.property.SimpleStringProperty("");
+        private final javafx.beans.property.SimpleStringProperty passphrase = new javafx.beans.property.SimpleStringProperty("");
+        private boolean passwordVisible;
+        private boolean passphraseVisible;
+
+        public ManualRow(String name, String host, String port, String user, String authType) {
+            this(name, host, port, user, authType, "", "");
+        }
+
+        public ManualRow(String name, String host, String port, String user, String authType,
+                         String password, String passphrase) {
+            this.name.set(name);
+            this.host.set(host);
+            this.port.set(port);
+            this.user.set(user);
+            this.authType.set(authType);
+            this.password.set(password);
+            this.passphrase.set(passphrase);
+        }
+
+        public javafx.beans.property.SimpleStringProperty nameProperty() { return name; }
+        public String name() { return name.get(); }
+        public void setName(String v) { name.set(v); }
+        public javafx.beans.property.SimpleStringProperty hostProperty() { return host; }
+        public String host() { return host.get(); }
+        public void setHost(String v) { host.set(v); }
+        public javafx.beans.property.SimpleStringProperty portProperty() { return port; }
+        public String port() { return port.get(); }
+        public void setPort(String v) { port.set(v); }
+        public javafx.beans.property.SimpleStringProperty userProperty() { return user; }
+        public String user() { return user.get(); }
+        public void setUser(String v) { user.set(v); }
+        public javafx.beans.property.SimpleStringProperty authTypeProperty() { return authType; }
+        public String authType() { return authType.get(); }
+        public void setAuthType(String v) { authType.set(v); }
+        public javafx.beans.property.SimpleStringProperty passwordProperty() { return password; }
+        public String password() { return password.get(); }
+        public void setPassword(String v) { password.set(v); }
+        public javafx.beans.property.SimpleStringProperty passphraseProperty() { return passphrase; }
+        public String passphrase() { return passphrase.get(); }
+        public void setPassphrase(String v) { passphrase.set(v); }
+        public boolean passwordVisible() { return passwordVisible; }
+        public void setPasswordVisible(boolean v) { this.passwordVisible = v; }
+        public boolean passphraseVisible() { return passphraseVisible; }
+        public void setPassphraseVisible(boolean v) { this.passphraseVisible = v; }
     }
 
     // ── About Tab ──────────────────────────────────────────────────────────

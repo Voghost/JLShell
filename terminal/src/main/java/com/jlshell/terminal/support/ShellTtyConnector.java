@@ -7,17 +7,23 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import com.jediterm.core.util.TermSize;
 import com.jediterm.terminal.Questioner;
 import com.jediterm.terminal.TtyConnector;
 import com.jlshell.core.model.TerminalSize;
 import com.jlshell.core.session.ShellChannel;
+import javafx.application.Platform;
+import javafx.beans.property.SimpleStringProperty;
+import javafx.beans.property.StringProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * 将 core 层的 ShellChannel 适配为 JediTerm 所需的 TtyConnector。
+ * 同时解析终端输出中的 OSC 7 序列以追踪当前工作目录。
  */
 public class ShellTtyConnector implements TtyConnector {
 
@@ -32,6 +38,13 @@ public class ShellTtyConnector implements TtyConnector {
     private final AtomicBoolean closeStarted = new AtomicBoolean(false);
     private final CompletableFuture<Void> closeFuture = new CompletableFuture<>();
 
+    /** 终端当前工作目录，通过 OSC 7 序列追踪 */
+    private final StringProperty cwdProperty = new SimpleStringProperty("");
+
+    /** 用于拼接可能跨 read() 调用的 OSC 序列 */
+    private StringBuilder oscBuffer;
+    private boolean inOscSequence;
+
     public ShellTtyConnector(String name, ShellChannel shellChannel, ExecutorService executorService) {
         this.name = name;
         this.shellChannel = shellChannel;
@@ -40,17 +53,91 @@ public class ShellTtyConnector implements TtyConnector {
         this.executorService = executorService;
     }
 
+    /** 返回终端当前工作目录的可观察属性。 */
+    public StringProperty cwdProperty() {
+        return cwdProperty;
+    }
+
     @Override
     public int read(char[] buffer, int offset, int length) throws IOException {
         try {
             int read = reader.read(buffer, offset, length);
             if (read < 0) {
                 markDisconnected();
+            } else {
+                scanForOsc7(buffer, offset, read);
             }
             return read;
         } catch (IOException exception) {
             markDisconnected();
             throw exception;
+        }
+    }
+
+    /**
+     * 扫描终端输出中的 OSC 7 序列以提取当前工作目录。
+     * OSC 7 格式: ESC ] 7 ; file://host/path BEL (0x07) 或 ST (ESC \)
+     */
+    private void scanForOsc7(char[] buffer, int offset, int length) {
+        for (int i = offset; i < offset + length; i++) {
+            char c = buffer[i];
+
+            if (inOscSequence) {
+                if (c == 0x07) {
+                    // BEL — OSC 结束
+                    processOsc7();
+                    inOscSequence = false;
+                } else if (c == 0x1B) {
+                    // 可能是 ST (ESC \)
+                    if (oscBuffer != null && oscBuffer.length() > 0
+                            && oscBuffer.charAt(oscBuffer.length() - 1) == 0x1B) {
+                        inOscSequence = false;
+                        oscBuffer = null;
+                    } else {
+                        if (oscBuffer == null) oscBuffer = new StringBuilder();
+                        oscBuffer.append(c);
+                    }
+                } else {
+                    if (oscBuffer != null && oscBuffer.length() > 0
+                            && oscBuffer.charAt(oscBuffer.length() - 1) == 0x1B && c == '\\') {
+                        oscBuffer.deleteCharAt(oscBuffer.length() - 1);
+                        processOsc7();
+                        inOscSequence = false;
+                    } else {
+                        if (oscBuffer == null) oscBuffer = new StringBuilder();
+                        oscBuffer.append(c);
+                    }
+                }
+            } else {
+                if (c == 0x1B && i + 1 < offset + length && buffer[i + 1] == ']') {
+                    inOscSequence = true;
+                    oscBuffer = new StringBuilder();
+                    i++; // 跳过 ']'
+                }
+            }
+        }
+    }
+
+    private void processOsc7() {
+        if (oscBuffer == null) return;
+        String content = oscBuffer.toString();
+        oscBuffer = null;
+
+        log.debug("[OSC7] 收到序列: {}", content);
+
+        if (content.startsWith("7;")) {
+            String url = content.substring(2);
+            Matcher matcher = Pattern.compile("file://[^/]*(.*)").matcher(url);
+            if (matcher.matches()) {
+                String path = matcher.group(1);
+                if (!path.isEmpty()) {
+                    String oldCwd = cwdProperty.get();
+                    if (!path.equals(oldCwd)) {
+                        log.debug("[OSC7] cwd 变化: {} -> {}", oldCwd, path);
+                        Platform.runLater(() -> cwdProperty.set(path));
+                    }
+                }
+            }
         }
     }
 
@@ -126,11 +213,6 @@ public class ShellTtyConnector implements TtyConnector {
                         closeFuture.complete(null);
                     }
                 }, executorService);
-    }
-
-    @Override
-    public boolean init(Questioner questioner) {
-        return true;
     }
 
     public CompletableFuture<Void> closeFuture() {

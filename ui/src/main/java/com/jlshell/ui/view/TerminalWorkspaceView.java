@@ -80,6 +80,17 @@ public class TerminalWorkspaceView extends BorderPane {
     private Node primaryNode;
     private TabPane workspaceTabPane;
 
+    /**
+     * 终端当前工作目录的可观察属性（来自主终端的 OSC 7 追踪）。
+     * 持久属性：不依赖 handles 是否已创建，监听器绑定一次即可。
+     * 当终端 handle 创建后，自动桥接到 handle 的 cwdProperty。
+     */
+    private final javafx.beans.property.SimpleStringProperty cwdProperty = new javafx.beans.property.SimpleStringProperty("");
+
+    public javafx.beans.property.StringProperty cwdProperty() {
+        return cwdProperty;
+    }
+
     // System info bar labels
     private Label ipLabel;
     private Label osLabel;
@@ -131,6 +142,36 @@ public class TerminalWorkspaceView extends BorderPane {
             terminalHost.getChildren().setAll(node);
             log.info("Terminal workspace initialized for session {}", sshSession.sessionId());
         }));
+    }
+
+    /**
+     * 向终端注入 OSC 7 提示钩子。
+     * bash: 通过 PROMPT_COMMAND 在每次提示时发送当前目录
+     * zsh: 通过 chpwd 钩子在目录变更时发送
+     *
+     * <p>使用 stty -echo 临时关闭回显来安静注入，完成后恢复回显。
+     */
+    public void injectOsc7PromptHook() {
+        if (handles.isEmpty()) return;
+        TerminalViewHandle handle = handles.getFirst();
+
+        // 用 stty -echo 关闭回显 → 执行钩子 → stty echo 恢复回显
+        // 用分号连接成单条命令行，一次性发送
+        String hook = ""
+                + " stty -echo;"
+                + " if [ -n \"$ZSH_VERSION\" ]; then"
+                + "   _jlshell_osc7() { printf '\\033]7;file://%s%s\\007' \"$HOSTNAME\" \"$PWD\"; };"
+                + "   chpwd_functions=(${chpwd_functions[@]} _jlshell_osc7);"
+                + "   _jlshell_osc7;"
+                + " elif [ -n \"$BASH_VERSION\" ]; then"
+                + "   _jlshell_osc7() { printf '\\033]7;file://%s%s\\007' \"$HOSTNAME\" \"$PWD\"; };"
+                + "   PROMPT_COMMAND=\"${PROMPT_COMMAND:+$PROMPT_COMMAND; }_jlshell_osc7\";"
+                + "   _jlshell_osc7;"
+                + " fi;"
+                + " stty echo\n";
+
+        handle.sendStringToTerminal(hook);
+        log.debug("[OSC7] Prompt hook injected (quiet mode via stty -echo)");
     }
 
     public void applyColorScheme(TerminalColorScheme scheme) {
@@ -668,7 +709,10 @@ public class TerminalWorkspaceView extends BorderPane {
     private void openFontSettings() {
         Window owner = getScene() != null ? getScene().getWindow() : null;
         Stage stage = owner instanceof Stage ? (Stage) owner : null;
-        PreferencesDialog.show(stage, fontProfileService, appSettingsService, i18nService, themeService);
+        // 从终端 Tab 打开偏好设置时没有 ConnectionProfileService 上下文，
+        // 传 null 让导入 Tab 显示提示信息（用户可从主菜单打开完整偏好设置）
+        PreferencesDialog.show(stage, fontProfileService, appSettingsService, i18nService, themeService,
+                null, null);
         FontProfile profile = fontProfileService.activeProfile();
         handles.forEach(h -> h.updateFontProfile(profile));
     }
@@ -807,6 +851,12 @@ public class TerminalWorkspaceView extends BorderPane {
         return terminalViewFactory.createTerminalView(sshSession, request)
                 .thenCompose(handle -> {
                     handles.add(handle);
+                    // 桥接终端 cwd 属性：当 handle 的 cwd 变化时同步到持久属性
+                    handle.cwdProperty().addListener((obs, oldCwd, newCwd) -> {
+                        if (newCwd != null && !newCwd.isBlank()) {
+                            cwdProperty.set(newCwd);
+                        }
+                    });
                     return FxThread.supplyAsync(() -> createEmbeddedTerminalNode(handle));
                 });
     }

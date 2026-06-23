@@ -26,7 +26,7 @@ public class PersistentFontProfileService implements FontProfileService {
     private static final String KEY_SPACING     = "terminal.font.lineSpacing";
     private static final String KEY_LIGATURES   = "terminal.font.ligatures";
 
-    private static final FontProfile DEFAULT = new FontProfile("JetBrains Mono", 13, true, 1.0);
+    private static final FontProfile DEFAULT = new FontProfile("SauceCodePro NFM", 13, true, 1.0);
 
     private final AppSettingsService settings;
     private final AtomicReference<FontProfile> cached;
