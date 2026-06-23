@@ -13,6 +13,7 @@ import com.jlshell.terminal.service.TerminalViewFactory;
 import com.jlshell.ui.model.ConnectionProfile;
 import com.jlshell.ui.service.ConnectionProfileService;
 import com.jlshell.plugin.loader.PluginManager;
+import com.jlshell.plugin.api.rpc.CapabilityBus;
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.theme.ThemeService;
 import javafx.scene.control.Label;
@@ -40,6 +41,7 @@ public class SessionWorkspaceTab extends Tab {
     private final I18nService i18nService;
     private final ThemeService themeService;
     private final PluginManager pluginManager;
+    private final CapabilityBus capabilityBus;
 
     private boolean filePaneInitialized;
     private Tab pluginsTab;
@@ -59,7 +61,8 @@ public class SessionWorkspaceTab extends Tab {
             SftpService sftpService,
             I18nService i18nService,
             ThemeService themeService,
-            PluginManager pluginManager
+            PluginManager pluginManager,
+            CapabilityBus capabilityBus
     ) {
         super(connectionProfile.displayName());
         this.connectionProfile = connectionProfile;
@@ -71,6 +74,7 @@ public class SessionWorkspaceTab extends Tab {
         this.i18nService = i18nService;
         this.themeService = themeService;
         this.pluginManager = pluginManager;
+        this.capabilityBus = capabilityBus;
 
         // 本工作区 Tab 的会话 id：来自 SSH 会话，用于 per-session 插件能力 registry 路由
         String sessionId = sshSession.sessionId().toString();
@@ -84,6 +88,7 @@ public class SessionWorkspaceTab extends Tab {
                 i18nService,
                 themeService,
                 pluginManager,
+                capabilityBus,
                 sftpService
         );
 
@@ -105,7 +110,7 @@ public class SessionWorkspaceTab extends Tab {
             pluginsTab = new Tab(i18nService.get("workspace.plugins"));
             pluginsTab.setClosable(false);
             pluginsTabView = new PluginsTabView(
-                    pluginManager, sessionId, sshSession, workspaceTabs, i18nService, themeService, sftpService);
+                    pluginManager, sessionId, sshSession, workspaceTabs, i18nService, themeService, sftpService, capabilityBus);
             pluginsTab.setContent(pluginsTabView);
             workspaceTabs.getTabs().add(pluginsTab);
         }

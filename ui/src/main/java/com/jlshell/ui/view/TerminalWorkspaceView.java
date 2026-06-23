@@ -24,6 +24,7 @@ import com.jlshell.plugin.loader.CapabilityRegistryImpl;
 import com.jlshell.plugin.loader.DefaultPluginContext;
 import com.jlshell.plugin.loader.PluginDescriptor;
 import com.jlshell.plugin.loader.PluginManager;
+import com.jlshell.plugin.api.rpc.CapabilityBus;
 import com.jlshell.sftp.service.SftpService;
 import com.jlshell.terminal.model.TerminalColorScheme;
 import com.jlshell.terminal.model.TerminalViewRequest;
@@ -73,6 +74,7 @@ public class TerminalWorkspaceView extends BorderPane {
     private final I18nService i18nService;
     private final ThemeService themeService;
     private final PluginManager pluginManager;
+    private final CapabilityBus capabilityBus;
     private final SftpService sftpService;
     /** 本工作区 Tab 对应的会话 id（SSH 会话或合成的 local-uuid），用于 per-session registry 路由 */
     private final String sessionId;
@@ -122,6 +124,7 @@ public class TerminalWorkspaceView extends BorderPane {
             I18nService i18nService,
             ThemeService themeService,
             PluginManager pluginManager,
+            CapabilityBus capabilityBus,
             SftpService sftpService
     ) {
         this.sessionId = sessionId;
@@ -132,6 +135,7 @@ public class TerminalWorkspaceView extends BorderPane {
         this.i18nService = i18nService;
         this.themeService = themeService;
         this.pluginManager = pluginManager;
+        this.capabilityBus = capabilityBus;
         this.sftpService = sftpService;
 
         getStyleClass().add("workspace-panel");
@@ -795,7 +799,7 @@ public class TerminalWorkspaceView extends BorderPane {
         Optional<SshSessionContext> sshCtx = Optional.of(
                 new com.jlshell.plugin.loader.SshSessionContextAdapter(sshSession, sftpService));
         CapabilityRegistryImpl sessionRegistry = pluginManager.registryForSession(sessionId);
-        DefaultPluginContext ctx = new DefaultPluginContext(desc.id(), sessionId, sessionRegistry, sshCtx, new DefaultPluginContext.Callbacks() {
+        DefaultPluginContext ctx = new DefaultPluginContext(desc.id(), sessionId, sessionRegistry, capabilityBus, sshCtx, new DefaultPluginContext.Callbacks() {
             private Tab openedTab;
 
             @Override

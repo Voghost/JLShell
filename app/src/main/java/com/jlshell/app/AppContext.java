@@ -182,7 +182,8 @@ public class AppContext implements AutoCloseable {
                 vaultService,
                 5,
                 pluginManager,
-                apiServer
+                apiServer,
+                capabilityBus
         );
 
         this.apiServer = apiServer;
