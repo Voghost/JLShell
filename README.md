@@ -1,5 +1,7 @@
 # JLShell
 
+[中文文档](README_zh.md)
+
 A modern cross-platform SSH/SFTP client built with JavaFX, featuring an IDE-inspired UI, SFTP file browser, plugin system with inter-plugin RPC, and an external JSON-RPC API.
 
 ![Java](https://img.shields.io/badge/Java-21-orange)
@@ -129,6 +131,7 @@ See `plugins/plugin-demo/` for a complete working example.
 |-----|-------------|
 | `sshSession()` | Active SSH session (commands, SFTP, interactive shell) |
 | `capabilityRegistry()` | Register capabilities for inter-plugin RPC |
+| `capabilityBus()` | Invoke other plugins' capabilities (returns `null` on old hosts) |
 | `openTab()` / `closeTab()` | Manage plugin tab in workspace |
 | `showNotification()` | Display in-app notifications |
 | `themeNameProperty()` | Observable theme changes |
@@ -172,6 +175,47 @@ public void activate(PluginContext ctx) {
 
 Capabilities are routed by `(sessionId, pluginId, capabilityName)` and share the same `CapabilityBus` as the external API — so external callers can invoke them directly.
 
+### Invoking Other Plugins' Capabilities
+
+Use `ctx.capabilityBus()` to call another plugin's capability from within your plugin:
+
+```java
+CapabilityBus bus = ctx.capabilityBus();
+if (bus != null) {
+    RpcRequest req = new RpcRequest(
+        sessionId, "com.jlshell.sysmon", "getMetrics", null, "req-1");
+    bus.invoke(req).thenAccept(resp -> {
+        if (resp.error() == null) {
+            JsonObject metrics = resp.result().getAsJsonObject();
+            double cpu = metrics.get("cpuUsage").getAsDouble();
+            // ...
+        }
+    });
+}
+```
+
+### Real-World Example: Script Snippets ↔ System Monitor
+
+The bundled demo plugins demonstrate the full RPC cycle:
+
+1. **System Monitor** registers a `getMetrics` capability that collects CPU, memory, network, and disk metrics from the remote server via SSH
+2. **Script Snippets** has a "📊 Fetch Metrics" button that calls `getMetrics` on System Monitor through the `CapabilityBus`
+3. Both capabilities are also available to external callers via the HTTP API:
+
+```bash
+# Get metrics from System Monitor plugin
+curl -s -H "Authorization: Bearer $TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"jsonrpc":"2.0","id":1,"method":"capability.invoke","params":{"sessionId":"...","pluginId":"com.jlshell.sysmon","capability":"getMetrics"}}' \
+     http://127.0.0.1:$PORT/rpc
+
+# Read a remote file via Script Snippets plugin
+curl -s -H "Authorization: Bearer $TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"jsonrpc":"2.0","id":2,"method":"capability.invoke","params":{"sessionId":"...","pluginId":"com.jlshell.demo.script-snippets","capability":"readConfig","args":{"path":"/etc/hostname"}}}' \
+     http://127.0.0.1:$PORT/rpc
+```
+
 ---
 
 ## External API
@@ -214,13 +258,9 @@ curl -s -H "Authorization: Bearer $TOKEN" \
      -H "Content-Type: application/json" \
      -d '{"jsonrpc":"2.0","id":2,"method":"command.run","params":{"sessionId":"...","command":"uname -a"}}' \
      http://127.0.0.1:$PORT/rpc
-
-# Invoke a plugin capability
-curl -s -H "Authorization: Bearer $TOKEN" \
-     -H "Content-Type: application/json" \
-     -d '{"jsonrpc":"2.0","id":3,"method":"capability.invoke","params":{"sessionId":"...","pluginId":"com.jlshell.demo.script-snippets","capability":"readConfig","args":{"path":"/etc/hostname"}}}' \
-     http://127.0.0.1:$PORT/rpc
 ```
+
+For capability invocation examples, see [Inter-Plugin RPC → Real-World Example](#real-world-example-script-snippets--system-monitor) above.
 
 ---
 
@@ -265,8 +305,8 @@ jlshell-parent
 ├── plugin-api     — Public SPI for plugin developers (standalone publishable JAR)
 ├── plugin-loader  — Plugin discovery, lifecycle, per-session capability bus
 └── plugins
-    ├── plugin-demo    — Script Snippets example (with readConfig capability)
-    └── plugin-sysmon  — System Monitor with real-time charts
+    ├── plugin-demo    — Script Snippets example (readConfig capability)
+    └── plugin-sysmon  — System Monitor with real-time charts + getMetrics capability
 ```
 
 ## Tech Stack
