@@ -72,7 +72,11 @@ public class SessionWorkspaceTab extends Tab {
         this.themeService = themeService;
         this.pluginManager = pluginManager;
 
+        // 本工作区 Tab 的会话 id：来自 SSH 会话，用于 per-session 插件能力 registry 路由
+        String sessionId = sshSession.sessionId().toString();
+
         this.terminalWorkspaceView = new TerminalWorkspaceView(
+                sessionId,
                 sshSession,
                 terminalViewFactory,
                 fontProfileService,
@@ -101,7 +105,7 @@ public class SessionWorkspaceTab extends Tab {
             pluginsTab = new Tab(i18nService.get("workspace.plugins"));
             pluginsTab.setClosable(false);
             pluginsTabView = new PluginsTabView(
-                    pluginManager, sshSession, workspaceTabs, i18nService, themeService, sftpService);
+                    pluginManager, sessionId, sshSession, workspaceTabs, i18nService, themeService, sftpService);
             pluginsTab.setContent(pluginsTabView);
             workspaceTabs.getTabs().add(pluginsTab);
         }

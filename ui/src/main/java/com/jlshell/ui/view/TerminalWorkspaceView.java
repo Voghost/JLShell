@@ -20,6 +20,7 @@ import com.jlshell.core.service.FontProfileService;
 import com.jlshell.core.session.SshSession;
 import com.jlshell.plugin.api.JlShellPlugin;
 import com.jlshell.plugin.api.SshSessionContext;
+import com.jlshell.plugin.loader.CapabilityRegistryImpl;
 import com.jlshell.plugin.loader.DefaultPluginContext;
 import com.jlshell.plugin.loader.PluginDescriptor;
 import com.jlshell.plugin.loader.PluginManager;
@@ -73,6 +74,8 @@ public class TerminalWorkspaceView extends BorderPane {
     private final ThemeService themeService;
     private final PluginManager pluginManager;
     private final SftpService sftpService;
+    /** 本工作区 Tab 对应的会话 id（SSH 会话或合成的 local-uuid），用于 per-session registry 路由 */
+    private final String sessionId;
     private final StackPane terminalHost = new StackPane();
     private final List<TerminalViewHandle> handles = new ArrayList<>();
     private final Set<String> activatedPluginIds = ConcurrentHashMap.newKeySet();
@@ -111,6 +114,7 @@ public class TerminalWorkspaceView extends BorderPane {
     private static final int MAX_PINNED = 5;
 
     public TerminalWorkspaceView(
+            String sessionId,
             SshSession sshSession,
             TerminalViewFactory terminalViewFactory,
             FontProfileService fontProfileService,
@@ -120,6 +124,7 @@ public class TerminalWorkspaceView extends BorderPane {
             PluginManager pluginManager,
             SftpService sftpService
     ) {
+        this.sessionId = sessionId;
         this.sshSession = sshSession;
         this.terminalViewFactory = terminalViewFactory;
         this.fontProfileService = fontProfileService;
@@ -789,7 +794,8 @@ public class TerminalWorkspaceView extends BorderPane {
 
         Optional<SshSessionContext> sshCtx = Optional.of(
                 new com.jlshell.plugin.loader.SshSessionContextAdapter(sshSession, sftpService));
-        DefaultPluginContext ctx = new DefaultPluginContext(desc.id(), sshCtx, new DefaultPluginContext.Callbacks() {
+        CapabilityRegistryImpl sessionRegistry = pluginManager.registryForSession(sessionId);
+        DefaultPluginContext ctx = new DefaultPluginContext(desc.id(), sessionId, sessionRegistry, sshCtx, new DefaultPluginContext.Callbacks() {
             private Tab openedTab;
 
             @Override
@@ -829,12 +835,13 @@ public class TerminalWorkspaceView extends BorderPane {
         });
         ctx.writableThemeNameProperty().bind(pluginManager.themeNameProperty());
         ctx.writableLocaleProperty().bind(pluginManager.localeProperty());
+        pluginManager.adoptContext(sessionId, desc.id(), ctx);
         pluginManager.activatePlugin(desc.id(), ctx);
         activatedPluginIds.add(desc.id());
     }
 
     public void stopPlugins() {
-        activatedPluginIds.forEach(pluginManager::deactivatePlugin);
+        activatedPluginIds.forEach(id -> pluginManager.deactivatePlugin(sessionId, id));
         activatedPluginIds.clear();
     }
 

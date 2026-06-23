@@ -190,6 +190,17 @@ public class PluginManager {
         return set != null ? set.registry : EMPTY_TRANSIENT;
     }
 
+    /**
+     * 确保某 session 的桶存在并返回其 registry（host 构建 DefaultPluginContext 前调用）。
+     * 与 {@link #registryFor(String)} 的区别：后者对未知 sessionId 返回只读空哨兵，
+     * 仅供 CapabilityBus 做只读查找；本方法始终创建并返回真实桶的 registry，
+     * 供 host 在新建插件上下文时拿到与桶一致、可写入的 registry。
+     */
+    public CapabilityRegistryImpl registryForSession(String sessionId) {
+        return activeBySession.computeIfAbsent(
+                (sessionId == null) ? GLOBAL_KEY : sessionId, SessionPluginSet::new).registry;
+    }
+
     public CapabilityRegistryImpl globalRegistry() { return registryFor(null); }
 
     /** 供 CapabilityBus 构造 CapabilityContext 时取插件的 PluginContext。 */
