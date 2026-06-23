@@ -5,6 +5,7 @@ import java.util.Optional;
 
 import com.jlshell.plugin.api.rpc.CapabilityBus;
 import com.jlshell.plugin.api.rpc.CapabilityRegistry;
+import com.jlshell.plugin.api.storage.PluginStorage;
 import javafx.beans.property.ReadOnlyObjectProperty;
 import javafx.beans.property.ReadOnlyStringProperty;
 
@@ -49,6 +50,11 @@ public interface PluginContext {
 
     /** 能力总线：用于调用其他插件注册的能力。旧 host 无总线时返回 null，调用方应检查。 */
     default CapabilityBus capabilityBus() {
+        return null;
+    }
+
+    /** 插件持久存储代理。旧 host 无存储时返回 null，插件应检查后再使用。 */
+    default PluginStorage storage() {
         return null;
     }
 

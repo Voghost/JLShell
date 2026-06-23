@@ -123,6 +123,9 @@ public class MainWindow {
     private VBox sidebarVBox;
     private Button revealSidebarBtn;
 
+    // ── 插件存储工厂 ──
+    private final java.util.function.Function<String, com.jlshell.plugin.api.storage.PluginStorage> storageFactory;
+
     public MainWindow(
             MainViewModel viewModel,
             ConnectionProfileService connectionProfileService,
@@ -139,7 +142,8 @@ public class MainWindow {
             int maxFolderDepth,
             PluginManager pluginManager,
             ApiServer apiServer,
-            CapabilityBus capabilityBus
+            CapabilityBus capabilityBus,
+            java.util.function.Function<String, com.jlshell.plugin.api.storage.PluginStorage> storageFactory
     ) {
         this.viewModel = viewModel;
         this.connectionProfileService = connectionProfileService;
@@ -157,6 +161,7 @@ public class MainWindow {
         this.pluginManager = pluginManager;
         this.apiServer = apiServer;
         this.capabilityBus = capabilityBus;
+        this.storageFactory = storageFactory;
 
         // Restore saved active project
         String savedProject = appSettingsService.get("ui.activeProject", "");
@@ -1040,7 +1045,8 @@ public class MainWindow {
                     i18nService,
                     themeService,
                     pluginManager,
-                    capabilityBus
+                    capabilityBus,
+                    storageFactory
             );
             tab.setClosable(true);
             tab.setContextMenu(buildTabContextMenu(tab));

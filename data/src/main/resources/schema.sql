@@ -93,3 +93,11 @@ CREATE TABLE IF NOT EXISTS terminal_color_schemes (
     created_at  INTEGER NOT NULL,
     updated_at  INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS plugin_storage (
+    plugin_id  TEXT    NOT NULL,
+    key        TEXT    NOT NULL,
+    value      TEXT,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (plugin_id, key)
+);

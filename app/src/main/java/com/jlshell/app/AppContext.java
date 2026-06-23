@@ -22,6 +22,7 @@ import com.jlshell.data.crypto.CredentialCipher;
 import com.jlshell.data.crypto.FileSystemMasterKeyProvider;
 import com.jlshell.data.service.JdbiAppSettingsService;
 import com.jlshell.data.service.JdbiCustomColorSchemeStore;
+import com.jlshell.data.JdbiPluginStorage;
 import com.jlshell.plugin.loader.CapabilityBusImpl;
 import com.jlshell.plugin.loader.PluginManager;
 import com.jlshell.sftp.service.SftpService;
@@ -167,6 +168,9 @@ public class AppContext implements AutoCloseable {
         }
 
         // 7. Main window
+        java.util.function.Function<String, com.jlshell.plugin.api.storage.PluginStorage> storageFactory =
+                pluginId -> new JdbiPluginStorage(jdbi, pluginId);
+
         mainWindow = new MainWindow(
                 viewModel,
                 connectionProfileService,
@@ -183,7 +187,8 @@ public class AppContext implements AutoCloseable {
                 5,
                 pluginManager,
                 apiServer,
-                capabilityBus
+                capabilityBus,
+                storageFactory
         );
 
         this.apiServer = apiServer;

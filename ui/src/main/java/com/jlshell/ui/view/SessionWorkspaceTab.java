@@ -14,6 +14,7 @@ import com.jlshell.ui.model.ConnectionProfile;
 import com.jlshell.ui.service.ConnectionProfileService;
 import com.jlshell.plugin.loader.PluginManager;
 import com.jlshell.plugin.api.rpc.CapabilityBus;
+import com.jlshell.plugin.api.storage.PluginStorage;
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.theme.ThemeService;
 import javafx.scene.control.Label;
@@ -42,6 +43,7 @@ public class SessionWorkspaceTab extends Tab {
     private final ThemeService themeService;
     private final PluginManager pluginManager;
     private final CapabilityBus capabilityBus;
+    private final java.util.function.Function<String, PluginStorage> storageFactory;
 
     private boolean filePaneInitialized;
     private Tab pluginsTab;
@@ -62,7 +64,8 @@ public class SessionWorkspaceTab extends Tab {
             I18nService i18nService,
             ThemeService themeService,
             PluginManager pluginManager,
-            CapabilityBus capabilityBus
+            CapabilityBus capabilityBus,
+            java.util.function.Function<String, PluginStorage> storageFactory
     ) {
         super(connectionProfile.displayName());
         this.connectionProfile = connectionProfile;
@@ -75,6 +78,7 @@ public class SessionWorkspaceTab extends Tab {
         this.themeService = themeService;
         this.pluginManager = pluginManager;
         this.capabilityBus = capabilityBus;
+        this.storageFactory = storageFactory;
 
         // 本工作区 Tab 的会话 id：来自 SSH 会话，用于 per-session 插件能力 registry 路由
         String sessionId = sshSession.sessionId().toString();
@@ -89,7 +93,8 @@ public class SessionWorkspaceTab extends Tab {
                 themeService,
                 pluginManager,
                 capabilityBus,
-                sftpService
+                sftpService,
+                storageFactory
         );
 
         Tab terminalTab = new Tab(i18nService.get("workspace.terminal"), terminalWorkspaceView);
@@ -110,7 +115,7 @@ public class SessionWorkspaceTab extends Tab {
             pluginsTab = new Tab(i18nService.get("workspace.plugins"));
             pluginsTab.setClosable(false);
             pluginsTabView = new PluginsTabView(
-                    pluginManager, sessionId, sshSession, workspaceTabs, i18nService, themeService, sftpService, capabilityBus);
+                    pluginManager, sessionId, sshSession, workspaceTabs, i18nService, themeService, sftpService, capabilityBus, storageFactory);
             pluginsTab.setContent(pluginsTabView);
             workspaceTabs.getTabs().add(pluginsTab);
         }
