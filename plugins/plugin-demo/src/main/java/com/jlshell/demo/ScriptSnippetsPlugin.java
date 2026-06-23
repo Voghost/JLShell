@@ -196,8 +196,7 @@ public class ScriptSnippetsPlugin implements JlShellPlugin, PluginView {
             metricsBtn.setTooltip(new javafx.scene.control.Tooltip(
                     "Fetch system metrics from System Monitor plugin via inter-plugin RPC"));
             metricsBtn.setOnAction(e -> {
-                String sid = (context instanceof com.jlshell.plugin.loader.DefaultPluginContext dpc)
-                        ? dpc.sessionId() : null;
+                String sid = context.sshSession().map(com.jlshell.plugin.api.SshSessionContext::sessionId).orElse(null);
                 if (sid == null) {
                     outputArea.setText("No session context available for RPC.");
                     return;
