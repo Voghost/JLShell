@@ -3,6 +3,7 @@ package com.jlshell.plugin.api;
 import java.util.Locale;
 import java.util.Optional;
 
+import com.jlshell.plugin.api.rpc.CapabilityRegistry;
 import javafx.beans.property.ReadOnlyObjectProperty;
 import javafx.beans.property.ReadOnlyStringProperty;
 
@@ -39,6 +40,11 @@ public interface PluginContext {
     String resolveI18n(String key, String fallback);
 
     void showNotification(String message, NotificationLevel level);
+
+    /** 该会话的能力注册表。旧插件不调用此方法；default 返回 no-op 空 registry，调用也安全。 */
+    default CapabilityRegistry capabilityRegistry() {
+        return CapabilityRegistry.empty();
+    }
 
     /** Log a message at DEBUG level. Tagged with the plugin's id for filtering. */
     default void debug(String message) {}
