@@ -4,7 +4,7 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import com.google.gson.JsonElement;
-import com.jlshell.api.server.jsonrpc.JsonRpcError;
+import com.jlshell.api.server.jsonrpc.JsonRpcCodec;
 
 /** method 名 → handler 路由。未知 method 返回带 METHOD_NOT_FOUND 的 failed future。 */
 public class MethodDispatcher {
@@ -24,9 +24,9 @@ public class MethodDispatcher {
         }
     }
 
-    /** 未知 method 的异常，供 RpcHandler 映射成 JSON-RPC error。 */
+    /** 未知 method 的异常，供 RpcHandler 映射成 JSON-RPC error。code 与 JsonRpcCodec.METHOD_NOT_FOUND 同源。 */
     public static class MethodNotFoundException extends RuntimeException {
-        public final int code = JsonRpcError.of(-32601, "").code();
+        public final int code = JsonRpcCodec.METHOD_NOT_FOUND;
         public MethodNotFoundException(String method) { super("method not found: " + method); }
     }
 }
