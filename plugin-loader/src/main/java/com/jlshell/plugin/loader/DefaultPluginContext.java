@@ -8,6 +8,7 @@ import com.jlshell.plugin.api.PluginContext;
 import com.jlshell.plugin.api.SshSessionContext;
 import com.jlshell.plugin.api.rpc.CapabilityBus;
 import com.jlshell.plugin.api.rpc.CapabilityRegistry;
+import com.jlshell.plugin.api.storage.PluginStorage;
 
 import javafx.beans.property.ReadOnlyObjectProperty;
 import javafx.beans.property.ReadOnlyStringProperty;
@@ -26,6 +27,7 @@ public class DefaultPluginContext implements PluginContext {
     private final String sessionId;
     private final CapabilityRegistry registry;
     private final CapabilityBus capabilityBus;
+    private final PluginStorage storage;
     private final StringProperty themeName = new SimpleStringProperty("dark");
     private final SimpleObjectProperty<Locale> locale = new SimpleObjectProperty<>(Locale.getDefault());
     private final Optional<SshSessionContext> sshSession;
@@ -40,13 +42,21 @@ public class DefaultPluginContext implements PluginContext {
 
     public DefaultPluginContext(String pluginId, String sessionId,
                                 CapabilityRegistry registry, CapabilityBus capabilityBus,
+                                PluginStorage storage,
                                 Optional<SshSessionContext> sshSession, Callbacks callbacks) {
         this.pluginId = pluginId;
         this.sessionId = sessionId;
         this.registry = registry;
         this.capabilityBus = capabilityBus;
+        this.storage = storage;
         this.sshSession = sshSession;
         this.callbacks = callbacks;
+    }
+
+    public DefaultPluginContext(String pluginId, String sessionId,
+                                CapabilityRegistry registry, CapabilityBus capabilityBus,
+                                Optional<SshSessionContext> sshSession, Callbacks callbacks) {
+        this(pluginId, sessionId, registry, capabilityBus, null, sshSession, callbacks);
     }
 
     public DefaultPluginContext(String pluginId, String sessionId,
@@ -74,6 +84,11 @@ public class DefaultPluginContext implements PluginContext {
     @Override
     public CapabilityBus capabilityBus() {
         return capabilityBus;
+    }
+
+    @Override
+    public PluginStorage storage() {
+        return storage;
     }
 
     @Override

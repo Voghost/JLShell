@@ -2,8 +2,10 @@ package com.jlshell.ui.view;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
@@ -58,6 +60,11 @@ public class SidebarTreeView {
     private Consumer<String> onNewConnectionInFolder;
 
     private final Map<String, Integer> folderDepths = new HashMap<>();
+
+    /** 完整树结构快照，用于搜索过滤时恢复。key = TreeItem, value = 该节点的原始 children。 */
+    private final Map<TreeItem<SidebarItem>, List<TreeItem<SidebarItem>>> originalChildren = new HashMap<>();
+    /** 当前搜索关键词（小写），null 或空表示不过滤。 */
+    private String currentFilter;
 
     public SidebarTreeView(I18nService i18n, int maxFolderDepth) {
         this.i18n = i18n;
@@ -183,6 +190,114 @@ public class SidebarTreeView {
             } else {
                 root.getChildren().add(item);
             }
+        }
+
+        // 保存完整树结构快照，供搜索过滤使用
+        saveOriginalStructure();
+    }
+
+    // ── 搜索过滤 ──────────────────────────────────────────────────────
+
+    /** 在 populate() 末尾调用，保存完整树结构快照供过滤使用。 */
+    private void saveOriginalStructure() {
+        originalChildren.clear();
+        saveChildrenRecursive(root);
+    }
+
+    private void saveChildrenRecursive(TreeItem<SidebarItem> item) {
+        List<TreeItem<SidebarItem>> childrenCopy = new ArrayList<>(item.getChildren());
+        originalChildren.put(item, childrenCopy);
+        for (TreeItem<SidebarItem> child : childrenCopy) {
+            saveChildrenRecursive(child);
+        }
+    }
+
+    /**
+     * 应用搜索过滤。filterText 为空或 null 时恢复完整树。
+     * 按文件夹名、连接名、连接 summary（user@host:port）做大小写无关匹配。
+     * 匹配文件夹的子项也会全部显示；匹配连接的祖先文件夹也会被保留并展开。
+     */
+    public void applyFilter(String filterText) {
+        currentFilter = (filterText == null || filterText.isBlank()) ? null : filterText.toLowerCase();
+        if (currentFilter == null) {
+            restoreFullTree();
+            return;
+        }
+
+        Set<TreeItem<SidebarItem>> matchingItems = new HashSet<>();
+        Set<TreeItem<SidebarItem>> requiredParents = new HashSet<>();
+
+        // 构建 child → parent 的映射（从 originalChildren 推导，不依赖实时 getParent）
+        Map<TreeItem<SidebarItem>, TreeItem<SidebarItem>> childToOriginalParent = new HashMap<>();
+        for (Map.Entry<TreeItem<SidebarItem>, List<TreeItem<SidebarItem>>> entry : originalChildren.entrySet()) {
+            for (TreeItem<SidebarItem> child : entry.getValue()) {
+                childToOriginalParent.put(child, entry.getKey());
+            }
+        }
+
+        // 遍历所有原始 children，找出匹配节点
+        for (List<TreeItem<SidebarItem>> children : originalChildren.values()) {
+            for (TreeItem<SidebarItem> child : children) {
+                SidebarItem value = child.getValue();
+                if (value == null) continue;
+
+                boolean matches = switch (value) {
+                    case SidebarItem.FolderItem folder ->
+                            folder.displayName().toLowerCase().contains(currentFilter);
+                    case SidebarItem.ConnectionItem conn ->
+                            conn.displayName().toLowerCase().contains(currentFilter)
+                            || conn.summary().toLowerCase().contains(currentFilter);
+                };
+
+                if (matches) {
+                    matchingItems.add(child);
+                    // 匹配文件夹时，其所有子节点也应该显示
+                    if (value instanceof SidebarItem.FolderItem) {
+                        addAllDescendants(child, matchingItems);
+                    }
+                    // 将所有祖先加入 requiredParents
+                    TreeItem<SidebarItem> ancestor = childToOriginalParent.get(child);
+                    while (ancestor != null && ancestor.getValue() != null) {
+                        requiredParents.add(ancestor);
+                        ancestor = childToOriginalParent.get(ancestor);
+                    }
+                }
+            }
+        }
+
+        // 根据匹配结果重建每个节点的可见 children
+        for (Map.Entry<TreeItem<SidebarItem>, List<TreeItem<SidebarItem>>> entry : originalChildren.entrySet()) {
+            TreeItem<SidebarItem> parent = entry.getKey();
+            List<TreeItem<SidebarItem>> origChildren = entry.getValue();
+
+            List<TreeItem<SidebarItem>> visibleChildren = new ArrayList<>();
+            for (TreeItem<SidebarItem> origChild : origChildren) {
+                if (matchingItems.contains(origChild) || requiredParents.contains(origChild)) {
+                    visibleChildren.add(origChild);
+                }
+            }
+            parent.getChildren().setAll(visibleChildren);
+            if (requiredParents.contains(parent)) {
+                parent.setExpanded(true);
+            }
+        }
+    }
+
+    /** 递归添加所有后代节点到 matchingItems。 */
+    private void addAllDescendants(TreeItem<SidebarItem> item, Set<TreeItem<SidebarItem>> matchingItems) {
+        List<TreeItem<SidebarItem>> children = originalChildren.get(item);
+        if (children != null) {
+            for (TreeItem<SidebarItem> child : children) {
+                matchingItems.add(child);
+                addAllDescendants(child, matchingItems);
+            }
+        }
+    }
+
+    /** 恢复完整树（清除过滤）。 */
+    private void restoreFullTree() {
+        for (Map.Entry<TreeItem<SidebarItem>, List<TreeItem<SidebarItem>>> entry : originalChildren.entrySet()) {
+            entry.getKey().getChildren().setAll(entry.getValue());
         }
     }
 

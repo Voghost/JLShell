@@ -25,6 +25,7 @@ import com.jlshell.plugin.loader.DefaultPluginContext;
 import com.jlshell.plugin.loader.PluginDescriptor;
 import com.jlshell.plugin.loader.PluginManager;
 import com.jlshell.plugin.api.rpc.CapabilityBus;
+import com.jlshell.plugin.api.storage.PluginStorage;
 import com.jlshell.sftp.service.SftpService;
 import com.jlshell.terminal.model.TerminalColorScheme;
 import com.jlshell.terminal.model.TerminalViewRequest;
@@ -76,6 +77,7 @@ public class TerminalWorkspaceView extends BorderPane {
     private final PluginManager pluginManager;
     private final CapabilityBus capabilityBus;
     private final SftpService sftpService;
+    private final java.util.function.Function<String, PluginStorage> storageFactory;
     /** 本工作区 Tab 对应的会话 id（SSH 会话或合成的 local-uuid），用于 per-session registry 路由 */
     private final String sessionId;
     private final StackPane terminalHost = new StackPane();
@@ -125,7 +127,8 @@ public class TerminalWorkspaceView extends BorderPane {
             ThemeService themeService,
             PluginManager pluginManager,
             CapabilityBus capabilityBus,
-            SftpService sftpService
+            SftpService sftpService,
+            java.util.function.Function<String, PluginStorage> storageFactory
     ) {
         this.sessionId = sessionId;
         this.sshSession = sshSession;
@@ -137,6 +140,7 @@ public class TerminalWorkspaceView extends BorderPane {
         this.pluginManager = pluginManager;
         this.capabilityBus = capabilityBus;
         this.sftpService = sftpService;
+        this.storageFactory = storageFactory;
 
         getStyleClass().add("workspace-panel");
         setTop(buildToolbar());
@@ -799,7 +803,9 @@ public class TerminalWorkspaceView extends BorderPane {
         Optional<SshSessionContext> sshCtx = Optional.of(
                 new com.jlshell.plugin.loader.SshSessionContextAdapter(sshSession, sftpService));
         CapabilityRegistryImpl sessionRegistry = pluginManager.registryForSession(sessionId);
-        DefaultPluginContext ctx = new DefaultPluginContext(desc.id(), sessionId, sessionRegistry, capabilityBus, sshCtx, new DefaultPluginContext.Callbacks() {
+        com.jlshell.plugin.api.storage.PluginStorage pluginStorage =
+                storageFactory != null ? storageFactory.apply(desc.id()) : null;
+        DefaultPluginContext ctx = new DefaultPluginContext(desc.id(), sessionId, sessionRegistry, capabilityBus, pluginStorage, sshCtx, new DefaultPluginContext.Callbacks() {
             private Tab openedTab;
 
             @Override

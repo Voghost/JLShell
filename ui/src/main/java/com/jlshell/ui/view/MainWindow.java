@@ -114,6 +114,18 @@ public class MainWindow {
 
     private final int maxFolderDepth;
 
+    // ── 搜索过滤 ──
+    private javafx.scene.control.TextField searchField;
+
+    // ── 侧边栏折叠/展开 ──
+    private boolean sidebarVisible = true;
+    private SplitPane centerSplitPane;
+    private VBox sidebarVBox;
+    private Button revealSidebarBtn;
+
+    // ── 插件存储工厂 ──
+    private final java.util.function.Function<String, com.jlshell.plugin.api.storage.PluginStorage> storageFactory;
+
     public MainWindow(
             MainViewModel viewModel,
             ConnectionProfileService connectionProfileService,
@@ -130,7 +142,8 @@ public class MainWindow {
             int maxFolderDepth,
             PluginManager pluginManager,
             ApiServer apiServer,
-            CapabilityBus capabilityBus
+            CapabilityBus capabilityBus,
+            java.util.function.Function<String, com.jlshell.plugin.api.storage.PluginStorage> storageFactory
     ) {
         this.viewModel = viewModel;
         this.connectionProfileService = connectionProfileService;
@@ -148,6 +161,7 @@ public class MainWindow {
         this.pluginManager = pluginManager;
         this.apiServer = apiServer;
         this.capabilityBus = capabilityBus;
+        this.storageFactory = storageFactory;
 
         // Restore saved active project
         String savedProject = appSettingsService.get("ui.activeProject", "");
@@ -273,11 +287,14 @@ public class MainWindow {
 
         // View 菜单
         Menu viewMenu = new Menu(i18nService.get("menu.view"));
+        MenuItem toggleSidebarItem = new MenuItem(i18nService.get("sidebar.toggle"));
+        toggleSidebarItem.setAccelerator(new KeyCodeCombination(KeyCode.B, KeyCombination.SHORTCUT_DOWN));
+        toggleSidebarItem.setOnAction(event -> toggleSidebar());
         MenuItem darkTheme = new MenuItem(i18nService.get("theme.dark"));
         MenuItem lightTheme = new MenuItem(i18nService.get("theme.light"));
         darkTheme.setOnAction(event -> themeService.setTheme(AppTheme.DARK));
         lightTheme.setOnAction(event -> themeService.setTheme(AppTheme.LIGHT));
-        viewMenu.getItems().addAll(darkTheme, lightTheme);
+        viewMenu.getItems().addAll(toggleSidebarItem, new SeparatorMenuItem(), darkTheme, lightTheme);
 
         // Preferences menu item
         // On macOS, JavaFX automatically moves a MenuItem with Cmd+, shortcut to the app menu.
@@ -403,7 +420,9 @@ public class MainWindow {
         }
         // Rebuild sidebar and welcome pane to refresh all labels
         if (root.getCenter() instanceof SplitPane splitPane && splitPane.getItems().size() >= 2) {
-            splitPane.getItems().set(0, buildSidebar(stage));
+            String savedSearch = searchField != null ? searchField.getText() : "";
+            sidebarVBox = buildSidebar(stage);
+            splitPane.getItems().set(0, sidebarVBox);
             // Rebuild the workspace StackPane with fresh WelcomePane
             welcomePane = new WelcomePane(i18nService, connectionProfileService, executor,
                     () -> createConnection(stage),
@@ -420,11 +439,17 @@ public class MainWindow {
             welcomePane.visibleProperty().bind(Bindings.isEmpty(workspaceTabs.getTabs()));
             StackPane workspace = new StackPane(welcomePane, workspaceTabs);
             splitPane.getItems().set(1, workspace);
+            // 恢复搜索过滤
+            if (!savedSearch.isBlank() && searchField != null) {
+                searchField.setText(savedSearch);
+                sidebarTreeView.applyFilter(savedSearch);
+            }
+            applySidebarVisibility();
         }
     }
 
     private SplitPane buildCenterArea(Stage stage) {
-        VBox sidebar = buildSidebar(stage);
+        sidebarVBox = buildSidebar(stage);
         workspaceTabs.getStyleClass().add("workspace-tabs");
         installTabDragReorder(workspaceTabs);
 
@@ -443,10 +468,21 @@ public class MainWindow {
         welcomePane.visibleProperty().bind(Bindings.isEmpty(workspaceTabs.getTabs()));
         workspaceTabs.visibleProperty().bind(Bindings.isNotEmpty(workspaceTabs.getTabs()));
 
-        StackPane workspace = new StackPane(welcomePane, workspaceTabs);
-        SplitPane splitPane = new SplitPane(sidebar, workspace);
-        splitPane.setDividerPositions(0.26);
-        return splitPane;
+        // 侧边栏折叠后的 reveal 按钮（workspace 左下角，避免遮挡 tab 标签）
+        revealSidebarBtn = new Button();
+        Region panelIcon = loadSvgShape("/icons/sidebar-left.svg", 14);
+        if (panelIcon != null) revealSidebarBtn.setGraphic(panelIcon);
+        revealSidebarBtn.setTooltip(new javafx.scene.control.Tooltip(i18nService.get("sidebar.toggle")));
+        revealSidebarBtn.getStyleClass().add("sidebar-reveal-btn");
+        revealSidebarBtn.setOnAction(e -> toggleSidebar());
+        revealSidebarBtn.setVisible(false);
+        StackPane.setAlignment(revealSidebarBtn, javafx.geometry.Pos.BOTTOM_LEFT);
+        StackPane.setMargin(revealSidebarBtn, new Insets(0, 0, 8, 8));
+
+        StackPane workspace = new StackPane(welcomePane, workspaceTabs, revealSidebarBtn);
+        centerSplitPane = new SplitPane(sidebarVBox, workspace);
+        centerSplitPane.setDividerPositions(0.26);
+        return centerSplitPane;
     }
 
     private VBox buildSidebar(Stage stage) {
@@ -535,13 +571,31 @@ public class MainWindow {
         Button newFolderButton = svgIconButton("/icons/folder.svg",       i18nService.get("sidebar.newFolder"),       () -> createFolder(stage));
         Button connectButton   = svgIconButton("/icons/runo24.svg",       i18nService.get("action.connect"),          this::connectSelected);
         Button refreshButton   = svgIconButton("/icons/refresh.svg",      i18nService.get("action.refresh"), this::loadConnections);
+        Button toggleSidebarBtn = svgIconButton("/icons/sidebar-left.svg", i18nService.get("sidebar.toggle"), this::toggleSidebar);
         Button settingsButton  = svgIconButton("/icons/settings.svg",     i18nService.get("action.preferences"), () -> openPreferences(stage));
         connectButton.getStyleClass().add("icon-btn-primary");
 
         HBox actionBar = new HBox(4, createButton, editButton, deleteButton, newFolderButton,
-                new javafx.scene.layout.Region(), connectButton, refreshButton, settingsButton);
+                new javafx.scene.layout.Region(), connectButton, refreshButton, toggleSidebarBtn, settingsButton);
         HBox.setHgrow(actionBar.getChildren().get(4), Priority.ALWAYS);
         actionBar.getStyleClass().add("sidebar-action-bar");
+
+        // 搜索框 — 放在 sectionLabel 和 TreeView 之间
+        searchField = new javafx.scene.control.TextField();
+        searchField.setPromptText(i18nService.get("sidebar.search.prompt"));
+        searchField.getStyleClass().add("sidebar-search-field");
+        Region searchIcon = loadSvgShape("/icons/search.svg", 14);
+        if (searchIcon != null) searchIcon.getStyleClass().add("sidebar-search-icon");
+        Button clearSearchBtn = new Button("✕");
+        clearSearchBtn.getStyleClass().add("sidebar-search-clear");
+        clearSearchBtn.setVisible(false);
+        clearSearchBtn.visibleProperty().bind(searchField.textProperty().isEmpty().not());
+        clearSearchBtn.setOnAction(e -> searchField.clear());
+        HBox searchRow = new HBox(4, searchIcon != null ? searchIcon : new Region(), searchField, clearSearchBtn);
+        searchRow.getStyleClass().add("sidebar-search-row");
+        HBox.setHgrow(searchField, Priority.ALWAYS);
+        searchField.textProperty().addListener((obs, oldVal, newVal) ->
+                sidebarTreeView.applyFilter(newVal));
 
         sectionLabel = new Label(i18nService.get("sidebar.connections"));
         sectionLabel.getStyleClass().add("sidebar-section-label");
@@ -582,7 +636,7 @@ public class MainWindow {
         projectRow.getStyleClass().add("sidebar-project-row");
         HBox.setHgrow(projectCombo, Priority.ALWAYS);
 
-        VBox sidebar = new VBox(0, projectRow, sectionLabel, sidebarTreeView.getTreeView(), actionBar);
+        VBox sidebar = new VBox(0, projectRow, sectionLabel, searchRow, sidebarTreeView.getTreeView(), actionBar);
         sidebar.getStyleClass().add("sidebar");
         VBox.setVgrow(sidebarTreeView.getTreeView(), Priority.ALWAYS);
         return sidebar;
@@ -664,6 +718,29 @@ public class MainWindow {
         return button;
     }
 
+    // ── 侧边栏折叠/展开 ────────────────────────────────────────────
+
+    private void toggleSidebar() {
+        sidebarVisible = !sidebarVisible;
+        applySidebarVisibility();
+    }
+
+    private void applySidebarVisibility() {
+        if (sidebarVisible) {
+            sidebarVBox.setPrefWidth(Region.USE_COMPUTED_SIZE);
+            sidebarVBox.setMinWidth(Region.USE_COMPUTED_SIZE);
+            sidebarVBox.setMaxWidth(Region.USE_COMPUTED_SIZE);
+            centerSplitPane.setDividerPositions(0.26);
+            revealSidebarBtn.setVisible(false);
+        } else {
+            sidebarVBox.setPrefWidth(0);
+            sidebarVBox.setMinWidth(0);
+            sidebarVBox.setMaxWidth(0);
+            centerSplitPane.setDividerPositions(0);
+            revealSidebarBtn.setVisible(true);
+        }
+    }
+
     private void loadConnections() {
         final String projectId = activeProjectId;
         CompletableFuture.supplyAsync(() -> {
@@ -679,6 +756,10 @@ public class MainWindow {
             viewModel.replaceConnections(entry.getValue());
             if (sidebarTreeView != null) {
                 sidebarTreeView.populate(entry.getKey(), entry.getValue());
+                // 重新应用当前搜索过滤
+                if (searchField != null && !searchField.getText().isBlank()) {
+                    sidebarTreeView.applyFilter(searchField.getText());
+                }
             }
             if (welcomePane != null) {
                 welcomePane.refresh();
@@ -964,7 +1045,8 @@ public class MainWindow {
                     i18nService,
                     themeService,
                     pluginManager,
-                    capabilityBus
+                    capabilityBus,
+                    storageFactory
             );
             tab.setClosable(true);
             tab.setContextMenu(buildTabContextMenu(tab));

@@ -132,6 +132,7 @@ See `plugins/plugin-demo/` for a complete working example.
 | `sshSession()` | Active SSH session (commands, SFTP, interactive shell) |
 | `capabilityRegistry()` | Register capabilities for inter-plugin RPC |
 | `capabilityBus()` | Invoke other plugins' capabilities (returns `null` on old hosts) |
+| `storage()` | Persistent key-value store scoped to this plugin (returns `null` on old hosts) |
 | `openTab()` / `closeTab()` | Manage plugin tab in workspace |
 | `showNotification()` | Display in-app notifications |
 | `themeNameProperty()` | Observable theme changes |
@@ -146,6 +147,29 @@ See `plugins/plugin-demo/` for a complete working example.
 | `commandExecutor()` | Execute one-shot shell commands |
 | `interactiveCommandExecutor()` | Multi-step interactive sessions (sudo, 2FA) |
 | `fileExplorer()` | SFTP operations (list, read, write, delete) |
+
+### Plugin Storage
+
+Plugins can persist data (settings, cache, user preferences) via `PluginStorage` — a simple key-value store backed by the app's SQLite database, with automatic namespace isolation per plugin. No SQLite/JDBI dependency needed in your plugin.
+
+```java
+PluginStorage store = ctx.storage();
+if (store != null) {
+    // Read & write
+    store.put("lastDirectory", "/var/log");
+    String dir = store.get("lastDirectory");              // "/var/log"
+    String fallback = store.get("missing", "default");    // "default"
+
+    // List, remove, clear
+    Set<String> keys = store.keys();     // only this plugin's keys
+    store.remove("lastDirectory");
+    store.clear();                       // delete all data for this plugin
+}
+```
+
+Data is stored in the `plugin_storage` table with `(plugin_id, key)` as the primary key — each plugin can only read/write its own data, and keys never collide across plugins. Data persists across app restarts.
+
+> **Backward compatibility:** `ctx.storage()` returns `null` on older hosts. Always check for `null` before use, just like `capabilityBus()`.
 
 ### Inter-Plugin RPC
 
