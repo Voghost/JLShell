@@ -132,6 +132,7 @@ public class MyPlugin implements JlShellPlugin, PluginView {
 | `sshSession()` | 当前 SSH 会话（命令执行、SFTP、交互式 Shell） |
 | `capabilityRegistry()` | 注册能力供其他插件或外部 API 调用 |
 | `capabilityBus()` | 调用其他插件的能力（旧版宿主返回 `null`） |
+| `storage()` | 插件持久化键值存储，按插件隔离（旧版宿主返回 `null`） |
 | `openTab()` / `closeTab()` | 管理工作区中的插件标签页 |
 | `showNotification()` | 显示应用内通知 |
 | `themeNameProperty()` | 可观察的主题变化 |
@@ -146,6 +147,29 @@ public class MyPlugin implements JlShellPlugin, PluginView {
 | `commandExecutor()` | 执行一次性 Shell 命令 |
 | `interactiveCommandExecutor()` | 多步交互式会话（sudo、2FA 等） |
 | `fileExplorer()` | SFTP 操作（列表、读取、写入、删除） |
+
+### 插件持久存储
+
+插件可以通过 `PluginStorage` 持久化数据（配置、缓存、用户偏好）— 基于应用内置 SQLite 的简单键值存储，按插件 ID 自动隔离命名空间，插件无需引入 SQLite/JDBI 依赖。
+
+```java
+PluginStorage store = ctx.storage();
+if (store != null) {
+    // 读写
+    store.put("lastDirectory", "/var/log");
+    String dir = store.get("lastDirectory");              // "/var/log"
+    String fallback = store.get("missing", "default");    // "default"
+
+    // 列出、删除、清空
+    Set<String> keys = store.keys();     // 仅返回当前插件的 key
+    store.remove("lastDirectory");
+    store.clear();                       // 清除当前插件所有数据
+}
+```
+
+数据存储在 `plugin_storage` 表中，以 `(plugin_id, key)` 为主键 — 每个插件只能读写自己的数据，key 不会跨插件冲突。数据在应用重启后仍然保留。
+
+> **向后兼容：** 旧版宿主中 `ctx.storage()` 返回 `null`。使用前务必检查，与 `capabilityBus()` 模式一致。
 
 ### 插件间 RPC
 
