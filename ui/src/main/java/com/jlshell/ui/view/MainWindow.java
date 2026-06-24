@@ -963,18 +963,32 @@ public class MainWindow {
      * CSS visibility/height 对 JavaFX 内部布局无效，必须直接操作子节点。
      * @return true 如果找到并操作了 tab-header-area 节点
      */
+    /**
+     * 程序化控制 TabPane 的 tab-header-area 显隐。
+     *
+     * JavaFX TabPaneSkin 用绝对定位布局，setManaged(false) 不会让
+     * content area 自动扩展。必须同时把 header 的 prefHeight/maxHeight/minHeight
+     * 设为 0，Skin 在 layoutChildren 中才会把全部空间分配给 content area。
+     */
     private boolean setTabHeaderVisible(TabPane tabPane, boolean visible) {
         log.info("[TopBar] setTabHeaderVisible: visible={}, tabPane.children={}",
                 visible, tabPane.getChildrenUnmodifiable().size());
         for (javafx.scene.Node node : tabPane.getChildrenUnmodifiable()) {
-            log.debug("[TopBar]   child: styleClass={}, managed={}, visible={}",
-                    node.getStyleClass(), node.isManaged(), node.isVisible());
-            if (node.getStyleClass().contains("tab-header-area")) {
-                node.setManaged(visible);
-                node.setVisible(visible);
-                // 强制重新布局，确保空间收回/恢复
+            if (node.getStyleClass().contains("tab-header-area") && node instanceof Region header) {
+                header.setVisible(visible);
+                if (visible) {
+                    header.setManaged(true);
+                    header.setPrefHeight(Region.USE_COMPUTED_SIZE);
+                    header.setMaxHeight(Region.USE_PREF_SIZE);
+                    header.setMinHeight(Region.USE_PREF_SIZE);
+                } else {
+                    header.setManaged(false);
+                    header.setPrefHeight(0);
+                    header.setMaxHeight(0);
+                    header.setMinHeight(0);
+                }
                 tabPane.requestLayout();
-                log.info("[TopBar]   → found tab-header-area, set managed={}, visible={}, requested layout", visible, visible);
+                log.info("[TopBar]   → tab-header-area: visible={}, prefHeight={}", visible, header.getPrefHeight());
                 return true;
             }
         }
