@@ -195,4 +195,11 @@ public class SessionWorkspaceTab extends Tab {
             }
         }
     }
+
+    /**
+     * 控制终端工作区顶部工具栏（系统信息条 + 插件按钮 + 字体设置）的显隐。
+     */
+    public void setToolbarVisible(boolean visible) {
+        terminalWorkspaceView.setToolbarVisible(visible);
+    }
 }

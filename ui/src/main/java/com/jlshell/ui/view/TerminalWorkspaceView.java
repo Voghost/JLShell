@@ -164,6 +164,18 @@ public class TerminalWorkspaceView extends BorderPane {
      *
      * <p>使用 stty -echo 临时关闭回显来安静注入，完成后恢复回显。
      */
+
+    /**
+     * 控制顶部工具栏（系统信息条 + 插件按钮 + 字体设置）的显隐。
+     * 顶栏折叠时隐藏，给终端更多垂直空间。
+     */
+    public void setToolbarVisible(boolean visible) {
+        if (toolbar != null) {
+            toolbar.setManaged(visible);
+            toolbar.setVisible(visible);
+        }
+    }
+
     public void injectOsc7PromptHook() {
         if (handles.isEmpty()) return;
         TerminalViewHandle handle = handles.getFirst();

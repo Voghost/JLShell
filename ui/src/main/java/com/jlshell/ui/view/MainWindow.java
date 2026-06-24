@@ -912,6 +912,9 @@ public class MainWindow {
                 if (t instanceof SessionWorkspaceTab swt) {
                     boolean innerResult = setTabHeaderVisible(swt.getInnerTabPane(), false);
                     log.info("[TopBar] inner tab-header hidden for '{}': {}", t.getText(), innerResult);
+                    // 隐藏终端工具栏（IP/CPU/Mem/Disk + 插件按钮 + 字体设置）
+                    swt.setToolbarVisible(false);
+                    log.info("[TopBar] toolbar hidden for '{}'", t.getText());
                 }
             }
             // 显示折叠条 overlay
@@ -943,6 +946,9 @@ public class MainWindow {
                 if (t instanceof SessionWorkspaceTab swt) {
                     boolean innerResult = setTabHeaderVisible(swt.getInnerTabPane(), true);
                     log.info("[TopBar] inner tab-header restored for '{}': {}", t.getText(), innerResult);
+                    // 恢复终端工具栏
+                    swt.setToolbarVisible(true);
+                    log.info("[TopBar] toolbar restored for '{}'", t.getText());
                 }
             }
             // 隐藏折叠条 overlay
@@ -966,7 +972,9 @@ public class MainWindow {
             if (node.getStyleClass().contains("tab-header-area")) {
                 node.setManaged(visible);
                 node.setVisible(visible);
-                log.info("[TopBar]   → found tab-header-area, set managed={}, visible={}", visible, visible);
+                // 强制重新布局，确保空间收回/恢复
+                tabPane.requestLayout();
+                log.info("[TopBar]   → found tab-header-area, set managed={}, visible={}, requested layout", visible, visible);
                 return true;
             }
         }
