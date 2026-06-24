@@ -325,21 +325,53 @@ public class RefreshableTerminalPanel extends TerminalPanel {
     }
 
     /**
-     * Windows CJK 字体回退：当终端主字体无法渲染中文字符时，
-     * 自动切换到 "Microsoft YaHei"，避免显示方框。
-     * macOS/Linux 不需要此回退，直接返回父类结果。
+     * CJK 字体回退：当终端主字体无法渲染中文字符时，
+     * 自动切换到系统 CJK 字体，避免显示方框。
+     * <ul>
+     *   <li>Windows → "Microsoft YaHei"</li>
+     *   <li>macOS   → "PingFang SC"</li>
+     *   <li>Linux   → "Noto Sans CJK SC" / "WenQuanYi Micro Hei"</li>
+     * </ul>
      */
     @Override
     protected @NotNull Font getFontToDisplay(char[] text, int start, int end, @NotNull TextStyle style) {
         Font baseFont = super.getFontToDisplay(text, start, end, style);
-        if (!isWindows()) return baseFont;
         for (int i = start; i < end; i++) {
             if (text[i] != CharUtils.DWC && !baseFont.canDisplay(text[i])) {
-                return new Font("Microsoft YaHei", baseFont.getStyle(), baseFont.getSize());
+                return new Font(cjkFallbackFamily(), baseFont.getStyle(), baseFont.getSize());
             }
         }
         return baseFont;
     }
+
+    /** 返回当前平台的 CJK 回退字体族名，惰性计算一次后缓存 */
+    private static String cjkFallbackFamily() {
+        if (cjkFallback != null) return cjkFallback;
+        String os = System.getProperty("os.name", "").toLowerCase();
+        String family;
+        if (os.contains("win")) {
+            family = "Microsoft YaHei";
+        } else if (os.contains("mac")) {
+            family = "PingFang SC";
+        } else {
+            // Linux: 尝试常见 CJK 字体
+            family = firstAvailable("Noto Sans CJK SC", "WenQuanYi Micro Hei", "Droid Sans Fallback");
+        }
+        cjkFallback = family;
+        return family;
+    }
+
+    /** 从候选列表中返回第一个 AWT 可识别的字体族名，都找不到则回退到 Dialog */
+    private static String firstAvailable(String... candidates) {
+        java.awt.GraphicsEnvironment ge = java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment();
+        java.util.Set<String> available = java.util.Set.of(ge.getAvailableFontFamilyNames());
+        for (String c : candidates) {
+            if (available.contains(c)) return c;
+        }
+        return Font.DIALOG;
+    }
+
+    private static volatile String cjkFallback;
 
     private static boolean isWindows() {
         return System.getProperty("os.name", "").toLowerCase().contains("win");
