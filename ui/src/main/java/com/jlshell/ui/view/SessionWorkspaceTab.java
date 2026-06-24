@@ -50,6 +50,8 @@ public class SessionWorkspaceTab extends Tab {
     private PluginsTabView pluginsTabView;
     /** SFTP 面板，首次激活时创建 */
     private SftpBrowserPane sftpPane;
+    /** 内层 TabPane（Terminal / Files / Plugins），用于折叠顶栏时控制 tab-header 显隐 */
+    private final TabPane innerTabPane;
 
     public SessionWorkspaceTab(
             ConnectionProfile connectionProfile,
@@ -109,6 +111,7 @@ public class SessionWorkspaceTab extends Tab {
         });
 
         TabPane workspaceTabs = new TabPane(terminalTab, filesTab);
+        this.innerTabPane = workspaceTabs;
         terminalWorkspaceView.setWorkspaceTabPane(workspaceTabs);
 
         if (pluginManager != null) {
@@ -172,5 +175,24 @@ public class SessionWorkspaceTab extends Tab {
         sftpPane.setTerminalCwdProperty(terminalWorkspaceView.cwdProperty());
         sftpPane.setInjectOsc7HookCallback(() -> terminalWorkspaceView.injectOsc7PromptHook());
         filesTab.setContent(sftpPane);
+    }
+
+    /** 返回内层 TabPane（Terminal / Files / Plugins） */
+    public TabPane getInnerTabPane() {
+        return innerTabPane;
+    }
+
+    /**
+     * 控制内层 TabPane 的 tab-header-area 显隐。
+     * CSS 方式对 JavaFX 内部布局不可靠，使用程序化方式直接操作子节点。
+     */
+    public void setTabHeadersVisible(boolean visible) {
+        for (javafx.scene.Node node : innerTabPane.getChildrenUnmodifiable()) {
+            if (node.getStyleClass().contains("tab-header-area")) {
+                node.setManaged(visible);
+                node.setVisible(visible);
+                return;
+            }
+        }
     }
 }

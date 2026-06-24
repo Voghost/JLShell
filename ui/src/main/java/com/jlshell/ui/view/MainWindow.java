@@ -123,6 +123,15 @@ public class MainWindow {
     private VBox sidebarVBox;
     private Button revealSidebarBtn;
 
+    // ── 顶栏折叠/展开 ──
+    private boolean topBarCollapsed = false;
+    private HBox collapsedTopBar;
+    private Label collapsedSessionLabel;
+    private javafx.animation.PauseTransition collapseDelay;
+    private CustomTitleBar customTitleBar; // Windows 专用
+    private StackPane workspaceStack; // workspace StackPane，用于添加/移除折叠条 overlay
+    private Button topBarCollapseBtn; // 顶栏中的折叠按钮
+
     // ── 插件存储工厂 ──
     private final java.util.function.Function<String, com.jlshell.plugin.api.storage.PluginStorage> storageFactory;
 
@@ -305,11 +314,14 @@ public class MainWindow {
         MenuItem toggleSidebarItem = new MenuItem(i18nService.get("sidebar.toggle"));
         toggleSidebarItem.setAccelerator(new KeyCodeCombination(KeyCode.B, KeyCombination.SHORTCUT_DOWN));
         toggleSidebarItem.setOnAction(event -> toggleSidebar());
+        MenuItem collapseTopBarItem = new MenuItem(i18nService.get("topbar.collapse"));
+        collapseTopBarItem.setAccelerator(new KeyCodeCombination(KeyCode.T, KeyCombination.SHORTCUT_DOWN));
+        collapseTopBarItem.setOnAction(event -> toggleTopBarCollapse());
         MenuItem darkTheme = new MenuItem(i18nService.get("theme.dark"));
         MenuItem lightTheme = new MenuItem(i18nService.get("theme.light"));
         darkTheme.setOnAction(event -> themeService.setTheme(AppTheme.DARK));
         lightTheme.setOnAction(event -> themeService.setTheme(AppTheme.LIGHT));
-        viewMenu.getItems().addAll(toggleSidebarItem, new SeparatorMenuItem(), darkTheme, lightTheme);
+        viewMenu.getItems().addAll(toggleSidebarItem, collapseTopBarItem, new SeparatorMenuItem(), darkTheme, lightTheme);
 
         // Preferences menu item
         // On macOS, JavaFX automatically moves a MenuItem with Cmd+, shortcut to the app menu.
@@ -334,6 +346,8 @@ public class MainWindow {
         MenuBar menuBar = buildMenuBar(stage);
         menuBar.setUseSystemMenuBar(true);
 
+        // macOS 系统菜单栏下，JavaFX MenuBar 节点高度为 0，
+        // 所以不在这里放折叠按钮（折叠按钮放在 workspace overlay 上）
         topArea = new VBox(menuBar);
         topArea.getStyleClass().add("top-shell");
         return topArea;
@@ -341,7 +355,9 @@ public class MainWindow {
 
     private CustomTitleBar buildCustomTitleBar(Stage stage) {
         MenuBar menuBar = buildMenuBar(stage);
-        return new CustomTitleBar(stage, menuBar, i18nService);
+        customTitleBar = new CustomTitleBar(stage, menuBar, i18nService);
+        customTitleBar.getCollapseBtn().setOnAction(e -> toggleTopBarCollapse());
+        return customTitleBar;
     }
 
     private void rebuildProjectsMenu(Menu projectsMenu, Stage stage) {
@@ -427,6 +443,7 @@ public class MainWindow {
     }
 
     private void refreshAllTexts(Stage stage, BorderPane root) {
+        boolean wasTopBarCollapsed = topBarCollapsed;
         boolean isWindows = System.getProperty("os.name", "").toLowerCase().contains("win");
         if (isWindows) {
             root.setTop(buildCustomTitleBar(stage));
@@ -453,6 +470,7 @@ public class MainWindow {
                     });
             welcomePane.visibleProperty().bind(Bindings.isEmpty(workspaceTabs.getTabs()));
             StackPane workspace = new StackPane(welcomePane, workspaceTabs);
+            workspaceStack = workspace;
             splitPane.getItems().set(1, workspace);
             // 恢复搜索过滤
             if (!savedSearch.isBlank() && searchField != null) {
@@ -460,6 +478,10 @@ public class MainWindow {
                 sidebarTreeView.applyFilter(savedSearch);
             }
             applySidebarVisibility();
+            // 恢复顶栏折叠状态
+            if (wasTopBarCollapsed) {
+                applyTopBarCollapsed(true);
+            }
         }
     }
 
@@ -494,7 +516,84 @@ public class MainWindow {
         StackPane.setAlignment(revealSidebarBtn, javafx.geometry.Pos.BOTTOM_LEFT);
         StackPane.setMargin(revealSidebarBtn, new Insets(0, 0, 4, 4));
 
-        StackPane workspace = new StackPane(welcomePane, workspaceTabs, revealSidebarBtn);
+        // ── 顶栏折叠按钮 overlay（workspace 右上角，外层 tab header 右侧） ──
+        topBarCollapseBtn = new Button("▾");
+        topBarCollapseBtn.getStyleClass().add("topbar-collapse-btn");
+        topBarCollapseBtn.setTooltip(new javafx.scene.control.Tooltip(i18nService.get("topbar.collapse")));
+        topBarCollapseBtn.setOnAction(e -> toggleTopBarCollapse());
+        StackPane.setAlignment(topBarCollapseBtn, javafx.geometry.Pos.TOP_RIGHT);
+        StackPane.setMargin(topBarCollapseBtn, new Insets(2, 4, 0, 0));
+        // 初始无 tab 时不显示；有 tab 时由 applyTopBarCollapsed 管理
+        topBarCollapseBtn.setVisible(false);
+        workspaceTabs.getTabs().addListener((javafx.collections.ListChangeListener<javafx.scene.control.Tab>) c -> {
+            if (!topBarCollapsed && !c.getList().isEmpty()) {
+                topBarCollapseBtn.setVisible(true);
+            }
+        });
+
+        StackPane workspace = new StackPane(welcomePane, workspaceTabs, revealSidebarBtn, topBarCollapseBtn);
+        workspaceStack = workspace;
+
+        // ── 折叠后的顶栏窄条 overlay ──
+        collapsedSessionLabel = new Label();
+        collapsedSessionLabel.getStyleClass().add("session-name");
+        Region colSpacer = new Region();
+        HBox.setHgrow(colSpacer, Priority.ALWAYS);
+        Button expandBtn = new Button("▴");
+        expandBtn.getStyleClass().add("collapse-btn");
+        expandBtn.setTooltip(new javafx.scene.control.Tooltip(i18nService.get("topbar.expand")));
+        expandBtn.setOnAction(e -> {
+            topBarCollapsed = false;
+            applyTopBarCollapsed(false);
+            removeTopBarExitListener();
+        });
+        collapsedTopBar = new HBox(6, collapsedSessionLabel, colSpacer, expandBtn);
+        collapsedTopBar.getStyleClass().add("collapsed-top-bar");
+        collapsedTopBar.setVisible(false);
+        collapsedTopBar.setManaged(false);
+        // 宽度绑定到 workspace 宽度
+        collapsedTopBar.prefWidthProperty().bind(workspace.widthProperty());
+        StackPane.setAlignment(collapsedTopBar, javafx.geometry.Pos.TOP_LEFT);
+
+        // hover 自动展开：鼠标进入折叠条 → 展开顶栏
+        collapsedTopBar.setOnMouseEntered(e -> {
+            if (topBarCollapsed) {
+                topBarCollapsed = false;
+                applyTopBarCollapsed(false);
+                installTopBarExitListener();
+            }
+        });
+
+        // 监听 workspace 鼠标移动 — 当鼠标在工作区最顶部时自动展开
+        workspace.setOnMouseMoved(e -> {
+            if (topBarCollapsed && e.getY() < 4) {
+                topBarCollapsed = false;
+                applyTopBarCollapsed(false);
+                installTopBarExitListener();
+            }
+        });
+
+        // 延迟折叠防抖
+        collapseDelay = new javafx.animation.PauseTransition(javafx.util.Duration.millis(500));
+        collapseDelay.setOnFinished(e -> {
+            if (topBarCollapsed) {
+                applyTopBarCollapsed(true);
+            }
+        });
+
+        workspace.getChildren().add(collapsedTopBar);
+
+        // 监听当前选中 tab 变化，更新折叠条中的会话名
+        workspaceTabs.getSelectionModel().selectedItemProperty().addListener((obs, oldTab, newTab) -> {
+            if (newTab instanceof SessionWorkspaceTab swt) {
+                collapsedSessionLabel.setText(swt.getConnectionProfile().displayName());
+            } else if (newTab != null) {
+                collapsedSessionLabel.setText(newTab.getText());
+            } else {
+                collapsedSessionLabel.setText("");
+            }
+        });
+
         centerSplitPane = new SplitPane(sidebarVBox, workspace);
         centerSplitPane.setDividerPositions(0.26);
         return centerSplitPane;
@@ -753,6 +852,161 @@ public class MainWindow {
             sidebarVBox.setMaxWidth(0);
             centerSplitPane.setDividerPositions(0);
             revealSidebarBtn.setVisible(true);
+        }
+    }
+
+    // ── 顶栏折叠/展开 ────────────────────────────────────────────
+
+    private void toggleTopBarCollapse() {
+        topBarCollapsed = !topBarCollapsed;
+        applyTopBarCollapsed(topBarCollapsed);
+    }
+
+    private void applyTopBarCollapsed(boolean collapsed) {
+        boolean isWindows = System.getProperty("os.name", "").toLowerCase().contains("win");
+
+        if (collapsed) {
+            // 隐藏菜单栏
+            if (isWindows && customTitleBar != null) {
+                customTitleBar.setMenuBarVisible(false);
+                if (customTitleBar.getCollapseBtn() != null) {
+                    customTitleBar.getCollapseBtn().setManaged(false);
+                    customTitleBar.getCollapseBtn().setVisible(false);
+                }
+            } else if (topArea != null) {
+                topArea.setManaged(false);
+                topArea.setVisible(false);
+            }
+            // 外层 TabPane 隐藏 tab header（程序化，CSS 不可靠）
+            setTabHeaderVisible(workspaceTabs, false);
+            // 隐藏折叠按钮 overlay
+            topBarCollapseBtn.setVisible(false);
+            topBarCollapseBtn.setManaged(false);
+            // 内层 TabPane 隐藏 tab header
+            workspaceTabs.getTabs().stream()
+                    .filter(SessionWorkspaceTab.class::isInstance)
+                    .map(SessionWorkspaceTab.class::cast)
+                    .forEach(tab -> setTabHeaderVisible(tab.getInnerTabPane(), false));
+            // 显示折叠条 overlay
+            collapsedTopBar.setManaged(true);
+            collapsedTopBar.setVisible(true);
+        } else {
+            // 恢复菜单栏
+            if (isWindows && customTitleBar != null) {
+                customTitleBar.setMenuBarVisible(true);
+                if (customTitleBar.getCollapseBtn() != null) {
+                    customTitleBar.getCollapseBtn().setManaged(true);
+                    customTitleBar.getCollapseBtn().setVisible(true);
+                }
+            } else if (topArea != null) {
+                topArea.setManaged(true);
+                topArea.setVisible(true);
+            }
+            // 外层 TabPane 恢复 tab header
+            setTabHeaderVisible(workspaceTabs, true);
+            // 恢复折叠按钮 overlay
+            topBarCollapseBtn.setManaged(true);
+            // visible 绑定到了 workspaceTabs.getTabs() 非空，不需要手动设
+            // 内层 TabPane 恢复 tab header
+            workspaceTabs.getTabs().stream()
+                    .filter(SessionWorkspaceTab.class::isInstance)
+                    .map(SessionWorkspaceTab.class::cast)
+                    .forEach(tab -> setTabHeaderVisible(tab.getInnerTabPane(), true));
+            // 隐藏折叠条 overlay
+            collapsedTopBar.setManaged(false);
+            collapsedTopBar.setVisible(false);
+        }
+    }
+
+    /**
+     * 程序化控制 TabPane 的 tab-header-area 显隐。
+     * CSS visibility/height 对 JavaFX 内部布局无效，必须直接操作子节点。
+     */
+    private void setTabHeaderVisible(TabPane tabPane, boolean visible) {
+        for (javafx.scene.Node node : tabPane.getChildrenUnmodifiable()) {
+            if (node.getStyleClass().contains("tab-header-area")) {
+                node.setManaged(visible);
+                node.setVisible(visible);
+                return;
+            }
+        }
+    }
+
+    /**
+     * 展开状态下，鼠标离开顶栏区域后延迟折叠。
+     * 在外层 TabPane 的 tab-header-area 上安装 mouse-exit 监听，
+     * 加上 topBarNode（菜单栏）的 mouse-exit 监听。
+     * 两者之一收到 mouse-entered 都取消延迟折叠。
+     */
+    private void installTopBarExitListener() {
+        boolean isWindows = System.getProperty("os.name", "").toLowerCase().contains("win");
+
+        // 找到顶栏区域的 Node
+        javafx.scene.Node topBarNode = null;
+        if (isWindows && customTitleBar != null) {
+            topBarNode = customTitleBar;
+        } else if (topArea != null) {
+            topBarNode = topArea;
+        }
+
+        // 找到外层 tab-header-area
+        javafx.scene.Node outerTabHeader = null;
+        for (javafx.scene.Node node : workspaceTabs.getChildrenUnmodifiable()) {
+            if (node.getStyleClass().contains("tab-header-area")) {
+                outerTabHeader = node;
+                break;
+            }
+        }
+
+        // 给所有顶栏区域节点安装 mouse-exit/enter 监听
+        List<javafx.scene.Node> topBarNodes = new ArrayList<>();
+        if (topBarNode != null) topBarNodes.add(topBarNode);
+        if (outerTabHeader != null) topBarNodes.add(outerTabHeader);
+
+        for (javafx.scene.Node node : topBarNodes) {
+            node.setOnMouseExited(e -> {
+                if (!topBarCollapsed) {
+                    // 检查鼠标是否真的离开了所有顶栏区域节点
+                    javafx.geometry.Point2D mousePoint = new javafx.geometry.Point2D(e.getScreenX(), e.getScreenY());
+                    boolean stillInAny = topBarNodes.stream().anyMatch(n -> {
+                        if (!n.isVisible()) return false;
+                        javafx.geometry.Bounds screenBounds = n.localToScreen(n.getBoundsInLocal());
+                        return screenBounds != null && screenBounds.contains(mousePoint);
+                    });
+                    if (!stillInAny) {
+                        topBarCollapsed = true;
+                        collapseDelay.playFromStart();
+                    }
+                }
+            });
+            node.setOnMouseEntered(e -> {
+                collapseDelay.stop();
+                topBarCollapsed = false;
+            });
+        }
+    }
+
+    /** 清除顶栏 exit 监听 */
+    private void removeTopBarExitListener() {
+        boolean isWindows = System.getProperty("os.name", "").toLowerCase().contains("win");
+
+        javafx.scene.Node topBarNode = null;
+        if (isWindows && customTitleBar != null) {
+            topBarNode = customTitleBar;
+        } else if (topArea != null) {
+            topBarNode = topArea;
+        }
+        if (topBarNode != null) {
+            topBarNode.setOnMouseExited(null);
+            topBarNode.setOnMouseEntered(null);
+        }
+
+        for (javafx.scene.Node node : workspaceTabs.getChildrenUnmodifiable()) {
+            if (node.getStyleClass().contains("tab-header-area")) {
+                node.setOnMouseExited(null);
+                node.setOnMouseEntered(null);
+                break;
+            }
         }
     }
 

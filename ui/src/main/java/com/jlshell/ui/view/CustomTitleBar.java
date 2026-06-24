@@ -26,11 +26,14 @@ import javafx.stage.WindowEvent;
 public class CustomTitleBar extends HBox {
 
     private final Stage stage;
+    private final MenuBar menuBar;
+    private final Button collapseBtn; // 折叠按钮，外部可访问
     private double dragOffsetX;
     private double dragOffsetY;
 
     public CustomTitleBar(Stage stage, MenuBar menuBar, I18nService i18n) {
         this.stage = stage;
+        this.menuBar = menuBar;
         getStyleClass().add("custom-title-bar");
         setAlignment(Pos.CENTER_LEFT);
         setPadding(new Insets(0, 0, 0, 4));
@@ -45,6 +48,12 @@ public class CustomTitleBar extends HBox {
         // Menu bar (compact, no padding)
         menuBar.getStyleClass().add("embedded-menu-bar");
         getChildren().add(menuBar);
+
+        // 折叠按钮（菜单栏右侧）
+        collapseBtn = new Button("▾");
+        collapseBtn.getStyleClass().add("topbar-collapse-btn");
+        collapseBtn.setTooltip(new Tooltip(i18n.get("topbar.collapse")));
+        getChildren().add(collapseBtn);
 
         // Spacer — drag zone
         Region spacer = new Region();
@@ -116,5 +125,18 @@ public class CustomTitleBar extends HBox {
         }
 
         return btn;
+    }
+
+    /**
+     * 控制菜单栏的显隐（顶栏折叠时隐藏菜单栏，保留窗口控制按钮和标题）。
+     */
+    public void setMenuBarVisible(boolean visible) {
+        menuBar.setManaged(visible);
+        menuBar.setVisible(visible);
+    }
+
+    /** 返回折叠按钮，MainWindow 设置其 onAction */
+    public Button getCollapseBtn() {
+        return collapseBtn;
     }
 }
