@@ -49,7 +49,6 @@ public class JlShellDesktopApplication extends Application {
     @Override
     public void start(Stage stage) {
         splash.show();
-        log.info("Splash shown, starting AppContext...");
 
         try {
             appContext = new AppContext();
@@ -58,7 +57,6 @@ public class JlShellDesktopApplication extends Application {
             showFatalError(e);
             return;
         }
-        log.info("AppContext created, building scene...");
 
         MainWindow mainWindow = appContext.getMainWindow();
 
@@ -69,7 +67,6 @@ public class JlShellDesktopApplication extends Application {
 
         stage.setTitle("JLShell");
         stage.setScene(mainWindow.createScene(stage));
-        log.info("Scene created, configuring stage...");
         // Minimum window size is now set adaptively in MainWindow.createScene()
         // based on Screen.getPrimary().getVisualBounds(), so the app scales
         // properly on HiDPI / small screens (e.g. 1920×1080 @ 150 %).
@@ -113,7 +110,6 @@ public class JlShellDesktopApplication extends Application {
         });
 
         stage.show();
-        log.info("Stage shown, JLShell started successfully");
         splash.hide();
         installSystemTray(stage, awtIcon);
     }

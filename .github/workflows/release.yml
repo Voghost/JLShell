@@ -10,7 +10,7 @@ on:
 
 env:
   VERSION: ${{ github.event.inputs.version }}
-  MODULES: "java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.management.rmi,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.transaction.xa,java.xml,java.xml.crypto,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.jfr,jdk.localedata,jdk.management,jdk.naming.dns,jdk.net,jdk.unsupported,jdk.unsupported.desktop,jdk.zipfs,javafx.base,javafx.controls,javafx.fxml,javafx.graphics,javafx.swing"
+  MODULES: "java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.management.rmi,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.transaction.xa,java.xml,java.xml.crypto,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.httpserver,jdk.jfr,jdk.localedata,jdk.management,jdk.naming.dns,jdk.net,jdk.unsupported,jdk.unsupported.desktop,jdk.zipfs,javafx.base,javafx.controls,javafx.fxml,javafx.graphics,javafx.swing"
 
 jobs:
   # ── macOS ───────────────────────────────────────────────────────────────────
