@@ -13,6 +13,7 @@ import java.util.function.Function;
 
 import javax.swing.BorderFactory;
 import javax.swing.JMenuItem;
+import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JSeparator;
 import javax.swing.SwingUtilities;
