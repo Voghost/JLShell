@@ -130,6 +130,7 @@ public class MainWindow {
     private StackPane workspaceStack; // workspace StackPane
     private Button topBarCollapseBtn; // 顶栏中的折叠按钮（▾）
     private Button topBarExpandBtn; // 折叠后的展开按钮（▴）
+    private Region topHoverZone; // 折叠后顶部 4px hover 感应条
     /** 折叠后的免疫期：刚折叠时不响应 hover 展开，避免按钮点击瞬间触发 mouseEntered */
     private long collapseImmuneUntil = 0;
 
@@ -470,7 +471,7 @@ public class MainWindow {
                                 });
                     });
             welcomePane.visibleProperty().bind(Bindings.isEmpty(workspaceTabs.getTabs()));
-            StackPane workspaceStackPane = new StackPane(welcomePane, workspaceTabs, revealSidebarBtn, topBarCollapseBtn, topBarExpandBtn);
+            StackPane workspaceStackPane = new StackPane(welcomePane, workspaceTabs, revealSidebarBtn, topBarCollapseBtn, topBarExpandBtn, topHoverZone);
             workspaceStack = workspaceStackPane;
             splitPane.getItems().set(1, workspaceStackPane);
             // 恢复搜索过滤
@@ -551,19 +552,27 @@ public class MainWindow {
         StackPane.setAlignment(topBarExpandBtn, javafx.geometry.Pos.TOP_RIGHT);
         StackPane.setMargin(topBarExpandBtn, new Insets(4, 4, 0, 0));
 
-        StackPane workspaceStackPane = new StackPane(welcomePane, workspaceTabs, revealSidebarBtn, topBarCollapseBtn, topBarExpandBtn);
-        workspaceStack = workspaceStackPane;
-
-        // hover 自动展开：鼠标移到 workspace 最顶部区域时展开
-        // 有免疫期（600ms），避免折叠按钮点击瞬间触发
-        workspaceStackPane.setOnMouseMoved(e -> {
-            if (topBarCollapsed && e.getY() < 4 && System.currentTimeMillis() > collapseImmuneUntil) {
-                log.info("[TopBar] workspace top-edge hover → expand (y={})", e.getY());
+        // ── 折叠后顶部 hover 感应条（4px 透明区域） ──
+        // 折叠后终端（SwingNode）占满区域，StackPane 的 mouseMoved 不会被触发
+        // 在顶部放一条 4px 透明感应条，鼠标进入即展开
+        topHoverZone = new Region();
+        topHoverZone.setPrefHeight(4);
+        topHoverZone.setMaxHeight(4);
+        topHoverZone.setMinHeight(4);
+        topHoverZone.setStyle("-fx-background-color: transparent;");
+        topHoverZone.setVisible(false);
+        StackPane.setAlignment(topHoverZone, javafx.geometry.Pos.TOP_CENTER);
+        topHoverZone.setOnMouseEntered(e -> {
+            if (topBarCollapsed && System.currentTimeMillis() > collapseImmuneUntil) {
+                log.info("[TopBar] top hover zone entered → expand");
                 topBarCollapsed = false;
                 applyTopBarCollapsed(false);
                 installTopBarExitListener();
             }
         });
+
+        StackPane workspaceStackPane = new StackPane(welcomePane, workspaceTabs, revealSidebarBtn, topBarCollapseBtn, topBarExpandBtn, topHoverZone);
+        workspaceStack = workspaceStackPane;
 
         // 延迟折叠防抖
         collapseDelay = new javafx.animation.PauseTransition(javafx.util.Duration.millis(500));
@@ -881,7 +890,9 @@ public class MainWindow {
             }
             // 显示展开按钮（透明悬浮在终端右上角）
             topBarExpandBtn.setVisible(true);
-            log.info("[TopBar] expand button shown");
+            // 显示顶部 hover 感应条
+            topHoverZone.setVisible(true);
+            log.info("[TopBar] expand button + hover zone shown");
         } else {
             // 恢复菜单栏
             if (isWindows && customTitleBar != null) {
@@ -912,9 +923,10 @@ public class MainWindow {
                     log.info("[TopBar] toolbar restored for '{}'", t.getText());
                 }
             }
-            // 隐藏展开按钮
+            // 隐藏展开按钮和 hover 感应条
             topBarExpandBtn.setVisible(false);
-            log.info("[TopBar] expand button hidden");
+            topHoverZone.setVisible(false);
+            log.info("[TopBar] expand button + hover zone hidden");
         }
     }
 
