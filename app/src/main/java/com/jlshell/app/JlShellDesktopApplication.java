@@ -17,14 +17,24 @@ import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
+import org.slf4j.LoggerFactory;
 
 public class JlShellDesktopApplication extends Application {
+
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(JlShellDesktopApplication.class);
 
     private AppContext appContext;
     private TrayIcon trayIcon;
     private SplashStage splash;
 
     public static void main(String[] args) {
+        // 全局未捕获异常处理：记录到日志，避免 Windows 闪退时看不到任何信息
+        Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
+            System.err.println("Uncaught exception in thread [" + thread.getName() + "]");
+            throwable.printStackTrace(System.err);
+            LoggerFactory.getLogger(JlShellDesktopApplication.class)
+                    .error("Uncaught exception in thread [{}]", thread.getName(), throwable);
+        });
         launch(args);
     }
 
@@ -39,8 +49,17 @@ public class JlShellDesktopApplication extends Application {
     @Override
     public void start(Stage stage) {
         splash.show();
+        log.info("Splash shown, starting AppContext...");
 
-        appContext = new AppContext();
+        try {
+            appContext = new AppContext();
+        } catch (Exception e) {
+            log.error("Failed to initialize AppContext", e);
+            showFatalError(e);
+            return;
+        }
+        log.info("AppContext created, building scene...");
+
         MainWindow mainWindow = appContext.getMainWindow();
 
         // On Windows, remove the OS title bar and use a custom one embedded in the app.
@@ -50,6 +69,7 @@ public class JlShellDesktopApplication extends Application {
 
         stage.setTitle("JLShell");
         stage.setScene(mainWindow.createScene(stage));
+        log.info("Scene created, configuring stage...");
         // Minimum window size is now set adaptively in MainWindow.createScene()
         // based on Screen.getPrimary().getVisualBounds(), so the app scales
         // properly on HiDPI / small screens (e.g. 1920×1080 @ 150 %).
@@ -93,6 +113,7 @@ public class JlShellDesktopApplication extends Application {
         });
 
         stage.show();
+        log.info("Stage shown, JLShell started successfully");
         splash.hide();
         installSystemTray(stage, awtIcon);
     }
@@ -122,6 +143,20 @@ public class JlShellDesktopApplication extends Application {
 
     private static boolean isWindows() {
         return System.getProperty("os.name", "").toLowerCase().contains("win");
+    }
+
+    /** 显示致命错误对话框（AppContext 初始化失败时调用） */
+    private void showFatalError(Throwable t) {
+        splash.hide();
+        String msg = t.getMessage() != null ? t.getMessage() : t.getClass().getName();
+        javafx.scene.control.Alert alert = new javafx.scene.control.Alert(
+                javafx.scene.control.Alert.AlertType.ERROR,
+                "JLShell failed to start:\n" + msg,
+                javafx.scene.control.ButtonType.OK);
+        alert.setTitle("JLShell — Fatal Error");
+        alert.setHeaderText("Startup failed");
+        alert.showAndWait();
+        Platform.exit();
     }
 
     private static String getAppVersion() {

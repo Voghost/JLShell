@@ -112,15 +112,18 @@ public class AppContext implements AutoCloseable {
         ColorSchemeRegistry colorSchemeRegistry = new ColorSchemeRegistry(builtInLoader, customStore);
 
         ThemeService themeService = new ThemeService(appSettingsService, colorSchemeRegistry, executor);
+        log.info("ThemeService initialised");
 
         // 5. SSH / SFTP
         SshjConnectionManager connectionManager = new SshjConnectionManager(
                 executor, new EphemeralTrustHostKeyVerifier(), new HostKeyConfirmationService(i18nService, themeService));
         SessionManager sessionManager = new DefaultSessionManager(connectionManager, sessionRegistry);
         SftpService sftpService = new SshjSftpService(executor);
+        log.info("SSH/SFTP services initialised");
 
         // 6. Plugins — 延迟到首次 getAvailablePlugins()/activatePlugin() 才扫描 JAR
         PluginManager pluginManager = new PluginManager();
+        log.info("PluginManager initialised");
 
         // 6b. RPC 内核 + 外部 API
         CapabilityBusImpl capabilityBus = new CapabilityBusImpl(pluginManager);
@@ -135,23 +138,30 @@ public class AppContext implements AutoCloseable {
         }
         com.jlshell.api.server.ApiServerConfig apiCfg =
                 new com.jlshell.api.server.ApiServerConfig(apiPort, apiToken, apiEnabled);
+        log.info("API server config initialised");
 
         // 6.5. Vault service + migration
         VaultKeyService vaultKeyService = new VaultKeyService(appSettingsService);
         VaultService vaultService = new VaultService(jdbi, credentialCipher, vaultKeyService);
         DatabaseFactory.migrateVault(jdbi);
         DatabaseFactory.migrateVaultEncryptionMode(jdbi);
+        log.info("Vault service initialised");
 
         // 7. UI services
         MainViewModel viewModel = new MainViewModel();
+        log.info("MainViewModel initialised");
 
         JediTermTerminalViewFactory terminalViewFactory = new JediTermTerminalViewFactory(
                 fontProfileService, executor, i18nService::get, BundledFontLoader::ensureAwtRegistered);
+        log.info("TerminalViewFactory initialised");
 
         ConnectionProfileService connectionProfileService = new ConnectionProfileService(
                 jdbi, credentialCipher, appSettingsService, vaultService);
+        log.info("ConnectionProfileService initialised");
+
         LocalShellLauncher localShellLauncher = new LocalShellLauncher(
                 fontProfileService, executor, i18nService, BundledFontLoader::ensureAwtRegistered);
+        log.info("LocalShellLauncher initialised");
 
         // 7b. Host methods + API server
         com.jlshell.app.api.HostMethodsImpl hostMethods = new com.jlshell.app.api.HostMethodsImpl(
@@ -166,10 +176,12 @@ public class AppContext implements AutoCloseable {
                 log.warn("API server failed to start (non-fatal): {}", e.getMessage());
             }
         }
+        log.info("API server initialised (enabled={})", apiEnabled);
 
         // 7. Main window
         java.util.function.Function<String, com.jlshell.plugin.api.storage.PluginStorage> storageFactory =
                 pluginId -> new JdbiPluginStorage(jdbi, pluginId);
+        log.info("StorageFactory initialised");
 
         mainWindow = new MainWindow(
                 viewModel,
@@ -190,6 +202,7 @@ public class AppContext implements AutoCloseable {
                 capabilityBus,
                 storageFactory
         );
+        log.info("MainWindow constructed");
 
         this.apiServer = apiServer;
 
