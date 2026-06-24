@@ -30,6 +30,15 @@ public class JlShellDesktopApplication extends Application {
     public static void main(String[] args) {
         // 全局未捕获异常处理：记录到日志，避免 Windows 闪退时看不到任何信息
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
+            // JavaFX SwingNode resize 时 JLightweightFrame 会产生
+            // "Width (xxx) and height (-N) cannot be <= 0" 的 IllegalArgumentException。
+            // 这是 JavaFX/Swing 嵌入层的已知 bug，无害，过滤掉避免日志噪音。
+            if (throwable instanceof IllegalArgumentException
+                    && throwable.getMessage() != null
+                    && throwable.getMessage().contains("cannot be <= 0")
+                    && thread.getName().startsWith("AWT-EventQueue")) {
+                return; // 静默忽略
+            }
             System.err.println("Uncaught exception in thread [" + thread.getName() + "]");
             throwable.printStackTrace(System.err);
             LoggerFactory.getLogger(JlShellDesktopApplication.class)
@@ -60,9 +69,11 @@ public class JlShellDesktopApplication extends Application {
 
         MainWindow mainWindow = appContext.getMainWindow();
 
-        // On Windows, remove the OS title bar and use a custom one embedded in the app.
+        // On Windows, use TRANSPARENT stage style so the window background is
+        // truly transparent — rounded corners on .app-root won't show white
+        // corners.  UNDECORATED still paints an opaque white background.
         if (isWindows()) {
-            stage.initStyle(StageStyle.UNDECORATED);
+            stage.initStyle(StageStyle.TRANSPARENT);
         }
 
         stage.setTitle("JLShell");

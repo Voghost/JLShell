@@ -20,6 +20,25 @@
     -fx-background-color: #f8fafc;
 }
 
+/* ---------- Windows UNDECORATED window chrome ---------- */
+.app-root.win-undecorated {
+    -fx-background-color: #f8fafc;
+    -fx-background-radius: 8;
+    -fx-border-color: #cbd5e1;
+    -fx-border-width: 1;
+    -fx-border-radius: 8;
+    -fx-padding: 1;
+}
+
+/* 最大化时去掉圆角和边框间距，贴满屏幕 */
+.app-root.win-undecorated.win-maximized {
+    -fx-background-radius: 0;
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+    -fx-border-radius: 0;
+    -fx-padding: 0;
+}
+
 /* ---------- Menu Bar ---------- */
 .menu-bar {
     -fx-background-color: #ffffff;
@@ -277,6 +296,41 @@
     -fx-border-radius: 0;
     -fx-border-color: transparent;
     -fx-padding: 0;
+}
+
+/* 顶栏折叠按钮（▾） */
+.topbar-collapse-btn {
+    -fx-background-color: transparent;
+    -fx-text-fill: #64748b;
+    -fx-padding: 2 6 2 6;
+    -fx-background-radius: 4;
+    -fx-font-size: 10px;
+}
+
+.topbar-collapse-btn:hover {
+    -fx-background-color: #e2e8f0;
+    -fx-text-fill: #0f172a;
+}
+
+/* 顶栏展开按钮（▴）— 折叠后透明悬浮在终端右上角 */
+.topbar-expand-btn {
+    -fx-background-color: transparent;
+    -fx-text-fill: #64748b;
+    -fx-opacity: 0.4;
+    -fx-padding: 2 6 2 6;
+    -fx-background-radius: 4;
+    -fx-font-size: 10px;
+}
+
+.topbar-expand-btn:hover {
+    -fx-opacity: 1.0;
+    -fx-background-color: #e2e8f0;
+    -fx-text-fill: #0f172a;
+}
+
+/* 顶栏菜单行（macOS/Linux） */
+.top-shell-menu-row {
+    -fx-alignment: center-left;
 }
 
 .toolbar-strip {
@@ -550,20 +604,22 @@
 
 /* ---------- Sidebar reveal button ---------- */
 .sidebar-reveal-btn {
-    -fx-background-color: #ffffff;
+    -fx-background-color: transparent;
     -fx-text-fill: #64748b;
-    -fx-background-radius: 4;
-    -fx-border-radius: 4;
-    -fx-border-color: #cbd5e1;
-    -fx-border-width: 1;
-    -fx-padding: 4 6;
+    -fx-background-radius: 3;
+    -fx-border-radius: 3;
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+    -fx-padding: 2 3;
     -fx-cursor: hand;
-    -fx-opacity: 0.7;
+    -fx-opacity: 0.3;
 }
 
 .sidebar-reveal-btn:hover {
     -fx-background-color: #e2e8f0;
-    -fx-opacity: 1.0;
+    -fx-border-color: #cbd5e1;
+    -fx-border-width: 1;
+    -fx-opacity: 0.9;
 }
 
 /* ---------- Connection list cell ---------- */
@@ -1007,11 +1063,17 @@
 /* ---------- Custom Title Bar (Windows) ---------- */
 .custom-title-bar {
     -fx-background-color: #ffffff;
+    -fx-background-radius: 7 7 0 0;
     -fx-border-color: transparent transparent #cbd5e1 transparent;
     -fx-border-width: 0 0 1 0;
     -fx-padding: 0 4 0 0;
     -fx-pref-height: 32px;
     -fx-alignment: center-left;
+}
+
+/* 最大化时 title bar 顶部圆角也去掉 */
+.win-maximized > .custom-title-bar {
+    -fx-background-radius: 0;
 }
 
 .custom-title-bar .embedded-menu-bar {
@@ -1149,4 +1211,42 @@
 
 .import-json-code:focused {
     -fx-border-color: #2563eb;
+}
+
+/* ---------- Terminal Disconnect Overlay ---------- */
+.disconnect-overlay {
+    -fx-background-color: rgba(248, 250, 252, 0.75);
+}
+
+.disconnect-card {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #cbd5e1;
+    -fx-border-width: 1;
+    -fx-border-radius: 8;
+    -fx-background-radius: 8;
+    -fx-padding: 24 32 24 32;
+    -fx-spacing: 10;
+}
+
+.disconnect-reason {
+    -fx-text-fill: #0f172a;
+    -fx-font-size: 14px;
+}
+
+.disconnect-reconnect-btn {
+    -fx-background-color: #2563eb;
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-padding: 8 20 8 20;
+    -fx-background-radius: 6;
+    -fx-cursor: hand;
+}
+
+.disconnect-reconnect-btn:hover {
+    -fx-background-color: derive(#2563eb, 15%);
+}
+
+.disconnect-reconnect-btn:pressed {
+    -fx-background-color: derive(#2563eb, -15%);
 }

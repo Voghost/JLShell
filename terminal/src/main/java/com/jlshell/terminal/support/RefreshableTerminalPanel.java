@@ -13,6 +13,7 @@ import java.util.function.Function;
 
 import javax.swing.BorderFactory;
 import javax.swing.JMenuItem;
+import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JSeparator;
 import javax.swing.SwingUtilities;
@@ -103,9 +104,23 @@ public class RefreshableTerminalPanel extends TerminalPanel {
     protected JPopupMenu createPopupMenu(TerminalActionProvider provider) {
         Color bg      = jlshellSettings.backgroundColor();
         Color fg      = jlshellSettings.foregroundColor();
-        Color hover   = blend(bg, fg, 0.15f);
-        Color border  = blend(bg, fg, 0.25f);
+        Color hover   = blend(bg, fg, 0.12f);
+        Color border  = blend(bg, fg, 0.22f);
+        Color disabled = blend(bg, fg, 0.4f);
 
+        // 菜单是 UI 元素，用系统 UI 字体而非终端等宽字体
+        String os = System.getProperty("os.name", "").toLowerCase();
+        String uiFamily;
+        if (os.contains("win")) {
+            uiFamily = "Microsoft YaHei";
+        } else if (os.contains("mac")) {
+            uiFamily = "PingFang SC";
+        } else {
+            uiFamily = Font.SANS_SERIF;
+        }
+        final Font menuFont = new Font(uiFamily, Font.PLAIN, 12);
+
+        // 自绘 JPopupMenu：圆角背景 + 边框，不依赖 LAF 默认渲染
         JPopupMenu menu = new JPopupMenu() {
             @Override
             protected void paintComponent(Graphics g) {
@@ -138,26 +153,8 @@ public class RefreshableTerminalPanel extends TerminalPanel {
                 super.setVisible(b);
             }
         };
-        menu.setBackground(bg);
-        menu.setBorder(BorderFactory.createEmptyBorder(6, 0, 6, 0));
+        menu.setBorder(BorderFactory.createEmptyBorder(4, 0, 4, 0));
         menu.setOpaque(false);
-
-        // 临时覆盖 UIManager，让 JMenuItem 默认颜色跟随主题
-        UIManager.put("MenuItem.background",          bg);
-        UIManager.put("MenuItem.foreground",          fg);
-        UIManager.put("MenuItem.selectionBackground", hover);
-        UIManager.put("MenuItem.selectionForeground", fg);
-        UIManager.put("MenuItem.disabledForeground",  blend(bg, fg, 0.4f));
-        UIManager.put("PopupMenu.background",         bg);
-        UIManager.put("PopupMenu.border",             BorderFactory.createEmptyBorder());
-        UIManager.put("Separator.background",         border);
-        UIManager.put("Separator.foreground",         border);
-
-        Font itemFont = jlshellSettings.getTerminalFont().deriveFont(Font.PLAIN, 12f);
-        // Use a system font that can render CJK for the popup menu items.
-        // Terminal monospace fonts (Consolas, etc.) often lack CJK glyphs on Windows.
-        final Font menuFont = (!itemFont.canDisplay('复') || !itemFont.canDisplay('制'))
-                ? new Font(Font.DIALOG, Font.PLAIN, 12) : itemFont;
 
         TerminalAction.buildMenu(provider, new com.jediterm.terminal.ui.TerminalActionMenuBuilder() {
             @Override
@@ -167,44 +164,74 @@ public class RefreshableTerminalPanel extends TerminalPanel {
                 String label   = ACTION_KEY_MAP.containsKey(rawName)
                         ? i18n.apply(ACTION_KEY_MAP.get(rawName))
                         : rawName;
-                JMenuItem item = new JMenuItem(label);
-                item.setBackground(bg);
-                item.setForeground(fg);
-                item.setFont(menuFont);
-                item.setOpaque(true);
-                item.setEnabled(action.isEnabled(null));
-                item.addActionListener(e -> action.actionPerformed(null));
-                item.setBorder(BorderFactory.createEmptyBorder(4, 12, 4, 12));
-                // Hover highlight
-                Color hoverBg = hover;
-                Color normalBg = bg;
-                item.addMouseListener(new java.awt.event.MouseAdapter() {
-                    @Override public void mouseEntered(java.awt.event.MouseEvent e) {
-                        if (item.isEnabled()) item.setBackground(hoverBg);
+                boolean enabled = action.isEnabled(null);
+
+                // 自绘菜单项：JPanel 整行绘制 hover 背景 + 左右边框线，
+                // JLabel 只负责文字渲染。完全绕开 LAF 颜色覆盖。
+                boolean[] hovered = {false};
+                JPanel item = new JPanel(new java.awt.BorderLayout()) {
+                    @Override
+                    protected void paintComponent(Graphics g) {
+                        // 填充整行背景（普通/hover）
+                        g.setColor(hovered[0] && enabled ? hover : bg);
+                        g.fillRect(0, 0, getWidth(), getHeight());
+                        // 左右边框线，与 JPopupMenu 外框颜色一致
+                        g.setColor(border);
+                        g.drawLine(0, 0, 0, getHeight() - 1);
+                        g.drawLine(getWidth() - 1, 0, getWidth() - 1, getHeight() - 1);
                     }
-                    @Override public void mouseExited(java.awt.event.MouseEvent e) {
-                        item.setBackground(normalBg);
-                    }
-                });
+                };
+                item.setOpaque(false);
+
+                javax.swing.JLabel textLabel = new javax.swing.JLabel(label);
+                textLabel.setFont(menuFont);
+                textLabel.setForeground(enabled ? fg : disabled);
+                textLabel.setBorder(BorderFactory.createEmptyBorder(6, 16, 6, 16));
+                item.add(textLabel, java.awt.BorderLayout.CENTER);
+
+                if (enabled) {
+                    item.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
+                    item.addMouseListener(new java.awt.event.MouseAdapter() {
+                        @Override public void mouseEntered(java.awt.event.MouseEvent e) {
+                            hovered[0] = true;
+                            item.repaint();
+                        }
+                        @Override public void mouseExited(java.awt.event.MouseEvent e) {
+                            hovered[0] = false;
+                            item.repaint();
+                        }
+                        @Override public void mouseReleased(java.awt.event.MouseEvent e) {
+                            action.actionPerformed(null);
+                            // 关闭菜单
+                            menu.setVisible(false);
+                        }
+                    });
+                }
                 menu.add(item);
             }
 
             @Override
             public void addSeparator() {
-                // Use a thin line with horizontal insets, matching the JavaFX context-menu separator style
+                // 自绘分隔线：用不透明 JPanel 填满背景遮住 LAF 默认装饰，
+                // 画左右边框线 + 中间横线分隔
                 javax.swing.JPanel sepPanel = new javax.swing.JPanel(null) {
                     @Override
                     protected void paintComponent(Graphics g) {
-                        super.paintComponent(g);
-                        Graphics2D g2 = (Graphics2D) g.create();
-                        g2.setColor(border);
-                        g2.drawLine(8, 0, getWidth() - 8, 0);
-                        g2.dispose();
+                        // 用菜单背景色填满整行，遮住 LAF 画的竖线装饰
+                        g.setColor(bg);
+                        g.fillRect(0, 0, getWidth(), getHeight());
+                        // 左右边框线，与菜单外框一致
+                        g.setColor(border);
+                        g.drawLine(0, 0, 0, getHeight() - 1);
+                        g.drawLine(getWidth() - 1, 0, getWidth() - 1, getHeight() - 1);
+                        // 中间横线分隔，左右留 8px 边距
+                        int y = getHeight() / 2;
+                        g.drawLine(8, y, getWidth() - 8, y);
                     }
                 };
-                sepPanel.setOpaque(false);
-                sepPanel.setPreferredSize(new java.awt.Dimension(1, 6));
+                sepPanel.setOpaque(true);
                 sepPanel.setBackground(bg);
+                sepPanel.setPreferredSize(new java.awt.Dimension(100, 9));
                 menu.add(sepPanel);
             }
         });

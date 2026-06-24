@@ -2,6 +2,7 @@ package com.jlshell.terminal.support;
 
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 
 import javax.swing.JComponent;
 
@@ -108,5 +109,15 @@ public class DefaultTerminalViewHandle implements TerminalViewHandle {
     @Override
     public StringProperty cwdProperty() {
         return ttyConnector.cwdProperty();
+    }
+
+    /** 注册连接断开回调，回调在 JavaFX 应用线程执行。 */
+    public void setOnDisconnected(Consumer<ShellTtyConnector.DisconnectReason> callback) {
+        ttyConnector.setOnDisconnected(callback);
+    }
+
+    /** 返回是否已连接。 */
+    public boolean isConnected() {
+        return ttyConnector.isConnected();
     }
 }

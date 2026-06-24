@@ -123,6 +123,17 @@ public class MainWindow {
     private VBox sidebarVBox;
     private Button revealSidebarBtn;
 
+    // ── 顶栏折叠/展开 ──
+    private boolean topBarCollapsed = false;
+    private javafx.animation.PauseTransition collapseDelay;
+    private CustomTitleBar customTitleBar; // Windows 专用
+    private StackPane workspaceStack; // workspace StackPane
+    private Button topBarCollapseBtn; // 顶栏中的折叠按钮（▾）
+    private Button topBarExpandBtn; // 折叠后的展开按钮（▴）
+    private Region topHoverZone; // 折叠后顶部 4px hover 感应条
+    /** 折叠后的免疫期：刚折叠时不响应 hover 展开，避免按钮点击瞬间触发 mouseEntered */
+    private long collapseImmuneUntil = 0;
+
     // ── 插件存储工厂 ──
     private final java.util.function.Function<String, com.jlshell.plugin.api.storage.PluginStorage> storageFactory;
 
@@ -206,6 +217,12 @@ public class MainWindow {
 
         Scene scene = new Scene(root, initW, initH);
 
+        // On Windows, the stage is UNDECORATED — make the scene background
+        // transparent so the rounded corners and border of .app-root are visible.
+        if (isWindows) {
+            scene.setFill(javafx.scene.paint.Color.TRANSPARENT);
+        }
+
         stage.setMinWidth(minW);
         stage.setMinHeight(minH);
 
@@ -217,7 +234,16 @@ public class MainWindow {
 
         // On Windows, the stage is UNDECORATED so we need manual edge resize.
         if (isWindows) {
+            root.getStyleClass().add("win-undecorated");
             installWindowResizeHandler(stage, scene);
+            // 最大化时去掉圆角和边框间距，还原时恢复
+            stage.maximizedProperty().addListener((obs, wasMax, isMax) -> {
+                if (isMax) {
+                    root.getStyleClass().add("win-maximized");
+                } else {
+                    root.getStyleClass().remove("win-maximized");
+                }
+            });
         }
 
         themeService.apply(scene);
@@ -290,11 +316,14 @@ public class MainWindow {
         MenuItem toggleSidebarItem = new MenuItem(i18nService.get("sidebar.toggle"));
         toggleSidebarItem.setAccelerator(new KeyCodeCombination(KeyCode.B, KeyCombination.SHORTCUT_DOWN));
         toggleSidebarItem.setOnAction(event -> toggleSidebar());
+        MenuItem collapseTopBarItem = new MenuItem(i18nService.get("topbar.collapse"));
+        collapseTopBarItem.setAccelerator(new KeyCodeCombination(KeyCode.T, KeyCombination.SHORTCUT_DOWN));
+        collapseTopBarItem.setOnAction(event -> toggleTopBarCollapse());
         MenuItem darkTheme = new MenuItem(i18nService.get("theme.dark"));
         MenuItem lightTheme = new MenuItem(i18nService.get("theme.light"));
         darkTheme.setOnAction(event -> themeService.setTheme(AppTheme.DARK));
         lightTheme.setOnAction(event -> themeService.setTheme(AppTheme.LIGHT));
-        viewMenu.getItems().addAll(toggleSidebarItem, new SeparatorMenuItem(), darkTheme, lightTheme);
+        viewMenu.getItems().addAll(toggleSidebarItem, collapseTopBarItem, new SeparatorMenuItem(), darkTheme, lightTheme);
 
         // Preferences menu item
         // On macOS, JavaFX automatically moves a MenuItem with Cmd+, shortcut to the app menu.
@@ -319,6 +348,8 @@ public class MainWindow {
         MenuBar menuBar = buildMenuBar(stage);
         menuBar.setUseSystemMenuBar(true);
 
+        // macOS 系统菜单栏下，JavaFX MenuBar 节点高度为 0，
+        // 所以不在这里放折叠按钮（折叠按钮放在 workspace overlay 上）
         topArea = new VBox(menuBar);
         topArea.getStyleClass().add("top-shell");
         return topArea;
@@ -326,7 +357,9 @@ public class MainWindow {
 
     private CustomTitleBar buildCustomTitleBar(Stage stage) {
         MenuBar menuBar = buildMenuBar(stage);
-        return new CustomTitleBar(stage, menuBar, i18nService);
+        customTitleBar = new CustomTitleBar(stage, menuBar, i18nService);
+        customTitleBar.getCollapseBtn().setOnAction(e -> toggleTopBarCollapse());
+        return customTitleBar;
     }
 
     private void rebuildProjectsMenu(Menu projectsMenu, Stage stage) {
@@ -412,6 +445,7 @@ public class MainWindow {
     }
 
     private void refreshAllTexts(Stage stage, BorderPane root) {
+        boolean wasTopBarCollapsed = topBarCollapsed;
         boolean isWindows = System.getProperty("os.name", "").toLowerCase().contains("win");
         if (isWindows) {
             root.setTop(buildCustomTitleBar(stage));
@@ -437,14 +471,19 @@ public class MainWindow {
                                 });
                     });
             welcomePane.visibleProperty().bind(Bindings.isEmpty(workspaceTabs.getTabs()));
-            StackPane workspace = new StackPane(welcomePane, workspaceTabs);
-            splitPane.getItems().set(1, workspace);
+            StackPane workspaceStackPane = new StackPane(welcomePane, workspaceTabs, revealSidebarBtn, topBarCollapseBtn, topBarExpandBtn, topHoverZone);
+            workspaceStack = workspaceStackPane;
+            splitPane.getItems().set(1, workspaceStackPane);
             // 恢复搜索过滤
             if (!savedSearch.isBlank() && searchField != null) {
                 searchField.setText(savedSearch);
                 sidebarTreeView.applyFilter(savedSearch);
             }
             applySidebarVisibility();
+            // 恢复顶栏折叠状态
+            if (wasTopBarCollapsed) {
+                applyTopBarCollapsed(true);
+            }
         }
     }
 
@@ -470,17 +509,75 @@ public class MainWindow {
 
         // 侧边栏折叠后的 reveal 按钮（workspace 左下角，避免遮挡 tab 标签）
         revealSidebarBtn = new Button();
-        Region panelIcon = loadSvgShape("/icons/sidebar-left.svg", 14);
+        Region panelIcon = loadSvgShape("/icons/sidebar-left.svg", 12);
         if (panelIcon != null) revealSidebarBtn.setGraphic(panelIcon);
         revealSidebarBtn.setTooltip(new javafx.scene.control.Tooltip(i18nService.get("sidebar.toggle")));
         revealSidebarBtn.getStyleClass().add("sidebar-reveal-btn");
         revealSidebarBtn.setOnAction(e -> toggleSidebar());
         revealSidebarBtn.setVisible(false);
         StackPane.setAlignment(revealSidebarBtn, javafx.geometry.Pos.BOTTOM_LEFT);
-        StackPane.setMargin(revealSidebarBtn, new Insets(0, 0, 8, 8));
+        StackPane.setMargin(revealSidebarBtn, new Insets(0, 0, 4, 4));
 
-        StackPane workspace = new StackPane(welcomePane, workspaceTabs, revealSidebarBtn);
-        centerSplitPane = new SplitPane(sidebarVBox, workspace);
+        // ── 顶栏折叠按钮 overlay（workspace 右上角，外层 tab header 右侧） ──
+        topBarCollapseBtn = new Button("▾");
+        topBarCollapseBtn.getStyleClass().add("topbar-collapse-btn");
+        topBarCollapseBtn.setTooltip(new javafx.scene.control.Tooltip(i18nService.get("topbar.collapse")));
+        topBarCollapseBtn.setOnAction(e -> {
+            toggleTopBarCollapse();
+        });
+        StackPane.setAlignment(topBarCollapseBtn, javafx.geometry.Pos.TOP_RIGHT);
+        StackPane.setMargin(topBarCollapseBtn, new Insets(2, 4, 0, 0));
+        // 初始无 tab 时不显示；有 tab 时由 applyTopBarCollapsed 管理
+        topBarCollapseBtn.setVisible(false);
+        workspaceTabs.getTabs().addListener((javafx.collections.ListChangeListener<javafx.scene.control.Tab>) c -> {
+            if (!topBarCollapsed && !c.getList().isEmpty()) {
+                topBarCollapseBtn.setVisible(true);
+            }
+        });
+
+        // ── 折叠后的展开按钮（透明悬浮在终端右上角） ──
+        topBarExpandBtn = new Button("▴");
+        topBarExpandBtn.getStyleClass().add("topbar-expand-btn");
+        topBarExpandBtn.setTooltip(new javafx.scene.control.Tooltip(i18nService.get("topbar.expand")));
+        topBarExpandBtn.setOnAction(e -> {
+            topBarCollapsed = false;
+            applyTopBarCollapsed(false);
+            removeTopBarExitListener();
+        });
+        topBarExpandBtn.setVisible(false);
+        StackPane.setAlignment(topBarExpandBtn, javafx.geometry.Pos.TOP_RIGHT);
+        StackPane.setMargin(topBarExpandBtn, new Insets(4, 4, 0, 0));
+
+        // ── 折叠后顶部 hover 感应条（4px 透明区域） ──
+        // 折叠后终端（SwingNode）占满区域，StackPane 的 mouseMoved 不会被触发
+        // 在顶部放一条 4px 透明感应条，鼠标进入即展开
+        topHoverZone = new Region();
+        topHoverZone.setPrefHeight(4);
+        topHoverZone.setMaxHeight(4);
+        topHoverZone.setMinHeight(4);
+        topHoverZone.setStyle("-fx-background-color: transparent;");
+        topHoverZone.setVisible(false);
+        StackPane.setAlignment(topHoverZone, javafx.geometry.Pos.TOP_CENTER);
+        topHoverZone.setOnMouseEntered(e -> {
+            if (topBarCollapsed && System.currentTimeMillis() > collapseImmuneUntil) {
+                topBarCollapsed = false;
+                applyTopBarCollapsed(false);
+                installTopBarExitListener();
+            }
+        });
+
+        StackPane workspaceStackPane = new StackPane(welcomePane, workspaceTabs, revealSidebarBtn, topBarCollapseBtn, topBarExpandBtn, topHoverZone);
+        workspaceStack = workspaceStackPane;
+
+        // 延迟折叠防抖
+        collapseDelay = new javafx.animation.PauseTransition(javafx.util.Duration.millis(500));
+        collapseDelay.setOnFinished(e -> {
+            if (topBarCollapsed) {
+                applyTopBarCollapsed(true);
+            }
+        });
+
+        centerSplitPane = new SplitPane(sidebarVBox, workspaceStackPane);
         centerSplitPane.setDividerPositions(0.26);
         return centerSplitPane;
     }
@@ -741,6 +838,190 @@ public class MainWindow {
         }
     }
 
+    // ── 顶栏折叠/展开 ────────────────────────────────────────────
+
+    private void toggleTopBarCollapse() {
+        topBarCollapsed = !topBarCollapsed;
+        applyTopBarCollapsed(topBarCollapsed);
+    }
+
+    private void applyTopBarCollapsed(boolean collapsed) {
+        boolean isWindows = System.getProperty("os.name", "").toLowerCase().contains("win");
+
+        if (collapsed) {
+            // 设置免疫期：600ms 内不响应 hover 展开
+            collapseImmuneUntil = System.currentTimeMillis() + 600;
+            // 隐藏菜单栏
+            if (isWindows && customTitleBar != null) {
+                customTitleBar.setMenuBarVisible(false);
+                if (customTitleBar.getCollapseBtn() != null) {
+                    customTitleBar.getCollapseBtn().setManaged(false);
+                    customTitleBar.getCollapseBtn().setVisible(false);
+                }
+            } else if (topArea != null) {
+                topArea.setManaged(false);
+                topArea.setVisible(false);
+            }
+            // 外层 TabPane 隐藏 tab header（程序化，CSS 不可靠）
+            setTabHeaderVisible(workspaceTabs, false);
+            // 隐藏折叠按钮 overlay
+            topBarCollapseBtn.setVisible(false);
+            topBarCollapseBtn.setManaged(false);
+            // 内层 TabPane 隐藏 tab header
+            for (javafx.scene.control.Tab t : workspaceTabs.getTabs()) {
+                if (t instanceof SessionWorkspaceTab swt) {
+                    setTabHeaderVisible(swt.getInnerTabPane(), false);
+                    // 隐藏终端工具栏（IP/CPU/Mem/Disk + 插件按钮 + 字体设置）
+                    swt.setToolbarVisible(false);
+                }
+            }
+            // 显示展开按钮（透明悬浮在终端右上角）
+            topBarExpandBtn.setVisible(true);
+            // 显示顶部 hover 感应条
+            topHoverZone.setVisible(true);
+        } else {
+            // 恢复菜单栏
+            if (isWindows && customTitleBar != null) {
+                customTitleBar.setMenuBarVisible(true);
+                if (customTitleBar.getCollapseBtn() != null) {
+                    customTitleBar.getCollapseBtn().setManaged(true);
+                    customTitleBar.getCollapseBtn().setVisible(true);
+                }
+            } else if (topArea != null) {
+                topArea.setManaged(true);
+                topArea.setVisible(true);
+            }
+            // 外层 TabPane 恢复 tab header
+            setTabHeaderVisible(workspaceTabs, true);
+            // 恢复折叠按钮 overlay
+            topBarCollapseBtn.setManaged(true);
+            topBarCollapseBtn.setVisible(true);
+            // 内层 TabPane 恢复 tab header
+            for (javafx.scene.control.Tab t : workspaceTabs.getTabs()) {
+                if (t instanceof SessionWorkspaceTab swt) {
+                    setTabHeaderVisible(swt.getInnerTabPane(), true);
+                    // 恢复终端工具栏
+                    swt.setToolbarVisible(true);
+                }
+            }
+            // 隐藏展开按钮和 hover 感应条
+            topBarExpandBtn.setVisible(false);
+            topHoverZone.setVisible(false);
+        }
+    }
+
+    /**
+     * 程序化控制 TabPane 的 tab-header-area 显隐。
+     * CSS visibility/height 对 JavaFX 内部布局无效，必须直接操作子节点。
+     * @return true 如果找到并操作了 tab-header-area 节点
+     */
+    /**
+     * 程序化控制 TabPane 的 tab-header-area 显隐。
+     *
+     * JavaFX TabPaneSkin 用绝对定位布局，setManaged(false) 不会让
+     * content area 自动扩展。必须同时把 header 的 prefHeight/maxHeight/minHeight
+     * 设为 0，Skin 在 layoutChildren 中才会把全部空间分配给 content area。
+     */
+    private boolean setTabHeaderVisible(TabPane tabPane, boolean visible) {
+        for (javafx.scene.Node node : tabPane.getChildrenUnmodifiable()) {
+            if (node.getStyleClass().contains("tab-header-area") && node instanceof Region header) {
+                header.setVisible(visible);
+                if (visible) {
+                    header.setManaged(true);
+                    header.setPrefHeight(Region.USE_COMPUTED_SIZE);
+                    header.setMaxHeight(Region.USE_PREF_SIZE);
+                    header.setMinHeight(Region.USE_PREF_SIZE);
+                } else {
+                    header.setManaged(false);
+                    header.setPrefHeight(0);
+                    header.setMaxHeight(0);
+                    header.setMinHeight(0);
+                }
+                tabPane.requestLayout();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 展开状态下，鼠标离开顶栏区域后延迟折叠。
+     * 在外层 TabPane 的 tab-header-area 上安装 mouse-exit 监听，
+     * 加上 topBarNode（菜单栏）的 mouse-exit 监听。
+     * 两者之一收到 mouse-entered 都取消延迟折叠。
+     */
+    private void installTopBarExitListener() {
+        boolean isWindows = System.getProperty("os.name", "").toLowerCase().contains("win");
+
+        // 找到顶栏区域的 Node
+        javafx.scene.Node topBarNode = null;
+        if (isWindows && customTitleBar != null) {
+            topBarNode = customTitleBar;
+        } else if (topArea != null) {
+            topBarNode = topArea;
+        }
+
+        // 找到外层 tab-header-area
+        javafx.scene.Node outerTabHeader = null;
+        for (javafx.scene.Node node : workspaceTabs.getChildrenUnmodifiable()) {
+            if (node.getStyleClass().contains("tab-header-area")) {
+                outerTabHeader = node;
+                break;
+            }
+        }
+
+        // 给所有顶栏区域节点安装 mouse-exit/enter 监听
+        List<javafx.scene.Node> topBarNodes = new ArrayList<>();
+        if (topBarNode != null) topBarNodes.add(topBarNode);
+        if (outerTabHeader != null) topBarNodes.add(outerTabHeader);
+
+        for (javafx.scene.Node node : topBarNodes) {
+            node.setOnMouseExited(e -> {
+                if (!topBarCollapsed) {
+                    // 检查鼠标是否真的离开了所有顶栏区域节点
+                    javafx.geometry.Point2D mousePoint = new javafx.geometry.Point2D(e.getScreenX(), e.getScreenY());
+                    boolean stillInAny = topBarNodes.stream().anyMatch(n -> {
+                        if (!n.isVisible()) return false;
+                        javafx.geometry.Bounds screenBounds = n.localToScreen(n.getBoundsInLocal());
+                        return screenBounds != null && screenBounds.contains(mousePoint);
+                    });
+                    if (!stillInAny) {
+                        topBarCollapsed = true;
+                        collapseDelay.playFromStart();
+                    }
+                }
+            });
+            node.setOnMouseEntered(e -> {
+                collapseDelay.stop();
+                topBarCollapsed = false;
+            });
+        }
+    }
+
+    /** 清除顶栏 exit 监听 */
+    private void removeTopBarExitListener() {
+        boolean isWindows = System.getProperty("os.name", "").toLowerCase().contains("win");
+
+        javafx.scene.Node topBarNode = null;
+        if (isWindows && customTitleBar != null) {
+            topBarNode = customTitleBar;
+        } else if (topArea != null) {
+            topBarNode = topArea;
+        }
+        if (topBarNode != null) {
+            topBarNode.setOnMouseExited(null);
+            topBarNode.setOnMouseEntered(null);
+        }
+
+        for (javafx.scene.Node node : workspaceTabs.getChildrenUnmodifiable()) {
+            if (node.getStyleClass().contains("tab-header-area")) {
+                node.setOnMouseExited(null);
+                node.setOnMouseEntered(null);
+                break;
+            }
+        }
+    }
+
     private void loadConnections() {
         final String projectId = activeProjectId;
         CompletableFuture.supplyAsync(() -> {
@@ -983,6 +1264,7 @@ public class MainWindow {
         javax.swing.JComponent component = (javax.swing.JComponent) viewHandle.component();
         javafx.embed.swing.SwingNode swingNode = new javafx.embed.swing.SwingNode();
         swingNode.setFocusTraversable(true);
+        swingNode.setCursor(javafx.scene.Cursor.TEXT);
         swingNode.setContent(component);
         swingNode.focusedProperty().addListener((obs, oldFocused, focused) -> {
             if (focused) {
@@ -1274,6 +1556,15 @@ public class MainWindow {
         javafx.scene.Cursor[] activeCursor = {null};
         double[] startDragX = {0}, startDragY = {0};
         double[] startStageX = {0}, startStageY = {0}, startW = {0}, startH = {0};
+
+        // 窗口获得焦点时重置光标，避免从其他程序切换回来时
+        // 光标还停留在 resize 箭头样式
+        stage.focusedProperty().addListener((obs, wasFocused, isFocused) -> {
+            if (isFocused) {
+                scene.setCursor(javafx.scene.Cursor.DEFAULT);
+                activeCursor[0] = null;
+            }
+        });
 
         scene.setOnMouseMoved(e -> {
             if (stage.isMaximized() || stage.isFullScreen()) {

@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -45,6 +46,19 @@ public class ShellTtyConnector implements TtyConnector {
     private StringBuilder oscBuffer;
     private boolean inOscSequence;
 
+    /** 连接断开回调（由 UI 层注册，用于显示断连提示和重连按钮） */
+    private volatile Consumer<DisconnectReason> onDisconnected;
+
+    /** 断连原因，区分远程关闭、网络异常、用户主动关闭等 */
+    public enum DisconnectReason {
+        /** 远端关闭了 Shell（EOF） */
+        REMOTE_CLOSED,
+        /** 网络 I/O 异常（连接超时、keep-alive 失败、网络中断等） */
+        IO_ERROR,
+        /** 用户主动关闭 */
+        USER_CLOSE
+    }
+
     public ShellTtyConnector(String name, ShellChannel shellChannel, ExecutorService executorService) {
         this.name = name;
         this.shellChannel = shellChannel;
@@ -63,13 +77,15 @@ public class ShellTtyConnector implements TtyConnector {
         try {
             int read = reader.read(buffer, offset, length);
             if (read < 0) {
-                markDisconnected();
+                log.info("[TtyConnector] '{}' received EOF (remote closed shell)", name);
+                markDisconnected(DisconnectReason.REMOTE_CLOSED);
             } else {
                 scanForOsc7(buffer, offset, read);
             }
             return read;
         } catch (IOException exception) {
-            markDisconnected();
+            log.warn("[TtyConnector] '{}' read IOException: {}", name, exception.getMessage());
+            markDisconnected(DisconnectReason.IO_ERROR);
             throw exception;
         }
     }
@@ -147,7 +163,8 @@ public class ShellTtyConnector implements TtyConnector {
             outputStream.write(bytes);
             outputStream.flush();
         } catch (IOException exception) {
-            markDisconnected();
+            log.warn("[TtyConnector] '{}' write IOException (connection likely lost): {}", name, exception.getMessage());
+            markDisconnected(DisconnectReason.IO_ERROR);
             throw exception;
         }
     }
@@ -205,6 +222,7 @@ public class ShellTtyConnector implements TtyConnector {
         }
 
         connected.set(false);
+        log.info("[TtyConnector] '{}' close() called (user-initiated)", name);
         shellChannel.closeAsync()
                 .whenCompleteAsync((unused, throwable) -> {
                     if (throwable != null) {
@@ -219,10 +237,23 @@ public class ShellTtyConnector implements TtyConnector {
         return closeFuture;
     }
 
-    private void markDisconnected() {
-        connected.set(false);
+    /** 注册连接断开回调。回调在 JavaFX 应用线程执行。 */
+    public void setOnDisconnected(Consumer<DisconnectReason> callback) {
+        this.onDisconnected = callback;
+    }
+
+    private void markDisconnected(DisconnectReason reason) {
+        if (!connected.compareAndSet(true, false)) {
+            return; // 已经断开，不重复触发
+        }
+        log.info("[TtyConnector] '{}' marked disconnected, reason={}", name, reason);
         if (!closeStarted.get()) {
             closeFuture.complete(null);
+        }
+        // 通知 UI 层
+        Consumer<DisconnectReason> cb = onDisconnected;
+        if (cb != null && reason != DisconnectReason.USER_CLOSE) {
+            Platform.runLater(() -> cb.accept(reason));
         }
     }
 }
