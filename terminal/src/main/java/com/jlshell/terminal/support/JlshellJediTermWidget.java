@@ -104,12 +104,12 @@ public class JlshellJediTermWidget extends JediTermWidget {
 
     @Override
     protected JScrollBar createScrollBar() {
-        themedScrollBar = new JScrollBar();
-        themedScrollBar.setUI(new ThemedScrollBarUI());
-        themedScrollBar.setPreferredSize(new Dimension(8, Integer.MAX_VALUE));
-        themedScrollBar.setOpaque(false);
-        themedScrollBar.setBorder(BorderFactory.createEmptyBorder());
-        return themedScrollBar;
+        JScrollBar scrollBar = new JScrollBar();
+        scrollBar.setUI(new ThemedScrollBarUI());
+        scrollBar.setOpaque(false);
+        scrollBar.setBorder(BorderFactory.createEmptyBorder());
+        themedScrollBar = scrollBar;
+        return scrollBar;
     }
 
     /**
@@ -125,6 +125,7 @@ public class JlshellJediTermWidget extends JediTermWidget {
         @Override
         protected void configureScrollBarColors() {
             // 不使用父类的颜色，全部自定义绘制
+            scrollBarWidth = 8;
         }
 
         @Override
@@ -188,11 +189,6 @@ public class JlshellJediTermWidget extends JediTermWidget {
             g2.fillRoundRect(thumbBounds.x + 1, thumbBounds.y, 6, thumbBounds.height, 4, 4);
 
             g2.dispose();
-        }
-
-        @Override
-        public Dimension getPreferredSize(JComponent c) {
-            return new Dimension(8, Integer.MAX_VALUE);
         }
 
         private Color blend(Color a, Color b, float ratio) {
