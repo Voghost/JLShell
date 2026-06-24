@@ -1212,3 +1212,41 @@
 .import-json-code:focused {
     -fx-border-color: #2563eb;
 }
+
+/* ---------- Terminal Disconnect Overlay ---------- */
+.disconnect-overlay {
+    -fx-background-color: rgba(248, 250, 252, 0.75);
+}
+
+.disconnect-card {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #cbd5e1;
+    -fx-border-width: 1;
+    -fx-border-radius: 8;
+    -fx-background-radius: 8;
+    -fx-padding: 24 32 24 32;
+    -fx-spacing: 10;
+}
+
+.disconnect-reason {
+    -fx-text-fill: #0f172a;
+    -fx-font-size: 14px;
+}
+
+.disconnect-reconnect-btn {
+    -fx-background-color: #2563eb;
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-padding: 8 20 8 20;
+    -fx-background-radius: 6;
+    -fx-cursor: hand;
+}
+
+.disconnect-reconnect-btn:hover {
+    -fx-background-color: derive(#2563eb, 15%);
+}
+
+.disconnect-reconnect-btn:pressed {
+    -fx-background-color: derive(#2563eb, -15%);
+}

@@ -31,6 +31,8 @@ import com.jlshell.terminal.model.TerminalColorScheme;
 import com.jlshell.terminal.model.TerminalViewRequest;
 import com.jlshell.terminal.service.TerminalViewFactory;
 import com.jlshell.terminal.service.TerminalViewHandle;
+import com.jlshell.terminal.support.DefaultTerminalViewHandle;
+import com.jlshell.terminal.support.ShellTtyConnector;
 import com.jlshell.ui.dialog.PreferencesDialog;
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.support.FxThread;
@@ -116,6 +118,14 @@ public class TerminalWorkspaceView extends BorderPane {
 
     private static final String PINNED_PLUGINS_KEY = "toolbar.pinnedPlugins";
     private static final int MAX_PINNED = 5;
+
+    /** 断连提示覆盖层：显示断连原因 + 重连按钮 */
+    private StackPane disconnectOverlay;
+    private Label disconnectLabel;
+    private Button reconnectBtn;
+    private boolean disconnected = false;
+    /** 重连回调，由 SessionWorkspaceTab 设置 */
+    private Runnable onReconnect;
 
     public TerminalWorkspaceView(
             String sessionId,
@@ -216,6 +226,71 @@ public class TerminalWorkspaceView extends BorderPane {
                         .map(TerminalViewHandle::closeAsync)
                         .toArray(CompletableFuture[]::new)
         );
+    }
+
+    /** 设置重连回调，由 SessionWorkspaceTab 在创建时注入。 */
+    public void setOnReconnect(Runnable onReconnect) {
+        this.onReconnect = onReconnect;
+    }
+
+    /**
+     * 终端连接断开回调，在 JavaFX 应用线程执行。
+     * 在终端上方覆盖显示断连原因和重连按钮。
+     */
+    private void onTerminalDisconnected(ShellTtyConnector.DisconnectReason reason) {
+        if (disconnected) return;
+        disconnected = true;
+        log.warn("[Terminal] Session {} disconnected, reason={}", sshSession.sessionId(), reason);
+
+        String reasonText = switch (reason) {
+            case REMOTE_CLOSED -> i18nService.get("terminal.disconnected.remoteClosed");
+            case IO_ERROR -> i18nService.get("terminal.disconnected.ioError");
+            case USER_CLOSE -> null; // 用户主动关闭不显示提示
+        };
+        if (reasonText == null) return;
+
+        // 创建断连提示覆盖层
+        disconnectLabel = new Label(reasonText);
+        disconnectLabel.getStyleClass().add("disconnect-reason");
+
+        reconnectBtn = new Button(i18nService.get("terminal.disconnected.reconnect"));
+        reconnectBtn.getStyleClass().add("disconnect-reconnect-btn");
+        reconnectBtn.setOnAction(e -> {
+            log.info("[Terminal] Reconnect button clicked for session {}", sshSession.sessionId());
+            hideDisconnectOverlay();
+            if (onReconnect != null) {
+                onReconnect.run();
+            }
+        });
+
+        VBox card = new VBox(10, disconnectLabel, reconnectBtn);
+        card.getStyleClass().add("disconnect-card");
+        card.setAlignment(Pos.CENTER);
+
+        disconnectOverlay = new StackPane(card);
+        disconnectOverlay.getStyleClass().add("disconnect-overlay");
+        StackPane.setAlignment(disconnectOverlay, Pos.CENTER);
+
+        terminalHost.getChildren().add(disconnectOverlay);
+    }
+
+    /** 隐藏断连提示覆盖层（重连时调用） */
+    private void hideDisconnectOverlay() {
+        if (disconnectOverlay != null) {
+            terminalHost.getChildren().remove(disconnectOverlay);
+            disconnectOverlay = null;
+        }
+        disconnected = false;
+    }
+
+    /** 标记已重连（清除断连状态，由 SessionWorkspaceTab 在重连成功后调用） */
+    public void markReconnected() {
+        hideDisconnectOverlay();
+    }
+
+    /** 返回终端是否处于断连状态 */
+    public boolean isDisconnected() {
+        return disconnected;
     }
 
     // ── Toolbar ──────────────────────────────────────────────────────────────
@@ -739,8 +814,9 @@ public class TerminalWorkspaceView extends BorderPane {
         Stage stage = owner instanceof Stage ? (Stage) owner : null;
         // 从终端 Tab 打开偏好设置时没有 ConnectionProfileService 上下文，
         // 传 null 让导入 Tab 显示提示信息（用户可从主菜单打开完整偏好设置）
+        // initialTabIndex=2 → 直接选中"终端"Tab（0=通用, 1=连接, 2=终端）
         PreferencesDialog.show(stage, fontProfileService, appSettingsService, i18nService, themeService,
-                null, null, null);
+                null, null, null, 2);
         FontProfile profile = fontProfileService.activeProfile();
         handles.forEach(h -> h.updateFontProfile(profile));
     }
@@ -889,6 +965,10 @@ public class TerminalWorkspaceView extends BorderPane {
                             cwdProperty.set(newCwd);
                         }
                     });
+                    // 注册断连回调：连接丢失时在终端上显示断连提示 + 重连按钮
+                    if (handle instanceof DefaultTerminalViewHandle dvh) {
+                        dvh.setOnDisconnected(this::onTerminalDisconnected);
+                    }
                     return FxThread.supplyAsync(() -> createEmbeddedTerminalNode(handle));
                 });
     }

@@ -1335,3 +1335,41 @@
     -fx-border-color: #4d9cf8;
 }
 
+/* ---------- Terminal Disconnect Overlay ---------- */
+.disconnect-overlay {
+    -fx-background-color: rgba(30, 31, 34, 0.75);
+}
+
+.disconnect-card {
+    -fx-background-color: #313438;
+    -fx-border-color: #43454a;
+    -fx-border-width: 1;
+    -fx-border-radius: 8;
+    -fx-background-radius: 8;
+    -fx-padding: 24 32 24 32;
+    -fx-spacing: 10;
+}
+
+.disconnect-reason {
+    -fx-text-fill: #dfe1e5;
+    -fx-font-size: 14px;
+}
+
+.disconnect-reconnect-btn {
+    -fx-background-color: #4d9cf8;
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-padding: 8 20 8 20;
+    -fx-background-radius: 6;
+    -fx-cursor: hand;
+}
+
+.disconnect-reconnect-btn:hover {
+    -fx-background-color: derive(#4d9cf8, 15%);
+}
+
+.disconnect-reconnect-btn:pressed {
+    -fx-background-color: derive(#4d9cf8, -15%);
+}
+

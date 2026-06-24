@@ -72,11 +72,23 @@ public class PreferencesDialog {
 
     private PreferencesDialog() {}
 
+    /** 打开偏好设置对话框，默认选中"通用"Tab。 */
     public static void show(Stage owner, FontProfileService fontProfileService, AppSettingsService appSettings,
                             I18nService i18n, ThemeService themeService,
                             com.jlshell.ui.service.ConnectionProfileService connectionProfileService,
                             String activeProjectId,
                             com.jlshell.api.server.ApiServer apiServer) {
+        show(owner, fontProfileService, appSettings, i18n, themeService,
+                connectionProfileService, activeProjectId, apiServer, 0);
+    }
+
+    /** 打开偏好设置对话框，可指定初始选中的 Tab 索引。 */
+    public static void show(Stage owner, FontProfileService fontProfileService, AppSettingsService appSettings,
+                            I18nService i18n, ThemeService themeService,
+                            com.jlshell.ui.service.ConnectionProfileService connectionProfileService,
+                            String activeProjectId,
+                            com.jlshell.api.server.ApiServer apiServer,
+                            int initialTabIndex) {
         Dialog<Void> dialog = new Dialog<>();
         dialog.setTitle(i18n.get("preferences.title"));
         dialog.setHeaderText(null);
@@ -95,6 +107,10 @@ public class PreferencesDialog {
         TabPane tabs = buildTabPane(fontProfileService, appSettings, i18n, themeService,
                 pending, pendingLang, pendingTheme, pendingConnTimeout, pendingScheme,
                 connectionProfileService, activeProjectId, apiServer, pendingApiEnabled, pendingApiPort);
+        // 选中指定的初始 Tab（如从终端字体按钮打开时选中"终端"Tab）
+        if (initialTabIndex >= 0 && initialTabIndex < tabs.getTabs().size()) {
+            tabs.getSelectionModel().select(initialTabIndex);
+        }
         dialog.getDialogPane().setContent(tabs);
 
         // Apply 按钮：用 APPLY 类型让 ButtonBar 自动放左侧
@@ -330,6 +346,9 @@ public class PreferencesDialog {
         ligaturesCheck.setSelected(current.ligaturesEnabled());
 
         Text preview = new Text("Hello World  你好世界  AaBbCc 0123  -> => !=");
+        // 字体预览强制使用主题前景色，避免与对话框背景对比度不足
+        String previewFg = themeService.currentThemeProperty().get() == AppTheme.LIGHT ? "#0f172a" : "#dfe1e5";
+        preview.setStyle("-fx-fill: " + previewFg + ";");
         fontCombo.valueProperty().addListener((o, ov, nv) -> updatePreview(preview, nv, sizeSlider.getValue()));
         sizeSlider.valueProperty().addListener((o, ov, nv) -> updatePreview(preview, fontCombo.getValue(), nv.doubleValue()));
         updatePreview(preview, fontCombo.getValue(), sizeSlider.getValue());

@@ -523,7 +523,6 @@ public class MainWindow {
         topBarCollapseBtn.getStyleClass().add("topbar-collapse-btn");
         topBarCollapseBtn.setTooltip(new javafx.scene.control.Tooltip(i18nService.get("topbar.collapse")));
         topBarCollapseBtn.setOnAction(e -> {
-            log.info("[TopBar] ▾ button clicked! topBarCollapsed={}", topBarCollapsed);
             toggleTopBarCollapse();
         });
         StackPane.setAlignment(topBarCollapseBtn, javafx.geometry.Pos.TOP_RIGHT);
@@ -531,10 +530,8 @@ public class MainWindow {
         // 初始无 tab 时不显示；有 tab 时由 applyTopBarCollapsed 管理
         topBarCollapseBtn.setVisible(false);
         workspaceTabs.getTabs().addListener((javafx.collections.ListChangeListener<javafx.scene.control.Tab>) c -> {
-            log.info("[TopBar] tabs changed: count={}, topBarCollapsed={}", c.getList().size(), topBarCollapsed);
             if (!topBarCollapsed && !c.getList().isEmpty()) {
                 topBarCollapseBtn.setVisible(true);
-                log.info("[TopBar] ▾ button made visible");
             }
         });
 
@@ -543,7 +540,6 @@ public class MainWindow {
         topBarExpandBtn.getStyleClass().add("topbar-expand-btn");
         topBarExpandBtn.setTooltip(new javafx.scene.control.Tooltip(i18nService.get("topbar.expand")));
         topBarExpandBtn.setOnAction(e -> {
-            log.info("[TopBar] ▴ expand button clicked");
             topBarCollapsed = false;
             applyTopBarCollapsed(false);
             removeTopBarExitListener();
@@ -564,7 +560,6 @@ public class MainWindow {
         StackPane.setAlignment(topHoverZone, javafx.geometry.Pos.TOP_CENTER);
         topHoverZone.setOnMouseEntered(e -> {
             if (topBarCollapsed && System.currentTimeMillis() > collapseImmuneUntil) {
-                log.info("[TopBar] top hover zone entered → expand");
                 topBarCollapsed = false;
                 applyTopBarCollapsed(false);
                 installTopBarExitListener();
@@ -847,14 +842,11 @@ public class MainWindow {
 
     private void toggleTopBarCollapse() {
         topBarCollapsed = !topBarCollapsed;
-        log.info("[TopBar] toggleTopBarCollapse → topBarCollapsed={}", topBarCollapsed);
         applyTopBarCollapsed(topBarCollapsed);
     }
 
     private void applyTopBarCollapsed(boolean collapsed) {
         boolean isWindows = System.getProperty("os.name", "").toLowerCase().contains("win");
-        log.info("[TopBar] applyTopBarCollapsed: collapsed={}, isWindows={}, topArea={}, customTitleBar={}",
-                collapsed, isWindows, topArea != null, customTitleBar != null);
 
         if (collapsed) {
             // 设置免疫期：600ms 内不响应 hover 展开
@@ -866,33 +858,27 @@ public class MainWindow {
                     customTitleBar.getCollapseBtn().setManaged(false);
                     customTitleBar.getCollapseBtn().setVisible(false);
                 }
-                log.info("[TopBar] Windows: hid menuBar in CustomTitleBar");
             } else if (topArea != null) {
                 topArea.setManaged(false);
                 topArea.setVisible(false);
-                log.info("[TopBar] macOS/Linux: hid topArea (managed=false, visible=false)");
             }
             // 外层 TabPane 隐藏 tab header（程序化，CSS 不可靠）
-            boolean outerResult = setTabHeaderVisible(workspaceTabs, false);
-            log.info("[TopBar] outer workspaceTabs tab-header hidden: {}", outerResult);
+            setTabHeaderVisible(workspaceTabs, false);
             // 隐藏折叠按钮 overlay
             topBarCollapseBtn.setVisible(false);
             topBarCollapseBtn.setManaged(false);
             // 内层 TabPane 隐藏 tab header
             for (javafx.scene.control.Tab t : workspaceTabs.getTabs()) {
                 if (t instanceof SessionWorkspaceTab swt) {
-                    boolean innerResult = setTabHeaderVisible(swt.getInnerTabPane(), false);
-                    log.info("[TopBar] inner tab-header hidden for '{}': {}", t.getText(), innerResult);
+                    setTabHeaderVisible(swt.getInnerTabPane(), false);
                     // 隐藏终端工具栏（IP/CPU/Mem/Disk + 插件按钮 + 字体设置）
                     swt.setToolbarVisible(false);
-                    log.info("[TopBar] toolbar hidden for '{}'", t.getText());
                 }
             }
             // 显示展开按钮（透明悬浮在终端右上角）
             topBarExpandBtn.setVisible(true);
             // 显示顶部 hover 感应条
             topHoverZone.setVisible(true);
-            log.info("[TopBar] expand button + hover zone shown");
         } else {
             // 恢复菜单栏
             if (isWindows && customTitleBar != null) {
@@ -901,32 +887,26 @@ public class MainWindow {
                     customTitleBar.getCollapseBtn().setManaged(true);
                     customTitleBar.getCollapseBtn().setVisible(true);
                 }
-                log.info("[TopBar] Windows: restored menuBar in CustomTitleBar");
             } else if (topArea != null) {
                 topArea.setManaged(true);
                 topArea.setVisible(true);
-                log.info("[TopBar] macOS/Linux: restored topArea");
             }
             // 外层 TabPane 恢复 tab header
-            boolean outerResult = setTabHeaderVisible(workspaceTabs, true);
-            log.info("[TopBar] outer workspaceTabs tab-header restored: {}", outerResult);
+            setTabHeaderVisible(workspaceTabs, true);
             // 恢复折叠按钮 overlay
             topBarCollapseBtn.setManaged(true);
             topBarCollapseBtn.setVisible(true);
             // 内层 TabPane 恢复 tab header
             for (javafx.scene.control.Tab t : workspaceTabs.getTabs()) {
                 if (t instanceof SessionWorkspaceTab swt) {
-                    boolean innerResult = setTabHeaderVisible(swt.getInnerTabPane(), true);
-                    log.info("[TopBar] inner tab-header restored for '{}': {}", t.getText(), innerResult);
+                    setTabHeaderVisible(swt.getInnerTabPane(), true);
                     // 恢复终端工具栏
                     swt.setToolbarVisible(true);
-                    log.info("[TopBar] toolbar restored for '{}'", t.getText());
                 }
             }
             // 隐藏展开按钮和 hover 感应条
             topBarExpandBtn.setVisible(false);
             topHoverZone.setVisible(false);
-            log.info("[TopBar] expand button + hover zone hidden");
         }
     }
 
@@ -943,8 +923,6 @@ public class MainWindow {
      * 设为 0，Skin 在 layoutChildren 中才会把全部空间分配给 content area。
      */
     private boolean setTabHeaderVisible(TabPane tabPane, boolean visible) {
-        log.info("[TopBar] setTabHeaderVisible: visible={}, tabPane.children={}",
-                visible, tabPane.getChildrenUnmodifiable().size());
         for (javafx.scene.Node node : tabPane.getChildrenUnmodifiable()) {
             if (node.getStyleClass().contains("tab-header-area") && node instanceof Region header) {
                 header.setVisible(visible);
@@ -960,11 +938,9 @@ public class MainWindow {
                     header.setMinHeight(0);
                 }
                 tabPane.requestLayout();
-                log.info("[TopBar]   → tab-header-area: visible={}, prefHeight={}", visible, header.getPrefHeight());
                 return true;
             }
         }
-        log.warn("[TopBar]   → tab-header-area NOT FOUND in children!");
         return false;
     }
 
