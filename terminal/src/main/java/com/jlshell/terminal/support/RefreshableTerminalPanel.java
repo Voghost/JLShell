@@ -105,6 +105,7 @@ public class RefreshableTerminalPanel extends TerminalPanel {
         Color fg      = jlshellSettings.foregroundColor();
         Color hover   = blend(bg, fg, 0.12f);
         Color border  = blend(bg, fg, 0.22f);
+        Color disabled = blend(bg, fg, 0.4f);
 
         Font itemFont = jlshellSettings.getTerminalFont().deriveFont(Font.PLAIN, 12f);
         // Use a system font that can render CJK for the popup menu items.
@@ -156,26 +157,31 @@ public class RefreshableTerminalPanel extends TerminalPanel {
                 String label   = ACTION_KEY_MAP.containsKey(rawName)
                         ? i18n.apply(ACTION_KEY_MAP.get(rawName))
                         : rawName;
-                JMenuItem item = new JMenuItem(label);
-                item.setBackground(bg);
-                item.setForeground(fg);
+                boolean enabled = action.isEnabled(null);
+
+                // 完全自绘菜单项：用 JPanel 代替 JMenuItem，
+                // 避免 macOS Aqua LAF 强制覆盖选中色（绿色/蓝色）。
+                javax.swing.JLabel item = new javax.swing.JLabel(label);
                 item.setFont(menuFont);
-                item.setOpaque(true);
-                item.setEnabled(action.isEnabled(null));
-                item.addActionListener(e -> action.actionPerformed(null));
+                item.setForeground(enabled ? fg : disabled);
                 item.setBorder(BorderFactory.createEmptyBorder(5, 16, 5, 16));
-                // 去掉默认的选中边框和虚线
-                item.setBorderPainted(false);
-                item.setFocusPainted(false);
-                // Hover highlight
-                item.addMouseListener(new java.awt.event.MouseAdapter() {
-                    @Override public void mouseEntered(java.awt.event.MouseEvent e) {
-                        if (item.isEnabled()) item.setBackground(hover);
-                    }
-                    @Override public void mouseExited(java.awt.event.MouseEvent e) {
-                        item.setBackground(bg);
-                    }
-                });
+                item.setOpaque(true);
+                item.setBackground(bg);
+                item.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
+
+                if (enabled) {
+                    item.addMouseListener(new java.awt.event.MouseAdapter() {
+                        @Override public void mouseEntered(java.awt.event.MouseEvent e) {
+                            item.setBackground(hover);
+                        }
+                        @Override public void mouseExited(java.awt.event.MouseEvent e) {
+                            item.setBackground(bg);
+                        }
+                        @Override public void mouseReleased(java.awt.event.MouseEvent e) {
+                            action.actionPerformed(null);
+                        }
+                    });
+                }
                 menu.add(item);
             }
 
