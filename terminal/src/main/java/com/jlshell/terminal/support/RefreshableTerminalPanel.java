@@ -103,8 +103,14 @@ public class RefreshableTerminalPanel extends TerminalPanel {
     protected JPopupMenu createPopupMenu(TerminalActionProvider provider) {
         Color bg      = jlshellSettings.backgroundColor();
         Color fg      = jlshellSettings.foregroundColor();
-        Color hover   = blend(bg, fg, 0.15f);
-        Color border  = blend(bg, fg, 0.25f);
+        Color hover   = blend(bg, fg, 0.12f);
+        Color border  = blend(bg, fg, 0.22f);
+
+        Font itemFont = jlshellSettings.getTerminalFont().deriveFont(Font.PLAIN, 12f);
+        // Use a system font that can render CJK for the popup menu items.
+        // Terminal monospace fonts (Consolas, etc.) often lack CJK glyphs on Windows.
+        final Font menuFont = (!itemFont.canDisplay('复') || !itemFont.canDisplay('制'))
+                ? new Font(Font.DIALOG, Font.PLAIN, 12) : itemFont;
 
         JPopupMenu menu = new JPopupMenu() {
             @Override
@@ -139,25 +145,8 @@ public class RefreshableTerminalPanel extends TerminalPanel {
             }
         };
         menu.setBackground(bg);
-        menu.setBorder(BorderFactory.createEmptyBorder(6, 0, 6, 0));
+        menu.setBorder(BorderFactory.createEmptyBorder(4, 0, 4, 0));
         menu.setOpaque(false);
-
-        // 临时覆盖 UIManager，让 JMenuItem 默认颜色跟随主题
-        UIManager.put("MenuItem.background",          bg);
-        UIManager.put("MenuItem.foreground",          fg);
-        UIManager.put("MenuItem.selectionBackground", hover);
-        UIManager.put("MenuItem.selectionForeground", fg);
-        UIManager.put("MenuItem.disabledForeground",  blend(bg, fg, 0.4f));
-        UIManager.put("PopupMenu.background",         bg);
-        UIManager.put("PopupMenu.border",             BorderFactory.createEmptyBorder());
-        UIManager.put("Separator.background",         border);
-        UIManager.put("Separator.foreground",         border);
-
-        Font itemFont = jlshellSettings.getTerminalFont().deriveFont(Font.PLAIN, 12f);
-        // Use a system font that can render CJK for the popup menu items.
-        // Terminal monospace fonts (Consolas, etc.) often lack CJK glyphs on Windows.
-        final Font menuFont = (!itemFont.canDisplay('复') || !itemFont.canDisplay('制'))
-                ? new Font(Font.DIALOG, Font.PLAIN, 12) : itemFont;
 
         TerminalAction.buildMenu(provider, new com.jediterm.terminal.ui.TerminalActionMenuBuilder() {
             @Override
@@ -174,16 +163,17 @@ public class RefreshableTerminalPanel extends TerminalPanel {
                 item.setOpaque(true);
                 item.setEnabled(action.isEnabled(null));
                 item.addActionListener(e -> action.actionPerformed(null));
-                item.setBorder(BorderFactory.createEmptyBorder(4, 12, 4, 12));
+                item.setBorder(BorderFactory.createEmptyBorder(5, 16, 5, 16));
+                // 去掉默认的选中边框和虚线
+                item.setBorderPainted(false);
+                item.setFocusPainted(false);
                 // Hover highlight
-                Color hoverBg = hover;
-                Color normalBg = bg;
                 item.addMouseListener(new java.awt.event.MouseAdapter() {
                     @Override public void mouseEntered(java.awt.event.MouseEvent e) {
-                        if (item.isEnabled()) item.setBackground(hoverBg);
+                        if (item.isEnabled()) item.setBackground(hover);
                     }
                     @Override public void mouseExited(java.awt.event.MouseEvent e) {
-                        item.setBackground(normalBg);
+                        item.setBackground(bg);
                     }
                 });
                 menu.add(item);
@@ -191,20 +181,18 @@ public class RefreshableTerminalPanel extends TerminalPanel {
 
             @Override
             public void addSeparator() {
-                // Use a thin line with horizontal insets, matching the JavaFX context-menu separator style
+                // 自绘分隔线：一条细线，左右留 8px 边距
                 javax.swing.JPanel sepPanel = new javax.swing.JPanel(null) {
                     @Override
                     protected void paintComponent(Graphics g) {
-                        super.paintComponent(g);
                         Graphics2D g2 = (Graphics2D) g.create();
                         g2.setColor(border);
-                        g2.drawLine(8, 0, getWidth() - 8, 0);
+                        g2.drawLine(8, getHeight() / 2, getWidth() - 8, getHeight() / 2);
                         g2.dispose();
                     }
                 };
                 sepPanel.setOpaque(false);
-                sepPanel.setPreferredSize(new java.awt.Dimension(1, 6));
-                sepPanel.setBackground(bg);
+                sepPanel.setPreferredSize(new java.awt.Dimension(1, 9));
                 menu.add(sepPanel);
             }
         });
