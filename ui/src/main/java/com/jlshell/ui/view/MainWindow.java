@@ -998,6 +998,7 @@ public class MainWindow {
         javax.swing.JComponent component = (javax.swing.JComponent) viewHandle.component();
         javafx.embed.swing.SwingNode swingNode = new javafx.embed.swing.SwingNode();
         swingNode.setFocusTraversable(true);
+        swingNode.setCursor(javafx.scene.Cursor.TEXT);
         swingNode.setContent(component);
         swingNode.focusedProperty().addListener((obs, oldFocused, focused) -> {
             if (focused) {
@@ -1289,6 +1290,15 @@ public class MainWindow {
         javafx.scene.Cursor[] activeCursor = {null};
         double[] startDragX = {0}, startDragY = {0};
         double[] startStageX = {0}, startStageY = {0}, startW = {0}, startH = {0};
+
+        // 窗口获得焦点时重置光标，避免从其他程序切换回来时
+        // 光标还停留在 resize 箭头样式
+        stage.focusedProperty().addListener((obs, wasFocused, isFocused) -> {
+            if (isFocused) {
+                scene.setCursor(javafx.scene.Cursor.DEFAULT);
+                activeCursor[0] = null;
+            }
+        });
 
         scene.setOnMouseMoved(e -> {
             if (stage.isMaximized() || stage.isFullScreen()) {

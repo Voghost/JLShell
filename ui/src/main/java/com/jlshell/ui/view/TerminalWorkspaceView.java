@@ -886,6 +886,7 @@ public class TerminalWorkspaceView extends BorderPane {
         javax.swing.JComponent component = handle.component();
         SwingNode swingNode = new SwingNode();
         swingNode.setFocusTraversable(true);
+        swingNode.setCursor(javafx.scene.Cursor.TEXT);
         swingNode.setContent(component);
         swingNode.focusedProperty().addListener((obs, oldFocused, focused) -> {
             if (focused) {
