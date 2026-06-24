@@ -232,14 +232,8 @@ public class JlshellJediTermWidget extends JediTermWidget {
             Color borderColor = blend(bg, fg, 0.25f);
 
             setLayout(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 4));
-            setOpaque(true);
-            setBackground(bg);
-            // 圆角边框
-            setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createLineBorder(borderColor, 1, true),
-                    BorderFactory.createEmptyBorder(4, 8, 4, 8)
-            ));
-            // JediTerm 调用 getComponent().requestFocus()，JPanel 默认不可聚焦
+            // 自绘圆角背景 + 边框
+            setOpaque(false);
             setFocusable(true);
 
             // 文本输入框
@@ -272,9 +266,8 @@ public class JlshellJediTermWidget extends JediTermWidget {
             // 忽略大小写
             String ignoreCaseText = i18n != null ? i18n.apply("terminal.search.ignoreCase") : "Ignore Case";
             ignoreCaseCheckBox = new JCheckBox(ignoreCaseText, true);
-            ignoreCaseCheckBox.setBackground(bg);
+            ignoreCaseCheckBox.setOpaque(false);
             ignoreCaseCheckBox.setForeground(fg);
-            ignoreCaseCheckBox.setOpaque(true);
             ignoreCaseCheckBox.setBorder(BorderFactory.createEmptyBorder());
             ignoreCaseCheckBox.setFocusPainted(false);
             add(ignoreCaseCheckBox);
@@ -287,7 +280,49 @@ public class JlshellJediTermWidget extends JediTermWidget {
             add(createNavButton("▲", () -> multicaster.selectPrevFindResult()));
             add(createNavButton("▼", () -> multicaster.selectNextFindResult()));
 
+            // 关闭按钮
+            add(createCloseButton());
+
             listenForChanges();
+        }
+
+        /** 自绘圆角背景和边框 */
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            Color bg = settingsProvider.backgroundColor();
+            Color borderColor = blend(bg, settingsProvider.foregroundColor(), 0.25f);
+            int arc = 10;
+            // 背景
+            g2.setColor(bg);
+            g2.fillRoundRect(0, 0, getWidth() - 1, getHeight() - 1, arc, arc);
+            // 边框
+            g2.setColor(borderColor);
+            g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, arc, arc);
+            g2.dispose();
+            super.paintComponent(g);
+        }
+
+        private JButton createCloseButton() {
+            Color bg = settingsProvider.backgroundColor();
+            Color fg = settingsProvider.foregroundColor();
+            Color hoverBg = blend(bg, fg, 0.15f);
+
+            JButton btn = new JButton("✕");
+            btn.setBackground(bg);
+            btn.setForeground(fg);
+            btn.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
+            btn.setFocusPainted(false);
+            btn.setContentAreaFilled(false);
+            btn.setOpaque(true);
+            btn.setFont(btn.getFont().deriveFont(Font.PLAIN, 12f));
+            btn.addActionListener(e -> multicaster.hideSearchComponent());
+            btn.addMouseListener(new java.awt.event.MouseAdapter() {
+                @Override public void mouseEntered(java.awt.event.MouseEvent e) { btn.setBackground(hoverBg); }
+                @Override public void mouseExited(java.awt.event.MouseEvent e) { btn.setBackground(bg); }
+            });
+            return btn;
         }
 
         private JButton createNavButton(String text, Runnable action) {
