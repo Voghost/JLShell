@@ -298,35 +298,7 @@
     -fx-padding: 0;
 }
 
-/* 折叠后的顶栏窄条 */
-.collapsed-top-bar {
-    -fx-background-color: #ffffff;
-    -fx-border-color: transparent transparent #cbd5e1 transparent;
-    -fx-border-width: 0 0 1 0;
-    -fx-padding: 4 8 4 8;
-    -fx-pref-height: 28;
-    -fx-alignment: center-left;
-}
-
-.collapsed-top-bar .session-name {
-    -fx-text-fill: #64748b;
-    -fx-font-size: 12px;
-}
-
-.collapsed-top-bar .collapse-btn {
-    -fx-background-color: transparent;
-    -fx-text-fill: #64748b;
-    -fx-opacity: 0.5;
-    -fx-padding: 2 4 2 4;
-    -fx-background-radius: 4;
-}
-
-.collapsed-top-bar .collapse-btn:hover {
-    -fx-opacity: 1.0;
-    -fx-background-color: #e2e8f0;
-}
-
-/* 顶栏折叠按钮（▾/▴） */
+/* 顶栏折叠按钮（▾） */
 .topbar-collapse-btn {
     -fx-background-color: transparent;
     -fx-text-fill: #64748b;
@@ -336,6 +308,22 @@
 }
 
 .topbar-collapse-btn:hover {
+    -fx-background-color: #e2e8f0;
+    -fx-text-fill: #0f172a;
+}
+
+/* 顶栏展开按钮（▴）— 折叠后透明悬浮在终端右上角 */
+.topbar-expand-btn {
+    -fx-background-color: transparent;
+    -fx-text-fill: #64748b;
+    -fx-opacity: 0.4;
+    -fx-padding: 2 6 2 6;
+    -fx-background-radius: 4;
+    -fx-font-size: 10px;
+}
+
+.topbar-expand-btn:hover {
+    -fx-opacity: 1.0;
     -fx-background-color: #e2e8f0;
     -fx-text-fill: #0f172a;
 }

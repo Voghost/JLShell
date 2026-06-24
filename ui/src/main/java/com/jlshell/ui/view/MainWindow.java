@@ -125,12 +125,11 @@ public class MainWindow {
 
     // ── 顶栏折叠/展开 ──
     private boolean topBarCollapsed = false;
-    private HBox collapsedTopBar;
-    private Label collapsedSessionLabel;
     private javafx.animation.PauseTransition collapseDelay;
     private CustomTitleBar customTitleBar; // Windows 专用
-    private StackPane workspaceStack; // workspace StackPane，用于添加/移除折叠条 overlay
-    private Button topBarCollapseBtn; // 顶栏中的折叠按钮
+    private StackPane workspaceStack; // workspace StackPane
+    private Button topBarCollapseBtn; // 顶栏中的折叠按钮（▾）
+    private Button topBarExpandBtn; // 折叠后的展开按钮（▴）
     /** 折叠后的免疫期：刚折叠时不响应 hover 展开，避免按钮点击瞬间触发 mouseEntered */
     private long collapseImmuneUntil = 0;
 
@@ -471,11 +470,9 @@ public class MainWindow {
                                 });
                     });
             welcomePane.visibleProperty().bind(Bindings.isEmpty(workspaceTabs.getTabs()));
-            StackPane workspaceStackPane = new StackPane(welcomePane, workspaceTabs, revealSidebarBtn, topBarCollapseBtn);
+            StackPane workspaceStackPane = new StackPane(welcomePane, workspaceTabs, revealSidebarBtn, topBarCollapseBtn, topBarExpandBtn);
             workspaceStack = workspaceStackPane;
-            VBox workspaceContainer = new VBox(collapsedTopBar, workspaceStackPane);
-            VBox.setVgrow(workspaceStackPane, Priority.ALWAYS);
-            splitPane.getItems().set(1, workspaceContainer);
+            splitPane.getItems().set(1, workspaceStackPane);
             // 恢复搜索过滤
             if (!savedSearch.isBlank() && searchField != null) {
                 searchField.setText(savedSearch);
@@ -540,49 +537,25 @@ public class MainWindow {
             }
         });
 
-        StackPane workspaceStackPane = new StackPane(welcomePane, workspaceTabs, revealSidebarBtn, topBarCollapseBtn);
-        workspaceStack = workspaceStackPane;
-
-        // ── 折叠后的顶栏窄条 ──
-        // 注意：不能放在 StackPane 中用 managed=false，StackPane 不布局 managed=false 的节点
-        // 所以用 VBox 包裹：collapsedTopBar 在顶部（managed/visible 控制显隐），workspaceStackPane 在下方
-        collapsedSessionLabel = new Label();
-        collapsedSessionLabel.getStyleClass().add("session-name");
-        Region colSpacer = new Region();
-        HBox.setHgrow(colSpacer, Priority.ALWAYS);
-        Button expandBtn = new Button("▴");
-        expandBtn.getStyleClass().add("collapse-btn");
-        expandBtn.setTooltip(new javafx.scene.control.Tooltip(i18nService.get("topbar.expand")));
-        expandBtn.setOnAction(e -> {
+        // ── 折叠后的展开按钮（透明悬浮在终端右上角） ──
+        topBarExpandBtn = new Button("▴");
+        topBarExpandBtn.getStyleClass().add("topbar-expand-btn");
+        topBarExpandBtn.setTooltip(new javafx.scene.control.Tooltip(i18nService.get("topbar.expand")));
+        topBarExpandBtn.setOnAction(e -> {
             log.info("[TopBar] ▴ expand button clicked");
             topBarCollapsed = false;
             applyTopBarCollapsed(false);
             removeTopBarExitListener();
         });
-        collapsedTopBar = new HBox(6, collapsedSessionLabel, colSpacer, expandBtn);
-        collapsedTopBar.getStyleClass().add("collapsed-top-bar");
-        collapsedTopBar.setVisible(false);
-        collapsedTopBar.setManaged(false);
+        topBarExpandBtn.setVisible(false);
+        StackPane.setAlignment(topBarExpandBtn, javafx.geometry.Pos.TOP_RIGHT);
+        StackPane.setMargin(topBarExpandBtn, new Insets(4, 4, 0, 0));
 
-        // hover 自动展开：鼠标进入折叠条 → 展开顶栏
-        // 有免疫期（600ms），避免折叠按钮点击瞬间触发 mouseEntered
-        collapsedTopBar.setOnMouseEntered(e -> {
-            if (topBarCollapsed && System.currentTimeMillis() > collapseImmuneUntil) {
-                log.info("[TopBar] collapsedTopBar mouseEntered → hover expand");
-                topBarCollapsed = false;
-                applyTopBarCollapsed(false);
-                installTopBarExitListener();
-            } else if (topBarCollapsed) {
-                log.info("[TopBar] collapsedTopBar mouseEntered → still in immune period, ignoring");
-            }
-        });
+        StackPane workspaceStackPane = new StackPane(welcomePane, workspaceTabs, revealSidebarBtn, topBarCollapseBtn, topBarExpandBtn);
+        workspaceStack = workspaceStackPane;
 
-        // 用 VBox 包裹：collapsedTopBar 在顶部，workspaceStackPane 占剩余空间
-        VBox workspaceContainer = new VBox(collapsedTopBar, workspaceStackPane);
-        VBox.setVgrow(workspaceStackPane, Priority.ALWAYS);
-        workspaceStackPane.setStyle("-fx-background-color: transparent;");
-
-        // 监听 workspace 鼠标移动 — 当鼠标在工作区最顶部时自动展开
+        // hover 自动展开：鼠标移到 workspace 最顶部区域时展开
+        // 有免疫期（600ms），避免折叠按钮点击瞬间触发
         workspaceStackPane.setOnMouseMoved(e -> {
             if (topBarCollapsed && e.getY() < 4 && System.currentTimeMillis() > collapseImmuneUntil) {
                 log.info("[TopBar] workspace top-edge hover → expand (y={})", e.getY());
@@ -600,18 +573,7 @@ public class MainWindow {
             }
         });
 
-        // 监听当前选中 tab 变化，更新折叠条中的会话名
-        workspaceTabs.getSelectionModel().selectedItemProperty().addListener((obs, oldTab, newTab) -> {
-            if (newTab instanceof SessionWorkspaceTab swt) {
-                collapsedSessionLabel.setText(swt.getConnectionProfile().displayName());
-            } else if (newTab != null) {
-                collapsedSessionLabel.setText(newTab.getText());
-            } else {
-                collapsedSessionLabel.setText("");
-            }
-        });
-
-        centerSplitPane = new SplitPane(sidebarVBox, workspaceContainer);
+        centerSplitPane = new SplitPane(sidebarVBox, workspaceStackPane);
         centerSplitPane.setDividerPositions(0.26);
         return centerSplitPane;
     }
@@ -917,10 +879,9 @@ public class MainWindow {
                     log.info("[TopBar] toolbar hidden for '{}'", t.getText());
                 }
             }
-            // 显示折叠条 overlay
-            collapsedTopBar.setManaged(true);
-            collapsedTopBar.setVisible(true);
-            log.info("[TopBar] collapsedTopBar shown (managed={}, visible={})", collapsedTopBar.isManaged(), collapsedTopBar.isVisible());
+            // 显示展开按钮（透明悬浮在终端右上角）
+            topBarExpandBtn.setVisible(true);
+            log.info("[TopBar] expand button shown");
         } else {
             // 恢复菜单栏
             if (isWindows && customTitleBar != null) {
@@ -951,10 +912,9 @@ public class MainWindow {
                     log.info("[TopBar] toolbar restored for '{}'", t.getText());
                 }
             }
-            // 隐藏折叠条 overlay
-            collapsedTopBar.setManaged(false);
-            collapsedTopBar.setVisible(false);
-            log.info("[TopBar] collapsedTopBar hidden");
+            // 隐藏展开按钮
+            topBarExpandBtn.setVisible(false);
+            log.info("[TopBar] expand button hidden");
         }
     }
 
