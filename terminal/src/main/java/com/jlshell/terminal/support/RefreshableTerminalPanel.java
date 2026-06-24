@@ -203,17 +203,26 @@ public class RefreshableTerminalPanel extends TerminalPanel {
 
             @Override
             public void addSeparator() {
+                // 自绘分隔线：用不透明 JPanel 填满背景遮住 LAF 默认装饰，
+                // 然后在中间画一条细横线，左右留 8px 边距
                 javax.swing.JPanel sepPanel = new javax.swing.JPanel(null) {
                     @Override
                     protected void paintComponent(Graphics g) {
+                        // 先用菜单背景色填满整行，遮住 LAF 画的竖线装饰
+                        g.setColor(bg);
+                        g.fillRect(0, 0, getWidth(), getHeight());
+                        // 再画分隔线
                         Graphics2D g2 = (Graphics2D) g.create();
+                        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                         g2.setColor(border);
-                        g2.drawLine(8, getHeight() / 2, getWidth() - 8, getHeight() / 2);
+                        int y = getHeight() / 2;
+                        g2.drawLine(8, y, getWidth() - 8, y);
                         g2.dispose();
                     }
                 };
-                sepPanel.setOpaque(false);
-                sepPanel.setPreferredSize(new java.awt.Dimension(1, 9));
+                sepPanel.setOpaque(true);
+                sepPanel.setBackground(bg);
+                sepPanel.setPreferredSize(new java.awt.Dimension(100, 9));
                 menu.add(sepPanel);
             }
         });
