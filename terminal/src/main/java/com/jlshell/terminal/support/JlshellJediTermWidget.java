@@ -51,12 +51,15 @@ public class JlshellJediTermWidget extends JediTermWidget {
     private static final ThreadLocal<Function<String, String>> CONSTRUCTION_I18N = new ThreadLocal<>();
 
     private final JlshellSettingsProvider settingsProvider;
+    private final Function<String, String> i18n;
     private RefreshableTerminalPanel terminalPanel;
     private JScrollBar themedScrollBar;
 
-    private JlshellJediTermWidget(int columns, int rows, JlshellSettingsProvider settingsProvider) {
+    private JlshellJediTermWidget(int columns, int rows, JlshellSettingsProvider settingsProvider,
+                                  Function<String, String> i18n) {
         super(columns, rows, settingsProvider);
         this.settingsProvider = settingsProvider;
+        this.i18n = i18n;
     }
 
     public static JlshellJediTermWidget create(int columns, int rows, JlshellSettingsProvider settingsProvider,
@@ -64,7 +67,7 @@ public class JlshellJediTermWidget extends JediTermWidget {
         CONSTRUCTION_SETTINGS.set(settingsProvider);
         CONSTRUCTION_I18N.set(i18n);
         try {
-            return new JlshellJediTermWidget(columns, rows, settingsProvider);
+            return new JlshellJediTermWidget(columns, rows, settingsProvider, i18n);
         } finally {
             CONSTRUCTION_SETTINGS.remove();
             CONSTRUCTION_I18N.remove();
@@ -85,8 +88,8 @@ public class JlshellJediTermWidget extends JediTermWidget {
             TerminalTextBuffer terminalTextBuffer
     ) {
         JlshellSettingsProvider sp = CONSTRUCTION_SETTINGS.get();
-        Function<String, String> i18n = CONSTRUCTION_I18N.get();
-        this.terminalPanel = new RefreshableTerminalPanel(settingsProvider, terminalTextBuffer, styleState, sp, i18n);
+        Function<String, String> i18nFn = CONSTRUCTION_I18N.get();
+        this.terminalPanel = new RefreshableTerminalPanel(settingsProvider, terminalTextBuffer, styleState, sp, i18nFn);
         return terminalPanel;
     }
 
@@ -124,7 +127,6 @@ public class JlshellJediTermWidget extends JediTermWidget {
 
         @Override
         protected void configureScrollBarColors() {
-            // 不使用父类的颜色，全部自定义绘制
             scrollBarWidth = 8;
         }
 
@@ -205,12 +207,15 @@ public class JlshellJediTermWidget extends JediTermWidget {
 
     @Override
     protected @NotNull JediTermSearchComponent createSearchComponent() {
-        return new ThemedSearchComponent(this);
+        return new ThemedSearchComponent();
     }
 
     /**
      * 主题色搜索栏。
      * 完全替代 JediTerm 默认的白色搜索栏。
+     *
+     * 关键：JediTerm 调用 getComponent().requestFocus() 和 addKeyListener()，
+     * 所以 JPanel 必须设为 focusable，同时把键盘事件代理到 textField。
      */
     private class ThemedSearchComponent extends JPanel implements JediTermSearchComponent {
 
@@ -220,7 +225,7 @@ public class JlshellJediTermWidget extends JediTermWidget {
         private final List<JediTermSearchComponentListener> listeners = new CopyOnWriteArrayList<>();
         private final JediTermSearchComponentListener multicaster = createMulticaster();
 
-        ThemedSearchComponent(JediTermWidget widget) {
+        ThemedSearchComponent() {
             Color bg = settingsProvider.backgroundColor();
             Color fg = settingsProvider.foregroundColor();
             Color fieldBg = blend(bg, fg, 0.08f);
@@ -229,12 +234,15 @@ public class JlshellJediTermWidget extends JediTermWidget {
             setLayout(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 4));
             setOpaque(true);
             setBackground(bg);
+            // 圆角边框
             setBorder(BorderFactory.createCompoundBorder(
                     BorderFactory.createLineBorder(borderColor, 1, true),
                     BorderFactory.createEmptyBorder(4, 8, 4, 8)
             ));
+            // JediTerm 调用 getComponent().requestFocus()，JPanel 默认不可聚焦
+            setFocusable(true);
 
-            // 文本输入框 — 用字体度量计算尺寸（myCharSize 是 protected 无法访问）
+            // 文本输入框
             Font termFont = settingsProvider.getTerminalFont();
             FontMetrics fm = getFontMetrics(termFont);
             int charW = fm != null ? fm.charWidth('W') : 8;
@@ -254,10 +262,14 @@ public class JlshellJediTermWidget extends JediTermWidget {
                 @Override public void focusGained(FocusEvent e) { textField.selectAll(); }
                 @Override public void focusLost(FocusEvent e) {}
             });
+            // 把 JPanel 的焦点代理到 textField
+            addFocusListener(new FocusListener() {
+                @Override public void focusGained(FocusEvent e) { textField.requestFocusInWindow(); }
+                @Override public void focusLost(FocusEvent e) {}
+            });
             add(textField);
 
             // 忽略大小写
-            Function<String, String> i18n = CONSTRUCTION_I18N.get();
             String ignoreCaseText = i18n != null ? i18n.apply("terminal.search.ignoreCase") : "Ignore Case";
             ignoreCaseCheckBox = new JCheckBox(ignoreCaseText, true);
             ignoreCaseCheckBox.setBackground(bg);
@@ -332,9 +344,10 @@ public class JlshellJediTermWidget extends JediTermWidget {
             listeners.add(listener);
         }
 
-        @Override
-        public void requestFocus() { textField.requestFocus(); }
-
+        /**
+         * JediTerm 调用 addKeyListener() 注册 ESC/ENTER/UP/DOWN 快捷键。
+         * 因为键盘输入实际发生在 textField，所以转发到 textField。
+         */
         @Override
         public void addKeyListener(@NotNull KeyListener listener) {
             textField.addKeyListener(listener);
@@ -383,7 +396,6 @@ public class JlshellJediTermWidget extends JediTermWidget {
         getTerminalPanel().setForeground(fg);
         getTerminalPanel().revalidate();
         getTerminalPanel().repaint();
-        // 滚动条跟随主题重绘
         if (themedScrollBar != null) {
             themedScrollBar.repaint();
         }
