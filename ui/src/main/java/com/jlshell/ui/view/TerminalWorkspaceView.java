@@ -170,6 +170,8 @@ public class TerminalWorkspaceView extends BorderPane {
 
         // 用 stty -echo 关闭回显 → 执行钩子 → stty echo 恢复回显
         // 用分号连接成单条命令行，一次性发送
+        // bash: PROMPT_COMMAND 末尾可能已有分号（如 "history -a;"），直接追加会
+        // 产生 "history -a; ; _jlshell_osc7" 双分号语法错误，因此先 strip 尾部分号再追加。
         String hook = ""
                 + " stty -echo;"
                 + " if [ -n \"$ZSH_VERSION\" ]; then"
@@ -178,7 +180,8 @@ public class TerminalWorkspaceView extends BorderPane {
                 + "   _jlshell_osc7;"
                 + " elif [ -n \"$BASH_VERSION\" ]; then"
                 + "   _jlshell_osc7() { printf '\\033]7;file://%s%s\\007' \"$HOSTNAME\" \"$PWD\"; };"
-                + "   PROMPT_COMMAND=\"${PROMPT_COMMAND:+$PROMPT_COMMAND; }_jlshell_osc7\";"
+                + "   _PC=\"${PROMPT_COMMAND%%; }\"; _PC=\"${_PC%% ;}\"; _PC=\"${_PC%%;}\";"
+                + "   PROMPT_COMMAND=\"${_PC:+$_PC; }_jlshell_osc7\";"
                 + "   _jlshell_osc7;"
                 + " fi;"
                 + " stty echo\n";
