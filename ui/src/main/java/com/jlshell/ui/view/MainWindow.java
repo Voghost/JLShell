@@ -206,6 +206,12 @@ public class MainWindow {
 
         Scene scene = new Scene(root, initW, initH);
 
+        // On Windows, the stage is UNDECORATED — make the scene background
+        // transparent so the rounded corners and border of .app-root are visible.
+        if (isWindows) {
+            scene.setFill(javafx.scene.paint.Color.TRANSPARENT);
+        }
+
         stage.setMinWidth(minW);
         stage.setMinHeight(minH);
 
@@ -217,7 +223,16 @@ public class MainWindow {
 
         // On Windows, the stage is UNDECORATED so we need manual edge resize.
         if (isWindows) {
+            root.getStyleClass().add("win-undecorated");
             installWindowResizeHandler(stage, scene);
+            // 最大化时去掉圆角和边框间距，还原时恢复
+            stage.maximizedProperty().addListener((obs, wasMax, isMax) -> {
+                if (isMax) {
+                    root.getStyleClass().add("win-maximized");
+                } else {
+                    root.getStyleClass().remove("win-maximized");
+                }
+            });
         }
 
         themeService.apply(scene);
@@ -470,14 +485,14 @@ public class MainWindow {
 
         // 侧边栏折叠后的 reveal 按钮（workspace 左下角，避免遮挡 tab 标签）
         revealSidebarBtn = new Button();
-        Region panelIcon = loadSvgShape("/icons/sidebar-left.svg", 14);
+        Region panelIcon = loadSvgShape("/icons/sidebar-left.svg", 12);
         if (panelIcon != null) revealSidebarBtn.setGraphic(panelIcon);
         revealSidebarBtn.setTooltip(new javafx.scene.control.Tooltip(i18nService.get("sidebar.toggle")));
         revealSidebarBtn.getStyleClass().add("sidebar-reveal-btn");
         revealSidebarBtn.setOnAction(e -> toggleSidebar());
         revealSidebarBtn.setVisible(false);
         StackPane.setAlignment(revealSidebarBtn, javafx.geometry.Pos.BOTTOM_LEFT);
-        StackPane.setMargin(revealSidebarBtn, new Insets(0, 0, 8, 8));
+        StackPane.setMargin(revealSidebarBtn, new Insets(0, 0, 4, 4));
 
         StackPane workspace = new StackPane(welcomePane, workspaceTabs, revealSidebarBtn);
         centerSplitPane = new SplitPane(sidebarVBox, workspace);
