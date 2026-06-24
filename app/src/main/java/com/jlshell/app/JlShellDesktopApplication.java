@@ -60,9 +60,11 @@ public class JlShellDesktopApplication extends Application {
 
         MainWindow mainWindow = appContext.getMainWindow();
 
-        // On Windows, remove the OS title bar and use a custom one embedded in the app.
+        // On Windows, use TRANSPARENT stage style so the window background is
+        // truly transparent — rounded corners on .app-root won't show white
+        // corners.  UNDECORATED still paints an opaque white background.
         if (isWindows()) {
-            stage.initStyle(StageStyle.UNDECORATED);
+            stage.initStyle(StageStyle.TRANSPARENT);
         }
 
         stage.setTitle("JLShell");
