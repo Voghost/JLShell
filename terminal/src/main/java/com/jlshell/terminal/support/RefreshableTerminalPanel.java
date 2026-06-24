@@ -108,11 +108,10 @@ public class RefreshableTerminalPanel extends TerminalPanel {
         Color disabled = blend(bg, fg, 0.4f);
 
         Font itemFont = jlshellSettings.getTerminalFont().deriveFont(Font.PLAIN, 12f);
-        // Use a system font that can render CJK for the popup menu items.
-        // Terminal monospace fonts (Consolas, etc.) often lack CJK glyphs on Windows.
         final Font menuFont = (!itemFont.canDisplay('复') || !itemFont.canDisplay('制'))
                 ? new Font(Font.DIALOG, Font.PLAIN, 12) : itemFont;
 
+        // 自绘 JPopupMenu：圆角背景 + 边框，不依赖 LAF 默认渲染
         JPopupMenu menu = new JPopupMenu() {
             @Override
             protected void paintComponent(Graphics g) {
@@ -145,7 +144,6 @@ public class RefreshableTerminalPanel extends TerminalPanel {
                 super.setVisible(b);
             }
         };
-        menu.setBackground(bg);
         menu.setBorder(BorderFactory.createEmptyBorder(4, 0, 4, 0));
         menu.setOpaque(false);
 
@@ -159,26 +157,43 @@ public class RefreshableTerminalPanel extends TerminalPanel {
                         : rawName;
                 boolean enabled = action.isEnabled(null);
 
-                // 完全自绘菜单项：用 JPanel 代替 JMenuItem，
-                // 避免 macOS Aqua LAF 强制覆盖选中色（绿色/蓝色）。
-                javax.swing.JLabel item = new javax.swing.JLabel(label);
-                item.setFont(menuFont);
-                item.setForeground(enabled ? fg : disabled);
-                item.setBorder(BorderFactory.createEmptyBorder(5, 16, 5, 16));
-                item.setOpaque(true);
-                item.setBackground(bg);
-                item.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
+                // 自绘菜单项：JPanel 整行绘制 hover 背景，
+                // JLabel 只负责文字渲染。完全绕开 LAF 颜色覆盖。
+                boolean[] hovered = {false};
+                JPanel item = new JPanel(new java.awt.BorderLayout()) {
+                    @Override
+                    protected void paintComponent(Graphics g) {
+                        if (hovered[0] && enabled) {
+                            g.setColor(hover);
+                        } else {
+                            g.setColor(bg);
+                        }
+                        g.fillRect(0, 0, getWidth(), getHeight());
+                    }
+                };
+                item.setOpaque(false);
+
+                javax.swing.JLabel textLabel = new javax.swing.JLabel(label);
+                textLabel.setFont(menuFont);
+                textLabel.setForeground(enabled ? fg : disabled);
+                textLabel.setBorder(BorderFactory.createEmptyBorder(6, 16, 6, 16));
+                item.add(textLabel, java.awt.BorderLayout.CENTER);
 
                 if (enabled) {
+                    item.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
                     item.addMouseListener(new java.awt.event.MouseAdapter() {
                         @Override public void mouseEntered(java.awt.event.MouseEvent e) {
-                            item.setBackground(hover);
+                            hovered[0] = true;
+                            item.repaint();
                         }
                         @Override public void mouseExited(java.awt.event.MouseEvent e) {
-                            item.setBackground(bg);
+                            hovered[0] = false;
+                            item.repaint();
                         }
                         @Override public void mouseReleased(java.awt.event.MouseEvent e) {
                             action.actionPerformed(null);
+                            // 关闭菜单
+                            menu.setVisible(false);
                         }
                     });
                 }
@@ -187,7 +202,6 @@ public class RefreshableTerminalPanel extends TerminalPanel {
 
             @Override
             public void addSeparator() {
-                // 自绘分隔线：一条细线，左右留 8px 边距
                 javax.swing.JPanel sepPanel = new javax.swing.JPanel(null) {
                     @Override
                     protected void paintComponent(Graphics g) {
