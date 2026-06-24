@@ -158,18 +158,19 @@ public class RefreshableTerminalPanel extends TerminalPanel {
                         : rawName;
                 boolean enabled = action.isEnabled(null);
 
-                // 自绘菜单项：JPanel 整行绘制 hover 背景，
+                // 自绘菜单项：JPanel 整行绘制 hover 背景 + 左右边框线，
                 // JLabel 只负责文字渲染。完全绕开 LAF 颜色覆盖。
                 boolean[] hovered = {false};
                 JPanel item = new JPanel(new java.awt.BorderLayout()) {
                     @Override
                     protected void paintComponent(Graphics g) {
-                        if (hovered[0] && enabled) {
-                            g.setColor(hover);
-                        } else {
-                            g.setColor(bg);
-                        }
+                        // 填充整行背景（普通/hover）
+                        g.setColor(hovered[0] && enabled ? hover : bg);
                         g.fillRect(0, 0, getWidth(), getHeight());
+                        // 左右边框线，与 JPopupMenu 外框颜色一致
+                        g.setColor(border);
+                        g.drawLine(0, 0, 0, getHeight() - 1);
+                        g.drawLine(getWidth() - 1, 0, getWidth() - 1, getHeight() - 1);
                     }
                 };
                 item.setOpaque(false);
@@ -204,20 +205,20 @@ public class RefreshableTerminalPanel extends TerminalPanel {
             @Override
             public void addSeparator() {
                 // 自绘分隔线：用不透明 JPanel 填满背景遮住 LAF 默认装饰，
-                // 然后在中间画一条细横线，左右留 8px 边距
+                // 画左右边框线 + 中间横线分隔
                 javax.swing.JPanel sepPanel = new javax.swing.JPanel(null) {
                     @Override
                     protected void paintComponent(Graphics g) {
-                        // 先用菜单背景色填满整行，遮住 LAF 画的竖线装饰
+                        // 用菜单背景色填满整行，遮住 LAF 画的竖线装饰
                         g.setColor(bg);
                         g.fillRect(0, 0, getWidth(), getHeight());
-                        // 再画分隔线
-                        Graphics2D g2 = (Graphics2D) g.create();
-                        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                        g2.setColor(border);
+                        // 左右边框线，与菜单外框一致
+                        g.setColor(border);
+                        g.drawLine(0, 0, 0, getHeight() - 1);
+                        g.drawLine(getWidth() - 1, 0, getWidth() - 1, getHeight() - 1);
+                        // 中间横线分隔，左右留 8px 边距
                         int y = getHeight() / 2;
-                        g2.drawLine(8, y, getWidth() - 8, y);
-                        g2.dispose();
+                        g.drawLine(8, y, getWidth() - 8, y);
                     }
                 };
                 sepPanel.setOpaque(true);
