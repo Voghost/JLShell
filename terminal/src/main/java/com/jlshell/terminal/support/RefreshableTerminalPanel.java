@@ -108,9 +108,17 @@ public class RefreshableTerminalPanel extends TerminalPanel {
         Color border  = blend(bg, fg, 0.22f);
         Color disabled = blend(bg, fg, 0.4f);
 
-        Font itemFont = jlshellSettings.getTerminalFont().deriveFont(Font.PLAIN, 12f);
-        final Font menuFont = (!itemFont.canDisplay('复') || !itemFont.canDisplay('制'))
-                ? new Font(Font.DIALOG, Font.PLAIN, 12) : itemFont;
+        // 菜单是 UI 元素，用系统 UI 字体而非终端等宽字体
+        String os = System.getProperty("os.name", "").toLowerCase();
+        String uiFamily;
+        if (os.contains("win")) {
+            uiFamily = "Microsoft YaHei";
+        } else if (os.contains("mac")) {
+            uiFamily = "PingFang SC";
+        } else {
+            uiFamily = Font.SANS_SERIF;
+        }
+        final Font menuFont = new Font(uiFamily, Font.PLAIN, 12);
 
         // 自绘 JPopupMenu：圆角背景 + 边框，不依赖 LAF 默认渲染
         JPopupMenu menu = new JPopupMenu() {
