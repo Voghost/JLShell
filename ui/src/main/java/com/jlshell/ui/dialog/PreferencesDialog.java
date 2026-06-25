@@ -137,10 +137,13 @@ public class PreferencesDialog {
         TerminalColorScheme[] pendingScheme = { themeService.activeColorScheme() };
         String[] pendingApiEnabled = { appSettings.get("api.enabled", "false") };
         String[] pendingApiPort = { appSettings.get("api.port", "0") };
+        String[] pendingUiFontFamily = { appSettings.get("ui.font.family", null) };
+        String[] pendingUiFontSize = { appSettings.get("ui.font.size", "13") };
 
         TabPane tabs = buildTabPane(fontProfileService, appSettings, i18n, themeService,
                 pending, pendingLang, pendingTheme, pendingConnTimeout, pendingHoverExpand, pendingScheme,
-                connectionProfileService, activeProjectId, apiServer, pendingApiEnabled, pendingApiPort);
+                connectionProfileService, activeProjectId, apiServer, pendingApiEnabled, pendingApiPort,
+                pendingUiFontFamily, pendingUiFontSize);
         // 选中指定的初始 Tab（如从终端字体按钮打开时选中"终端"Tab）
         if (initialTabIndex >= 0 && initialTabIndex < tabs.getTabs().size()) {
             tabs.getSelectionModel().select(initialTabIndex);
@@ -155,13 +158,13 @@ public class PreferencesDialog {
         Button applyButton = (Button) dialog.getDialogPane().lookupButton(applyBtnType);
         applyButton.addEventFilter(javafx.event.ActionEvent.ACTION, e -> {
             e.consume(); // 阻止 Dialog 默认的关闭逻辑
-            boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending, pendingLang, pendingTheme, pendingConnTimeout, pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort);
+            boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending, pendingLang, pendingTheme, pendingConnTimeout, pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort, pendingUiFontFamily, pendingUiFontSize);
             if (needRestart) showRestartPrompt(owner, i18n);
         });
 
         dialog.setResultConverter(btn -> {
             if (btn.getButtonData() == ButtonBar.ButtonData.OK_DONE) {
-                boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending, pendingLang, pendingTheme, pendingConnTimeout, pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort);
+                boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending, pendingLang, pendingTheme, pendingConnTimeout, pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort, pendingUiFontFamily, pendingUiFontSize);
                 if (needRestart) showRestartPrompt(owner, i18n);
             }
             return null;
@@ -186,7 +189,8 @@ public class PreferencesDialog {
                                               String[] pendingTheme, String[] pendingConnTimeout,
                                               String[] pendingHoverExpand,
                                               TerminalColorScheme[] pendingScheme,
-                                              String[] pendingApiEnabled, String[] pendingApiPort) {
+                                              String[] pendingApiEnabled, String[] pendingApiPort,
+                                              String[] pendingUiFontFamily, String[] pendingUiFontSize) {
         String prevLang = appSettings.get("ui.language", null);
         fontProfileService.updateActiveProfile(pending[0]);
         appSettings.set("ui.language", pendingLang[0]);
@@ -212,6 +216,11 @@ public class PreferencesDialog {
         appSettings.set("api.port", pendingApiPort[0]);
         boolean apiChanged = !prevApiEnabled.equalsIgnoreCase(pendingApiEnabled[0])
                 || !prevApiPort.equals(pendingApiPort[0]);
+
+        // UI 字体设置
+        appSettings.set("ui.font.family", pendingUiFontFamily[0] != null ? pendingUiFontFamily[0] : "");
+        appSettings.set("ui.font.size", pendingUiFontSize[0]);
+
         boolean langChanged = !prevLang.equals(pendingLang[0]);
         return langChanged || apiChanged;
     }
@@ -225,12 +234,14 @@ public class PreferencesDialog {
                                          com.jlshell.ui.service.ConnectionProfileService connectionProfileService,
                                          String activeProjectId,
                                          com.jlshell.api.server.ApiServer apiServer,
-                                         String[] pendingApiEnabled, String[] pendingApiPort) {
+                                         String[] pendingApiEnabled, String[] pendingApiPort,
+                                         String[] pendingUiFontFamily, String[] pendingUiFontSize) {
         TabPane tabPane = new TabPane();
         tabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
 
         Tab generalTab = new Tab(i18n.get("preferences.tab.general"));
-        generalTab.setContent(buildGeneralPane(appSettings, i18n, themeService, pendingLang, pendingTheme, pendingHoverExpand));
+        generalTab.setContent(buildGeneralPane(appSettings, i18n, themeService, pendingLang, pendingTheme,
+                pendingHoverExpand, pendingUiFontFamily, pendingUiFontSize));
         tabPane.getTabs().add(generalTab);
 
         Tab connectionTab = new Tab(i18n.get("preferences.tab.connection"));
@@ -260,7 +271,8 @@ public class PreferencesDialog {
 
     private static VBox buildGeneralPane(AppSettingsService appSettings, I18nService i18n,
                                           ThemeService themeService, String[] pendingLang, String[] pendingTheme,
-                                          String[] pendingHoverExpand) {
+                                          String[] pendingHoverExpand,
+                                          String[] pendingUiFontFamily, String[] pendingUiFontSize) {
         // 首次启动：未设置语言时根据系统语言环境推断
         String currentLang = appSettings.get("ui.language", null);
         if (currentLang == null) {
@@ -294,6 +306,59 @@ public class PreferencesDialog {
         hoverExpandCheck.selectedProperty().addListener((o, ov, nv) ->
                 pendingHoverExpand[0] = String.valueOf(nv));
 
+        // ── UI 字体设置 ──
+        String currentUiFontFamily = appSettings.get("ui.font.family", null);
+        ComboBox<String> uiFontCombo = new ComboBox<>();
+        String[] allFonts = GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames();
+        List<String> sortedFonts = Arrays.stream(allFonts).sorted().collect(Collectors.toCollection(ArrayList::new));
+        sortedFonts.add(0, i18n.get("preferences.general.uiFont.default"));
+        uiFontCombo.getItems().addAll(sortedFonts);
+        if (currentUiFontFamily != null && !currentUiFontFamily.isBlank()) {
+            uiFontCombo.setValue(currentUiFontFamily);
+        } else {
+            uiFontCombo.setValue(i18n.get("preferences.general.uiFont.default"));
+        }
+        uiFontCombo.setPrefWidth(220);
+        uiFontCombo.valueProperty().addListener((o, ov, nv) -> {
+            if (nv == null || nv.equals(i18n.get("preferences.general.uiFont.default"))) {
+                pendingUiFontFamily[0] = null;
+            } else {
+                pendingUiFontFamily[0] = nv;
+            }
+        });
+
+        int currentUiFontSize = 13;
+        try { currentUiFontSize = Integer.parseInt(appSettings.get("ui.font.size", "13")); }
+        catch (NumberFormatException ignored) {}
+        Slider uiFontSizeSlider = new Slider(8, 24, currentUiFontSize);
+        uiFontSizeSlider.setPrefWidth(140);
+        TextField uiFontSizeField = new TextField(String.valueOf(currentUiFontSize));
+        uiFontSizeField.setPrefWidth(44);
+        uiFontSizeSlider.valueProperty().addListener((o, ov, nv) ->
+                uiFontSizeField.setText(String.valueOf(nv.intValue())));
+        uiFontSizeField.textProperty().addListener((o, ov, nv) -> {
+            try { int v = Integer.parseInt(nv); if (v >= 8 && v <= 24) uiFontSizeSlider.setValue(v); }
+            catch (NumberFormatException ignored) {}
+        });
+
+        Text uiFontPreview = new Text("Hello World  Settings  设置  AaBbCc 0123");
+        String previewFg = themeService.currentThemeProperty().get() == AppTheme.LIGHT ? "#0f172a" : "#dfe1e5";
+        uiFontPreview.setStyle("-fx-fill: " + previewFg + ";");
+        uiFontCombo.valueProperty().addListener((o, ov, nv) -> {
+            String fam = (nv == null || nv.equals(i18n.get("preferences.general.uiFont.default")))
+                    ? "System" : nv;
+            updatePreview(uiFontPreview, fam, uiFontSizeSlider.getValue());
+        });
+        uiFontSizeSlider.valueProperty().addListener((o, ov, nv) -> {
+            String fam = (uiFontCombo.getValue() == null || uiFontCombo.getValue().equals(i18n.get("preferences.general.uiFont.default")))
+                    ? "System" : uiFontCombo.getValue();
+            updatePreview(uiFontPreview, fam, nv.doubleValue());
+        });
+        updatePreview(uiFontPreview, currentUiFontFamily != null ? currentUiFontFamily : "System", currentUiFontSize);
+
+        uiFontCombo.valueProperty().addListener((o, ov, nv) -> pendingUiFontSize[0] = uiFontSizeField.getText());
+        uiFontSizeSlider.valueProperty().addListener((o, ov, nv) -> pendingUiFontSize[0] = uiFontSizeField.getText());
+
         GridPane grid = new GridPane();
         grid.setHgap(12);
         grid.setVgap(10);
@@ -303,6 +368,16 @@ public class PreferencesDialog {
         grid.add(new Label(i18n.get("preferences.general.theme")), 0, 1);
         grid.add(themeCombo, 1, 1);
         grid.add(hoverExpandCheck, 1, 2);
+
+        // UI 字体
+        grid.add(new Label(i18n.get("preferences.general.uiFontFamily")), 0, 3);
+        grid.add(uiFontCombo, 1, 3);
+        grid.add(new Label(i18n.get("preferences.general.uiFontSize")), 0, 4);
+        HBox uiFontSizeRow = new HBox(8, uiFontSizeSlider, uiFontSizeField);
+        uiFontSizeRow.setAlignment(Pos.CENTER_LEFT);
+        grid.add(uiFontSizeRow, 1, 4);
+        grid.add(new Label(i18n.get("preferences.general.uiFontPreview")), 0, 5);
+        grid.add(uiFontPreview, 1, 5);
 
         VBox pane = new VBox(grid);
         pane.setPadding(new Insets(8));

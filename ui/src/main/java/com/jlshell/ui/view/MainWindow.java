@@ -248,9 +248,11 @@ public class MainWindow {
         }
 
         themeService.apply(scene);
+        applyUiFontSettings();
         viewModel.activeThemeProperty().bind(themeService.currentThemeProperty());
         themeService.currentThemeProperty().addListener((obs, oldTheme, newTheme) -> {
             themeService.apply(scene);
+            applyUiFontSettings();
             TerminalColorScheme scheme = themeService.activeColorScheme();
             workspaceTabs.getTabs().stream()
                     .filter(SessionWorkspaceTab.class::isInstance)
@@ -451,6 +453,8 @@ public class MainWindow {
                 connectionProfileService, activeProjectId, apiServer);
         // 导入后刷新侧边栏
         loadConnections();
+        // 应用可能变更的 UI 字体设置
+        applyUiFontSettings();
     }
 
     private void refreshAllTexts(Stage stage, BorderPane root) {
@@ -846,6 +850,20 @@ public class MainWindow {
             sidebarVBox.setMaxWidth(0);
             centerSplitPane.setDividerPositions(0);
             revealSidebarBtn.setVisible(true);
+        }
+    }
+
+    /** 应用 UI 字体设置（inline style 覆盖 CSS .root 规则） */
+    private void applyUiFontSettings() {
+        String family = appSettingsService.get("ui.font.family", null);
+        String size = appSettingsService.get("ui.font.size", "13");
+        StringBuilder sb = new StringBuilder();
+        if (family != null && !family.isBlank()) {
+            sb.append("-fx-font-family: \"").append(family).append("\";");
+        }
+        sb.append("-fx-font-size: ").append(size).append("px;");
+        if (primaryStage != null && primaryStage.getScene() != null) {
+            primaryStage.getScene().getRoot().setStyle(sb.toString());
         }
     }
 
