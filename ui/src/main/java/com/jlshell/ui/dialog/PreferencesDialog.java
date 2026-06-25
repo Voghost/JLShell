@@ -68,7 +68,40 @@ public class PreferencesDialog {
         LANGUAGES.put("zh_CN", "中文 (简体)");
     }
 
-    private static final String VERSION = "0.1.0.RELEASE";
+    /** 从 MANIFEST.MF 或 pom.properties 读取实际构建版本号 */
+    private static String readVersion() {
+        // 优先从 META-INF/MANIFEST.MF 读取 Implementation-Version（jpackage 打包时写入）
+        try {
+            var res = PreferencesDialog.class.getResource("/META-INF/MANIFEST.MF");
+            if (res != null) {
+                String content = new String(res.openStream().readAllBytes());
+                for (String line : content.split("\n")) {
+                    if (line.startsWith("Implementation-Version:")) {
+                        return line.substring("Implementation-Version:".length()).trim();
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+        // 回退到 Maven 生成的 pom.properties（ui 模块）
+        try {
+            var res = PreferencesDialog.class.getResource("/META-INF/maven/com.jlshell/ui/pom.properties");
+            if (res != null) {
+                var props = new java.util.Properties();
+                props.load(res.openStream());
+                String v = props.getProperty("version");
+                if (v != null && !v.isBlank()) {
+                    // 去掉 Maven 的 -SNAPSHOT 后缀，只保留语义版本号
+                    return v.replace("-SNAPSHOT", "");
+                }
+            }
+        } catch (Exception ignored) {}
+        return "0.1.0";
+    }
+
+    private static final String VERSION = readVersion();
+
+    /** 返回当前构建版本号，供 AboutDialog 等外部使用 */
+    public static String getVersion() { return VERSION; }
 
     private PreferencesDialog() {}
 
@@ -100,12 +133,13 @@ public class PreferencesDialog {
         String[] pendingLang = { appSettings.get("ui.language", null) };
         String[] pendingTheme = { appSettings.get("ui.theme", "DARK") };
         String[] pendingConnTimeout = { appSettings.get("connection.timeout", "10") };
+        String[] pendingHoverExpand = { appSettings.get("ui.topbar.hoverExpand", "false") };
         TerminalColorScheme[] pendingScheme = { themeService.activeColorScheme() };
         String[] pendingApiEnabled = { appSettings.get("api.enabled", "false") };
         String[] pendingApiPort = { appSettings.get("api.port", "0") };
 
         TabPane tabs = buildTabPane(fontProfileService, appSettings, i18n, themeService,
-                pending, pendingLang, pendingTheme, pendingConnTimeout, pendingScheme,
+                pending, pendingLang, pendingTheme, pendingConnTimeout, pendingHoverExpand, pendingScheme,
                 connectionProfileService, activeProjectId, apiServer, pendingApiEnabled, pendingApiPort);
         // 选中指定的初始 Tab（如从终端字体按钮打开时选中"终端"Tab）
         if (initialTabIndex >= 0 && initialTabIndex < tabs.getTabs().size()) {
@@ -121,13 +155,13 @@ public class PreferencesDialog {
         Button applyButton = (Button) dialog.getDialogPane().lookupButton(applyBtnType);
         applyButton.addEventFilter(javafx.event.ActionEvent.ACTION, e -> {
             e.consume(); // 阻止 Dialog 默认的关闭逻辑
-            boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending, pendingLang, pendingTheme, pendingConnTimeout, pendingScheme, pendingApiEnabled, pendingApiPort);
+            boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending, pendingLang, pendingTheme, pendingConnTimeout, pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort);
             if (needRestart) showRestartPrompt(owner, i18n);
         });
 
         dialog.setResultConverter(btn -> {
             if (btn.getButtonData() == ButtonBar.ButtonData.OK_DONE) {
-                boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending, pendingLang, pendingTheme, pendingConnTimeout, pendingScheme, pendingApiEnabled, pendingApiPort);
+                boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending, pendingLang, pendingTheme, pendingConnTimeout, pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort);
                 if (needRestart) showRestartPrompt(owner, i18n);
             }
             return null;
@@ -150,6 +184,7 @@ public class PreferencesDialog {
     private static boolean applyPendingSettings(FontProfileService fontProfileService, AppSettingsService appSettings,
                                               ThemeService themeService, FontProfile[] pending, String[] pendingLang,
                                               String[] pendingTheme, String[] pendingConnTimeout,
+                                              String[] pendingHoverExpand,
                                               TerminalColorScheme[] pendingScheme,
                                               String[] pendingApiEnabled, String[] pendingApiPort) {
         String prevLang = appSettings.get("ui.language", null);
@@ -164,6 +199,7 @@ public class PreferencesDialog {
         }
 
         appSettings.set("connection.timeout", pendingConnTimeout[0]);
+        appSettings.set("ui.topbar.hoverExpand", pendingHoverExpand[0]);
 
         if (pendingScheme[0] != null) {
             themeService.setActiveColorScheme(pendingScheme[0]);
@@ -184,6 +220,7 @@ public class PreferencesDialog {
                                          I18nService i18n, ThemeService themeService,
                                          FontProfile[] pending, String[] pendingLang,
                                          String[] pendingTheme, String[] pendingConnTimeout,
+                                         String[] pendingHoverExpand,
                                          TerminalColorScheme[] pendingScheme,
                                          com.jlshell.ui.service.ConnectionProfileService connectionProfileService,
                                          String activeProjectId,
@@ -193,7 +230,7 @@ public class PreferencesDialog {
         tabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
 
         Tab generalTab = new Tab(i18n.get("preferences.tab.general"));
-        generalTab.setContent(buildGeneralPane(appSettings, i18n, themeService, pendingLang, pendingTheme));
+        generalTab.setContent(buildGeneralPane(appSettings, i18n, themeService, pendingLang, pendingTheme, pendingHoverExpand));
         tabPane.getTabs().add(generalTab);
 
         Tab connectionTab = new Tab(i18n.get("preferences.tab.connection"));
@@ -222,7 +259,8 @@ public class PreferencesDialog {
     // ── General Tab ────────────────────────────────────────────────────────
 
     private static VBox buildGeneralPane(AppSettingsService appSettings, I18nService i18n,
-                                          ThemeService themeService, String[] pendingLang, String[] pendingTheme) {
+                                          ThemeService themeService, String[] pendingLang, String[] pendingTheme,
+                                          String[] pendingHoverExpand) {
         // 首次启动：未设置语言时根据系统语言环境推断
         String currentLang = appSettings.get("ui.language", null);
         if (currentLang == null) {
@@ -251,6 +289,11 @@ public class PreferencesDialog {
         themeCombo.valueProperty().addListener((o, ov, nv) ->
                 pendingTheme[0] = "Light".equals(nv) ? "LIGHT" : "DARK");
 
+        CheckBox hoverExpandCheck = new CheckBox(i18n.get("preferences.general.hoverExpand"));
+        hoverExpandCheck.setSelected("true".equals(pendingHoverExpand[0]));
+        hoverExpandCheck.selectedProperty().addListener((o, ov, nv) ->
+                pendingHoverExpand[0] = String.valueOf(nv));
+
         GridPane grid = new GridPane();
         grid.setHgap(12);
         grid.setVgap(10);
@@ -259,6 +302,7 @@ public class PreferencesDialog {
         grid.add(langCombo, 1, 0);
         grid.add(new Label(i18n.get("preferences.general.theme")), 0, 1);
         grid.add(themeCombo, 1, 1);
+        grid.add(hoverExpandCheck, 1, 2);
 
         VBox pane = new VBox(grid);
         pane.setPadding(new Insets(8));
@@ -1278,6 +1322,8 @@ public class PreferencesDialog {
         desc.setStyle("-fx-font-size:11px;");
         desc.setWrapText(true);
         desc.setMaxWidth(400);
+        desc.setPrefWidth(400);
+        desc.setAlignment(Pos.CENTER);
         desc.setTextAlignment(TextAlignment.CENTER);
 
         Region sep = new Region();

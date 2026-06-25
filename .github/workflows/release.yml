@@ -27,6 +27,9 @@ jobs:
           java-package: 'jdk+fx'
           cache: maven
 
+      - name: Set version from input
+        run: mvn versions:set -DnewVersion=${VERSION} -q
+
       - name: Build
         run: |
           mvn package -DskipTests -pl app -am -q
@@ -108,6 +111,9 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y fakeroot dpkg-dev imagemagick
+
+      - name: Set version from input
+        run: mvn versions:set -DnewVersion=${VERSION} -q
 
       - name: Build fat jar + jlink runtime
         run: |
@@ -262,6 +268,10 @@ jobs:
 
       - name: Install Pillow
         run: pip install Pillow
+
+      - name: Set version from input
+        shell: bash
+        run: mvn versions:set -DnewVersion=${VERSION} -q
 
       - name: Create app_icon.ico from PNG
         shell: python

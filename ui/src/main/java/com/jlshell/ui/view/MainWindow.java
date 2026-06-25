@@ -32,6 +32,7 @@ import com.jlshell.ui.support.FxThread;
 import com.jlshell.ui.theme.AppTheme;
 import com.jlshell.ui.theme.ThemeService;
 import com.jlshell.ui.viewmodel.MainViewModel;
+import com.jlshell.ui.dialog.AboutDialog;
 import com.jlshell.ui.dialog.PreferencesDialog;
 import javafx.beans.binding.Bindings;
 import javafx.geometry.Insets;
@@ -335,11 +336,20 @@ public class MainWindow {
         if (isMac) {
             // Add to fileMenu; JavaFX moves Preferences with Cmd+, to the macOS app menu
             fileMenu.getItems().add(4, preferences);
-            menuBar.getMenus().addAll(fileMenu, viewMenu);
+            // Help → About: JavaFX automatically moves "About" to the macOS app menu
+            Menu helpMenu = new Menu(i18nService.get("menu.help"));
+            MenuItem aboutItem = new MenuItem(i18nService.get("menu.help.about"));
+            aboutItem.setOnAction(event -> AboutDialog.show(stage, i18nService, themeService));
+            helpMenu.getItems().add(aboutItem);
+            menuBar.getMenus().addAll(fileMenu, viewMenu, helpMenu);
         } else {
             Menu settingsMenu = new Menu(i18nService.get("menu.settings"));
             settingsMenu.getItems().add(preferences);
-            menuBar.getMenus().addAll(fileMenu, viewMenu, settingsMenu);
+            Menu helpMenu = new Menu(i18nService.get("menu.help"));
+            MenuItem aboutItem = new MenuItem(i18nService.get("menu.help.about"));
+            aboutItem.setOnAction(event -> AboutDialog.show(stage, i18nService, themeService));
+            helpMenu.getItems().add(aboutItem);
+            menuBar.getMenus().addAll(fileMenu, viewMenu, settingsMenu, helpMenu);
         }
         return menuBar;
     }
@@ -358,7 +368,6 @@ public class MainWindow {
     private CustomTitleBar buildCustomTitleBar(Stage stage) {
         MenuBar menuBar = buildMenuBar(stage);
         customTitleBar = new CustomTitleBar(stage, menuBar, i18nService);
-        customTitleBar.getCollapseBtn().setOnAction(e -> toggleTopBarCollapse());
         return customTitleBar;
     }
 
@@ -559,7 +568,8 @@ public class MainWindow {
         topHoverZone.setVisible(false);
         StackPane.setAlignment(topHoverZone, javafx.geometry.Pos.TOP_CENTER);
         topHoverZone.setOnMouseEntered(e -> {
-            if (topBarCollapsed && System.currentTimeMillis() > collapseImmuneUntil) {
+            if (topBarCollapsed && System.currentTimeMillis() > collapseImmuneUntil
+                    && "true".equals(appSettingsService.get("ui.topbar.hoverExpand", "false"))) {
                 topBarCollapsed = false;
                 applyTopBarCollapsed(false);
                 installTopBarExitListener();
@@ -673,7 +683,7 @@ public class MainWindow {
         connectButton.getStyleClass().add("icon-btn-primary");
 
         HBox actionBar = new HBox(4, createButton, editButton, deleteButton, newFolderButton,
-                new javafx.scene.layout.Region(), connectButton, refreshButton, toggleSidebarBtn, settingsButton);
+                new javafx.scene.layout.Region(), connectButton, refreshButton, toggleSidebarBtn);
         HBox.setHgrow(actionBar.getChildren().get(4), Priority.ALWAYS);
         actionBar.getStyleClass().add("sidebar-action-bar");
 
@@ -729,9 +739,10 @@ public class MainWindow {
                     loadConnections();
                 });
 
-        HBox projectRow = new HBox(6, projectSwitchLabel, projectCombo, manageProjectBtn);
+        Region projectSpacer = new Region();
+        HBox.setHgrow(projectSpacer, Priority.ALWAYS);
+        HBox projectRow = new HBox(6, projectSwitchLabel, projectCombo, projectSpacer, manageProjectBtn, settingsButton);
         projectRow.getStyleClass().add("sidebar-project-row");
-        HBox.setHgrow(projectCombo, Priority.ALWAYS);
 
         VBox sidebar = new VBox(0, projectRow, sectionLabel, searchRow, sidebarTreeView.getTreeView(), actionBar);
         sidebar.getStyleClass().add("sidebar");
@@ -851,14 +862,9 @@ public class MainWindow {
         if (collapsed) {
             // 设置免疫期：600ms 内不响应 hover 展开
             collapseImmuneUntil = System.currentTimeMillis() + 600;
-            // 隐藏菜单栏
-            if (isWindows && customTitleBar != null) {
-                customTitleBar.setMenuBarVisible(false);
-                if (customTitleBar.getCollapseBtn() != null) {
-                    customTitleBar.getCollapseBtn().setManaged(false);
-                    customTitleBar.getCollapseBtn().setVisible(false);
-                }
-            } else if (topArea != null) {
+            // macOS/Linux: 隐藏菜单栏区域（系统菜单栏不占 JavaFX 空间）
+            // Windows: 菜单栏始终保留可见
+            if (!isWindows && topArea != null) {
                 topArea.setManaged(false);
                 topArea.setVisible(false);
             }
@@ -881,13 +887,7 @@ public class MainWindow {
             topHoverZone.setVisible(true);
         } else {
             // 恢复菜单栏
-            if (isWindows && customTitleBar != null) {
-                customTitleBar.setMenuBarVisible(true);
-                if (customTitleBar.getCollapseBtn() != null) {
-                    customTitleBar.getCollapseBtn().setManaged(true);
-                    customTitleBar.getCollapseBtn().setVisible(true);
-                }
-            } else if (topArea != null) {
+            if (!isWindows && topArea != null) {
                 topArea.setManaged(true);
                 topArea.setVisible(true);
             }
@@ -953,11 +953,9 @@ public class MainWindow {
     private void installTopBarExitListener() {
         boolean isWindows = System.getProperty("os.name", "").toLowerCase().contains("win");
 
-        // 找到顶栏区域的 Node
+        // 找到顶栏区域的 Node（macOS/Linux 才需要，Windows 菜单栏始终可见）
         javafx.scene.Node topBarNode = null;
-        if (isWindows && customTitleBar != null) {
-            topBarNode = customTitleBar;
-        } else if (topArea != null) {
+        if (!isWindows && topArea != null) {
             topBarNode = topArea;
         }
 
@@ -1003,9 +1001,7 @@ public class MainWindow {
         boolean isWindows = System.getProperty("os.name", "").toLowerCase().contains("win");
 
         javafx.scene.Node topBarNode = null;
-        if (isWindows && customTitleBar != null) {
-            topBarNode = customTitleBar;
-        } else if (topArea != null) {
+        if (!isWindows && topArea != null) {
             topBarNode = topArea;
         }
         if (topBarNode != null) {
