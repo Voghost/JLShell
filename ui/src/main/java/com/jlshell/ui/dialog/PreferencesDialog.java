@@ -68,7 +68,37 @@ public class PreferencesDialog {
         LANGUAGES.put("zh_CN", "中文 (简体)");
     }
 
-    private static final String VERSION = "0.1.0.RELEASE";
+    /** 从 MANIFEST.MF 或 pom.properties 读取实际构建版本号 */
+    private static String readVersion() {
+        // 优先从 META-INF/MANIFEST.MF 读取 Implementation-Version（jpackage 打包时写入）
+        try {
+            var res = PreferencesDialog.class.getResource("/META-INF/MANIFEST.MF");
+            if (res != null) {
+                String content = new String(res.openStream().readAllBytes());
+                for (String line : content.split("\n")) {
+                    if (line.startsWith("Implementation-Version:")) {
+                        return line.substring("Implementation-Version:".length()).trim();
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+        // 回退到 Maven 生成的 pom.properties（ui 模块）
+        try {
+            var res = PreferencesDialog.class.getResource("/META-INF/maven/com.jlshell/ui/pom.properties");
+            if (res != null) {
+                var props = new java.util.Properties();
+                props.load(res.openStream());
+                String v = props.getProperty("version");
+                if (v != null && !v.isBlank()) {
+                    // 去掉 Maven 的 -SNAPSHOT 后缀，只保留语义版本号
+                    return v.replace("-SNAPSHOT", "");
+                }
+            }
+        } catch (Exception ignored) {}
+        return "0.1.0";
+    }
+
+    private static final String VERSION = readVersion();
 
     private PreferencesDialog() {}
 
@@ -1289,6 +1319,8 @@ public class PreferencesDialog {
         desc.setStyle("-fx-font-size:11px;");
         desc.setWrapText(true);
         desc.setMaxWidth(400);
+        desc.setPrefWidth(400);
+        desc.setAlignment(Pos.CENTER);
         desc.setTextAlignment(TextAlignment.CENTER);
 
         Region sep = new Region();
