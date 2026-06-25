@@ -84,7 +84,13 @@ public class ShellTtyConnector implements TtyConnector {
             }
             return read;
         } catch (IOException exception) {
-            log.warn("[TtyConnector] '{}' read IOException: {}", name, exception.getMessage());
+            String msg = exception.getMessage();
+            // SocketTimeoutException 是 socket read timeout 触发，说明 keepalive 可能已失败
+            if (msg != null && (msg.contains("timed out") || msg.contains("Timeout") || msg.contains("reset"))) {
+                log.warn("[TtyConnector] '{}' read timeout/reset — connection likely dead: {}", name, msg);
+            } else {
+                log.warn("[TtyConnector] '{}' read IOException: {}", name, msg);
+            }
             markDisconnected(DisconnectReason.IO_ERROR);
             throw exception;
         }
@@ -163,7 +169,8 @@ public class ShellTtyConnector implements TtyConnector {
             outputStream.write(bytes);
             outputStream.flush();
         } catch (IOException exception) {
-            log.warn("[TtyConnector] '{}' write IOException (connection likely lost): {}", name, exception.getMessage());
+            log.warn("[TtyConnector] '{}' write failed (connection likely dead): connected={}, channelOpen={}, error={}",
+                    name, connected.get(), shellChannel.isOpen(), exception.getMessage());
             markDisconnected(DisconnectReason.IO_ERROR);
             throw exception;
         }
