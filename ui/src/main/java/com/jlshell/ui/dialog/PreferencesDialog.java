@@ -100,7 +100,7 @@ public class PreferencesDialog {
         String[] pendingLang = { appSettings.get("ui.language", null) };
         String[] pendingTheme = { appSettings.get("ui.theme", "DARK") };
         String[] pendingConnTimeout = { appSettings.get("connection.timeout", "10") };
-        String[] pendingHoverExpand = { appSettings.get("ui.topbar.hoverExpand", "true") };
+        String[] pendingHoverExpand = { appSettings.get("ui.topbar.hoverExpand", "false") };
         TerminalColorScheme[] pendingScheme = { themeService.activeColorScheme() };
         String[] pendingApiEnabled = { appSettings.get("api.enabled", "false") };
         String[] pendingApiPort = { appSettings.get("api.port", "0") };

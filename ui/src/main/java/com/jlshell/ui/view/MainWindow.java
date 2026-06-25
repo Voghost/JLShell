@@ -559,7 +559,7 @@ public class MainWindow {
         StackPane.setAlignment(topHoverZone, javafx.geometry.Pos.TOP_CENTER);
         topHoverZone.setOnMouseEntered(e -> {
             if (topBarCollapsed && System.currentTimeMillis() > collapseImmuneUntil
-                    && "true".equals(appSettingsService.get("ui.topbar.hoverExpand", "true"))) {
+                    && "true".equals(appSettingsService.get("ui.topbar.hoverExpand", "false"))) {
                 topBarCollapsed = false;
                 applyTopBarCollapsed(false);
                 installTopBarExitListener();
