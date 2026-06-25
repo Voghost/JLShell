@@ -32,6 +32,7 @@ import com.jlshell.ui.support.FxThread;
 import com.jlshell.ui.theme.AppTheme;
 import com.jlshell.ui.theme.ThemeService;
 import com.jlshell.ui.viewmodel.MainViewModel;
+import com.jlshell.ui.dialog.AboutDialog;
 import com.jlshell.ui.dialog.PreferencesDialog;
 import javafx.beans.binding.Bindings;
 import javafx.geometry.Insets;
@@ -335,11 +336,20 @@ public class MainWindow {
         if (isMac) {
             // Add to fileMenu; JavaFX moves Preferences with Cmd+, to the macOS app menu
             fileMenu.getItems().add(4, preferences);
-            menuBar.getMenus().addAll(fileMenu, viewMenu);
+            // Help → About: JavaFX automatically moves "About" to the macOS app menu
+            Menu helpMenu = new Menu(i18nService.get("menu.help"));
+            MenuItem aboutItem = new MenuItem(i18nService.get("menu.help.about"));
+            aboutItem.setOnAction(event -> AboutDialog.show(stage, i18nService, themeService));
+            helpMenu.getItems().add(aboutItem);
+            menuBar.getMenus().addAll(fileMenu, viewMenu, helpMenu);
         } else {
             Menu settingsMenu = new Menu(i18nService.get("menu.settings"));
             settingsMenu.getItems().add(preferences);
-            menuBar.getMenus().addAll(fileMenu, viewMenu, settingsMenu);
+            Menu helpMenu = new Menu(i18nService.get("menu.help"));
+            MenuItem aboutItem = new MenuItem(i18nService.get("menu.help.about"));
+            aboutItem.setOnAction(event -> AboutDialog.show(stage, i18nService, themeService));
+            helpMenu.getItems().add(aboutItem);
+            menuBar.getMenus().addAll(fileMenu, viewMenu, settingsMenu, helpMenu);
         }
         return menuBar;
     }

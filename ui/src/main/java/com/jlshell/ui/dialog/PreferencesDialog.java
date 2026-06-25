@@ -100,6 +100,9 @@ public class PreferencesDialog {
 
     private static final String VERSION = readVersion();
 
+    /** 返回当前构建版本号，供 AboutDialog 等外部使用 */
+    public static String getVersion() { return VERSION; }
+
     private PreferencesDialog() {}
 
     /** 打开偏好设置对话框，默认选中"通用"Tab。 */
