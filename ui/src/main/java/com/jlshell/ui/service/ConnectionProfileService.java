@@ -168,7 +168,11 @@ public class ConnectionProfileService {
                     .orElseThrow(() -> new IllegalArgumentException("Connection not found: " + formData.id()));
 
             entity.setConnectionType(connType);
-            entity.setDisplayName(formData.displayName());
+            String displayName = formData.displayName();
+            if (displayName == null || displayName.isBlank()) {
+                displayName = formData.host();
+            }
+            entity.setDisplayName(displayName);
             entity.setFavorite(formData.favorite());
             entity.setDescription(blankToNull(formData.description()));
             entity.setProjectId(blankToNull(formData.projectId()));

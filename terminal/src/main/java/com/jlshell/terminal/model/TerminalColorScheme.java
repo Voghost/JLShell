@@ -69,8 +69,8 @@ public record TerminalColorScheme(
         return new TerminalColorScheme(
                 "dark",
                 new Color(0x1e, 0x1f, 0x22),
-                new Color(0xdf, 0xe1, 0xe5),
-                new Color(0xdf, 0xe1, 0xe5),
+                new Color(0xe8, 0xea, 0xed),
+                new Color(0xe8, 0xea, 0xed),
                 new Color(0x2d, 0x5f, 0xa3),
                 new Color(0xff, 0xff, 0xff),
                 new Color(0x4d, 0x9c, 0xf8),

@@ -59,9 +59,6 @@ public class SshjConnectionManager implements ConnectionManager {
         try {
             configureHostKeyVerification(client, request.hostKeyVerificationMode());
             client.setConnectTimeout(Math.toIntExact(request.target().connectTimeout().toMillis()));
-            // shell 连接不设 socket read timeout（设为 0），避免长时间无输出时误断。
-            // 断连检测依赖 keepalive 机制（认证完成后设置）。
-            client.setTimeout(0);
             client.connect(request.target().host(), request.target().port());
             authenticate(client, request);
 
@@ -72,7 +69,18 @@ public class SshjConnectionManager implements ConnectionManager {
 
             // keepalive 必须在认证完成后设置，否则会破坏 strict KEX 握手顺序。
             // 每 60 秒发一次，服务端无响应时 transport 抛异常，让 JediTerm 读取线程感知断连。
-            client.getConnection().getKeepAlive().setKeepAliveInterval(60);
+            int keepAliveInterval = 60;
+            client.getConnection().getKeepAlive().setKeepAliveInterval(keepAliveInterval);
+
+            // socket read timeout 设为 keepalive 间隔的 3 倍。
+            // 原因：当连接变成半开状态（防火墙/NAT 悄悄丢弃连接），SSHJ keepalive 失败
+            // 后 transport 层会断开，但 shell channel 的 input stream 可能不会立即感知。
+            // 设 socket timeout 后，read() 最多阻塞 timeout 毫秒就会抛 SocketTimeoutException，
+            // SSHJ 会将其视为连接异常并断开 transport，从而让终端读取线程退出阻塞。
+            // 3 倍 keepalive 确保正常空闲时不会误断（keepalive 响应会在 timeout 内到达）。
+            int socketTimeout = keepAliveInterval * 3 * 1000;
+            client.setTimeout(socketTimeout);
+            log.info("SSH keepalive interval={}s, socket timeout={}s", keepAliveInterval, socketTimeout / 1000);
 
             log.info("SSH session established for {}@{}:{}", request.target().username(),
                     request.target().host(), request.target().port());
