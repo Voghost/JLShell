@@ -729,9 +729,10 @@ public class MainWindow {
                     loadConnections();
                 });
 
-        HBox projectRow = new HBox(6, projectSwitchLabel, projectCombo, manageProjectBtn, settingsButton);
+        Region projectSpacer = new Region();
+        HBox.setHgrow(projectSpacer, Priority.ALWAYS);
+        HBox projectRow = new HBox(6, projectSwitchLabel, projectCombo, projectSpacer, manageProjectBtn, settingsButton);
         projectRow.getStyleClass().add("sidebar-project-row");
-        HBox.setHgrow(projectCombo, Priority.ALWAYS);
 
         VBox sidebar = new VBox(0, projectRow, sectionLabel, searchRow, sidebarTreeView.getTreeView(), actionBar);
         sidebar.getStyleClass().add("sidebar");
