@@ -240,7 +240,7 @@
     -fx-background-color: transparent;
     -fx-background-radius: 0;
     -fx-border-color: transparent;
-    -fx-padding: 4 4 4 12;
+    -fx-padding: 4 2 4 8;
     -fx-focus-color: transparent;
     -fx-faint-focus-color: transparent;
 }
@@ -248,13 +248,13 @@
 .tab-pane .tab .tab-label {
     -fx-text-fill: #64748b;
     -fx-font-size: 12px;
-    -fx-padding: 0 8 0 0;
+    -fx-padding: 0 4 0 0;
 }
 
 .tab-pane .tab:selected {
     -fx-background-color: transparent;
     -fx-border-color: transparent transparent #2563eb transparent;
-    -fx-border-width: 0 0 2 0;
+    -fx-border-width: 0 0 1 0;
     -fx-focus-color: transparent;
     -fx-faint-focus-color: transparent;
 }
