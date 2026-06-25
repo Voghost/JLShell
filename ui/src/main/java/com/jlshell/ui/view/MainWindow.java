@@ -673,7 +673,7 @@ public class MainWindow {
         connectButton.getStyleClass().add("icon-btn-primary");
 
         HBox actionBar = new HBox(4, createButton, editButton, deleteButton, newFolderButton,
-                new javafx.scene.layout.Region(), connectButton, refreshButton, toggleSidebarBtn, settingsButton);
+                new javafx.scene.layout.Region(), connectButton, refreshButton, toggleSidebarBtn);
         HBox.setHgrow(actionBar.getChildren().get(4), Priority.ALWAYS);
         actionBar.getStyleClass().add("sidebar-action-bar");
 
@@ -729,7 +729,7 @@ public class MainWindow {
                     loadConnections();
                 });
 
-        HBox projectRow = new HBox(6, projectSwitchLabel, projectCombo, manageProjectBtn);
+        HBox projectRow = new HBox(6, projectSwitchLabel, projectCombo, manageProjectBtn, settingsButton);
         projectRow.getStyleClass().add("sidebar-project-row");
         HBox.setHgrow(projectCombo, Priority.ALWAYS);
 
