@@ -76,6 +76,37 @@ public class RefreshableTerminalPanel extends TerminalPanel {
         repaint();
     }
 
+    /**
+     * 覆写 JediTerm 默认的抗锯齿设置，提升文字渲染清晰度。
+     *
+     * JediTerm 默认只设 KEY_TEXT_ANTIALIASING = ON（灰度 AA），
+     * 在 SwingNode 嵌入场景下文字会显得"隔了一层纱"。
+     *
+     * 改进：
+     * - Windows: 使用 LCD 子像素抗锯齿（HGRB），显著提升文字锐度
+     * - macOS/Linux: 灰度 AA（macOS 的 SwingNode 不支持 LCD AA）
+     * - 启用 KEY_RENDERING = QUALITY，避免几何缩放模糊
+     * - 启用 KEY_FRACTIONALMETRICS = ON，让字符定位更精确
+     */
+    @Override
+    protected void setupAntialiasing(Graphics graphics) {
+        if (graphics instanceof Graphics2D gfx) {
+            Object aaMode;
+            if (isWindows()) {
+                // Windows SwingNode 支持 LCD 子像素渲染
+                aaMode = RenderingHints.VALUE_TEXT_ANTIALIAS_LCD_HRGB;
+            } else {
+                // macOS/Linux SwingNode 用灰度 AA（LCD AA 在 macOS 上无效）
+                aaMode = RenderingHints.VALUE_TEXT_ANTIALIAS_ON;
+            }
+            gfx.setRenderingHints(Map.of(
+                    RenderingHints.KEY_TEXT_ANTIALIASING, aaMode,
+                    RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY,
+                    RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_ON
+            ));
+        }
+    }
+
     @Override
     public void setCoordAccessor(TerminalCoordinates coordAccessor) {
         this.capturedCoordAccessor = coordAccessor;
