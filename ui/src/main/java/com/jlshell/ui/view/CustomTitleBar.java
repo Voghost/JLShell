@@ -27,7 +27,6 @@ public class CustomTitleBar extends HBox {
 
     private final Stage stage;
     private final MenuBar menuBar;
-    private final Button collapseBtn; // 折叠按钮，外部可访问
     private double dragOffsetX;
     private double dragOffsetY;
 
@@ -48,12 +47,6 @@ public class CustomTitleBar extends HBox {
         // Menu bar (compact, no padding)
         menuBar.getStyleClass().add("embedded-menu-bar");
         getChildren().add(menuBar);
-
-        // 折叠按钮（菜单栏右侧）
-        collapseBtn = new Button("▾");
-        collapseBtn.getStyleClass().add("topbar-collapse-btn");
-        collapseBtn.setTooltip(new Tooltip(i18n.get("topbar.collapse")));
-        getChildren().add(collapseBtn);
 
         // Spacer — drag zone
         Region spacer = new Region();
@@ -133,10 +126,5 @@ public class CustomTitleBar extends HBox {
     public void setMenuBarVisible(boolean visible) {
         menuBar.setManaged(visible);
         menuBar.setVisible(visible);
-    }
-
-    /** 返回折叠按钮，MainWindow 设置其 onAction */
-    public Button getCollapseBtn() {
-        return collapseBtn;
     }
 }

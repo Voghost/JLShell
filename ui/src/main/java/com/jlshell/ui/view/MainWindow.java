@@ -358,7 +358,6 @@ public class MainWindow {
     private CustomTitleBar buildCustomTitleBar(Stage stage) {
         MenuBar menuBar = buildMenuBar(stage);
         customTitleBar = new CustomTitleBar(stage, menuBar, i18nService);
-        customTitleBar.getCollapseBtn().setOnAction(e -> toggleTopBarCollapse());
         return customTitleBar;
     }
 
@@ -559,7 +558,8 @@ public class MainWindow {
         topHoverZone.setVisible(false);
         StackPane.setAlignment(topHoverZone, javafx.geometry.Pos.TOP_CENTER);
         topHoverZone.setOnMouseEntered(e -> {
-            if (topBarCollapsed && System.currentTimeMillis() > collapseImmuneUntil) {
+            if (topBarCollapsed && System.currentTimeMillis() > collapseImmuneUntil
+                    && "true".equals(appSettingsService.get("ui.topbar.hoverExpand", "true"))) {
                 topBarCollapsed = false;
                 applyTopBarCollapsed(false);
                 installTopBarExitListener();
@@ -851,14 +851,9 @@ public class MainWindow {
         if (collapsed) {
             // 设置免疫期：600ms 内不响应 hover 展开
             collapseImmuneUntil = System.currentTimeMillis() + 600;
-            // 隐藏菜单栏
-            if (isWindows && customTitleBar != null) {
-                customTitleBar.setMenuBarVisible(false);
-                if (customTitleBar.getCollapseBtn() != null) {
-                    customTitleBar.getCollapseBtn().setManaged(false);
-                    customTitleBar.getCollapseBtn().setVisible(false);
-                }
-            } else if (topArea != null) {
+            // macOS/Linux: 隐藏菜单栏区域（系统菜单栏不占 JavaFX 空间）
+            // Windows: 菜单栏始终保留可见
+            if (!isWindows && topArea != null) {
                 topArea.setManaged(false);
                 topArea.setVisible(false);
             }
@@ -881,13 +876,7 @@ public class MainWindow {
             topHoverZone.setVisible(true);
         } else {
             // 恢复菜单栏
-            if (isWindows && customTitleBar != null) {
-                customTitleBar.setMenuBarVisible(true);
-                if (customTitleBar.getCollapseBtn() != null) {
-                    customTitleBar.getCollapseBtn().setManaged(true);
-                    customTitleBar.getCollapseBtn().setVisible(true);
-                }
-            } else if (topArea != null) {
+            if (!isWindows && topArea != null) {
                 topArea.setManaged(true);
                 topArea.setVisible(true);
             }
@@ -953,11 +942,9 @@ public class MainWindow {
     private void installTopBarExitListener() {
         boolean isWindows = System.getProperty("os.name", "").toLowerCase().contains("win");
 
-        // 找到顶栏区域的 Node
+        // 找到顶栏区域的 Node（macOS/Linux 才需要，Windows 菜单栏始终可见）
         javafx.scene.Node topBarNode = null;
-        if (isWindows && customTitleBar != null) {
-            topBarNode = customTitleBar;
-        } else if (topArea != null) {
+        if (!isWindows && topArea != null) {
             topBarNode = topArea;
         }
 
@@ -1003,9 +990,7 @@ public class MainWindow {
         boolean isWindows = System.getProperty("os.name", "").toLowerCase().contains("win");
 
         javafx.scene.Node topBarNode = null;
-        if (isWindows && customTitleBar != null) {
-            topBarNode = customTitleBar;
-        } else if (topArea != null) {
+        if (!isWindows && topArea != null) {
             topBarNode = topArea;
         }
         if (topBarNode != null) {

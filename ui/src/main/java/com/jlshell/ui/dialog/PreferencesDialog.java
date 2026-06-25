@@ -100,12 +100,13 @@ public class PreferencesDialog {
         String[] pendingLang = { appSettings.get("ui.language", null) };
         String[] pendingTheme = { appSettings.get("ui.theme", "DARK") };
         String[] pendingConnTimeout = { appSettings.get("connection.timeout", "10") };
+        String[] pendingHoverExpand = { appSettings.get("ui.topbar.hoverExpand", "true") };
         TerminalColorScheme[] pendingScheme = { themeService.activeColorScheme() };
         String[] pendingApiEnabled = { appSettings.get("api.enabled", "false") };
         String[] pendingApiPort = { appSettings.get("api.port", "0") };
 
         TabPane tabs = buildTabPane(fontProfileService, appSettings, i18n, themeService,
-                pending, pendingLang, pendingTheme, pendingConnTimeout, pendingScheme,
+                pending, pendingLang, pendingTheme, pendingConnTimeout, pendingHoverExpand, pendingScheme,
                 connectionProfileService, activeProjectId, apiServer, pendingApiEnabled, pendingApiPort);
         // 选中指定的初始 Tab（如从终端字体按钮打开时选中"终端"Tab）
         if (initialTabIndex >= 0 && initialTabIndex < tabs.getTabs().size()) {
@@ -121,13 +122,13 @@ public class PreferencesDialog {
         Button applyButton = (Button) dialog.getDialogPane().lookupButton(applyBtnType);
         applyButton.addEventFilter(javafx.event.ActionEvent.ACTION, e -> {
             e.consume(); // 阻止 Dialog 默认的关闭逻辑
-            boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending, pendingLang, pendingTheme, pendingConnTimeout, pendingScheme, pendingApiEnabled, pendingApiPort);
+            boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending, pendingLang, pendingTheme, pendingConnTimeout, pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort);
             if (needRestart) showRestartPrompt(owner, i18n);
         });
 
         dialog.setResultConverter(btn -> {
             if (btn.getButtonData() == ButtonBar.ButtonData.OK_DONE) {
-                boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending, pendingLang, pendingTheme, pendingConnTimeout, pendingScheme, pendingApiEnabled, pendingApiPort);
+                boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending, pendingLang, pendingTheme, pendingConnTimeout, pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort);
                 if (needRestart) showRestartPrompt(owner, i18n);
             }
             return null;
@@ -150,6 +151,7 @@ public class PreferencesDialog {
     private static boolean applyPendingSettings(FontProfileService fontProfileService, AppSettingsService appSettings,
                                               ThemeService themeService, FontProfile[] pending, String[] pendingLang,
                                               String[] pendingTheme, String[] pendingConnTimeout,
+                                              String[] pendingHoverExpand,
                                               TerminalColorScheme[] pendingScheme,
                                               String[] pendingApiEnabled, String[] pendingApiPort) {
         String prevLang = appSettings.get("ui.language", null);
@@ -164,6 +166,7 @@ public class PreferencesDialog {
         }
 
         appSettings.set("connection.timeout", pendingConnTimeout[0]);
+        appSettings.set("ui.topbar.hoverExpand", pendingHoverExpand[0]);
 
         if (pendingScheme[0] != null) {
             themeService.setActiveColorScheme(pendingScheme[0]);
@@ -184,6 +187,7 @@ public class PreferencesDialog {
                                          I18nService i18n, ThemeService themeService,
                                          FontProfile[] pending, String[] pendingLang,
                                          String[] pendingTheme, String[] pendingConnTimeout,
+                                         String[] pendingHoverExpand,
                                          TerminalColorScheme[] pendingScheme,
                                          com.jlshell.ui.service.ConnectionProfileService connectionProfileService,
                                          String activeProjectId,
@@ -193,7 +197,7 @@ public class PreferencesDialog {
         tabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
 
         Tab generalTab = new Tab(i18n.get("preferences.tab.general"));
-        generalTab.setContent(buildGeneralPane(appSettings, i18n, themeService, pendingLang, pendingTheme));
+        generalTab.setContent(buildGeneralPane(appSettings, i18n, themeService, pendingLang, pendingTheme, pendingHoverExpand));
         tabPane.getTabs().add(generalTab);
 
         Tab connectionTab = new Tab(i18n.get("preferences.tab.connection"));
@@ -222,7 +226,8 @@ public class PreferencesDialog {
     // ── General Tab ────────────────────────────────────────────────────────
 
     private static VBox buildGeneralPane(AppSettingsService appSettings, I18nService i18n,
-                                          ThemeService themeService, String[] pendingLang, String[] pendingTheme) {
+                                          ThemeService themeService, String[] pendingLang, String[] pendingTheme,
+                                          String[] pendingHoverExpand) {
         // 首次启动：未设置语言时根据系统语言环境推断
         String currentLang = appSettings.get("ui.language", null);
         if (currentLang == null) {
@@ -251,6 +256,11 @@ public class PreferencesDialog {
         themeCombo.valueProperty().addListener((o, ov, nv) ->
                 pendingTheme[0] = "Light".equals(nv) ? "LIGHT" : "DARK");
 
+        CheckBox hoverExpandCheck = new CheckBox(i18n.get("preferences.general.hoverExpand"));
+        hoverExpandCheck.setSelected("true".equals(pendingHoverExpand[0]));
+        hoverExpandCheck.selectedProperty().addListener((o, ov, nv) ->
+                pendingHoverExpand[0] = String.valueOf(nv));
+
         GridPane grid = new GridPane();
         grid.setHgap(12);
         grid.setVgap(10);
@@ -259,6 +269,7 @@ public class PreferencesDialog {
         grid.add(langCombo, 1, 0);
         grid.add(new Label(i18n.get("preferences.general.theme")), 0, 1);
         grid.add(themeCombo, 1, 1);
+        grid.add(hoverExpandCheck, 1, 2);
 
         VBox pane = new VBox(grid);
         pane.setPadding(new Insets(8));
