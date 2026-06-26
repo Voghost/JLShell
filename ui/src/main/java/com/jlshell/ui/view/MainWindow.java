@@ -282,9 +282,11 @@ public class MainWindow {
 
         i18nService.localeProperty().addListener((obs, oldLocale, newLocale) -> {
             pluginManager.setLocale(newLocale);
+            updateWindowTitle();
         });
 
         loadConnections();
+        updateWindowTitle();
         return scene;
     }
 
@@ -413,6 +415,7 @@ public class MainWindow {
     private CustomTitleBar buildCustomTitleBar(Stage stage) {
         MenuBar menuBar = buildMenuBar(stage);
         customTitleBar = new CustomTitleBar(stage, menuBar, i18nService);
+        updateWindowTitle();
         return customTitleBar;
     }
 
@@ -548,6 +551,8 @@ public class MainWindow {
         sidebarVBox.setMinWidth(SIDEBAR_EXPANDED_MIN_WIDTH);
         workspaceTabs.getStyleClass().add("workspace-tabs");
         installTabDragReorder(workspaceTabs);
+        workspaceTabs.getSelectionModel().selectedItemProperty().addListener((obs, oldTab, newTab) -> updateWindowTitle());
+        workspaceTabs.getTabs().addListener((javafx.collections.ListChangeListener<javafx.scene.control.Tab>) change -> updateWindowTitle());
 
         welcomePane = new WelcomePane(i18nService, connectionProfileService, executor,
                 () -> createConnection(stage),
@@ -638,6 +643,37 @@ public class MainWindow {
         centerSplitPane = new SplitPane(sidebarVBox, workspaceStackPane);
         centerSplitPane.setDividerPositions(0.26);
         return centerSplitPane;
+    }
+
+    private void updateWindowTitle() {
+        String title = buildWindowTitle(workspaceTabs.getSelectionModel().getSelectedItem());
+        if (primaryStage != null) {
+            primaryStage.setTitle(title);
+        }
+        if (customTitleBar != null) {
+            customTitleBar.setTitleText(title);
+        }
+    }
+
+    private String buildWindowTitle(javafx.scene.control.Tab tab) {
+        String detail = null;
+        if (tab instanceof SessionWorkspaceTab sessionTab) {
+            ConnectionProfile profile = sessionTab.getConnectionProfile();
+            detail = formatConnectionTitle(profile);
+        } else if (tab != null && tab.getUserData() instanceof ConnectionProfile profile) {
+            detail = formatConnectionTitle(profile);
+        }
+        return detail == null || detail.isBlank() ? "JLShell" : detail + " — JLShell";
+    }
+
+    private String formatConnectionTitle(ConnectionProfile profile) {
+        if (profile == null) {
+            return "";
+        }
+        String name = profile.displayName() == null || profile.displayName().isBlank()
+                ? profile.host()
+                : profile.displayName();
+        return name + " — " + profile.summary();
     }
 
     private VBox buildSidebar(Stage stage) {
@@ -1329,6 +1365,7 @@ public class MainWindow {
     private void openLocalShellTab(ConnectionProfile profile, com.jlshell.terminal.service.TerminalViewHandle viewHandle) {
         localShellHandles.add(viewHandle);
         javafx.scene.control.Tab tab = new javafx.scene.control.Tab(profile.displayName());
+        tab.setUserData(profile);
         tab.setClosable(true);
         tab.setContextMenu(buildTabContextMenu(tab));
         javax.swing.JComponent component = (javax.swing.JComponent) viewHandle.component();

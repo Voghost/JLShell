@@ -249,7 +249,7 @@ jobs:
 
   # ── Windows ─────────────────────────────────────────────────────────────────
   build-windows:
-    name: Build Windows (zip + portable exe)
+    name: Build Windows (zip + msi)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -269,6 +269,9 @@ jobs:
       - name: Install Pillow
         run: pip install Pillow
 
+      - name: Install WiX Toolset
+        run: choco install wixtoolset --no-progress -y
+
       - name: Set version from input
         shell: bash
         run: mvn versions:set -DnewVersion=${VERSION} -q
@@ -282,10 +285,15 @@ jobs:
           icons = [img.resize(s, Image.LANCZOS) for s in sizes]
           icons[0].save('app/src/main/resources/icons/app_icon.ico', format='ICO', sizes=sizes)
 
-      - name: Build fat jar + jlink runtime + native exe
+      - name: Build fat jar + jlink runtime
         shell: bash
         run: |
-          mvn package -DskipTests -pl app -am -P dist,win-exe -q
+          mvn package -DskipTests -pl app -am -P dist -q
+
+          JAR=$(ls app/target/app-*.jar | head -1)
+          JAR_NAME=$(basename "$JAR")
+          echo "JAR=$JAR" >> $GITHUB_ENV
+          echo "JAR_NAME=$JAR_NAME" >> $GITHUB_ENV
 
           JDK=$JAVA_HOME
           rm -rf dist/runtime
@@ -295,27 +303,68 @@ jobs:
             --output dist/runtime \
             --strip-debug --no-man-pages --no-header-files --compress zip-6
 
-      - name: Package zip with exe
+      - name: Package Windows app image and installer
         shell: bash
         run: |
-          mkdir -p dist/win-work/JLShell
-          cp -r dist/runtime dist/win-work/JLShell/
-          cp app/target/JLShell.exe dist/win-work/JLShell/
+          JDK=$JAVA_HOME
+          PKG_VERSION="${VERSION#0.}"
+          PKG_VERSION="1.${PKG_VERSION}"
+
+          rm -rf dist/win-input dist/win-image dist/win-installer
+          mkdir -p dist/win-input
+          cp "$JAR" dist/win-input/
+
+          "$JDK/bin/jpackage" \
+            --type app-image \
+            --name JLShell \
+            --app-version "$PKG_VERSION" \
+            --input dist/win-input \
+            --main-jar "$JAR_NAME" \
+            --main-class com.jlshell.app.Launcher \
+            --runtime-image dist/runtime \
+            --icon app/src/main/resources/icons/app_icon.ico \
+            --vendor JLShell \
+            --description "JLShell SSH Client" \
+            --java-options "--add-opens java.base/java.lang=ALL-UNNAMED" \
+            --java-options "--add-opens java.desktop/sun.awt=ALL-UNNAMED" \
+            --dest dist/win-image
 
           # plugins directory — drop plugin JARs here to install them
-          mkdir -p dist/win-work/JLShell/plugins
-          cat > dist/win-work/JLShell/plugins/README.txt <<'EOF'
+          mkdir -p dist/win-image/JLShell/plugins
+          cat > dist/win-image/JLShell/plugins/README.txt <<'EOF'
           Place plugin JAR files (*.jar) in this directory.
           JLShell will automatically discover and load them on startup.
           EOF
 
-          cd dist/win-work && 7z a -tzip "../JLShell-${VERSION}-win-x64.zip" JLShell && cd ../..
+          cd dist/win-image && 7z a -tzip "../JLShell-${VERSION}-win-x64.zip" JLShell && cd ../..
+
+          "$JDK/bin/jpackage" \
+            --type msi \
+            --name JLShell \
+            --app-version "$PKG_VERSION" \
+            --input dist/win-input \
+            --main-jar "$JAR_NAME" \
+            --main-class com.jlshell.app.Launcher \
+            --runtime-image dist/runtime \
+            --icon app/src/main/resources/icons/app_icon.ico \
+            --vendor JLShell \
+            --description "JLShell SSH Client" \
+            --java-options "--add-opens java.base/java.lang=ALL-UNNAMED" \
+            --java-options "--add-opens java.desktop/sun.awt=ALL-UNNAMED" \
+            --win-dir-chooser \
+            --win-menu \
+            --win-menu-group JLShell \
+            --win-shortcut \
+            --dest dist/win-installer
+
+          cp dist/win-installer/*.msi "dist/JLShell-${VERSION}-win-x64.msi"
 
       - uses: actions/upload-artifact@v4
         with:
           name: win-packages
           path: |
             dist/JLShell-${{ env.VERSION }}-win-x64.zip
+            dist/JLShell-${{ env.VERSION }}-win-x64.msi
 
   # ── Create GitHub Release ────────────────────────────────────────────────────
   release:
@@ -344,6 +393,7 @@ jobs:
             artifacts/JLShell-${{ env.VERSION }}-linux-x64.deb
             artifacts/JLShell-${{ env.VERSION }}-linux-x86_64.AppImage
             artifacts/JLShell-${{ env.VERSION }}-win-x64.zip
+            artifacts/JLShell-${{ env.VERSION }}-win-x64.msi
           body: |
             ## JLShell v${{ env.VERSION }}
 
@@ -356,5 +406,6 @@ jobs:
             | Linux | `JLShell-${{ env.VERSION }}-linux-x64.deb` | `sudo dpkg -i` 安装，命令行 `jlshell` |
             | Linux | `JLShell-${{ env.VERSION }}-linux-x86_64.AppImage` | `chmod +x` 后直接运行 |
             | Windows | `JLShell-${{ env.VERSION }}-win-x64.zip` | 解压后双击 `JLShell.exe` |
+            | Windows | `JLShell-${{ env.VERSION }}-win-x64.msi` | 安装后可从开始菜单搜索 `JLShell` |
 
             > 所有包均内置精简 JRE，无需安装 JDK。
