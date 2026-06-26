@@ -52,6 +52,7 @@ public class RefreshableTerminalPanel extends TerminalPanel {
 
     private final JlshellSettingsProvider jlshellSettings;
     private final Function<String, String> i18n;
+    private boolean ignoreNextShiftInsertTyped;
 
     /**
      * JediTermWidget 在 init 时通过 setCoordAccessor 注入 TerminalCoordinates，
@@ -301,6 +302,33 @@ public class RefreshableTerminalPanel extends TerminalPanel {
         int code = e.getKeyCode();
         char c = e.getKeyChar();
 
+        if (id == KeyEvent.KEY_TYPED && ignoreNextShiftInsertTyped) {
+            ignoreNextShiftInsertTyped = false;
+            return;
+        }
+        if (id == KeyEvent.KEY_PRESSED && isShiftInsert(e)) {
+            KeyEvent pasteEvent = new KeyEvent(
+                    (java.awt.Component) e.getSource(),
+                    KeyEvent.KEY_PRESSED,
+                    e.getWhen(),
+                    KeyEvent.SHIFT_DOWN_MASK,
+                    KeyEvent.VK_INSERT,
+                    KeyEvent.CHAR_UNDEFINED,
+                    e.getKeyLocation()
+            );
+            if (TerminalAction.processEvent(this, pasteEvent)) {
+                ignoreNextShiftInsertTyped = true;
+                e.consume();
+                return;
+            }
+            ignoreNextShiftInsertTyped = true;
+            return;
+        }
+        if (id == KeyEvent.KEY_RELEASED && isShiftInsert(e)) {
+            e.consume();
+            return;
+        }
+
         // 修饰键单独按下/释放不发送给终端
         if (id != KeyEvent.KEY_TYPED && isModifierOnly(code)) {
             return;
@@ -316,9 +344,11 @@ public class RefreshableTerminalPanel extends TerminalPanel {
             return;
         }
 
-        // macOS Command（⌘）组合键：带 META 修饰符的非 KEY_TYPED 事件不发给终端
+        // macOS Command（⌘）组合键：默认不发给终端，避免 SwingNode 传入 NUL 显示 ^@。
+        // 但 JediTerm 自带的复制/粘贴/查找/清屏/滚动动作需要看到 KEY_PRESSED，
+        // 所以这些组合键放行给 super.processKeyEvent() 做 TerminalAction 匹配。
         boolean hasMeta = (e.getModifiersEx() & KeyEvent.META_DOWN_MASK) != 0;
-        if (hasMeta && id != KeyEvent.KEY_TYPED) {
+        if (hasMeta && id != KeyEvent.KEY_TYPED && !isMacMetaTerminalAction(id, code)) {
             return;
         }
 
@@ -347,12 +377,12 @@ public class RefreshableTerminalPanel extends TerminalPanel {
                 && (e.getModifiersEx() & KeyEvent.CTRL_DOWN_MASK) != 0
                 && (e.getModifiersEx() & KeyEvent.ALT_DOWN_MASK) == 0
                 && (e.getModifiersEx() & KeyEvent.META_DOWN_MASK) == 0) {
-            char controlChar = ctrlToControlChar(code);
-            if (controlChar != '\0' && c != controlChar) {
+            int controlChar = ctrlToControlChar(code);
+            if (controlChar >= 0 && c != (char) controlChar) {
                 e = new KeyEvent(
                         (java.awt.Component) e.getSource(),
                         e.getID(), e.getWhen(), e.getModifiersEx(),
-                        e.getKeyCode(), controlChar, e.getKeyLocation()
+                        e.getKeyCode(), (char) controlChar, e.getKeyLocation()
                 );
             }
         }
@@ -361,14 +391,44 @@ public class RefreshableTerminalPanel extends TerminalPanel {
     }
 
     /**
-     * Map A-Z keyCode to the control char produced by Ctrl+A..Ctrl+Z
-     * (Ctrl+A= ... Ctrl+Z=). Non A-Z returns '\0'.
+     * Map common terminal Ctrl chords to control characters.
+     * Examples: Ctrl+A=1, Ctrl+Space=0, Ctrl+[=ESC, Ctrl+\=FS, Ctrl+?=DEL.
+     * Non terminal control chords return -1.
      */
-    private static char ctrlToControlChar(int keyCode) {
-        if (keyCode >= KeyEvent.VK_A && keyCode <= KeyEvent.VK_Z) {
-            return (char) (keyCode - KeyEvent.VK_A + 1);
+    private static int ctrlToControlChar(int keyCode) {
+        if (keyCode == KeyEvent.VK_SPACE || keyCode == KeyEvent.VK_2) {
+            return 0x00;
         }
-        return '\0';
+        if (keyCode >= KeyEvent.VK_A && keyCode <= KeyEvent.VK_Z) {
+            return keyCode - KeyEvent.VK_A + 1;
+        }
+        return switch (keyCode) {
+            case KeyEvent.VK_OPEN_BRACKET, KeyEvent.VK_3 -> 0x1B;
+            case KeyEvent.VK_BACK_SLASH, KeyEvent.VK_4 -> 0x1C;
+            case KeyEvent.VK_CLOSE_BRACKET, KeyEvent.VK_5 -> 0x1D;
+            case KeyEvent.VK_6 -> 0x1E;
+            case KeyEvent.VK_MINUS, KeyEvent.VK_7 -> 0x1F;
+            case KeyEvent.VK_SLASH, KeyEvent.VK_8 -> 0x7F;
+            default -> -1;
+        };
+    }
+
+    private static boolean isMacMetaTerminalAction(int eventId, int keyCode) {
+        if (eventId != KeyEvent.KEY_PRESSED) {
+            return false;
+        }
+        return keyCode == KeyEvent.VK_C
+                || keyCode == KeyEvent.VK_V
+                || keyCode == KeyEvent.VK_F
+                || keyCode == KeyEvent.VK_K
+                || keyCode == KeyEvent.VK_UP
+                || keyCode == KeyEvent.VK_DOWN;
+    }
+
+    private static boolean isShiftInsert(KeyEvent e) {
+        return e.getKeyCode() == KeyEvent.VK_INSERT
+                && (e.getModifiersEx() & KeyEvent.SHIFT_DOWN_MASK) != 0
+                && (e.getModifiersEx() & (KeyEvent.CTRL_DOWN_MASK | KeyEvent.ALT_DOWN_MASK | KeyEvent.META_DOWN_MASK)) == 0;
     }
 
     private static boolean isModifierOnly(int keyCode) {
