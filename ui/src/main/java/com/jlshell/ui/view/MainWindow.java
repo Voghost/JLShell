@@ -2,6 +2,7 @@ package com.jlshell.ui.view;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -108,6 +109,7 @@ public class MainWindow {
     private Label sectionLabel;
     private Label projectSwitchLabel;
     private Label statusLabel;
+    private Region statusDot;
     private Stage primaryStage;
     /** Sentinel for the "Default" (no project) combo item */
     private static final ProjectProfile DEFAULT_PROJECT = new ProjectProfile(null, "", null);
@@ -495,12 +497,18 @@ public class MainWindow {
 
 
     public void openPreferences(Stage stage) {
+        String selectedSessionId = selectedApiSessionId();
         PreferencesDialog.show(stage, fontProfileService, appSettingsService, i18nService, themeService,
-                connectionProfileService, activeProjectId, apiServer);
+                connectionProfileService, activeProjectId, apiServer, capabilityBus, selectedSessionId, 0);
         // 导入后刷新侧边栏
         loadConnections();
         // 应用可能变更的 UI 字体设置
         applyUiFontSettings();
+    }
+
+    private String selectedApiSessionId() {
+        javafx.scene.control.Tab selected = workspaceTabs.getSelectionModel().getSelectedItem();
+        return selected instanceof SessionWorkspaceTab sessionTab ? sessionTab.getSessionId() : null;
     }
 
     private void refreshAllTexts(Stage stage, BorderPane root) {
@@ -847,12 +855,29 @@ public class MainWindow {
         statusLabel = new Label();
         statusLabel.textProperty().bind(viewModel.statusMessageProperty());
         statusLabel.getStyleClass().add("status-label");
-        Region statusDot = new Region();
+        statusDot = new Region();
         statusDot.getStyleClass().add("status-dot");
+        updateStatusDotState(viewModel.statusMessageProperty().get());
+        viewModel.statusMessageProperty().addListener((obs, oldValue, newValue) -> updateStatusDotState(newValue));
         HBox statusBar = new HBox(6, statusDot, statusLabel);
         statusBar.getStyleClass().add("status-bar");
         statusBar.setAlignment(Pos.CENTER_LEFT);
         return statusBar;
+    }
+
+    private void updateStatusDotState(String message) {
+        if (statusDot == null) {
+            return;
+        }
+        statusDot.getStyleClass().remove("status-dot-error");
+        String lower = message == null ? "" : message.toLowerCase(Locale.ROOT);
+        boolean error = lower.contains("failed")
+                || lower.contains("failure")
+                || lower.contains("error")
+                || (message != null && (message.contains("失败") || message.contains("错误")));
+        if (error) {
+            statusDot.getStyleClass().add("status-dot-error");
+        }
     }
 
     private Button svgIconButton(String iconResourcePath, String tooltip, Runnable action) {
@@ -1349,7 +1374,7 @@ public class MainWindow {
     private void connectLocalShell(ConnectionProfile profile) {
         com.jlshell.terminal.model.TerminalViewRequest request =
                 new com.jlshell.terminal.model.TerminalViewRequest(profile.displayName(), null, null,
-                        themeService.activeColorScheme());
+                        themeService.activeColorScheme(), terminalRuntimeSettings());
         localShellLauncher.launch(profile.displayName(), request)
                 .whenComplete((viewHandle, throwable) -> FxThread.run(() -> {
                     if (throwable != null) {
@@ -1360,6 +1385,16 @@ public class MainWindow {
                     }
                     openLocalShellTab(profile, viewHandle);
                 }));
+    }
+
+    private com.jlshell.terminal.model.TerminalRuntimeSettings terminalRuntimeSettings() {
+        String raw = appSettingsService.get("terminal.scrollback.lines",
+                String.valueOf(com.jlshell.terminal.model.TerminalRuntimeSettings.DEFAULT_SCROLLBACK_LINES));
+        try {
+            return new com.jlshell.terminal.model.TerminalRuntimeSettings(Integer.parseInt(raw.trim()));
+        } catch (NumberFormatException ignored) {
+            return com.jlshell.terminal.model.TerminalRuntimeSettings.defaults();
+        }
     }
 
     private void openLocalShellTab(ConnectionProfile profile, com.jlshell.terminal.service.TerminalViewHandle viewHandle) {

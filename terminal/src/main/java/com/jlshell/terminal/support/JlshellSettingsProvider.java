@@ -15,6 +15,7 @@ import com.jediterm.terminal.ui.TerminalActionPresentation;
 import com.jediterm.terminal.ui.settings.DefaultSettingsProvider;
 import com.jlshell.core.model.FontProfile;
 import com.jlshell.terminal.model.TerminalColorScheme;
+import com.jlshell.terminal.model.TerminalRuntimeSettings;
 import javax.swing.KeyStroke;
 
 /**
@@ -26,11 +27,19 @@ public class JlshellSettingsProvider extends DefaultSettingsProvider {
     private final AtomicReference<FontProfile> fontProfile;
     private final AtomicReference<TerminalColorScheme> colorScheme;
     private final AtomicReference<ColorPalette> colorPalette;
+    private final AtomicReference<TerminalRuntimeSettings> runtimeSettings;
 
     public JlshellSettingsProvider(FontProfile fontProfile, TerminalColorScheme colorScheme) {
+        this(fontProfile, colorScheme, TerminalRuntimeSettings.defaults());
+    }
+
+    public JlshellSettingsProvider(FontProfile fontProfile, TerminalColorScheme colorScheme,
+                                   TerminalRuntimeSettings runtimeSettings) {
         this.fontProfile = new AtomicReference<>(fontProfile);
         this.colorScheme = new AtomicReference<>(colorScheme);
         this.colorPalette = new AtomicReference<>(buildPalette(colorScheme));
+        this.runtimeSettings = new AtomicReference<>(
+                runtimeSettings == null ? TerminalRuntimeSettings.defaults() : runtimeSettings);
     }
 
     public void updateFontProfile(FontProfile updatedFontProfile) {
@@ -141,7 +150,7 @@ public class JlshellSettingsProvider extends DefaultSettingsProvider {
 
     @Override
     public int getBufferMaxLinesCount() {
-        return 10_000;
+        return runtimeSettings.get().scrollbackLines();
     }
 
     @Override

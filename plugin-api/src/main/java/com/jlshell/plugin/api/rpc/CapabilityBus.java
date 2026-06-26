@@ -10,4 +10,7 @@ import java.util.concurrent.CompletableFuture;
 public interface CapabilityBus {
     CompletableFuture<RpcResponse> invoke(RpcRequest request);
     List<CapabilitySpec> listCapabilities(String sessionId); // null = 仅全局
+    default List<Capability> listRegisteredCapabilities(String sessionId) {
+        return List.of();
+    }
 }

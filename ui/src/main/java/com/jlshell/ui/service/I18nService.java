@@ -18,6 +18,7 @@ public class I18nService {
     private ResourceBundle bundle;
 
     public I18nService(Locale locale) {
+        Locale.setDefault(locale);
         localeProperty.set(locale);
         loadBundle(locale);
     }

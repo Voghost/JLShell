@@ -3,7 +3,13 @@ package com.jlshell.ui.dialog;
 import com.jlshell.core.model.FontProfile;
 import com.jlshell.core.service.AppSettingsService;
 import com.jlshell.core.service.FontProfileService;
+import com.jlshell.plugin.api.rpc.Capability;
+import com.jlshell.plugin.api.rpc.CapabilityBus;
+import com.jlshell.plugin.api.rpc.CapabilitySpec;
+import com.jlshell.program.api.ProgramApiCatalog;
+import com.jlshell.program.api.ProgramApiDefinition;
 import com.jlshell.terminal.model.TerminalColorScheme;
+import com.jlshell.terminal.model.TerminalRuntimeSettings;
 import com.jlshell.terminal.service.ColorSchemeRegistry;
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.theme.AccentColor;
@@ -25,9 +31,11 @@ import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
+import javafx.scene.control.SplitPane;
 import javafx.scene.control.Slider;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
+import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
@@ -113,7 +121,7 @@ public class PreferencesDialog {
                             String activeProjectId,
                             com.jlshell.api.server.ApiServer apiServer) {
         show(owner, fontProfileService, appSettings, i18n, themeService,
-                connectionProfileService, activeProjectId, apiServer, 0);
+                connectionProfileService, activeProjectId, apiServer, null, null, 0);
     }
 
     /** 打开偏好设置对话框，可指定初始选中的 Tab 索引。 */
@@ -122,6 +130,31 @@ public class PreferencesDialog {
                             com.jlshell.ui.service.ConnectionProfileService connectionProfileService,
                             String activeProjectId,
                             com.jlshell.api.server.ApiServer apiServer,
+                            int initialTabIndex) {
+        show(owner, fontProfileService, appSettings, i18n, themeService,
+                connectionProfileService, activeProjectId, apiServer, null, null, initialTabIndex);
+    }
+
+    /** 打开偏好设置对话框，可指定初始选中的 Tab 索引。 */
+    public static void show(Stage owner, FontProfileService fontProfileService, AppSettingsService appSettings,
+                            I18nService i18n, ThemeService themeService,
+                            com.jlshell.ui.service.ConnectionProfileService connectionProfileService,
+                            String activeProjectId,
+                            com.jlshell.api.server.ApiServer apiServer,
+                            CapabilityBus capabilityBus,
+                            int initialTabIndex) {
+        show(owner, fontProfileService, appSettings, i18n, themeService,
+                connectionProfileService, activeProjectId, apiServer, capabilityBus, null, initialTabIndex);
+    }
+
+    /** 打开偏好设置对话框，可指定初始选中的 Tab 索引。 */
+    public static void show(Stage owner, FontProfileService fontProfileService, AppSettingsService appSettings,
+                            I18nService i18n, ThemeService themeService,
+                            com.jlshell.ui.service.ConnectionProfileService connectionProfileService,
+                            String activeProjectId,
+                            com.jlshell.api.server.ApiServer apiServer,
+                            CapabilityBus capabilityBus,
+                            String selectedSessionId,
                             int initialTabIndex) {
         Dialog<Void> dialog = new Dialog<>();
         dialog.setTitle(i18n.get("preferences.title"));
@@ -141,11 +174,18 @@ public class PreferencesDialog {
         String[] pendingApiPort = { appSettings.get("api.port", "0") };
         String[] pendingUiFontFamily = { appSettings.get("ui.font.family", null) };
         String[] pendingUiFontSize = { appSettings.get("ui.font.size", "13") };
+        String[] pendingScrollbackLines = { appSettings.get("terminal.scrollback.lines",
+                String.valueOf(TerminalRuntimeSettings.DEFAULT_SCROLLBACK_LINES)) };
+        Runnable[] updateApplyState = new Runnable[1];
+        Runnable preferenceChanged = () -> {
+            if (updateApplyState[0] != null) updateApplyState[0].run();
+        };
 
         TabPane tabs = buildTabPane(fontProfileService, appSettings, i18n, themeService,
                 pending, pendingLang, pendingTheme, pendingAccent, pendingConnTimeout, pendingHoverExpand, pendingScheme,
-                connectionProfileService, activeProjectId, apiServer, pendingApiEnabled, pendingApiPort,
-                pendingUiFontFamily, pendingUiFontSize);
+                connectionProfileService, activeProjectId, apiServer, capabilityBus, selectedSessionId,
+                pendingApiEnabled, pendingApiPort,
+                pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines, preferenceChanged);
         // 选中指定的初始 Tab（如从终端字体按钮打开时选中"终端"Tab）
         if (initialTabIndex >= 0 && initialTabIndex < tabs.getTabs().size()) {
             tabs.getSelectionModel().select(initialTabIndex);
@@ -158,15 +198,27 @@ public class PreferencesDialog {
 
         // Apply 按钮：拦截默认关闭行为，只应用设置
         Button applyButton = (Button) dialog.getDialogPane().lookupButton(applyBtnType);
+        PreferencesSnapshot[] lastApplied = { snapshotOf(pending, pendingLang, pendingTheme, pendingAccent,
+                pendingConnTimeout, pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort,
+                pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines) };
+        updateApplyState[0] = () -> applyButton.setDisable(!hasPendingSettingsChanges(lastApplied[0],
+                snapshotOf(pending, pendingLang, pendingTheme, pendingAccent, pendingConnTimeout,
+                        pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort,
+                        pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines)));
+        updateApplyState[0].run();
         applyButton.addEventFilter(javafx.event.ActionEvent.ACTION, e -> {
             e.consume(); // 阻止 Dialog 默认的关闭逻辑
-            boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending, pendingLang, pendingTheme, pendingAccent, pendingConnTimeout, pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort, pendingUiFontFamily, pendingUiFontSize);
+            boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending, pendingLang, pendingTheme, pendingAccent, pendingConnTimeout, pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort, pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines);
+            lastApplied[0] = snapshotOf(pending, pendingLang, pendingTheme, pendingAccent,
+                    pendingConnTimeout, pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort,
+                    pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines);
+            updateApplyState[0].run();
             if (needRestart) showRestartPrompt(owner, i18n);
         });
 
         dialog.setResultConverter(btn -> {
             if (btn.getButtonData() == ButtonBar.ButtonData.OK_DONE) {
-                boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending, pendingLang, pendingTheme, pendingAccent, pendingConnTimeout, pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort, pendingUiFontFamily, pendingUiFontSize);
+                boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending, pendingLang, pendingTheme, pendingAccent, pendingConnTimeout, pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort, pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines);
                 if (needRestart) showRestartPrompt(owner, i18n);
             }
             return null;
@@ -192,7 +244,8 @@ public class PreferencesDialog {
                                               String[] pendingHoverExpand,
                                               TerminalColorScheme[] pendingScheme,
                                               String[] pendingApiEnabled, String[] pendingApiPort,
-                                              String[] pendingUiFontFamily, String[] pendingUiFontSize) {
+                                              String[] pendingUiFontFamily, String[] pendingUiFontSize,
+                                              String[] pendingScrollbackLines) {
         String prevLang = appSettings.get("ui.language", null);
         fontProfileService.updateActiveProfile(pending[0]);
         appSettings.set("ui.language", pendingLang[0]);
@@ -223,9 +276,56 @@ public class PreferencesDialog {
         // UI 字体设置
         appSettings.set("ui.font.family", pendingUiFontFamily[0] != null ? pendingUiFontFamily[0] : "");
         appSettings.set("ui.font.size", pendingUiFontSize[0]);
+        appSettings.set("terminal.scrollback.lines", pendingScrollbackLines[0]);
 
         boolean langChanged = !Objects.equals(prevLang, pendingLang[0]);
         return langChanged || apiChanged;
+    }
+
+    private record PreferencesSnapshot(
+            FontProfile fontProfile,
+            String language,
+            String theme,
+            AccentColor accent,
+            String connectionTimeout,
+            String hoverExpand,
+            TerminalColorScheme colorScheme,
+            String apiEnabled,
+            String apiPort,
+            String uiFontFamily,
+            String uiFontSize,
+            String scrollbackLines
+    ) {}
+
+    private static PreferencesSnapshot snapshotOf(FontProfile[] pending, String[] pendingLang,
+                                                  String[] pendingTheme, AccentColor[] pendingAccent,
+                                                  String[] pendingConnTimeout, String[] pendingHoverExpand,
+                                                  TerminalColorScheme[] pendingScheme,
+                                                  String[] pendingApiEnabled, String[] pendingApiPort,
+                                                  String[] pendingUiFontFamily, String[] pendingUiFontSize,
+                                                  String[] pendingScrollbackLines) {
+        return new PreferencesSnapshot(
+                pending[0],
+                pendingLang[0],
+                pendingTheme[0],
+                pendingAccent[0],
+                pendingConnTimeout[0],
+                pendingHoverExpand[0],
+                pendingScheme[0],
+                pendingApiEnabled[0],
+                pendingApiPort[0],
+                normalizeNullableBlank(pendingUiFontFamily[0]),
+                pendingUiFontSize[0],
+                pendingScrollbackLines[0]
+        );
+    }
+
+    private static boolean hasPendingSettingsChanges(PreferencesSnapshot lastApplied, PreferencesSnapshot current) {
+        return !Objects.equals(lastApplied, current);
+    }
+
+    private static String normalizeNullableBlank(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 
     private static TabPane buildTabPane(FontProfileService fontProfileService, AppSettingsService appSettings,
@@ -237,22 +337,27 @@ public class PreferencesDialog {
                                          com.jlshell.ui.service.ConnectionProfileService connectionProfileService,
                                          String activeProjectId,
                                          com.jlshell.api.server.ApiServer apiServer,
+                                         CapabilityBus capabilityBus,
+                                         String selectedSessionId,
                                          String[] pendingApiEnabled, String[] pendingApiPort,
-                                         String[] pendingUiFontFamily, String[] pendingUiFontSize) {
+                                         String[] pendingUiFontFamily, String[] pendingUiFontSize,
+                                         String[] pendingScrollbackLines,
+                                         Runnable preferenceChanged) {
         TabPane tabPane = new TabPane();
         tabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
 
         Tab generalTab = new Tab(i18n.get("preferences.tab.general"));
         generalTab.setContent(buildGeneralPane(appSettings, i18n, themeService, pendingLang, pendingTheme,
-                pendingAccent, pendingHoverExpand, pendingUiFontFamily, pendingUiFontSize));
+                pendingAccent, pendingHoverExpand, pendingUiFontFamily, pendingUiFontSize, preferenceChanged));
         tabPane.getTabs().add(generalTab);
 
         Tab connectionTab = new Tab(i18n.get("preferences.tab.connection"));
-        connectionTab.setContent(buildConnectionPane(appSettings, i18n, pendingConnTimeout));
+        connectionTab.setContent(buildConnectionPane(appSettings, i18n, pendingConnTimeout, preferenceChanged));
         tabPane.getTabs().add(connectionTab);
 
         Tab terminalTab = new Tab(i18n.get("preferences.tab.terminal"));
-        terminalTab.setContent(buildTerminalPane(fontProfileService.activeProfile(), i18n, themeService, pending, pendingScheme));
+        terminalTab.setContent(buildTerminalPane(appSettings, fontProfileService.activeProfile(), i18n, themeService,
+                pending, pendingScheme, pendingScrollbackLines, preferenceChanged));
         tabPane.getTabs().add(terminalTab);
 
         Tab importTab = new Tab(i18n.get("preferences.tab.import"));
@@ -260,7 +365,8 @@ public class PreferencesDialog {
         tabPane.getTabs().add(importTab);
 
         Tab apiTab = new Tab(i18n.get("preferences.tab.api"));
-        apiTab.setContent(buildApiPane(appSettings, i18n, apiServer, pendingApiEnabled, pendingApiPort));
+        apiTab.setContent(buildApiPane(appSettings, i18n, apiServer, capabilityBus, selectedSessionId,
+                pendingApiEnabled, pendingApiPort, preferenceChanged));
         tabPane.getTabs().add(apiTab);
 
         Tab aboutTab = new Tab(i18n.get("preferences.tab.about"));
@@ -275,7 +381,8 @@ public class PreferencesDialog {
     private static VBox buildGeneralPane(AppSettingsService appSettings, I18nService i18n,
                                           ThemeService themeService, String[] pendingLang, String[] pendingTheme,
                                           AccentColor[] pendingAccent, String[] pendingHoverExpand,
-                                          String[] pendingUiFontFamily, String[] pendingUiFontSize) {
+                                          String[] pendingUiFontFamily, String[] pendingUiFontSize,
+                                          Runnable preferenceChanged) {
         // 首次启动：未设置语言时根据系统语言环境推断
         String currentLang = appSettings.get("ui.language", null);
         if (currentLang == null) {
@@ -294,15 +401,20 @@ public class PreferencesDialog {
                     .filter(e -> e.getValue().equals(nv))
                     .map(Map.Entry::getKey)
                     .findFirst()
-                    .ifPresent(code -> pendingLang[0] = code);
+                    .ifPresent(code -> {
+                        pendingLang[0] = code;
+                        preferenceChanged.run();
+                    });
         });
 
         ComboBox<String> themeCombo = new ComboBox<>();
         themeCombo.getItems().addAll("Dark", "Light");
         themeCombo.setValue("LIGHT".equals(currentTheme) ? "Light" : "Dark");
         themeCombo.setPrefWidth(200);
-        themeCombo.valueProperty().addListener((o, ov, nv) ->
-                pendingTheme[0] = "Light".equals(nv) ? "LIGHT" : "DARK");
+        themeCombo.valueProperty().addListener((o, ov, nv) -> {
+            pendingTheme[0] = "Light".equals(nv) ? "LIGHT" : "DARK";
+            preferenceChanged.run();
+        });
 
         ComboBox<AccentColor> accentCombo = new ComboBox<>();
         accentCombo.getItems().addAll(AccentColor.values());
@@ -311,13 +423,18 @@ public class PreferencesDialog {
         accentCombo.setButtonCell(accentCell());
         accentCombo.setCellFactory(list -> accentCell());
         accentCombo.valueProperty().addListener((o, ov, nv) -> {
-            if (nv != null) pendingAccent[0] = nv;
+            if (nv != null) {
+                pendingAccent[0] = nv;
+                preferenceChanged.run();
+            }
         });
 
         CheckBox hoverExpandCheck = new CheckBox(i18n.get("preferences.general.hoverExpand"));
         hoverExpandCheck.setSelected("true".equals(pendingHoverExpand[0]));
-        hoverExpandCheck.selectedProperty().addListener((o, ov, nv) ->
-                pendingHoverExpand[0] = String.valueOf(nv));
+        hoverExpandCheck.selectedProperty().addListener((o, ov, nv) -> {
+            pendingHoverExpand[0] = String.valueOf(nv);
+            preferenceChanged.run();
+        });
 
         // ── UI 字体设置 ──
         String currentUiFontFamily = appSettings.get("ui.font.family", null);
@@ -340,6 +457,7 @@ public class PreferencesDialog {
             } else if (uiFonts.contains(nv)) {
                 pendingUiFontFamily[0] = nv;
             }
+            preferenceChanged.run();
         });
 
         int currentUiFontSize = 13;
@@ -372,8 +490,14 @@ public class PreferencesDialog {
         });
         updatePreview(uiFontPreview, currentUiFontFamily != null ? currentUiFontFamily : "System", currentUiFontSize);
 
-        uiFontCombo.valueProperty().addListener((o, ov, nv) -> pendingUiFontSize[0] = uiFontSizeField.getText());
-        uiFontSizeSlider.valueProperty().addListener((o, ov, nv) -> pendingUiFontSize[0] = uiFontSizeField.getText());
+        uiFontCombo.valueProperty().addListener((o, ov, nv) -> {
+            pendingUiFontSize[0] = uiFontSizeField.getText();
+            preferenceChanged.run();
+        });
+        uiFontSizeSlider.valueProperty().addListener((o, ov, nv) -> {
+            pendingUiFontSize[0] = uiFontSizeField.getText();
+            preferenceChanged.run();
+        });
 
         GridPane grid = new GridPane();
         grid.setHgap(12);
@@ -404,7 +528,8 @@ public class PreferencesDialog {
 
     // ── Connection Tab ─────────────────────────────────────────────────────
 
-    private static VBox buildConnectionPane(AppSettingsService appSettings, I18nService i18n, String[] pendingConnTimeout) {
+    private static VBox buildConnectionPane(AppSettingsService appSettings, I18nService i18n,
+                                            String[] pendingConnTimeout, Runnable preferenceChanged) {
         String currentTimeout = appSettings.get("connection.timeout", "10");
 
         TextField timeoutField = new TextField(currentTimeout);
@@ -412,7 +537,10 @@ public class PreferencesDialog {
         timeoutField.textProperty().addListener((o, ov, nv) -> {
             try {
                 int v = Integer.parseInt(nv.trim());
-                if (v > 0) pendingConnTimeout[0] = String.valueOf(v);
+                if (v > 0) {
+                    pendingConnTimeout[0] = String.valueOf(v);
+                    preferenceChanged.run();
+                }
             } catch (NumberFormatException ignored) {}
         });
 
@@ -471,9 +599,12 @@ public class PreferencesDialog {
 
     // ── Terminal Tab ───────────────────────────────────────────────────────
 
-    private static VBox buildTerminalPane(FontProfile current, I18nService i18n,
+    private static VBox buildTerminalPane(AppSettingsService appSettings,
+                                           FontProfile current, I18nService i18n,
                                            ThemeService themeService,
-                                           FontProfile[] pending, TerminalColorScheme[] pendingScheme) {
+                                           FontProfile[] pending, TerminalColorScheme[] pendingScheme,
+                                           String[] pendingScrollbackLines,
+                                           Runnable preferenceChanged) {
         // ── Font section ──
         List<String> monoFonts = loadMonospacedFonts();
 
@@ -517,6 +648,7 @@ public class PreferencesDialog {
             double size    = parseDouble(sizeField.getText(), current.size());
             double spacing = parseDouble(spacingField.getText(), current.lineSpacing());
             pending[0] = new FontProfile(fontCombo.getValue(), size, ligaturesCheck.isSelected(), spacing);
+            preferenceChanged.run();
         };
         fontCombo.valueProperty().addListener((o, ov, nv) -> sync.run());
         sizeSlider.valueProperty().addListener((o, ov, nv) -> sync.run());
@@ -545,6 +677,43 @@ public class PreferencesDialog {
 
         fontGrid.add(new Label(i18n.get("preferences.terminal.preview")), 0, 4);
         fontGrid.add(preview, 1, 4, 2, 1);
+
+        int currentScrollback = parseScrollbackLines(appSettings.get(
+                "terminal.scrollback.lines",
+                String.valueOf(TerminalRuntimeSettings.DEFAULT_SCROLLBACK_LINES)));
+        Slider scrollbackSlider = new Slider(
+                TerminalRuntimeSettings.MIN_SCROLLBACK_LINES,
+                TerminalRuntimeSettings.MAX_SCROLLBACK_LINES,
+                currentScrollback);
+        scrollbackSlider.setMajorTickUnit(10_000);
+        scrollbackSlider.setBlockIncrement(500);
+        scrollbackSlider.setSnapToTicks(true);
+        scrollbackSlider.setPrefWidth(180);
+        TextField scrollbackField = new TextField(String.valueOf(currentScrollback));
+        scrollbackField.setPrefWidth(64);
+        Label scrollbackUnit = new Label(i18n.get("preferences.terminal.scrollbackLinesUnit"));
+
+        scrollbackSlider.valueProperty().addListener((o, ov, nv) -> {
+            int value = TerminalRuntimeSettings.clampScrollback((int) Math.round(nv.doubleValue() / 500.0) * 500);
+            scrollbackField.setText(String.valueOf(value));
+            pendingScrollbackLines[0] = String.valueOf(value);
+            preferenceChanged.run();
+        });
+        scrollbackField.textProperty().addListener((o, ov, nv) -> {
+            try {
+                int value = TerminalRuntimeSettings.clampScrollback(Integer.parseInt(nv.trim()));
+                if ((int) scrollbackSlider.getValue() != value) {
+                    scrollbackSlider.setValue(value);
+                }
+                pendingScrollbackLines[0] = String.valueOf(value);
+                preferenceChanged.run();
+            } catch (NumberFormatException ignored) {}
+        });
+
+        fontGrid.add(new Label(i18n.get("preferences.terminal.scrollbackLines")), 0, 5);
+        HBox scrollbackRow = new HBox(8, scrollbackSlider, scrollbackField, scrollbackUnit);
+        scrollbackRow.setAlignment(Pos.CENTER_LEFT);
+        fontGrid.add(scrollbackRow, 1, 5, 2, 1);
 
         // ── Color scheme section ──
         ColorSchemeRegistry registry = themeService.registry();
@@ -592,6 +761,7 @@ public class PreferencesDialog {
             if (nv != null) {
                 schemePreview.update(nv);
                 pendingScheme[0] = nv;
+                preferenceChanged.run();
             }
         });
 
@@ -606,6 +776,7 @@ public class PreferencesDialog {
                 TerminalColorScheme adjusted = withOpacity(selected, nv.doubleValue());
                 pendingScheme[0] = adjusted;
                 schemePreview.update(adjusted);
+                preferenceChanged.run();
             }
         });
 
@@ -710,6 +881,14 @@ public class PreferencesDialog {
         return pane;
     }
 
+    private static int parseScrollbackLines(String raw) {
+        try {
+            return TerminalRuntimeSettings.clampScrollback(Integer.parseInt(raw.trim()));
+        } catch (Exception ignored) {
+            return TerminalRuntimeSettings.DEFAULT_SCROLLBACK_LINES;
+        }
+    }
+
     private static void refreshList(ObservableList<TerminalColorScheme> allSchemes,
                                     FilteredList<TerminalColorScheme> filtered,
                                     ColorSchemeRegistry registry, String filter) {
@@ -746,20 +925,29 @@ public class PreferencesDialog {
 
     private static VBox buildApiPane(AppSettingsService appSettings, I18nService i18n,
                                      com.jlshell.api.server.ApiServer apiServer,
-                                     String[] pendingApiEnabled, String[] pendingApiPort) {
-        VBox box = new VBox(8);
+                                     CapabilityBus capabilityBus,
+                                     String selectedSessionId,
+                                     String[] pendingApiEnabled, String[] pendingApiPort,
+                                     Runnable preferenceChanged) {
+        VBox box = new VBox(12);
         box.setPadding(new Insets(16, 20, 12, 20));
 
         CheckBox enableCb = new CheckBox(i18n.get("api.enabled"));
         enableCb.setSelected("true".equalsIgnoreCase(pendingApiEnabled[0]));
-        enableCb.selectedProperty().addListener((o, ov, nv) -> pendingApiEnabled[0] = String.valueOf(nv));
+        enableCb.selectedProperty().addListener((o, ov, nv) -> {
+            pendingApiEnabled[0] = String.valueOf(nv);
+            preferenceChanged.run();
+        });
 
         Label portLabel = new Label(i18n.get("api.port"));
         TextField portField = new TextField(pendingApiPort[0]);
         portField.setPrefWidth(80);
         portField.setPromptText(i18n.get("api.port.hint"));
         portField.disableProperty().bind(enableCb.selectedProperty().not());
-        portField.textProperty().addListener((o, ov, nv) -> pendingApiPort[0] = nv);
+        portField.textProperty().addListener((o, ov, nv) -> {
+            pendingApiPort[0] = nv;
+            preferenceChanged.run();
+        });
 
         String current = apiServer != null && apiServer.enabled()
                 ? i18n.get("api.current", String.valueOf(apiServer.port()))
@@ -785,9 +973,175 @@ public class PreferencesDialog {
         restart.setStyle("-fx-text-fill: gray; -fx-font-size: 0.85em;");
         restart.setWrapText(true);
 
-        box.getChildren().addAll(enableCb, new HBox(8, portLabel, portField),
-                currentLabel, new HBox(8, tokenHint, copyToken), restart);
+        HBox configRow = new HBox(8, portLabel, portField);
+        configRow.setAlignment(Pos.CENTER_LEFT);
+        HBox tokenRow = new HBox(8, tokenHint, copyToken);
+        tokenRow.setAlignment(Pos.CENTER_LEFT);
+
+        VBox apiBrowser = buildApiBrowser(i18n, apiServer, capabilityBus, selectedSessionId);
+        VBox.setVgrow(apiBrowser, Priority.ALWAYS);
+
+        box.getChildren().addAll(enableCb, configRow, currentLabel, tokenRow, restart, apiBrowser);
         return box;
+    }
+
+    private static VBox buildApiBrowser(I18nService i18n, com.jlshell.api.server.ApiServer apiServer,
+                                        CapabilityBus capabilityBus, String selectedSessionId) {
+        ObservableList<ApiDocEntry> entries = FXCollections.observableArrayList(apiDocEntries(capabilityBus, selectedSessionId));
+        FilteredList<ApiDocEntry> filtered = new FilteredList<>(entries, e -> true);
+
+        Label title = new Label(i18n.get("api.docs.title"));
+        title.setStyle("-fx-font-weight: bold;");
+
+        TextField search = new TextField();
+        search.setPromptText(i18n.get("api.docs.search"));
+        search.textProperty().addListener((obs, oldValue, newValue) -> {
+            String q = newValue == null ? "" : newValue.trim().toLowerCase(Locale.ROOT);
+            filtered.setPredicate(entry -> q.isBlank()
+                    || entry.name().toLowerCase(Locale.ROOT).contains(q)
+                    || entry.typeLabel(i18n).toLowerCase(Locale.ROOT).contains(q)
+                    || entry.description().toLowerCase(Locale.ROOT).contains(q));
+        });
+
+        ListView<ApiDocEntry> list = new ListView<>(filtered);
+        list.setPrefWidth(230);
+        list.setPrefHeight(220);
+        list.setCellFactory(lv -> new ListCell<>() {
+            @Override
+            protected void updateItem(ApiDocEntry item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setText(null);
+                    setGraphic(null);
+                    return;
+                }
+                Label name = new Label(item.name());
+                name.setStyle("-fx-font-weight: bold;");
+                Label type = new Label(item.typeLabel(i18n));
+                type.setStyle("-fx-font-size: 0.82em; -fx-text-fill: gray;");
+                VBox row = new VBox(2, name, type);
+                setText(null);
+                setGraphic(row);
+            }
+        });
+
+        TextArea detail = new TextArea();
+        detail.setEditable(false);
+        detail.setWrapText(false);
+        detail.setPrefHeight(220);
+        detail.getStyleClass().add("api-doc-detail");
+
+        list.getSelectionModel().selectedItemProperty().addListener((obs, oldValue, entry) ->
+                detail.setText(entry == null ? "" : entry.detailText(i18n, apiServer)));
+        if (!filtered.isEmpty()) {
+            list.getSelectionModel().select(0);
+        }
+
+        SplitPane split = new SplitPane(list, detail);
+        split.setDividerPositions(0.36);
+        VBox.setVgrow(split, Priority.ALWAYS);
+
+        Label hint = new Label(i18n.get("api.docs.hint"));
+        hint.setWrapText(true);
+        hint.setStyle("-fx-text-fill: gray; -fx-font-size: 0.85em;");
+
+        VBox pane = new VBox(8, title, search, split, hint);
+        pane.setPadding(new Insets(8, 0, 0, 0));
+        return pane;
+    }
+
+    private static List<ApiDocEntry> apiDocEntries(CapabilityBus capabilityBus, String selectedSessionId) {
+        List<ApiDocEntry> entries = new ArrayList<>();
+        ProgramApiCatalog.definitions().stream()
+                .map(PreferencesDialog::systemApiEntry)
+                .forEach(entries::add);
+
+        if (capabilityBus != null) {
+            Map<String, Capability> capabilities = new LinkedHashMap<>();
+            capabilityBus.listRegisteredCapabilities(null)
+                    .forEach(capability -> capabilities.put(capabilityKey(capability), capability));
+            if (selectedSessionId != null && !selectedSessionId.isBlank()) {
+                capabilityBus.listRegisteredCapabilities(selectedSessionId)
+                        .forEach(capability -> capabilities.put(capabilityKey(capability), capability));
+            }
+            capabilities.values().forEach(capability -> entries.add(pluginApiEntry(capability)));
+        }
+        return entries;
+    }
+
+    private static ApiDocEntry systemApiEntry(ProgramApiDefinition definition) {
+        return new ApiDocEntry(ApiDocType.SYSTEM,
+                definition.method(),
+                definition.description(),
+                definition.requiresSession(),
+                definition.inputSchema(),
+                definition.resultHint(),
+                definition.paramsExample());
+    }
+
+    private static String capabilityKey(Capability capability) {
+        return capability.pluginId() + "/" + capability.spec().name();
+    }
+
+    private static ApiDocEntry pluginApiEntry(Capability capability) {
+        CapabilitySpec spec = capability.spec();
+        return new ApiDocEntry(ApiDocType.PLUGIN,
+                capability.pluginId() + "/" + spec.name(),
+                spec.description() == null || spec.description().isBlank()
+                        ? "Plugin capability" : spec.description(),
+                spec.requiresSession(),
+                spec.inputSchema(),
+                "plugin result",
+                pluginArgsExample(capability));
+    }
+
+    private static String pluginArgsExample(Capability capability) {
+        CapabilitySpec spec = capability.spec();
+        String args = spec.inputSchema() == null ? "{}" : "{ /* see inputSchema */ }";
+        return "{\"sessionId\":\"" + (spec.requiresSession() ? "<session-id>" : "<optional-session-id>")
+                + "\",\"pluginId\":\"" + capability.pluginId()
+                + "\",\"capability\":\"" + spec.name()
+                + "\",\"args\":" + args + "}";
+    }
+
+    private enum ApiDocType {
+        SYSTEM, PLUGIN
+    }
+
+    private record ApiDocEntry(ApiDocType type, String name, String description, boolean requiresSession,
+                               com.google.gson.JsonObject inputSchema, String resultHint, String paramsExample) {
+        String typeLabel(I18nService i18n) {
+            return type == ApiDocType.SYSTEM ? i18n.get("api.docs.system") : i18n.get("api.docs.plugin");
+        }
+
+        String detailText(I18nService i18n, com.jlshell.api.server.ApiServer apiServer) {
+            String endpoint = apiServer != null && apiServer.enabled() && apiServer.port() > 0
+                    ? "http://127.0.0.1:" + apiServer.port() + "/rpc"
+                    : "http://127.0.0.1:<port>/rpc";
+            String method = type == ApiDocType.PLUGIN ? "capability.invoke" : name;
+            String params = type == ApiDocType.PLUGIN ? paramsExample : paramsExample;
+            return i18n.get("api.docs.type") + ": " + typeLabel(i18n) + "\n"
+                    + i18n.get("api.docs.name") + ": " + name + "\n"
+                    + i18n.get("api.docs.method") + ": " + method + "\n"
+                    + i18n.get("api.docs.requiresSession") + ": " + (requiresSession ? i18n.get("api.docs.yes") : i18n.get("api.docs.no")) + "\n\n"
+                    + i18n.get("api.docs.description") + ":\n" + description + "\n\n"
+                    + i18n.get("api.docs.endpoint") + ":\n" + endpoint + "\n\n"
+                    + i18n.get("api.docs.headers") + ":\nAuthorization: Bearer <token>\nContent-Type: application/json\n\n"
+                    + i18n.get("api.docs.request") + ":\n"
+                    + "{\n"
+                    + "  \"jsonrpc\": \"2.0\",\n"
+                    + "  \"id\": 1,\n"
+                    + "  \"method\": \"" + method + "\",\n"
+                    + "  \"params\": " + compactJson(params) + "\n"
+                    + "}\n\n"
+                    + i18n.get("api.docs.inputSchema") + ":\n"
+                    + (inputSchema == null ? i18n.get("api.docs.noSchema") : inputSchema.toString()) + "\n\n"
+                    + i18n.get("api.docs.result") + ":\n" + resultHint;
+        }
+    }
+
+    private static String compactJson(String json) {
+        return json == null || json.isBlank() ? "{}" : json.trim().replace("\n", "");
     }
 
     // ── Import Tab ─────────────────────────────────────────────────────────

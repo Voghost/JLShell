@@ -10,16 +10,23 @@ public record TerminalViewRequest(
         String title,
         ShellRequest shellRequest,
         FontProfile fontProfile,
-        TerminalColorScheme colorScheme
+        TerminalColorScheme colorScheme,
+        TerminalRuntimeSettings runtimeSettings
 ) {
 
     public TerminalViewRequest {
         title = title == null || title.isBlank() ? "SSH Terminal" : title;
         shellRequest = shellRequest == null ? new ShellRequest(null, null, null) : shellRequest;
         colorScheme = colorScheme == null ? TerminalColorScheme.dark() : colorScheme;
+        runtimeSettings = runtimeSettings == null ? TerminalRuntimeSettings.defaults() : runtimeSettings;
+    }
+
+    public TerminalViewRequest(String title, ShellRequest shellRequest,
+                               FontProfile fontProfile, TerminalColorScheme colorScheme) {
+        this(title, shellRequest, fontProfile, colorScheme, null);
     }
 
     public TerminalViewRequest withResolvedFontProfile(FontProfile resolvedFontProfile) {
-        return new TerminalViewRequest(title, shellRequest, resolvedFontProfile, colorScheme);
+        return new TerminalViewRequest(title, shellRequest, resolvedFontProfile, colorScheme, runtimeSettings);
     }
 }

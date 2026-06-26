@@ -154,8 +154,9 @@ public class AppContext implements AutoCloseable {
                 fontProfileService, executor, i18nService, BundledFontLoader::ensureAwtRegistered);
 
         // 7b. Host methods + API server
-        com.jlshell.app.api.HostMethodsImpl hostMethods = new com.jlshell.app.api.HostMethodsImpl(
-                connectionProfileService, sessionManager, executor, apiToken);
+        com.jlshell.program.api.ProgramHostMethods hostMethods =
+                new com.jlshell.program.api.ProgramHostMethods(
+                        connectionProfileService::toConnectionRequest, sessionManager, executor, apiToken);
         com.jlshell.api.server.ApiServer apiServer =
                 new com.jlshell.api.server.ApiServer(apiCfg, capabilityBus, hostMethods);
         if (apiEnabled) {
