@@ -80,11 +80,23 @@ jobs:
             --icon dist/AppIcon.icns \
             --vendor JLShell \
             --description "JLShell SSH Client" \
+            --java-options "-Xms64m" \
+            --java-options "-Xmx512m" \
             --java-options "--add-opens java.base/java.lang=ALL-UNNAMED" \
             --java-options "--add-opens java.desktop/sun.awt=ALL-UNNAMED" \
             --java-options "-Dapple.laf.useScreenMenuBar=true" \
             --java-options "-Dapple.awt.application.name=JLShell" \
             --dest dist/mac-work
+
+          # Localize the macOS application menu metadata used by AppKit.
+          # JavaFX owns most menu wiring, but these bundle resources allow
+          # system-generated app-menu labels to follow macOS language fallback.
+          mkdir -p dist/mac-work/JLShell.app/Contents/Resources/zh-Hans.lproj
+          cat > dist/mac-work/JLShell.app/Contents/Resources/zh-Hans.lproj/InfoPlist.strings <<'EOF'
+          "CFBundleDisplayName" = "JLShell";
+          "CFBundleName" = "JLShell";
+          "NSHumanReadableCopyright" = "版权所有";
+          EOF
 
           cd dist/mac-work && zip -qr ../JLShell-${VERSION}-mac.zip JLShell.app
 
@@ -139,11 +151,39 @@ jobs:
           mkdir -p dist/linux-work/JLShell
           cp -r dist/runtime dist/linux-work/JLShell/
           cp dist/app.jar dist/linux-work/JLShell/
+          cat > dist/linux-work/JLShell/JLShell.vmoptions <<'EOF'
+          # JLShell JVM options. One option per line.
+          # User override path on Linux: ~/.config/jlshell/JLShell.vmoptions
+          -Xms64m
+          -Xmx512m
+          EOF
 
           cat > dist/linux-work/JLShell/JLShell.sh <<'EOF'
           #!/bin/bash
           DIR="$(cd "$(dirname "$0")" && pwd)"
-          exec "$DIR/runtime/bin/java" \
+          DEFAULT_VM_OPTS=(-Xms64m -Xmx512m)
+          USER_VMOPTIONS="${XDG_CONFIG_HOME:-$HOME/.config}/jlshell/JLShell.vmoptions"
+          BUNDLED_VMOPTIONS="$DIR/JLShell.vmoptions"
+          VMOPTIONS_FILE=""
+          if [[ -f "$USER_VMOPTIONS" ]]; then
+            VMOPTIONS_FILE="$USER_VMOPTIONS"
+          elif [[ -f "$BUNDLED_VMOPTIONS" ]]; then
+            VMOPTIONS_FILE="$BUNDLED_VMOPTIONS"
+          fi
+          VM_OPTS=("${DEFAULT_VM_OPTS[@]}")
+          if [[ -n "$VMOPTIONS_FILE" ]]; then
+            CUSTOM_VM_OPTS=()
+            while IFS= read -r line || [[ -n "$line" ]]; do
+              line="${line%%#*}"
+              line="$(echo "$line" | xargs)"
+              [[ -z "$line" ]] && continue
+              CUSTOM_VM_OPTS+=("$line")
+            done < "$VMOPTIONS_FILE"
+            if [[ ${#CUSTOM_VM_OPTS[@]} -gt 0 ]] && "$DIR/runtime/bin/java" "${CUSTOM_VM_OPTS[@]}" -version >/dev/null 2>&1; then
+              VM_OPTS=("${CUSTOM_VM_OPTS[@]}")
+            fi
+          fi
+          exec "$DIR/runtime/bin/java" "${VM_OPTS[@]}" \
             --add-opens java.base/java.lang=ALL-UNNAMED \
             --add-opens java.desktop/sun.awt=ALL-UNNAMED \
             -jar "$DIR/app.jar" "$@"
@@ -164,11 +204,39 @@ jobs:
 
           cp -r dist/runtime $PKG/opt/jlshell/
           cp dist/app.jar $PKG/opt/jlshell/
+          cat > $PKG/opt/jlshell/JLShell.vmoptions <<'EOF'
+          # JLShell JVM options. One option per line.
+          # User override path on Linux: ~/.config/jlshell/JLShell.vmoptions
+          -Xms64m
+          -Xmx512m
+          EOF
 
           cat > $PKG/opt/jlshell/JLShell.sh <<'EOF'
           #!/bin/bash
           DIR="$(cd "$(dirname "$0")" && pwd)"
-          exec "$DIR/runtime/bin/java" \
+          DEFAULT_VM_OPTS=(-Xms64m -Xmx512m)
+          USER_VMOPTIONS="${XDG_CONFIG_HOME:-$HOME/.config}/jlshell/JLShell.vmoptions"
+          BUNDLED_VMOPTIONS="$DIR/JLShell.vmoptions"
+          VMOPTIONS_FILE=""
+          if [[ -f "$USER_VMOPTIONS" ]]; then
+            VMOPTIONS_FILE="$USER_VMOPTIONS"
+          elif [[ -f "$BUNDLED_VMOPTIONS" ]]; then
+            VMOPTIONS_FILE="$BUNDLED_VMOPTIONS"
+          fi
+          VM_OPTS=("${DEFAULT_VM_OPTS[@]}")
+          if [[ -n "$VMOPTIONS_FILE" ]]; then
+            CUSTOM_VM_OPTS=()
+            while IFS= read -r line || [[ -n "$line" ]]; do
+              line="${line%%#*}"
+              line="$(echo "$line" | xargs)"
+              [[ -z "$line" ]] && continue
+              CUSTOM_VM_OPTS+=("$line")
+            done < "$VMOPTIONS_FILE"
+            if [[ ${#CUSTOM_VM_OPTS[@]} -gt 0 ]] && "$DIR/runtime/bin/java" "${CUSTOM_VM_OPTS[@]}" -version >/dev/null 2>&1; then
+              VM_OPTS=("${CUSTOM_VM_OPTS[@]}")
+            fi
+          fi
+          exec "$DIR/runtime/bin/java" "${VM_OPTS[@]}" \
             --add-opens java.base/java.lang=ALL-UNNAMED \
             --add-opens java.desktop/sun.awt=ALL-UNNAMED \
             -jar "$DIR/app.jar" "$@"
@@ -225,9 +293,44 @@ jobs:
 
           cp -r dist/runtime $APPDIR/usr/
           cp dist/app.jar $APPDIR/usr/
+          cat > $APPDIR/usr/JLShell.vmoptions <<'EOF'
+          # JLShell JVM options. One option per line.
+          # User override path on Linux: ~/.config/jlshell/JLShell.vmoptions
+          -Xms64m
+          -Xmx512m
+          EOF
 
           # AppRun
-          printf '#!/bin/bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\nexec "$HERE/usr/runtime/bin/java" \\\n  --add-opens java.base/java.lang=ALL-UNNAMED \\\n  --add-opens java.desktop/sun.awt=ALL-UNNAMED \\\n  -jar "$HERE/usr/app.jar" "$@"\n' > $APPDIR/AppRun
+          cat > $APPDIR/AppRun <<'EOF'
+          #!/bin/bash
+          HERE="$(cd "$(dirname "$0")" && pwd)"
+          DEFAULT_VM_OPTS=(-Xms64m -Xmx512m)
+          USER_VMOPTIONS="${XDG_CONFIG_HOME:-$HOME/.config}/jlshell/JLShell.vmoptions"
+          BUNDLED_VMOPTIONS="$HERE/usr/JLShell.vmoptions"
+          VMOPTIONS_FILE=""
+          if [[ -f "$USER_VMOPTIONS" ]]; then
+            VMOPTIONS_FILE="$USER_VMOPTIONS"
+          elif [[ -f "$BUNDLED_VMOPTIONS" ]]; then
+            VMOPTIONS_FILE="$BUNDLED_VMOPTIONS"
+          fi
+          VM_OPTS=("${DEFAULT_VM_OPTS[@]}")
+          if [[ -n "$VMOPTIONS_FILE" ]]; then
+            CUSTOM_VM_OPTS=()
+            while IFS= read -r line || [[ -n "$line" ]]; do
+              line="${line%%#*}"
+              line="$(echo "$line" | xargs)"
+              [[ -z "$line" ]] && continue
+              CUSTOM_VM_OPTS+=("$line")
+            done < "$VMOPTIONS_FILE"
+            if [[ ${#CUSTOM_VM_OPTS[@]} -gt 0 ]] && "$HERE/usr/runtime/bin/java" "${CUSTOM_VM_OPTS[@]}" -version >/dev/null 2>&1; then
+              VM_OPTS=("${CUSTOM_VM_OPTS[@]}")
+            fi
+          fi
+          exec "$HERE/usr/runtime/bin/java" "${VM_OPTS[@]}" \
+            --add-opens java.base/java.lang=ALL-UNNAMED \
+            --add-opens java.desktop/sun.awt=ALL-UNNAMED \
+            -jar "$HERE/usr/app.jar" "$@"
+          EOF
           chmod +x $APPDIR/AppRun
 
           # .desktop (required by AppImage)
@@ -325,6 +428,8 @@ jobs:
             --icon app/src/main/resources/icons/app_icon.ico \
             --vendor JLShell \
             --description "JLShell SSH Client" \
+            --java-options "-Xms64m" \
+            --java-options "-Xmx512m" \
             --java-options "--add-opens java.base/java.lang=ALL-UNNAMED" \
             --java-options "--add-opens java.desktop/sun.awt=ALL-UNNAMED" \
             --dest dist/win-image
@@ -349,6 +454,8 @@ jobs:
             --icon app/src/main/resources/icons/app_icon.ico \
             --vendor JLShell \
             --description "JLShell SSH Client" \
+            --java-options "-Xms64m" \
+            --java-options "-Xmx512m" \
             --java-options "--add-opens java.base/java.lang=ALL-UNNAMED" \
             --java-options "--add-opens java.desktop/sun.awt=ALL-UNNAMED" \
             --win-dir-chooser \

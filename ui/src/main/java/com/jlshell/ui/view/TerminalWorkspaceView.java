@@ -28,6 +28,7 @@ import com.jlshell.plugin.api.rpc.CapabilityBus;
 import com.jlshell.plugin.api.storage.PluginStorage;
 import com.jlshell.sftp.service.SftpService;
 import com.jlshell.terminal.model.TerminalColorScheme;
+import com.jlshell.terminal.model.TerminalRuntimeSettings;
 import com.jlshell.terminal.model.TerminalViewRequest;
 import com.jlshell.terminal.service.TerminalViewFactory;
 import com.jlshell.terminal.service.TerminalViewHandle;
@@ -967,7 +968,8 @@ public class TerminalWorkspaceView extends BorderPane {
                 sshSession.displayName(),
                 new ShellRequest("xterm-256color", new TerminalSize(120, 40, 0, 0), null),
                 fontProfile,
-                themeService.activeColorScheme()
+                themeService.activeColorScheme(),
+                terminalRuntimeSettings()
         );
         return terminalViewFactory.createTerminalView(sshSession, request)
                 .thenCompose(handle -> {
@@ -984,6 +986,17 @@ public class TerminalWorkspaceView extends BorderPane {
                     }
                     return FxThread.supplyAsync(() -> createEmbeddedTerminalNode(handle));
                 });
+    }
+
+    private TerminalRuntimeSettings terminalRuntimeSettings() {
+        String raw = appSettingsService.get(
+                "terminal.scrollback.lines",
+                String.valueOf(TerminalRuntimeSettings.DEFAULT_SCROLLBACK_LINES));
+        try {
+            return new TerminalRuntimeSettings(Integer.parseInt(raw.trim()));
+        } catch (NumberFormatException ignored) {
+            return TerminalRuntimeSettings.defaults();
+        }
     }
 
     private Node createEmbeddedTerminalNode(TerminalViewHandle handle) {

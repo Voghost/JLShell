@@ -79,4 +79,9 @@ public class CapabilityBusImpl implements CapabilityBus {
     public List<CapabilitySpec> listCapabilities(String sessionId) {
         return pluginManager.registryFor(sessionId).specs();
     }
+
+    @Override
+    public List<Capability> listRegisteredCapabilities(String sessionId) {
+        return pluginManager.registryFor(sessionId).capabilities();
+    }
 }

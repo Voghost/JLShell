@@ -1,11 +1,11 @@
-package com.jlshell.app.api;
+package com.jlshell.program.api;
 
 import java.time.Duration;
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
@@ -13,27 +13,24 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import com.jlshell.api.server.dispatch.HostMethods;
 import com.jlshell.core.model.CommandRequest;
-import com.jlshell.core.model.CommandResult;
 import com.jlshell.core.model.ConnectionRequest;
 import com.jlshell.core.model.SessionDescriptor;
 import com.jlshell.core.model.SessionId;
 import com.jlshell.core.service.SessionManager;
 import com.jlshell.core.session.SshSession;
-import com.jlshell.ui.service.ConnectionProfileService;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-/** 内置 host method 实现：直接调 core 服务。 */
-public class HostMethodsImpl implements HostMethods {
-    private static final Logger log = LoggerFactory.getLogger(HostMethodsImpl.class);
-    private final ConnectionProfileService profileService;
+/** Program-owned host methods exposed through the external JSON-RPC API. */
+public class ProgramHostMethods implements HostMethods {
+    private final ConnectionRequestResolver connectionRequestResolver;
     private final SessionManager sessionManager;
     private final Executor executor;
     private final String token;
 
-    public HostMethodsImpl(ConnectionProfileService profileService, SessionManager sessionManager,
-                           Executor executor, String token) {
-        this.profileService = profileService;
+    public ProgramHostMethods(ConnectionRequestResolver connectionRequestResolver,
+                              SessionManager sessionManager,
+                              Executor executor,
+                              String token) {
+        this.connectionRequestResolver = connectionRequestResolver;
         this.sessionManager = sessionManager;
         this.executor = executor;
         this.token = token;
@@ -44,7 +41,7 @@ public class HostMethodsImpl implements HostMethods {
         String connectionId = str(params, "connectionId");
         if (connectionId == null) return fail("missing param: connectionId");
         return CompletableFuture.supplyAsync(() -> {
-            ConnectionRequest req = profileService.toConnectionRequest(connectionId);
+            ConnectionRequest req = connectionRequestResolver.resolve(connectionId);
             return sessionManager.openSession(req).thenApply(s -> {
                 JsonObject o = new JsonObject();
                 o.addProperty("sessionId", s.sessionId().toString());
@@ -120,11 +117,7 @@ public class HostMethodsImpl implements HostMethods {
     @Override
     public CompletableFuture<JsonElement> apiMethods(JsonElement params) {
         JsonArray arr = new JsonArray();
-        for (String m : List.of("session.connect", "session.disconnect", "session.list",
-                "session.info", "command.run", "capability.invoke", "capability.list",
-                "api.token", "api.methods")) {
-            arr.add(new JsonPrimitive(m));
-        }
+        ProgramApiCatalog.methodNames().forEach(name -> arr.add(new JsonPrimitive(name)));
         return CompletableFuture.completedFuture(arr);
     }
 
@@ -135,7 +128,9 @@ public class HostMethodsImpl implements HostMethods {
         return o.get(key).getAsString();
     }
 
-    private static SessionId toSessionId(String s) { return new SessionId(UUID.fromString(s)); }
+    private static SessionId toSessionId(String s) {
+        return new SessionId(UUID.fromString(s));
+    }
 
     private static CompletableFuture<JsonElement> fail(String msg) {
         return CompletableFuture.failedFuture(new IllegalArgumentException(msg));

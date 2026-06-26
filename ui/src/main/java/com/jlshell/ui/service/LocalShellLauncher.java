@@ -91,7 +91,8 @@ public class LocalShellLauncher {
                 int cols = request.shellRequest().terminalSize().columns();
                 int rows = request.shellRequest().terminalSize().rows();
                 JlshellSettingsProvider settingsProvider =
-                        new JlshellSettingsProvider(request.fontProfile(), request.colorScheme());
+                        new JlshellSettingsProvider(
+                                request.fontProfile(), request.colorScheme(), request.runtimeSettings());
                 LocalShellTtyConnector ttyConnector =
                         new LocalShellTtyConnector(displayName, command, cols, rows, executorService, charset);
                 JlshellJediTermWidget widget = JlshellJediTermWidget.create(

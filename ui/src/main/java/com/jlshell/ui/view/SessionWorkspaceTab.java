@@ -44,6 +44,10 @@ public class SessionWorkspaceTab extends Tab {
     public ConnectionProfile getConnectionProfile() {
         return connectionProfile;
     }
+
+    public String getSessionId() {
+        return sshSession.sessionId().toString();
+    }
     private final SftpService sftpService;
     private final I18nService i18nService;
     private final ThemeService themeService;

@@ -72,7 +72,8 @@ public class JediTermTerminalViewFactory implements TerminalViewFactory {
             try {
                 awtFontReadyHook.run();
                 JlshellSettingsProvider settingsProvider =
-                        new JlshellSettingsProvider(request.fontProfile(), request.colorScheme());
+                        new JlshellSettingsProvider(
+                                request.fontProfile(), request.colorScheme(), request.runtimeSettings());
                 ShellTtyConnector ttyConnector =
                         new ShellTtyConnector(sshSession.displayName(), shellChannel, executorService);
                 JlshellJediTermWidget widget = JlshellJediTermWidget.create(

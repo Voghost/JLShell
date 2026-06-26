@@ -14,6 +14,11 @@
     <name>JLShell App</name>
     <packaging>jar</packaging>
 
+    <properties>
+        <jlshell.jvm.xms>64m</jlshell.jvm.xms>
+        <jlshell.jvm.xmx>512m</jlshell.jvm.xmx>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>com.jlshell</groupId>
@@ -43,6 +48,11 @@
         <dependency>
             <groupId>com.jlshell</groupId>
             <artifactId>api-server</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.jlshell</groupId>
+            <artifactId>program-api</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
@@ -161,6 +171,8 @@
                         <artifactId>javafx-maven-plugin</artifactId>
                         <configuration>
                             <options>
+                                <option>-Xms${jlshell.jvm.xms}</option>
+                                <option>-Xmx${jlshell.jvm.xmx}</option>
                                 <option>-Dapple.laf.useScreenMenuBar=true</option>
                                 <option>-Dapple.awt.application.name=JLShell</option>
                                 <option>-Dcom.apple.mrj.application.apple.menu.about.name=JLShell</option>
@@ -197,6 +209,8 @@
                                 <path>runtime</path>
                                 <minVersion>21</minVersion>
                                 <opts>
+                                    <opt>-Xms${jlshell.jvm.xms}</opt>
+                                    <opt>-Xmx${jlshell.jvm.xmx}</opt>
                                     <opt>--add-opens java.base/java.lang=ALL-UNNAMED</opt>
                                     <opt>--add-opens java.desktop/sun.awt=ALL-UNNAMED</opt>
                                 </opts>
@@ -235,6 +249,10 @@
                 <artifactId>javafx-maven-plugin</artifactId>
                 <configuration>
                     <mainClass>com.jlshell.app.Launcher</mainClass>
+                    <options>
+                        <option>-Xms${jlshell.jvm.xms}</option>
+                        <option>-Xmx${jlshell.jvm.xmx}</option>
+                    </options>
                 </configuration>
             </plugin>
             <plugin>

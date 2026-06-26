@@ -593,6 +593,10 @@
     -fx-max-height: 7px;
 }
 
+.status-dot-error {
+    -fx-background-color: #ef4444;
+}
+
 /* ---------- Dialog / Alert ---------- */
 .dialog-pane {
     -fx-background-color: #2b2d30;

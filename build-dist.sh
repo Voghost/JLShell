@@ -17,6 +17,8 @@ APP_NAME="JLShell"
 APP_VERSION="0.1.0"
 MAIN_CLASS="com.jlshell.app.Launcher"
 MAIN_JAR="app-0.1.0.RELEASE.jar"
+JLSHELL_JVM_XMS="${JLSHELL_JVM_XMS:-64m}"
+JLSHELL_JVM_XMX="${JLSHELL_JVM_XMX:-512m}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET_DIR="$SCRIPT_DIR/app/target"
@@ -34,6 +36,16 @@ JDK21_LINUX="${JDK21_LINUX:-}"  # path to a Linux JDK 21 (only needed for --linu
 JAVAFX_MODS_MAC="${JAVAFX_MODS_MAC:-}"
 JAVAFX_MODS_WIN="${JAVAFX_MODS_WIN:-}"
 JAVAFX_MODS_LINUX="${JAVAFX_MODS_LINUX:-}"
+
+write_vmoptions_file() {
+    local file="$1"
+    cat > "$file" <<EOF
+# JLShell JVM options. One option per line.
+# User override path on Linux: ~/.config/jlshell/JLShell.vmoptions
+-Xms$JLSHELL_JVM_XMS
+-Xmx$JLSHELL_JVM_XMX
+EOF
+}
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 log()  { echo "▶ $*" >&2; }
@@ -157,6 +169,8 @@ assemble_mac() {
         --icon "$icns_file" \
         --vendor "JLShell" \
         --description "JLShell SSH Client" \
+        --java-options "-Xms$JLSHELL_JVM_XMS" \
+        --java-options "-Xmx$JLSHELL_JVM_XMX" \
         --java-options "--add-opens java.base/java.lang=ALL-UNNAMED" \
         --java-options "--add-opens java.desktop/sun.awt=ALL-UNNAMED" \
         --java-options "-Dapple.laf.useScreenMenuBar=true" \
@@ -165,6 +179,12 @@ assemble_mac() {
 
     local app_bundle="$work/$APP_NAME.app"
     [[ -d "$app_bundle" ]] || err "jpackage did not produce $APP_NAME.app"
+    mkdir -p "$app_bundle/Contents/Resources/zh-Hans.lproj"
+    cat > "$app_bundle/Contents/Resources/zh-Hans.lproj/InfoPlist.strings" <<'EOF'
+"CFBundleDisplayName" = "JLShell";
+"CFBundleName" = "JLShell";
+"NSHumanReadableCopyright" = "版权所有";
+EOF
     ok "macOS .app bundle created"
 
     # Package as .zip (user can drag .app to Applications)
@@ -188,11 +208,34 @@ assemble_linux() {
     run_jlink "$jdk" "$modules" "$work/runtime" "${JAVAFX_MODS_LINUX:-}"
 
     cp "$FAT_JAR" "$work/$MAIN_JAR"
+    write_vmoptions_file "$work/JLShell.vmoptions"
 
     cat > "$work/JLShell.sh" <<LAUNCHER
 #!/bin/bash
 DIR="\$(cd "\$(dirname "\$0")" && pwd)"
-exec "\$DIR/runtime/bin/java" \\
+DEFAULT_VM_OPTS=(-Xms64m -Xmx512m)
+USER_VMOPTIONS="\${XDG_CONFIG_HOME:-\$HOME/.config}/jlshell/JLShell.vmoptions"
+BUNDLED_VMOPTIONS="\$DIR/JLShell.vmoptions"
+VMOPTIONS_FILE=""
+if [[ -f "\$USER_VMOPTIONS" ]]; then
+    VMOPTIONS_FILE="\$USER_VMOPTIONS"
+elif [[ -f "\$BUNDLED_VMOPTIONS" ]]; then
+    VMOPTIONS_FILE="\$BUNDLED_VMOPTIONS"
+fi
+VM_OPTS=("\${DEFAULT_VM_OPTS[@]}")
+if [[ -n "\$VMOPTIONS_FILE" ]]; then
+    CUSTOM_VM_OPTS=()
+    while IFS= read -r line || [[ -n "\$line" ]]; do
+        line="\${line%%#*}"
+        line="\$(echo "\$line" | xargs)"
+        [[ -z "\$line" ]] && continue
+        CUSTOM_VM_OPTS+=("\$line")
+    done < "\$VMOPTIONS_FILE"
+    if [[ \${#CUSTOM_VM_OPTS[@]} -gt 0 ]] && "\$DIR/runtime/bin/java" "\${CUSTOM_VM_OPTS[@]}" -version >/dev/null 2>&1; then
+        VM_OPTS=("\${CUSTOM_VM_OPTS[@]}")
+    fi
+fi
+exec "\$DIR/runtime/bin/java" "\${VM_OPTS[@]}" \\
     --add-opens java.base/java.lang=ALL-UNNAMED \\
     --add-opens java.desktop/sun.awt=ALL-UNNAMED \\
     -jar "\$DIR/$MAIN_JAR" "\$@"
@@ -237,15 +280,35 @@ assemble_win() {
     local maven_exe="$TARGET_DIR/${APP_NAME}.exe"
     if [[ -f "$maven_exe" ]]; then
         cp "$maven_exe" "$work/$APP_NAME.exe"
+        write_vmoptions_file "$work/JLShell.vmoptions"
         ok "Windows native exe: $APP_NAME.exe"
     else
         # Fallback: batch launcher using javaw (no console window)
         log "WARN: Launch4j exe not found, falling back to .bat launcher"
+        write_vmoptions_file "$work/JLShell.vmoptions"
         cat > "$work/JLShell.bat" <<'BAT'
 @echo off
 setlocal
 set DIR=%~dp0
-"%DIR%runtime\bin\javaw.exe" ^
+set JAVA=%DIR%runtime\bin\javaw.exe
+set VM_OPTS=-Xms64m -Xmx512m
+set USER_VMOPTIONS=%APPDATA%\JLShell\JLShell.vmoptions
+set BUNDLED_VMOPTIONS=%DIR%JLShell.vmoptions
+set VMOPTIONS_FILE=
+if exist "%USER_VMOPTIONS%" (
+    set VMOPTIONS_FILE=%USER_VMOPTIONS%
+) else if exist "%BUNDLED_VMOPTIONS%" (
+    set VMOPTIONS_FILE=%BUNDLED_VMOPTIONS%
+)
+if not "%VMOPTIONS_FILE%"=="" (
+    set CUSTOM_VM_OPTS=
+    for /f "usebackq eol=# tokens=* delims=" %%A in ("%VMOPTIONS_FILE%") do call set CUSTOM_VM_OPTS=%%CUSTOM_VM_OPTS%% %%A
+    if not "%CUSTOM_VM_OPTS%"=="" (
+        "%JAVA%" %CUSTOM_VM_OPTS% -version >nul 2>&1
+        if not errorlevel 1 set VM_OPTS=%CUSTOM_VM_OPTS%
+    )
+)
+"%JAVA%" %VM_OPTS% ^
     --add-opens java.base/java.lang=ALL-UNNAMED ^
     --add-opens java.desktop/sun.awt=ALL-UNNAMED ^
     -jar "%DIR%MAIN_JAR_PLACEHOLDER" %*
