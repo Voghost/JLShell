@@ -64,14 +64,14 @@ public class VaultManagerDialog {
             boolean configured = keyService.isCustomKeyConfigured();
             if (configured) {
                 lockStatus.setText(unlocked ? i18n.get("vault.status.unlocked") : i18n.get("vault.status.locked"));
-                lockStatus.setStyle(unlocked ? "-fx-text-fill:#16a34a;-fx-font-size:11px;" : "-fx-text-fill:#ef4444;-fx-font-size:11px;");
+                lockStatus.setStyle(unlocked ? "-fx-text-fill:#16a34a;-fx-font-size: 0.85em;" : "-fx-text-fill:#ef4444;-fx-font-size: 0.85em;");
                 lockBtn.setText(unlocked ? i18n.get("vault.action.lock") : i18n.get("vault.action.unlock"));
-                lockBtn.setStyle("-fx-font-size:11px;-fx-padding:2 8;");
+                lockBtn.setStyle("-fx-font-size: 0.85em;-fx-padding:2 8;");
             } else {
                 lockStatus.setText(i18n.get("vault.status.noMasterPwd"));
-                lockStatus.setStyle("-fx-text-fill:#64748b;-fx-font-size:11px;");
+                lockStatus.setStyle("-fx-text-fill:#64748b;-fx-font-size: 0.85em;");
                 lockBtn.setText(i18n.get("vault.action.setMasterPwd"));
-                lockBtn.setStyle("-fx-font-size:11px;-fx-padding:2 8;");
+                lockBtn.setStyle("-fx-font-size: 0.85em;-fx-padding:2 8;");
             }
         };
         updateLockUI.run();
@@ -140,8 +140,8 @@ public class VaultManagerDialog {
             private final HBox box = new HBox(8, nameLbl, typeBadge, lockBadge);
 
             {
-                typeBadge.setStyle("-fx-font-size:10px;-fx-text-fill:#64748b;");
-                lockBadge.setStyle("-fx-font-size:10px;");
+                typeBadge.setStyle("-fx-font-size: 0.77em;-fx-text-fill:#64748b;");
+                lockBadge.setStyle("-fx-font-size: 0.77em;");
                 HBox.setHgrow(nameLbl, Priority.ALWAYS);
                 box.setAlignment(Pos.CENTER_LEFT);
             }
@@ -158,10 +158,10 @@ public class VaultManagerDialog {
                 typeBadge.setText(item.authenticationType() == AuthenticationType.PASSWORD ? "PWD" : "KEY");
                 if (item.encryptionMode() == VaultEncryptionMode.CUSTOM) {
                     lockBadge.setText("🔒"); // 🔒
-                    lockBadge.setStyle("-fx-font-size:10px;");
+                    lockBadge.setStyle("-fx-font-size: 0.77em;");
                 } else {
                     lockBadge.setText("🔓"); // 🔓
-                    lockBadge.setStyle("-fx-font-size:10px;");
+                    lockBadge.setStyle("-fx-font-size: 0.77em;");
                 }
                 setGraphic(box);
                 setText(null);
@@ -197,7 +197,7 @@ public class VaultManagerDialog {
         keyPathField.setPromptText(i18n.get("vault.field.keyPath"));
 
         Button importKeyBtn = new Button(i18n.get("vault.action.importKey"));
-        importKeyBtn.setStyle("-fx-font-size:11px;-fx-padding:2 8;");
+        importKeyBtn.setStyle("-fx-font-size: 0.85em;-fx-padding:2 8;");
 
         PasswordField passphraseField = new PasswordField();
 
@@ -234,7 +234,7 @@ public class VaultManagerDialog {
 
         // CUSTOM mode warning
         Label customModeHint = new Label();
-        customModeHint.setStyle("-fx-font-size:10px;-fx-text-fill:#f59e0b;");
+        customModeHint.setStyle("-fx-font-size: 0.77em;-fx-text-fill:#f59e0b;");
         encryptionModeBox.valueProperty().addListener((o, ov, nv) -> {
             if (nv == VaultEncryptionMode.CUSTOM) {
                 if (!keyService.isUnlocked()) {

@@ -331,7 +331,7 @@ public class SftpBrowserPane extends BorderPane {
 
         Label speedLabel = new Label();
         speedLabel.textProperty().bind(viewModel.transferSpeedProperty());
-        speedLabel.setStyle("-fx-text-fill: #8b949e; -fx-font-size: 11px;");
+        speedLabel.setStyle("-fx-text-fill: #8b949e; -fx-font-size: 0.85em;");
 
         ProgressBar progressBar = new ProgressBar();
         progressBar.progressProperty().bind(viewModel.transferProgressProperty());

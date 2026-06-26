@@ -70,7 +70,6 @@ public class ProjectManagerDialog {
                 boolean isActive = item.id().equals(activeProjectId);
                 if (isActive) {
                     activeBadge.setText("●");
-                    activeBadge.setStyle("-fx-text-fill:#4d9cf8;-fx-font-size:10px;");
                     activeBadge.setVisible(true);
                 } else {
                     activeBadge.setVisible(false);

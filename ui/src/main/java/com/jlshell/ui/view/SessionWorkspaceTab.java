@@ -125,6 +125,7 @@ public class SessionWorkspaceTab extends Tab {
         });
 
         TabPane workspaceTabs = new TabPane(terminalTab, filesTab);
+        workspaceTabs.getStyleClass().add("session-inner-tabs");
         this.innerTabPane = workspaceTabs;
         terminalWorkspaceView.setWorkspaceTabPane(workspaceTabs);
 

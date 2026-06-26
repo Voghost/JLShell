@@ -326,7 +326,7 @@ public class SidebarTreeView {
     private class SidebarTreeCell extends TreeCell<SidebarItem> {
 
         private static final String DROP_HIGHLIGHT =
-                "-fx-border-color: #4d9cf8; -fx-border-width: 1; -fx-border-radius: 3;";
+                "-fx-border-color: -jl-accent; -fx-border-width: 1; -fx-border-radius: 3;";
 
         SidebarTreeCell() {
             setOnMouseClicked(event -> {

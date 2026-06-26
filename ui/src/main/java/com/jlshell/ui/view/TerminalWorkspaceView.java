@@ -249,6 +249,13 @@ public class TerminalWorkspaceView extends BorderPane {
         };
         if (reasonText == null) return;
 
+        // SwingNode 直接渲染到窗口 native 层，普通 JavaFX 节点无法覆盖它。
+        // 断连时隐藏 SwingNode，让覆盖层可以正常显示。
+        if (primaryNode != null) {
+            primaryNode.setVisible(false);
+            primaryNode.setManaged(false);
+        }
+
         // 创建断连提示覆盖层
         disconnectLabel = new Label(reasonText);
         disconnectLabel.getStyleClass().add("disconnect-reason");
@@ -280,6 +287,11 @@ public class TerminalWorkspaceView extends BorderPane {
             terminalHost.getChildren().remove(disconnectOverlay);
             disconnectOverlay = null;
         }
+        // 重连后恢复终端节点可见（如果还在用旧节点）
+        if (primaryNode != null && disconnected) {
+            primaryNode.setVisible(true);
+            primaryNode.setManaged(true);
+        }
         disconnected = false;
     }
 
@@ -309,11 +321,11 @@ public class TerminalWorkspaceView extends BorderPane {
         diskLabel = new Label(i18nService.get("sysinfo.disk"));
         diskLabel.getStyleClass().add("sysinfo-label");
 
-        HBox ipSection = sysinfoSection(loadSvgShape("/icons/ip.svg", 14), ipLabel, "ip");
-        HBox osSection = sysinfoSection(loadSvgShape("/icons/system.svg", 14), osLabel, "os");
-        HBox cpuSection = sysinfoSection(loadSvgShape("/icons/cpu.svg", 14), cpuLabel, "cpu");
-        HBox memSection = sysinfoSection(loadSvgShape("/icons/memory-solid.svg", 14), memLabel, "mem");
-        HBox diskSection = sysinfoSection(loadSvgShape("/icons/folder.svg", 14), diskLabel, "disk");
+        HBox ipSection = sysinfoSection(loadSvgShape("/icons/ip.svg", 12), ipLabel, "ip");
+        HBox osSection = sysinfoSection(loadSvgShape("/icons/system.svg", 12), osLabel, "os");
+        HBox cpuSection = sysinfoSection(loadSvgShape("/icons/cpu.svg", 12), cpuLabel, "cpu");
+        HBox memSection = sysinfoSection(loadSvgShape("/icons/memory-solid.svg", 12), memLabel, "mem");
+        HBox diskSection = sysinfoSection(loadSvgShape("/icons/folder.svg", 12), diskLabel, "disk");
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);

@@ -183,7 +183,7 @@ public final class ConnectionDialog {
         reloadVaultEntries.run();
 
         Hyperlink manageVaultLink = new Hyperlink(i18n.get("connection.vaultManage"));
-        manageVaultLink.setStyle("-fx-font-size:11px;");
+        manageVaultLink.setStyle("-fx-font-size: 0.85em;");
         manageVaultLink.setOnAction(e -> {
             ProjectProfile selectedProject = projectBox.getValue();
             String pid = selectedProject != null ? selectedProject.id() : null;
@@ -353,9 +353,9 @@ public final class ConnectionDialog {
         // Test connection button + result label
         Button testBtn = new Button(i18n.get("action.testConnection"));
         testBtn.getStyleClass().add("button-primary");
-        testBtn.setStyle("-fx-padding:4 12;-fx-font-size:12px;");
+        testBtn.setStyle("-fx-padding:4 12;-fx-font-size: 0.92em;");
         Label testResult = new Label();
-        testResult.setStyle("-fx-font-size:11px;");
+        testResult.setStyle("-fx-font-size: 0.85em;");
 
         Runnable updateTestBtnVisibility = () -> {
             boolean isSsh = typeBox.getValue() == ConnectionType.SSH;
