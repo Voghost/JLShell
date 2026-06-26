@@ -490,6 +490,11 @@
     -fx-padding: 0 1;
 }
 
+.split-pane.sidebar-collapsed > .split-pane-divider {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+
 /* ---------- Text Fields ---------- */
 .text-field,
 .password-field,
@@ -1334,7 +1339,7 @@
     -fx-opacity: 0.4;
 }
 
-/* ---------- Custom Title Bar (Windows) ---------- */
+/* ---------- Custom Title Bar ---------- */
 .custom-title-bar {
     -fx-background-color: #ffffff;
     -fx-background-radius: 7 7 0 0;

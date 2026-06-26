@@ -27,6 +27,7 @@ public class CustomTitleBar extends HBox {
 
     private final Stage stage;
     private final MenuBar menuBar;
+    private final Label titleLabel;
     private double dragOffsetX;
     private double dragOffsetY;
 
@@ -54,7 +55,7 @@ public class CustomTitleBar extends HBox {
         getChildren().add(spacer);
 
         // Window title
-        Label titleLabel = new Label("JLShell");
+        titleLabel = new Label("JLShell");
         titleLabel.getStyleClass().add("title-label");
         getChildren().add(titleLabel);
 
@@ -126,5 +127,9 @@ public class CustomTitleBar extends HBox {
     public void setMenuBarVisible(boolean visible) {
         menuBar.setManaged(visible);
         menuBar.setVisible(visible);
+    }
+
+    public void setTitleText(String title) {
+        titleLabel.setText(title == null || title.isBlank() ? "JLShell" : title);
     }
 }

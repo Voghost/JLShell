@@ -69,6 +69,7 @@ import org.slf4j.LoggerFactory;
 public class TerminalWorkspaceView extends BorderPane {
 
     private static final Logger log = LoggerFactory.getLogger(TerminalWorkspaceView.class);
+    private static final String TERMINAL_SWING_NODE_STYLE_CLASS = "terminal-swing-node";
 
     private final SshSession sshSession;
     private final TerminalViewFactory terminalViewFactory;
@@ -990,6 +991,7 @@ public class TerminalWorkspaceView extends BorderPane {
         javax.swing.JComponent component = handle.component();
         SwingNode swingNode = new SwingNode();
         swingNode.setFocusTraversable(true);
+        swingNode.getStyleClass().add(TERMINAL_SWING_NODE_STYLE_CLASS);
         swingNode.setCursor(javafx.scene.Cursor.TEXT);
         swingNode.setContent(component);
         swingNode.focusedProperty().addListener((obs, oldFocused, focused) -> {

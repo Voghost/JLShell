@@ -414,20 +414,15 @@ public class JlshellJediTermWidget extends JediTermWidget {
     public void refreshVisuals() {
         java.awt.Color bg = settingsProvider.backgroundColor();
         java.awt.Color fg = settingsProvider.foregroundColor();
-        double opacity = settingsProvider.opacity();
-        boolean transparent = opacity < 1.0;
-        java.awt.Color effectiveBg = transparent
-                ? new java.awt.Color(bg.getRed(), bg.getGreen(), bg.getBlue(), (int) (opacity * 255))
-                : bg;
-        setBackground(effectiveBg);
-        setOpaque(!transparent);
+        setBackground(bg);
+        setOpaque(true);
         if (terminalPanel != null) {
-            terminalPanel.setBackground(effectiveBg);
+            terminalPanel.setBackground(bg);
             terminalPanel.setForeground(fg);
-            terminalPanel.setOpaque(!transparent);
+            terminalPanel.setOpaque(true);
             terminalPanel.refreshVisuals();
         }
-        getTerminalPanel().setBackground(effectiveBg);
+        getTerminalPanel().setBackground(bg);
         getTerminalPanel().setForeground(fg);
         getTerminalPanel().revalidate();
         getTerminalPanel().repaint();

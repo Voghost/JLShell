@@ -228,4 +228,3 @@ public class JlShellDesktopApplication extends Application {
         return img;
     }
 }
-

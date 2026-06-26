@@ -38,6 +38,7 @@ import javafx.beans.binding.Bindings;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.geometry.Rectangle2D;
+import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
@@ -59,6 +60,7 @@ import javafx.scene.control.ToolBar;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyCodeCombination;
 import javafx.scene.input.KeyCombination;
+import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
@@ -80,6 +82,7 @@ import org.slf4j.LoggerFactory;
 public class MainWindow {
 
     private static final Logger log = LoggerFactory.getLogger(MainWindow.class);
+    private static final String TERMINAL_SWING_NODE_STYLE_CLASS = "terminal-swing-node";
 
     private final MainViewModel viewModel;
     private final ConnectionProfileService connectionProfileService;
@@ -219,6 +222,7 @@ public class MainWindow {
         double minH = Math.max(480, Math.floor(availH * 0.60));
 
         Scene scene = new Scene(root, initW, initH);
+        installApplicationShortcuts(scene, stage);
 
         // On Windows, the stage is UNDECORATED — make the scene background
         // transparent so the rounded corners and border of .app-root are visible.
@@ -278,9 +282,11 @@ public class MainWindow {
 
         i18nService.localeProperty().addListener((obs, oldLocale, newLocale) -> {
             pluginManager.setLocale(newLocale);
+            updateWindowTitle();
         });
 
         loadConnections();
+        updateWindowTitle();
         return scene;
     }
 
@@ -292,9 +298,6 @@ public class MainWindow {
         MenuItem newConnection = new MenuItem(i18nService.get("action.newConnection"));
         MenuItem refreshConnections = new MenuItem(i18nService.get("action.refresh"));
         MenuItem exit = new MenuItem(i18nService.get("action.exit"));
-        newConnection.setAccelerator(new KeyCodeCombination(KeyCode.N, KeyCombination.SHORTCUT_DOWN));
-        refreshConnections.setAccelerator(new KeyCodeCombination(KeyCode.R, KeyCombination.SHORTCUT_DOWN));
-        exit.setAccelerator(new KeyCodeCombination(KeyCode.Q, KeyCombination.SHORTCUT_DOWN));
         newConnection.setOnAction(event -> createConnection(stage));
         refreshConnections.setOnAction(event -> loadConnections());
         exit.setOnAction(event -> stage.close());
@@ -324,10 +327,8 @@ public class MainWindow {
         // View 菜单
         Menu viewMenu = new Menu(i18nService.get("menu.view"));
         MenuItem toggleSidebarItem = new MenuItem(i18nService.get("sidebar.toggle"));
-        toggleSidebarItem.setAccelerator(new KeyCodeCombination(KeyCode.B, KeyCombination.SHORTCUT_DOWN));
         toggleSidebarItem.setOnAction(event -> toggleSidebar());
         MenuItem collapseTopBarItem = new MenuItem(i18nService.get("topbar.collapse"));
-        collapseTopBarItem.setAccelerator(new KeyCodeCombination(KeyCode.T, KeyCombination.SHORTCUT_DOWN));
         collapseTopBarItem.setOnAction(event -> toggleTopBarCollapse());
         MenuItem darkTheme = new MenuItem(i18nService.get("theme.dark"));
         MenuItem lightTheme = new MenuItem(i18nService.get("theme.light"));
@@ -338,7 +339,6 @@ public class MainWindow {
         // Preferences menu item
         // On macOS, JavaFX automatically moves a MenuItem with Cmd+, shortcut to the app menu.
         MenuItem preferences = new MenuItem(i18nService.get("action.preferences"));
-        preferences.setAccelerator(new KeyCodeCombination(KeyCode.COMMA, KeyCombination.SHORTCUT_DOWN));
         preferences.setOnAction(event -> openPreferences(stage));
 
         boolean isMac = System.getProperty("os.name", "").toLowerCase().contains("mac");
@@ -363,6 +363,44 @@ public class MainWindow {
         return menuBar;
     }
 
+    private void installApplicationShortcuts(Scene scene, Stage stage) {
+        installApplicationShortcut(scene, KeyCode.N, () -> createConnection(stage));
+        installApplicationShortcut(scene, KeyCode.R, this::loadConnections);
+        installApplicationShortcut(scene, KeyCode.Q, stage::close);
+        installApplicationShortcut(scene, KeyCode.B, this::toggleSidebar);
+        installApplicationShortcut(scene, KeyCode.T, this::toggleTopBarCollapse);
+        installApplicationShortcut(scene, KeyCode.COMMA, () -> openPreferences(stage));
+    }
+
+    private void installApplicationShortcut(Scene scene, KeyCode keyCode, Runnable action) {
+        KeyCodeCombination shortcut = new KeyCodeCombination(keyCode, KeyCombination.SHORTCUT_DOWN);
+        scene.addEventFilter(KeyEvent.KEY_PRESSED, event -> {
+            if (event.isConsumed() || !shortcut.match(event)) {
+                return;
+            }
+            // Let shell/readline programs receive Ctrl+B/N/Q/R/T and similar chords
+            // when focus is inside the embedded terminal. Cmd shortcuts on macOS
+            // remain application shortcuts because Meta is not terminal input here.
+            if (isTerminalFocusOwner(scene) && event.isControlDown() && !event.isMetaDown()) {
+                return;
+            }
+            action.run();
+            event.consume();
+        });
+    }
+
+    private boolean isTerminalFocusOwner(Scene scene) {
+        Node node = scene.getFocusOwner();
+        while (node != null) {
+            if (node instanceof javafx.embed.swing.SwingNode
+                    && node.getStyleClass().contains(TERMINAL_SWING_NODE_STYLE_CLASS)) {
+                return true;
+            }
+            node = node.getParent();
+        }
+        return false;
+    }
+
     private VBox buildTopArea(Stage stage) {
         MenuBar menuBar = buildMenuBar(stage);
         menuBar.setUseSystemMenuBar(true);
@@ -377,6 +415,7 @@ public class MainWindow {
     private CustomTitleBar buildCustomTitleBar(Stage stage) {
         MenuBar menuBar = buildMenuBar(stage);
         customTitleBar = new CustomTitleBar(stage, menuBar, i18nService);
+        updateWindowTitle();
         return customTitleBar;
     }
 
@@ -512,6 +551,8 @@ public class MainWindow {
         sidebarVBox.setMinWidth(SIDEBAR_EXPANDED_MIN_WIDTH);
         workspaceTabs.getStyleClass().add("workspace-tabs");
         installTabDragReorder(workspaceTabs);
+        workspaceTabs.getSelectionModel().selectedItemProperty().addListener((obs, oldTab, newTab) -> updateWindowTitle());
+        workspaceTabs.getTabs().addListener((javafx.collections.ListChangeListener<javafx.scene.control.Tab>) change -> updateWindowTitle());
 
         welcomePane = new WelcomePane(i18nService, connectionProfileService, executor,
                 () -> createConnection(stage),
@@ -602,6 +643,37 @@ public class MainWindow {
         centerSplitPane = new SplitPane(sidebarVBox, workspaceStackPane);
         centerSplitPane.setDividerPositions(0.26);
         return centerSplitPane;
+    }
+
+    private void updateWindowTitle() {
+        String title = buildWindowTitle(workspaceTabs.getSelectionModel().getSelectedItem());
+        if (primaryStage != null) {
+            primaryStage.setTitle(title);
+        }
+        if (customTitleBar != null) {
+            customTitleBar.setTitleText(title);
+        }
+    }
+
+    private String buildWindowTitle(javafx.scene.control.Tab tab) {
+        String detail = null;
+        if (tab instanceof SessionWorkspaceTab sessionTab) {
+            ConnectionProfile profile = sessionTab.getConnectionProfile();
+            detail = formatConnectionTitle(profile);
+        } else if (tab != null && tab.getUserData() instanceof ConnectionProfile profile) {
+            detail = formatConnectionTitle(profile);
+        }
+        return detail == null || detail.isBlank() ? "JLShell" : detail + " — JLShell";
+    }
+
+    private String formatConnectionTitle(ConnectionProfile profile) {
+        if (profile == null) {
+            return "";
+        }
+        String name = profile.displayName() == null || profile.displayName().isBlank()
+                ? profile.host()
+                : profile.displayName();
+        return name + " — " + profile.summary();
     }
 
     private VBox buildSidebar(Stage stage) {
@@ -861,12 +933,16 @@ public class MainWindow {
 
     private void applySidebarVisibility() {
         if (sidebarVisible) {
+            centerSplitPane.getStyleClass().remove("sidebar-collapsed");
             sidebarVBox.setPrefWidth(Region.USE_COMPUTED_SIZE);
             sidebarVBox.setMinWidth(SIDEBAR_EXPANDED_MIN_WIDTH);
             sidebarVBox.setMaxWidth(Region.USE_COMPUTED_SIZE);
             centerSplitPane.setDividerPositions(0.26);
             revealSidebarBtn.setVisible(false);
         } else {
+            if (!centerSplitPane.getStyleClass().contains("sidebar-collapsed")) {
+                centerSplitPane.getStyleClass().add("sidebar-collapsed");
+            }
             sidebarVBox.setPrefWidth(0);
             sidebarVBox.setMinWidth(0);
             sidebarVBox.setMaxWidth(0);
@@ -1272,7 +1348,8 @@ public class MainWindow {
 
     private void connectLocalShell(ConnectionProfile profile) {
         com.jlshell.terminal.model.TerminalViewRequest request =
-                new com.jlshell.terminal.model.TerminalViewRequest(profile.displayName(), null, null, null);
+                new com.jlshell.terminal.model.TerminalViewRequest(profile.displayName(), null, null,
+                        themeService.activeColorScheme());
         localShellLauncher.launch(profile.displayName(), request)
                 .whenComplete((viewHandle, throwable) -> FxThread.run(() -> {
                     if (throwable != null) {
@@ -1288,11 +1365,13 @@ public class MainWindow {
     private void openLocalShellTab(ConnectionProfile profile, com.jlshell.terminal.service.TerminalViewHandle viewHandle) {
         localShellHandles.add(viewHandle);
         javafx.scene.control.Tab tab = new javafx.scene.control.Tab(profile.displayName());
+        tab.setUserData(profile);
         tab.setClosable(true);
         tab.setContextMenu(buildTabContextMenu(tab));
         javax.swing.JComponent component = (javax.swing.JComponent) viewHandle.component();
         javafx.embed.swing.SwingNode swingNode = new javafx.embed.swing.SwingNode();
         swingNode.setFocusTraversable(true);
+        swingNode.getStyleClass().add(TERMINAL_SWING_NODE_STYLE_CLASS);
         swingNode.setCursor(javafx.scene.Cursor.TEXT);
         swingNode.setContent(component);
         swingNode.focusedProperty().addListener((obs, oldFocused, focused) -> {

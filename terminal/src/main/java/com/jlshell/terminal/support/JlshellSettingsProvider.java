@@ -2,15 +2,20 @@ package com.jlshell.terminal.support;
 
 import java.awt.Color;
 import java.awt.Font;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 import com.jediterm.terminal.HyperlinkStyle;
 import com.jediterm.terminal.TerminalColor;
 import com.jediterm.terminal.TextStyle;
 import com.jediterm.terminal.emulator.ColorPalette;
+import com.jediterm.terminal.ui.TerminalActionPresentation;
 import com.jediterm.terminal.ui.settings.DefaultSettingsProvider;
 import com.jlshell.core.model.FontProfile;
 import com.jlshell.terminal.model.TerminalColorScheme;
+import javax.swing.KeyStroke;
 
 /**
  * 可变终端设置提供器。
@@ -97,6 +102,13 @@ public class JlshellSettingsProvider extends DefaultSettingsProvider {
     }
 
     @Override
+    public TerminalActionPresentation getPasteActionPresentation() {
+        List<KeyStroke> strokes = new java.util.ArrayList<>(super.getPasteActionPresentation().getKeyStrokes());
+        strokes.add(KeyStroke.getKeyStroke(KeyEvent.VK_INSERT, InputEvent.SHIFT_DOWN_MASK));
+        return new TerminalActionPresentation("Paste", strokes);
+    }
+
+    @Override
     public TextStyle getHyperlinkColor() {
         TerminalColor foreground = toTerminalColor(colorScheme.get().hyperlinkColor());
         return new TextStyle(foreground, null);
@@ -109,7 +121,7 @@ public class JlshellSettingsProvider extends DefaultSettingsProvider {
 
     @Override
     public boolean altSendsEscape() {
-        return false;
+        return true;
     }
 
     @Override
