@@ -321,11 +321,11 @@ public class TerminalWorkspaceView extends BorderPane {
         diskLabel = new Label(i18nService.get("sysinfo.disk"));
         diskLabel.getStyleClass().add("sysinfo-label");
 
-        HBox ipSection = sysinfoSection(loadSvgShape("/icons/ip.svg", 14), ipLabel, "ip");
-        HBox osSection = sysinfoSection(loadSvgShape("/icons/system.svg", 14), osLabel, "os");
-        HBox cpuSection = sysinfoSection(loadSvgShape("/icons/cpu.svg", 14), cpuLabel, "cpu");
-        HBox memSection = sysinfoSection(loadSvgShape("/icons/memory-solid.svg", 14), memLabel, "mem");
-        HBox diskSection = sysinfoSection(loadSvgShape("/icons/folder.svg", 14), diskLabel, "disk");
+        HBox ipSection = sysinfoSection(loadSvgShape("/icons/ip.svg", 12), ipLabel, "ip");
+        HBox osSection = sysinfoSection(loadSvgShape("/icons/system.svg", 12), osLabel, "os");
+        HBox cpuSection = sysinfoSection(loadSvgShape("/icons/cpu.svg", 12), cpuLabel, "cpu");
+        HBox memSection = sysinfoSection(loadSvgShape("/icons/memory-solid.svg", 12), memLabel, "mem");
+        HBox diskSection = sysinfoSection(loadSvgShape("/icons/folder.svg", 12), diskLabel, "disk");
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);

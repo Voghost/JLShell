@@ -6,9 +6,9 @@ import com.jlshell.core.service.FontProfileService;
 import com.jlshell.terminal.model.TerminalColorScheme;
 import com.jlshell.terminal.service.ColorSchemeRegistry;
 import com.jlshell.ui.service.I18nService;
+import com.jlshell.ui.theme.AccentColor;
 import com.jlshell.ui.theme.AppTheme;
 import com.jlshell.ui.theme.ThemeService;
-import javafx.application.Platform;
 import javafx.beans.binding.Bindings;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
@@ -47,6 +47,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.ArrayList;
 import java.util.stream.Collectors;
 
@@ -132,6 +133,7 @@ public class PreferencesDialog {
         FontProfile[] pending = { fontProfileService.activeProfile() };
         String[] pendingLang = { appSettings.get("ui.language", null) };
         String[] pendingTheme = { appSettings.get("ui.theme", "DARK") };
+        AccentColor[] pendingAccent = { themeService.accentColor() };
         String[] pendingConnTimeout = { appSettings.get("connection.timeout", "10") };
         String[] pendingHoverExpand = { appSettings.get("ui.topbar.hoverExpand", "false") };
         TerminalColorScheme[] pendingScheme = { themeService.activeColorScheme() };
@@ -141,7 +143,7 @@ public class PreferencesDialog {
         String[] pendingUiFontSize = { appSettings.get("ui.font.size", "13") };
 
         TabPane tabs = buildTabPane(fontProfileService, appSettings, i18n, themeService,
-                pending, pendingLang, pendingTheme, pendingConnTimeout, pendingHoverExpand, pendingScheme,
+                pending, pendingLang, pendingTheme, pendingAccent, pendingConnTimeout, pendingHoverExpand, pendingScheme,
                 connectionProfileService, activeProjectId, apiServer, pendingApiEnabled, pendingApiPort,
                 pendingUiFontFamily, pendingUiFontSize);
         // 选中指定的初始 Tab（如从终端字体按钮打开时选中"终端"Tab）
@@ -158,13 +160,13 @@ public class PreferencesDialog {
         Button applyButton = (Button) dialog.getDialogPane().lookupButton(applyBtnType);
         applyButton.addEventFilter(javafx.event.ActionEvent.ACTION, e -> {
             e.consume(); // 阻止 Dialog 默认的关闭逻辑
-            boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending, pendingLang, pendingTheme, pendingConnTimeout, pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort, pendingUiFontFamily, pendingUiFontSize);
+            boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending, pendingLang, pendingTheme, pendingAccent, pendingConnTimeout, pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort, pendingUiFontFamily, pendingUiFontSize);
             if (needRestart) showRestartPrompt(owner, i18n);
         });
 
         dialog.setResultConverter(btn -> {
             if (btn.getButtonData() == ButtonBar.ButtonData.OK_DONE) {
-                boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending, pendingLang, pendingTheme, pendingConnTimeout, pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort, pendingUiFontFamily, pendingUiFontSize);
+                boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending, pendingLang, pendingTheme, pendingAccent, pendingConnTimeout, pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort, pendingUiFontFamily, pendingUiFontSize);
                 if (needRestart) showRestartPrompt(owner, i18n);
             }
             return null;
@@ -186,7 +188,7 @@ public class PreferencesDialog {
 
     private static boolean applyPendingSettings(FontProfileService fontProfileService, AppSettingsService appSettings,
                                               ThemeService themeService, FontProfile[] pending, String[] pendingLang,
-                                              String[] pendingTheme, String[] pendingConnTimeout,
+                                              String[] pendingTheme, AccentColor[] pendingAccent, String[] pendingConnTimeout,
                                               String[] pendingHoverExpand,
                                               TerminalColorScheme[] pendingScheme,
                                               String[] pendingApiEnabled, String[] pendingApiPort,
@@ -201,6 +203,7 @@ public class PreferencesDialog {
             AppTheme newTheme = "LIGHT".equals(pendingTheme[0]) ? AppTheme.LIGHT : AppTheme.DARK;
             themeService.currentThemeProperty().set(newTheme);
         }
+        themeService.setAccentColor(pendingAccent[0]);
 
         appSettings.set("connection.timeout", pendingConnTimeout[0]);
         appSettings.set("ui.topbar.hoverExpand", pendingHoverExpand[0]);
@@ -221,14 +224,14 @@ public class PreferencesDialog {
         appSettings.set("ui.font.family", pendingUiFontFamily[0] != null ? pendingUiFontFamily[0] : "");
         appSettings.set("ui.font.size", pendingUiFontSize[0]);
 
-        boolean langChanged = !prevLang.equals(pendingLang[0]);
+        boolean langChanged = !Objects.equals(prevLang, pendingLang[0]);
         return langChanged || apiChanged;
     }
 
     private static TabPane buildTabPane(FontProfileService fontProfileService, AppSettingsService appSettings,
                                          I18nService i18n, ThemeService themeService,
                                          FontProfile[] pending, String[] pendingLang,
-                                         String[] pendingTheme, String[] pendingConnTimeout,
+                                         String[] pendingTheme, AccentColor[] pendingAccent, String[] pendingConnTimeout,
                                          String[] pendingHoverExpand,
                                          TerminalColorScheme[] pendingScheme,
                                          com.jlshell.ui.service.ConnectionProfileService connectionProfileService,
@@ -241,7 +244,7 @@ public class PreferencesDialog {
 
         Tab generalTab = new Tab(i18n.get("preferences.tab.general"));
         generalTab.setContent(buildGeneralPane(appSettings, i18n, themeService, pendingLang, pendingTheme,
-                pendingHoverExpand, pendingUiFontFamily, pendingUiFontSize));
+                pendingAccent, pendingHoverExpand, pendingUiFontFamily, pendingUiFontSize));
         tabPane.getTabs().add(generalTab);
 
         Tab connectionTab = new Tab(i18n.get("preferences.tab.connection"));
@@ -271,7 +274,7 @@ public class PreferencesDialog {
 
     private static VBox buildGeneralPane(AppSettingsService appSettings, I18nService i18n,
                                           ThemeService themeService, String[] pendingLang, String[] pendingTheme,
-                                          String[] pendingHoverExpand,
+                                          AccentColor[] pendingAccent, String[] pendingHoverExpand,
                                           String[] pendingUiFontFamily, String[] pendingUiFontSize) {
         // 首次启动：未设置语言时根据系统语言环境推断
         String currentLang = appSettings.get("ui.language", null);
@@ -301,6 +304,16 @@ public class PreferencesDialog {
         themeCombo.valueProperty().addListener((o, ov, nv) ->
                 pendingTheme[0] = "Light".equals(nv) ? "LIGHT" : "DARK");
 
+        ComboBox<AccentColor> accentCombo = new ComboBox<>();
+        accentCombo.getItems().addAll(AccentColor.values());
+        accentCombo.setValue(pendingAccent[0]);
+        accentCombo.setPrefWidth(200);
+        accentCombo.setButtonCell(accentCell());
+        accentCombo.setCellFactory(list -> accentCell());
+        accentCombo.valueProperty().addListener((o, ov, nv) -> {
+            if (nv != null) pendingAccent[0] = nv;
+        });
+
         CheckBox hoverExpandCheck = new CheckBox(i18n.get("preferences.general.hoverExpand"));
         hoverExpandCheck.setSelected("true".equals(pendingHoverExpand[0]));
         hoverExpandCheck.selectedProperty().addListener((o, ov, nv) ->
@@ -311,18 +324,20 @@ public class PreferencesDialog {
         ComboBox<String> uiFontCombo = new ComboBox<>();
         String[] allFonts = GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames();
         List<String> sortedFonts = Arrays.stream(allFonts).sorted().collect(Collectors.toCollection(ArrayList::new));
-        sortedFonts.add(0, i18n.get("preferences.general.uiFont.default"));
-        uiFontCombo.getItems().addAll(sortedFonts);
+        String defaultFontLabel = i18n.get("preferences.general.uiFont.default");
+        sortedFonts.add(0, defaultFontLabel);
+        ObservableList<String> uiFonts = FXCollections.observableArrayList(sortedFonts);
+        uiFontCombo.setItems(uiFonts);
         if (currentUiFontFamily != null && !currentUiFontFamily.isBlank()) {
             uiFontCombo.setValue(currentUiFontFamily);
         } else {
-            uiFontCombo.setValue(i18n.get("preferences.general.uiFont.default"));
+            uiFontCombo.setValue(defaultFontLabel);
         }
         uiFontCombo.setPrefWidth(220);
         uiFontCombo.valueProperty().addListener((o, ov, nv) -> {
-            if (nv == null || nv.equals(i18n.get("preferences.general.uiFont.default"))) {
+            if (nv == null || nv.equals(defaultFontLabel)) {
                 pendingUiFontFamily[0] = null;
-            } else {
+            } else if (uiFonts.contains(nv)) {
                 pendingUiFontFamily[0] = nv;
             }
         });
@@ -345,12 +360,13 @@ public class PreferencesDialog {
         String previewFg = themeService.currentThemeProperty().get() == AppTheme.LIGHT ? "#0f172a" : "#dfe1e5";
         uiFontPreview.setStyle("-fx-fill: " + previewFg + ";");
         uiFontCombo.valueProperty().addListener((o, ov, nv) -> {
-            String fam = (nv == null || nv.equals(i18n.get("preferences.general.uiFont.default")))
+            String fam = (nv == null || nv.equals(defaultFontLabel) || !uiFonts.contains(nv))
                     ? "System" : nv;
             updatePreview(uiFontPreview, fam, uiFontSizeSlider.getValue());
         });
         uiFontSizeSlider.valueProperty().addListener((o, ov, nv) -> {
-            String fam = (uiFontCombo.getValue() == null || uiFontCombo.getValue().equals(i18n.get("preferences.general.uiFont.default")))
+            String selectedFont = uiFontCombo.getValue();
+            String fam = (selectedFont == null || selectedFont.equals(defaultFontLabel) || !uiFonts.contains(selectedFont))
                     ? "System" : uiFontCombo.getValue();
             updatePreview(uiFontPreview, fam, nv.doubleValue());
         });
@@ -367,17 +383,19 @@ public class PreferencesDialog {
         grid.add(langCombo, 1, 0);
         grid.add(new Label(i18n.get("preferences.general.theme")), 0, 1);
         grid.add(themeCombo, 1, 1);
-        grid.add(hoverExpandCheck, 1, 2);
+        grid.add(new Label(i18n.get("preferences.general.accentColor")), 0, 2);
+        grid.add(accentCombo, 1, 2);
+        grid.add(hoverExpandCheck, 1, 3);
 
         // UI 字体
-        grid.add(new Label(i18n.get("preferences.general.uiFontFamily")), 0, 3);
-        grid.add(uiFontCombo, 1, 3);
-        grid.add(new Label(i18n.get("preferences.general.uiFontSize")), 0, 4);
+        grid.add(new Label(i18n.get("preferences.general.uiFontFamily")), 0, 4);
+        grid.add(uiFontCombo, 1, 4);
+        grid.add(new Label(i18n.get("preferences.general.uiFontSize")), 0, 5);
         HBox uiFontSizeRow = new HBox(8, uiFontSizeSlider, uiFontSizeField);
         uiFontSizeRow.setAlignment(Pos.CENTER_LEFT);
-        grid.add(uiFontSizeRow, 1, 4);
-        grid.add(new Label(i18n.get("preferences.general.uiFontPreview")), 0, 5);
-        grid.add(uiFontPreview, 1, 5);
+        grid.add(uiFontSizeRow, 1, 5);
+        grid.add(new Label(i18n.get("preferences.general.uiFontPreview")), 0, 6);
+        grid.add(uiFontPreview, 1, 6);
 
         VBox pane = new VBox(grid);
         pane.setPadding(new Insets(8));
@@ -426,6 +444,29 @@ public class PreferencesDialog {
         VBox pane = new VBox(grid);
         pane.setPadding(new Insets(8));
         return pane;
+    }
+
+    private static ListCell<AccentColor> accentCell() {
+        return new ListCell<>() {
+            @Override
+            protected void updateItem(AccentColor item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setText(null);
+                    setGraphic(null);
+                    return;
+                }
+                Region swatch = new Region();
+                swatch.setMinSize(14, 14);
+                swatch.setPrefSize(14, 14);
+                swatch.setMaxSize(14, 14);
+                swatch.setStyle("-fx-background-color: " + item.color() + "; -fx-background-radius: 7;");
+                HBox row = new HBox(8, swatch, new Label(item.displayName()));
+                row.setAlignment(Pos.CENTER_LEFT);
+                setText(null);
+                setGraphic(row);
+            }
+        };
     }
 
     // ── Terminal Tab ───────────────────────────────────────────────────────
@@ -728,7 +769,7 @@ public class PreferencesDialog {
 
         Label tokenHint = new Label(i18n.get("api.tokenHint"));
         tokenHint.setWrapText(true);
-        tokenHint.setStyle("-fx-font-size: 11px;");
+        tokenHint.setStyle("-fx-font-size: 0.85em;");
 
         Button copyToken = new Button(i18n.get("api.copyToken"));
         copyToken.setDisable(apiServer == null || apiServer.token() == null || apiServer.token().isEmpty());
@@ -741,7 +782,7 @@ public class PreferencesDialog {
         });
 
         Label restart = new Label(i18n.get("api.restartRequired"));
-        restart.setStyle("-fx-text-fill: gray; -fx-font-size: 11px;");
+        restart.setStyle("-fx-text-fill: gray; -fx-font-size: 0.85em;");
         restart.setWrapText(true);
 
         box.getChildren().addAll(enableCb, new HBox(8, portLabel, portField),
@@ -759,12 +800,12 @@ public class PreferencesDialog {
 
         // 三个 section 共享一个结果标签，显示最近一次导入结果
         Label globalResult = new Label();
-        globalResult.setStyle("-fx-text-fill: #38bdf8; -fx-font-size: 12px;");
+        globalResult.setStyle("-fx-text-fill: #38bdf8; -fx-font-size: 0.92em;");
 
         if (connectionProfileService == null) {
             // 从终端 Tab 打开的偏好设置没有连接服务上下文，提示用户从主菜单打开
             Label hint = new Label(i18n.get("import.noFile"));
-            hint.setStyle("-fx-text-fill: #9ca3af; -fx-font-size: 12px;");
+            hint.setStyle("-fx-text-fill: #9ca3af; -fx-font-size: 0.92em;");
             pane.getChildren().add(hint);
             return pane;
         }
@@ -786,10 +827,10 @@ public class PreferencesDialog {
                                               com.jlshell.ui.service.ConnectionProfileService service,
                                               String projectId, Label globalResult) {
         Label title = new Label(i18n.get("import.section.mobaxterm"));
-        title.setStyle("-fx-font-size:14px;-fx-font-weight:bold;");
+        title.setStyle("-fx-font-size: 1.08em;-fx-font-weight:bold;");
 
         Label hint = new Label(i18n.get("import.mobaxterm.hint"));
-        hint.setStyle("-fx-text-fill: #9ca3af; -fx-font-size: 11px;");
+        hint.setStyle("-fx-text-fill: #9ca3af; -fx-font-size: 0.85em;");
         hint.setWrapText(true);
 
         Label foundLabel = new Label();
@@ -833,10 +874,10 @@ public class PreferencesDialog {
                                            com.jlshell.ui.service.ConnectionProfileService service,
                                            String projectId, Label globalResult) {
         Label title = new Label(i18n.get("import.section.xshell"));
-        title.setStyle("-fx-font-size:14px;-fx-font-weight:bold;");
+        title.setStyle("-fx-font-size: 1.08em;-fx-font-weight:bold;");
 
         Label hint = new Label(i18n.get("import.xshell.hint"));
-        hint.setStyle("-fx-text-fill: #9ca3af; -fx-font-size: 11px;");
+        hint.setStyle("-fx-text-fill: #9ca3af; -fx-font-size: 0.85em;");
         hint.setWrapText(true);
 
         Label foundLabel = new Label();
@@ -895,10 +936,10 @@ public class PreferencesDialog {
                                            com.jlshell.ui.service.ConnectionProfileService service,
                                            String projectId, Label globalResult) {
         Label title = new Label(i18n.get("import.section.manual"));
-        title.setStyle("-fx-font-size:14px;-fx-font-weight:bold;");
+        title.setStyle("-fx-font-size: 1.08em;-fx-font-weight:bold;");
 
         Label hint = new Label(i18n.get("import.manual.hint"));
-        hint.setStyle("-fx-text-fill: #9ca3af; -fx-font-size: 11px;");
+        hint.setStyle("-fx-text-fill: #9ca3af; -fx-font-size: 0.85em;");
         hint.setWrapText(true);
 
         // 手动表格：name/host/port/user/authType/password/passphrase + 删除按钮
@@ -1032,13 +1073,13 @@ public class PreferencesDialog {
         delCol.setCellFactory(col -> new javafx.scene.control.TableCell<ManualRow, Void>() {
             private final javafx.scene.control.Button btn = new javafx.scene.control.Button("✕");
             {
-                btn.setStyle("-fx-background-color:transparent;-fx-text-fill:#9ca3af;-fx-padding:0;-fx-font-size:12px;-fx-cursor:hand;-fx-min-width:24px;-fx-min-height:20px;");
+                btn.setStyle("-fx-background-color:transparent;-fx-text-fill:#9ca3af;-fx-padding:0;-fx-font-size: 0.92em;-fx-cursor:hand;-fx-min-width:24px;-fx-min-height:20px;");
                 btn.setOnAction(e -> {
                     ManualRow row = getTableView().getItems().get(getIndex());
                     getTableView().getItems().remove(row);
                 });
-                btn.setOnMouseEntered(e -> btn.setStyle("-fx-background-color:transparent;-fx-text-fill:#ef4444;-fx-padding:0;-fx-font-size:12px;-fx-cursor:hand;-fx-min-width:24px;-fx-min-height:20px;"));
-                btn.setOnMouseExited(e -> btn.setStyle("-fx-background-color:transparent;-fx-text-fill:#9ca3af;-fx-padding:0;-fx-font-size:12px;-fx-cursor:hand;-fx-min-width:24px;-fx-min-height:20px;"));
+                btn.setOnMouseEntered(e -> btn.setStyle("-fx-background-color:transparent;-fx-text-fill:#ef4444;-fx-padding:0;-fx-font-size: 0.92em;-fx-cursor:hand;-fx-min-width:24px;-fx-min-height:20px;"));
+                btn.setOnMouseExited(e -> btn.setStyle("-fx-background-color:transparent;-fx-text-fill:#9ca3af;-fx-padding:0;-fx-font-size: 0.92em;-fx-cursor:hand;-fx-min-width:24px;-fx-min-height:20px;"));
             }
             @Override
             protected void updateItem(Void item, boolean empty) {
@@ -1196,7 +1237,7 @@ public class PreferencesDialog {
 
         javafx.scene.control.Button importBtn = new javafx.scene.control.Button(i18n.get("import.button.import"));
         Label errorLabel = new Label();
-        errorLabel.setStyle("-fx-text-fill: #ef4444; -fx-font-size: 11px;");
+        errorLabel.setStyle("-fx-text-fill: #ef4444; -fx-font-size: 0.85em;");
 
         javafx.stage.Popup popup = new javafx.stage.Popup();
         popup.setAutoHide(true);
@@ -1388,13 +1429,13 @@ public class PreferencesDialog {
         pane.setAlignment(Pos.TOP_CENTER);
 
         Label appName = new Label("JLShell");
-        appName.setStyle("-fx-font-size:20px;-fx-font-weight:bold;");
+        appName.setStyle("-fx-font-size: 1.54em;-fx-font-weight:bold;");
 
         Label version = new Label(i18n.get("preferences.about.version", VERSION));
-        version.setStyle("-fx-font-size:12px;");
+        version.setStyle("-fx-font-size: 0.92em;");
 
         Label desc = new Label(i18n.get("preferences.about.description"));
-        desc.setStyle("-fx-font-size:11px;");
+        desc.setStyle("-fx-font-size: 0.85em;");
         desc.setWrapText(true);
         desc.setMaxWidth(400);
         desc.setPrefWidth(400);
@@ -1409,18 +1450,17 @@ public class PreferencesDialog {
         authorBox.setAlignment(Pos.CENTER);
 
         Label authorTitle = new Label(i18n.get("preferences.about.author"));
-        authorTitle.setStyle("-fx-font-size:11px;-fx-font-weight:bold;");
+        authorTitle.setStyle("-fx-font-size: 0.85em;-fx-font-weight:bold;");
 
         Label authorName = new Label("voghost");
-        authorName.setStyle("-fx-font-size:12px;");
+        authorName.setStyle("-fx-font-size: 0.92em;");
 
         Label github = new Label("https://www.github.com/Voghost");
-        github.setStyle("-fx-font-size:11px;-fx-text-fill:#4d9cf8;-fx-underline:true;");
+        github.setStyle("-fx-font-size: 0.85em;-fx-text-fill:-jl-accent;-fx-underline:true;-fx-cursor:hand;");
         github.setOnMouseClicked(e -> {
             try { java.awt.Desktop.getDesktop().browse(java.net.URI.create("https://www.github.com/Voghost")); }
             catch (Exception ignored) {}
         });
-        github.setStyle("-fx-font-size:11px;-fx-text-fill:#4d9cf8;-fx-cursor:hand;");
 
         authorBox.getChildren().addAll(authorTitle, authorName, github);
 
@@ -1429,10 +1469,10 @@ public class PreferencesDialog {
         sep2.setPrefWidth(300);
 
         Label techTitle = new Label(i18n.get("preferences.about.techStack"));
-        techTitle.setStyle("-fx-font-size:11px;-fx-font-weight:bold;");
+        techTitle.setStyle("-fx-font-size: 0.85em;-fx-font-weight:bold;");
 
         Label techDetail = new Label("Java 21 · JavaFX 21 · SSHJ · JediTerm · JDBI 3 · SQLite");
-        techDetail.setStyle("-fx-font-size:10px;");
+        techDetail.setStyle("-fx-font-size: 0.77em;");
         techDetail.setWrapText(true);
         techDetail.setMaxWidth(400);
         techDetail.setTextAlignment(TextAlignment.CENTER);

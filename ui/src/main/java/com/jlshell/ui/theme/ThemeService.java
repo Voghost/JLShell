@@ -12,6 +12,7 @@ import javafx.beans.property.SimpleObjectProperty;
 import javafx.scene.Scene;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.DialogPane;
+import javafx.scene.Parent;
 
 /**
  * 主题管理服务。
@@ -24,6 +25,7 @@ import javafx.scene.control.DialogPane;
 public class ThemeService {
 
     private final ObjectProperty<AppTheme> currentTheme = new SimpleObjectProperty<>(AppTheme.DARK);
+    private final ObjectProperty<AccentColor> accentColor = new SimpleObjectProperty<>(AccentColor.SKY);
     private final ObjectProperty<TerminalColorScheme> activeColorScheme;
     private final AppSettingsService appSettings;
     private final ColorSchemeRegistry registry;
@@ -33,6 +35,7 @@ public class ThemeService {
         this.registry = registry;
         String savedTheme = appSettings.get("ui.theme", "DARK");
         currentTheme.set("LIGHT".equals(savedTheme) ? AppTheme.LIGHT : AppTheme.DARK);
+        accentColor.set(AccentColor.fromId(appSettings.get("ui.accentColor", AccentColor.SKY.id())));
 
         // 占位：立即可用，避免启动时阻塞解析 305 主题 JSON
         this.activeColorScheme = new SimpleObjectProperty<>(TerminalColorScheme.dark());
@@ -60,6 +63,19 @@ public class ThemeService {
         currentTheme.set(theme);
     }
 
+    public ObjectProperty<AccentColor> accentColorProperty() {
+        return accentColor;
+    }
+
+    public AccentColor accentColor() {
+        return accentColor.get();
+    }
+
+    public void setAccentColor(AccentColor accent) {
+        accentColor.set(accent);
+        appSettings.set("ui.accentColor", accent.id());
+    }
+
     public ObjectProperty<TerminalColorScheme> activeColorSchemeProperty() {
         return activeColorScheme;
     }
@@ -76,10 +92,12 @@ public class ThemeService {
     public void apply(Scene scene) {
         scene.getStylesheets().clear();
         scene.getStylesheets().add(getClass().getResource(currentTheme().stylesheet()).toExternalForm());
+        applyAccent(scene.getRoot());
     }
 
     public void applyToDialog(DialogPane pane) {
         pane.getStylesheets().add(getClass().getResource(currentTheme().stylesheet()).toExternalForm());
+        applyAccent(pane);
     }
 
     public void applyToDialog(Dialog<?> dialog) {
@@ -88,5 +106,31 @@ public class ThemeService {
 
     public ColorSchemeRegistry registry() {
         return registry;
+    }
+
+    private void applyAccent(Parent root) {
+        root.setStyle(uiStyle());
+    }
+
+    public String accentStyle() {
+        AccentColor accent = accentColor();
+        return String.format(
+                "-jl-accent: %s; -jl-accent-hover: %s; -jl-accent-subtle: %s;",
+                accent.color(), accent.hoverColor(), accent.subtleColor(currentTheme()));
+    }
+
+    public String uiStyle() {
+        StringBuilder style = new StringBuilder();
+        String family = appSettings.get("ui.font.family", null);
+        if (family != null && !family.isBlank()) {
+            style.append("-fx-font-family: \"")
+                    .append(family.replace("\\", "\\\\").replace("\"", "\\\""))
+                    .append("\";");
+        }
+        style.append("-fx-font-size: ")
+                .append(appSettings.get("ui.font.size", "13"))
+                .append("px;");
+        style.append(accentStyle());
+        return style.toString();
     }
 }

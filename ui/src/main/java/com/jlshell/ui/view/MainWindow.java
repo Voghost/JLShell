@@ -36,6 +36,7 @@ import com.jlshell.ui.dialog.AboutDialog;
 import com.jlshell.ui.dialog.PreferencesDialog;
 import javafx.beans.binding.Bindings;
 import javafx.geometry.Insets;
+import javafx.geometry.Pos;
 import javafx.geometry.Rectangle2D;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
@@ -123,6 +124,7 @@ public class MainWindow {
     private SplitPane centerSplitPane;
     private VBox sidebarVBox;
     private Button revealSidebarBtn;
+    private static final double SIDEBAR_EXPANDED_MIN_WIDTH = 360;
 
     // ── 顶栏折叠/展开 ──
     private boolean topBarCollapsed = false;
@@ -259,6 +261,11 @@ public class MainWindow {
                     .map(SessionWorkspaceTab.class::cast)
                     .forEach(tab -> tab.applyColorScheme(scheme));
             pluginManager.setThemeName(newTheme.name().toLowerCase());
+        });
+
+        themeService.accentColorProperty().addListener((obs, oldAccent, newAccent) -> {
+            themeService.apply(scene);
+            applyUiFontSettings();
         });
 
         themeService.activeColorSchemeProperty().addListener((obs, oldScheme, newScheme) -> {
@@ -502,6 +509,7 @@ public class MainWindow {
 
     private SplitPane buildCenterArea(Stage stage) {
         sidebarVBox = buildSidebar(stage);
+        sidebarVBox.setMinWidth(SIDEBAR_EXPANDED_MIN_WIDTH);
         workspaceTabs.getStyleClass().add("workspace-tabs");
         installTabDragReorder(workspaceTabs);
 
@@ -532,7 +540,7 @@ public class MainWindow {
         StackPane.setMargin(revealSidebarBtn, new Insets(0, 0, 4, 4));
 
         // ── 顶栏折叠按钮 overlay（workspace 右上角，外层 tab header 右侧） ──
-        topBarCollapseBtn = new Button("▾");
+        topBarCollapseBtn = new Button("⌄");
         topBarCollapseBtn.getStyleClass().add("topbar-collapse-btn");
         topBarCollapseBtn.setTooltip(new javafx.scene.control.Tooltip(i18nService.get("topbar.collapse")));
         topBarCollapseBtn.setOnAction(e -> {
@@ -549,7 +557,7 @@ public class MainWindow {
         });
 
         // ── 折叠后的展开按钮（透明悬浮在终端右上角） ──
-        topBarExpandBtn = new Button("▴");
+        topBarExpandBtn = new Button("⌃");
         topBarExpandBtn.getStyleClass().add("topbar-expand-btn");
         topBarExpandBtn.setTooltip(new javafx.scene.control.Tooltip(i18nService.get("topbar.expand")));
         topBarExpandBtn.setOnAction(e -> {
@@ -684,6 +692,8 @@ public class MainWindow {
         Button refreshButton   = svgIconButton("/icons/refresh.svg",      i18nService.get("action.refresh"), this::loadConnections);
         Button toggleSidebarBtn = svgIconButton("/icons/sidebar-left.svg", i18nService.get("sidebar.toggle"), this::toggleSidebar);
         Button settingsButton  = svgIconButton("/icons/settings.svg",     i18nService.get("action.preferences"), () -> openPreferences(stage));
+        connectButton.setText(i18nService.get("action.connect"));
+        connectButton.setContentDisplay(javafx.scene.control.ContentDisplay.LEFT);
         connectButton.getStyleClass().add("icon-btn-primary");
 
         HBox actionBar = new HBox(4, createButton, editButton, deleteButton, newFolderButton,
@@ -713,8 +723,11 @@ public class MainWindow {
 
         projectSwitchLabel = new Label(i18nService.get("project.switch.label"));
         projectSwitchLabel.getStyleClass().add("sidebar-project-label");
+        projectSwitchLabel.setMinWidth(Region.USE_PREF_SIZE);
 
         projectCombo.getStyleClass().add("sidebar-project-combo");
+        projectCombo.setMinWidth(180);
+        projectCombo.setMaxWidth(Double.MAX_VALUE);
         projectCombo.setButtonCell(new ListCell<>() {
             @Override
             protected void updateItem(ProjectProfile item, boolean empty) {
@@ -726,6 +739,9 @@ public class MainWindow {
             @Override
             protected void updateItem(ProjectProfile item, boolean empty) {
                 super.updateItem(item, empty);
+                if (!getStyleClass().contains("sidebar-project-cell")) {
+                    getStyleClass().add("sidebar-project-cell");
+                }
                 setText(empty ? "" : (item == DEFAULT_PROJECT ? i18nService.get("project.label.default") : item.name()));
             }
         });
@@ -744,6 +760,7 @@ public class MainWindow {
                 });
 
         Region projectSpacer = new Region();
+        HBox.setHgrow(projectCombo, Priority.ALWAYS);
         HBox.setHgrow(projectSpacer, Priority.ALWAYS);
         HBox projectRow = new HBox(6, projectSwitchLabel, projectCombo, projectSpacer, manageProjectBtn, settingsButton);
         projectRow.getStyleClass().add("sidebar-project-row");
@@ -754,11 +771,16 @@ public class MainWindow {
         return sidebar;
     }
 
-    private Label buildStatusBar() {
+    private HBox buildStatusBar() {
         statusLabel = new Label();
         statusLabel.textProperty().bind(viewModel.statusMessageProperty());
-        statusLabel.getStyleClass().add("status-bar");
-        return statusLabel;
+        statusLabel.getStyleClass().add("status-label");
+        Region statusDot = new Region();
+        statusDot.getStyleClass().add("status-dot");
+        HBox statusBar = new HBox(6, statusDot, statusLabel);
+        statusBar.getStyleClass().add("status-bar");
+        statusBar.setAlignment(Pos.CENTER_LEFT);
+        return statusBar;
     }
 
     private Button svgIconButton(String iconResourcePath, String tooltip, Runnable action) {
@@ -840,7 +862,7 @@ public class MainWindow {
     private void applySidebarVisibility() {
         if (sidebarVisible) {
             sidebarVBox.setPrefWidth(Region.USE_COMPUTED_SIZE);
-            sidebarVBox.setMinWidth(Region.USE_COMPUTED_SIZE);
+            sidebarVBox.setMinWidth(SIDEBAR_EXPANDED_MIN_WIDTH);
             sidebarVBox.setMaxWidth(Region.USE_COMPUTED_SIZE);
             centerSplitPane.setDividerPositions(0.26);
             revealSidebarBtn.setVisible(false);
@@ -855,15 +877,8 @@ public class MainWindow {
 
     /** 应用 UI 字体设置（inline style 覆盖 CSS .root 规则） */
     private void applyUiFontSettings() {
-        String family = appSettingsService.get("ui.font.family", null);
-        String size = appSettingsService.get("ui.font.size", "13");
-        StringBuilder sb = new StringBuilder();
-        if (family != null && !family.isBlank()) {
-            sb.append("-fx-font-family: \"").append(family).append("\";");
-        }
-        sb.append("-fx-font-size: ").append(size).append("px;");
         if (primaryStage != null && primaryStage.getScene() != null) {
-            primaryStage.getScene().getRoot().setStyle(sb.toString());
+            primaryStage.getScene().getRoot().setStyle(themeService.uiStyle());
         }
     }
 

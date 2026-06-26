@@ -41,13 +41,13 @@ public class AboutDialog {
         pane.setAlignment(Pos.TOP_CENTER);
 
         Label appName = new Label("JLShell");
-        appName.setStyle("-fx-font-size:20px;-fx-font-weight:bold;");
+        appName.setStyle("-fx-font-size: 1.54em;-fx-font-weight:bold;");
 
         Label versionLabel = new Label(i18n.get("preferences.about.version", version));
-        versionLabel.setStyle("-fx-font-size:12px;");
+        versionLabel.setStyle("-fx-font-size: 0.92em;");
 
         Label desc = new Label(i18n.get("preferences.about.description"));
-        desc.setStyle("-fx-font-size:11px;");
+        desc.setStyle("-fx-font-size: 0.85em;");
         desc.setWrapText(true);
         desc.setMaxWidth(400);
         desc.setPrefWidth(400);
@@ -62,13 +62,13 @@ public class AboutDialog {
         authorBox.setAlignment(Pos.CENTER);
 
         Label authorTitle = new Label(i18n.get("preferences.about.author"));
-        authorTitle.setStyle("-fx-font-size:11px;-fx-font-weight:bold;");
+        authorTitle.setStyle("-fx-font-size: 0.85em;-fx-font-weight:bold;");
 
         Label authorName = new Label("voghost");
-        authorName.setStyle("-fx-font-size:12px;");
+        authorName.setStyle("-fx-font-size: 0.92em;");
 
         Label github = new Label("https://www.github.com/Voghost");
-        github.setStyle("-fx-font-size:11px;-fx-text-fill:#4d9cf8;-fx-cursor:hand;");
+        github.setStyle("-fx-font-size: 0.85em;-fx-text-fill:-jl-accent;-fx-cursor:hand;");
         github.setOnMouseClicked(e -> {
             try { java.awt.Desktop.getDesktop().browse(java.net.URI.create("https://www.github.com/Voghost")); }
             catch (Exception ignored) {}
@@ -81,10 +81,10 @@ public class AboutDialog {
         sep2.setPrefWidth(300);
 
         Label techTitle = new Label(i18n.get("preferences.about.techStack"));
-        techTitle.setStyle("-fx-font-size:11px;-fx-font-weight:bold;");
+        techTitle.setStyle("-fx-font-size: 0.85em;-fx-font-weight:bold;");
 
         Label techDetail = new Label("Java 21 · JavaFX 21 · SSHJ · JediTerm · JDBI 3 · SQLite");
-        techDetail.setStyle("-fx-font-size:10px;");
+        techDetail.setStyle("-fx-font-size: 0.77em;");
         techDetail.setWrapText(true);
         techDetail.setMaxWidth(400);
         techDetail.setTextAlignment(TextAlignment.CENTER);
