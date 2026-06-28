@@ -37,7 +37,9 @@ import javafx.scene.control.TextField;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
+import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
+import javafx.scene.shape.Rectangle;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -104,6 +106,8 @@ public class ProjectManagerDialog {
             private final Region spacer = new Region();
             private final HBox titleRow = new HBox(8, nameLbl, spacer, activeBadge);
             private final VBox box = new VBox(4, titleRow, descLbl);
+            private final StackPane clippedBox = new StackPane(box);
+            private final Rectangle clip = new Rectangle();
 
             {
                 nameLbl.getStyleClass().add("project-manager-item-name");
@@ -120,7 +124,15 @@ public class ProjectManagerDialog {
                 descLbl.setWrapText(false);
                 titleRow.setAlignment(Pos.CENTER_LEFT);
                 box.getStyleClass().add("project-manager-item");
-                box.setMaxWidth(Double.MAX_VALUE);
+                box.setMinWidth(0);
+                box.setPrefWidth(Region.USE_COMPUTED_SIZE);
+                box.maxWidthProperty().bind(clippedBox.widthProperty());
+                clippedBox.setMinWidth(0);
+                clippedBox.setMaxWidth(Double.MAX_VALUE);
+                clippedBox.prefWidthProperty().bind(lv.widthProperty().subtract(28));
+                clippedBox.setClip(clip);
+                clip.widthProperty().bind(clippedBox.widthProperty());
+                clip.heightProperty().bind(clippedBox.heightProperty());
             }
 
             @Override
@@ -149,7 +161,7 @@ public class ProjectManagerDialog {
                     activeBadge.setVisible(false);
                     activeBadge.setManaged(false);
                 }
-                setGraphic(box);
+                setGraphic(clippedBox);
                 setText(null);
             }
         });
