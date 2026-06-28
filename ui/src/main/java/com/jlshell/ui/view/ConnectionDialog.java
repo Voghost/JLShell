@@ -18,6 +18,7 @@ import com.jlshell.ui.model.ConnectionFormData;
 import com.jlshell.ui.model.FolderProfile;
 import com.jlshell.ui.model.ProjectProfile;
 import com.jlshell.ui.model.VaultEntryProfile;
+import com.jlshell.ui.service.ConnectionShareService;
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.service.VaultKeyService;
 import com.jlshell.ui.service.VaultService;
@@ -354,6 +355,9 @@ public final class ConnectionDialog {
         Button testBtn = new Button(i18n.get("action.testConnection"));
         testBtn.getStyleClass().add("button-primary");
         testBtn.setStyle("-fx-padding:4 12;-fx-font-size: 0.92em;");
+        Button pasteShareBtn = new Button(i18n.get("connection.share.pasteButton"));
+        pasteShareBtn.setVisible(initialData.id() == null);
+        pasteShareBtn.setManaged(initialData.id() == null);
         Label testResult = new Label();
         testResult.setStyle("-fx-font-size: 0.85em;");
 
@@ -450,7 +454,29 @@ public final class ConnectionDialog {
         testResult.setWrapText(true);
         testResult.setMaxWidth(Double.MAX_VALUE);
 
-        VBox testRow = new VBox(4, testBtn, testResult);
+        pasteShareBtn.setOnAction(e -> showPasteShareDialog(dialogPane.getScene().getWindow(), i18n, themeService)
+                .ifPresent(shared -> {
+                    typeBox.setValue(ConnectionType.SSH);
+                    displayNameField.setText(shared.displayName());
+                    hostField.setText(shared.host());
+                    portField.setText(String.valueOf(shared.port()));
+                    usernameField.setText(shared.username());
+                    authTypeBox.setValue(shared.authenticationType());
+                    passwordField.setText(shared.password());
+                    privateKeyPathField.setText(shared.privateKeyPath());
+                    passphraseField.setText(shared.passphrase());
+                    hostKeyBox.setValue(shared.hostKeyVerificationMode());
+                    defaultRemotePathField.setText(shared.defaultRemotePath());
+                    descriptionArea.setText(shared.description());
+                    favoriteBox.setSelected(shared.favorite());
+                    vaultBox.setValue(noneEntry);
+                    vaultEntryIdHolder[0] = null;
+                    keyContentHolder[0] = null;
+                }));
+
+        HBox testActions = new HBox(8, testBtn, pasteShareBtn);
+        testActions.setAlignment(Pos.CENTER_LEFT);
+        VBox testRow = new VBox(4, testActions, testResult);
         testRow.setPadding(new Insets(4, 20, 8, 20));
 
         VBox content = new VBox(form, testRow);
@@ -495,6 +521,78 @@ public final class ConnectionDialog {
             );
         });
 
+        return dialog.showAndWait();
+    }
+
+    public static Optional<ConnectionFormData> showPasteShareDialog(Window owner, I18nService i18n,
+                                                                    ThemeService themeService) {
+        Dialog<ConnectionFormData> dialog = new Dialog<>();
+        dialog.initOwner(owner);
+        dialog.setTitle(i18n.get("connection.share.pasteTitle"));
+        dialog.setHeaderText(i18n.get("connection.share.pasteHeader"));
+        themeService.applyToDialog(dialog);
+
+        TextArea shareArea = new TextArea();
+        shareArea.setPromptText(i18n.get("connection.share.pasteHint"));
+        shareArea.setWrapText(true);
+        shareArea.setPrefSize(500, 180);
+
+        Label errorLabel = new Label();
+        errorLabel.setStyle("-fx-text-fill: #ef4444; -fx-font-size: 0.85em;");
+
+        VBox content = new VBox(8, shareArea, errorLabel);
+        content.setPadding(new Insets(8, 0, 0, 0));
+        dialog.getDialogPane().setContent(content);
+
+        ButtonType pasteType = new ButtonType(i18n.get("connection.share.fillButton"), ButtonType.OK.getButtonData());
+        dialog.getDialogPane().getButtonTypes().addAll(pasteType, ButtonType.CANCEL);
+        dialog.setResultConverter(button -> null);
+        Button pasteButton = (Button) dialog.getDialogPane().lookupButton(pasteType);
+        final ConnectionFormData[] parsed = new ConnectionFormData[1];
+        pasteButton.addEventFilter(javafx.event.ActionEvent.ACTION, event -> {
+            event.consume();
+            try {
+                ConnectionShareService shareService = new ConnectionShareService();
+                String text = shareArea.getText() == null ? "" : shareArea.getText().trim();
+                if (!shareService.isShareText(text)) {
+                    errorLabel.setText(i18n.get("connection.share.invalidText"));
+                    return;
+                }
+                if (shareService.requiresShareCode(text)) {
+                    Optional<String> code = showShareCodeDialog(owner, i18n, themeService);
+                    if (code.isEmpty()) {
+                        return;
+                    }
+                    parsed[0] = shareService.importShareText(text, code.get().toCharArray(), null);
+                } else {
+                    parsed[0] = shareService.importShareText(text, null);
+                }
+                dialog.setResult(parsed[0]);
+                dialog.close();
+            } catch (Exception ex) {
+                errorLabel.setText(ex.getMessage());
+            }
+        });
+        return dialog.showAndWait();
+    }
+
+    private static Optional<String> showShareCodeDialog(Window owner, I18nService i18n, ThemeService themeService) {
+        Dialog<String> dialog = new Dialog<>();
+        dialog.initOwner(owner);
+        dialog.setTitle(i18n.get("connection.share.importCodeTitle"));
+        dialog.setHeaderText(i18n.get("connection.share.importCodeHeader"));
+        themeService.applyToDialog(dialog);
+
+        PasswordField codeField = new PasswordField();
+        codeField.setPromptText(i18n.get("connection.share.code"));
+        codeField.setPrefColumnCount(24);
+        VBox content = new VBox(8, new Label(i18n.get("connection.share.code")), codeField);
+        content.setPadding(new Insets(8, 0, 0, 0));
+        dialog.getDialogPane().setContent(content);
+
+        ButtonType importType = new ButtonType(i18n.get("import.button.import"), ButtonType.OK.getButtonData());
+        dialog.getDialogPane().getButtonTypes().addAll(importType, ButtonType.CANCEL);
+        dialog.setResultConverter(button -> button == importType ? codeField.getText().trim() : null);
         return dialog.showAndWait();
     }
 

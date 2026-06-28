@@ -1,10 +1,12 @@
 package com.jlshell.ui.view;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
@@ -19,6 +21,7 @@ import com.jlshell.sftp.service.SftpService;
 import com.jlshell.terminal.model.TerminalColorScheme;
 import com.jlshell.terminal.service.TerminalViewFactory;
 import com.jlshell.plugin.loader.PluginManager;
+import com.jlshell.program.plugin.loader.ProgramPluginManager;
 import com.jlshell.ui.dialog.ProjectManagerDialog;
 import com.jlshell.ui.model.ConnectionFormData;
 import com.jlshell.ui.model.ConnectionProfile;
@@ -26,6 +29,7 @@ import com.jlshell.ui.model.FolderProfile;
 import com.jlshell.ui.model.ProjectProfile;
 import com.jlshell.ui.model.SidebarItem;
 import com.jlshell.ui.service.ConnectionProfileService;
+import com.jlshell.ui.service.ConnectionShareService;
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.service.LocalShellLauncher;
 import com.jlshell.ui.service.VaultService;
@@ -44,10 +48,17 @@ import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonType;
+import javafx.scene.control.CheckMenuItem;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
+import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
+import javafx.scene.control.OverrunStyle;
+import javafx.scene.control.PasswordField;
+import javafx.scene.control.TextArea;
+import javafx.scene.control.TextField;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Menu;
 import javafx.scene.control.MenuBar;
@@ -70,6 +81,7 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
+import javafx.scene.shape.Rectangle;
 import javafx.stage.Screen;
 import javafx.stage.Stage;
 import org.slf4j.Logger;
@@ -84,6 +96,7 @@ public class MainWindow {
 
     private static final Logger log = LoggerFactory.getLogger(MainWindow.class);
     private static final String TERMINAL_SWING_NODE_STYLE_CLASS = "terminal-swing-node";
+    private static final double WINDOWS_OUTER_CORNER_RADIUS = 10;
 
     private final MainViewModel viewModel;
     private final ConnectionProfileService connectionProfileService;
@@ -97,11 +110,14 @@ public class MainWindow {
     private final LocalShellLauncher localShellLauncher;
     private final ExecutorService executor;
     private final PluginManager pluginManager;
+    private final ProgramPluginManager programPluginManager;
     private final ApiServer apiServer;
     private final CapabilityBus capabilityBus;
     private final VaultService vaultService;
+    private final ConnectionShareService connectionShareService = new ConnectionShareService();
     private final TabPane workspaceTabs = new TabPane();
     private final List<com.jlshell.terminal.service.TerminalViewHandle> localShellHandles = new ArrayList<>();
+    private final Set<String> connectingConnectionIds = new HashSet<>();
     private final ListView<ConnectionProfile> connectionListView = new ListView<>();
     private SidebarTreeView sidebarTreeView;
     private WelcomePane welcomePane;
@@ -130,15 +146,21 @@ public class MainWindow {
     private VBox sidebarVBox;
     private Button revealSidebarBtn;
     private static final double SIDEBAR_EXPANDED_MIN_WIDTH = 360;
+    private static final double SIDEBAR_EXPANDED_POSITION = 0.26;
+    private static final double SIDEBAR_MAX_POSITION = 1.0 / 3.0;
 
     // ── 顶栏折叠/展开 ──
     private boolean topBarCollapsed = false;
+    private boolean focusMode = false;
+    private boolean sidebarVisibleBeforeFocus = true;
+    private boolean topBarCollapsedBeforeFocus = false;
     private javafx.animation.PauseTransition collapseDelay;
     private CustomTitleBar customTitleBar; // Windows 专用
     private StackPane workspaceStack; // workspace StackPane
     private Button topBarCollapseBtn; // 顶栏中的折叠按钮（▾）
     private Button topBarExpandBtn; // 折叠后的展开按钮（▴）
     private Region topHoverZone; // 折叠后顶部 4px hover 感应条
+    private BorderPane rootPane;
     /** 折叠后的免疫期：刚折叠时不响应 hover 展开，避免按钮点击瞬间触发 mouseEntered */
     private long collapseImmuneUntil = 0;
 
@@ -160,6 +182,7 @@ public class MainWindow {
             VaultService vaultService,
             int maxFolderDepth,
             PluginManager pluginManager,
+            ProgramPluginManager programPluginManager,
             ApiServer apiServer,
             CapabilityBus capabilityBus,
             java.util.function.Function<String, com.jlshell.plugin.api.storage.PluginStorage> storageFactory
@@ -178,6 +201,7 @@ public class MainWindow {
         this.vaultService = vaultService;
         this.maxFolderDepth = maxFolderDepth;
         this.pluginManager = pluginManager;
+        this.programPluginManager = programPluginManager;
         this.apiServer = apiServer;
         this.capabilityBus = capabilityBus;
         this.storageFactory = storageFactory;
@@ -192,6 +216,7 @@ public class MainWindow {
     public Scene createScene(Stage stage) {
         this.primaryStage = stage;
         BorderPane root = new BorderPane();
+        rootPane = root;
         root.getStyleClass().add("app-root");
 
         boolean isWindows = System.getProperty("os.name", "").toLowerCase().contains("win");
@@ -244,6 +269,7 @@ public class MainWindow {
         // On Windows, the stage is UNDECORATED so we need manual edge resize.
         if (isWindows) {
             root.getStyleClass().add("win-undecorated");
+            installWindowsRoundedWindowClip(stage, root);
             installWindowResizeHandler(stage, scene);
             // 最大化时去掉圆角和边框间距，还原时恢复
             stage.maximizedProperty().addListener((obs, wasMax, isMax) -> {
@@ -267,6 +293,9 @@ public class MainWindow {
                     .map(SessionWorkspaceTab.class::cast)
                     .forEach(tab -> tab.applyColorScheme(scheme));
             pluginManager.setThemeName(newTheme.name().toLowerCase());
+            if (programPluginManager != null) {
+                programPluginManager.setThemeName(newTheme.name().toLowerCase());
+            }
         });
 
         themeService.accentColorProperty().addListener((obs, oldAccent, newAccent) -> {
@@ -284,6 +313,9 @@ public class MainWindow {
 
         i18nService.localeProperty().addListener((obs, oldLocale, newLocale) -> {
             pluginManager.setLocale(newLocale);
+            if (programPluginManager != null) {
+                programPluginManager.setLocale(newLocale);
+            }
             updateWindowTitle();
         });
 
@@ -292,22 +324,40 @@ public class MainWindow {
         return scene;
     }
 
+    private void installWindowsRoundedWindowClip(Stage stage, Region root) {
+        Rectangle clip = new Rectangle();
+        clip.widthProperty().bind(root.widthProperty());
+        clip.heightProperty().bind(root.heightProperty());
+        root.setClip(clip);
+
+        Runnable updateClipArc = () -> {
+            double radius = stage.isMaximized() || stage.isFullScreen() ? 0 : WINDOWS_OUTER_CORNER_RADIUS * 2;
+            clip.setArcWidth(radius);
+            clip.setArcHeight(radius);
+        };
+        updateClipArc.run();
+        stage.maximizedProperty().addListener((obs, oldValue, newValue) -> updateClipArc.run());
+        stage.fullScreenProperty().addListener((obs, oldValue, newValue) -> updateClipArc.run());
+    }
+
     private MenuBar buildMenuBar(Stage stage) {
         MenuBar menuBar = new MenuBar();
 
         // File 菜单
         Menu fileMenu = new Menu(i18nService.get("menu.file"));
         MenuItem newConnection = new MenuItem(i18nService.get("action.newConnection"));
+        MenuItem pasteShare = new MenuItem(i18nService.get("connection.share.pasteMenu"));
         MenuItem refreshConnections = new MenuItem(i18nService.get("action.refresh"));
         MenuItem exit = new MenuItem(i18nService.get("action.exit"));
         newConnection.setOnAction(event -> createConnection(stage));
+        pasteShare.setOnAction(event -> pasteSharedConnection(stage));
         refreshConnections.setOnAction(event -> loadConnections());
         exit.setOnAction(event -> stage.close());
 
         Menu projectsMenu = new Menu(i18nService.get("project.menu.projects"));
         MenuItem manageProjects = new MenuItem(i18nService.get("project.menu.manage"));
         manageProjects.setOnAction(e -> {
-            ProjectManagerDialog.show(stage, connectionProfileService, i18nService, themeService, activeProjectId,
+            ProjectManagerDialog.show(stage, connectionProfileService, i18nService, themeService, vaultService, activeProjectId,
                     projectId -> FxThread.run(() -> switchProject(projectId)));
             rebuildProjectsMenu(projectsMenu, stage);
             refreshProjectCombo();
@@ -324,7 +374,7 @@ public class MainWindow {
                     connectionProfileService.listProjects(), () -> FxThread.run(this::loadConnections));
         });
 
-        fileMenu.getItems().addAll(newConnection, refreshConnections, projectsMenu, manageVault, new SeparatorMenuItem(), exit);
+        fileMenu.getItems().addAll(newConnection, pasteShare, refreshConnections, projectsMenu, manageVault, new SeparatorMenuItem(), exit);
 
         // View 菜单
         Menu viewMenu = new Menu(i18nService.get("menu.view"));
@@ -332,11 +382,15 @@ public class MainWindow {
         toggleSidebarItem.setOnAction(event -> toggleSidebar());
         MenuItem collapseTopBarItem = new MenuItem(i18nService.get("topbar.collapse"));
         collapseTopBarItem.setOnAction(event -> toggleTopBarCollapse());
+        CheckMenuItem focusModeItem = new CheckMenuItem(i18nService.get("focusMode.toggle"));
+        focusModeItem.setSelected(focusMode);
+        focusModeItem.setOnAction(event -> setFocusMode(focusModeItem.isSelected()));
         MenuItem darkTheme = new MenuItem(i18nService.get("theme.dark"));
         MenuItem lightTheme = new MenuItem(i18nService.get("theme.light"));
         darkTheme.setOnAction(event -> themeService.setTheme(AppTheme.DARK));
         lightTheme.setOnAction(event -> themeService.setTheme(AppTheme.LIGHT));
-        viewMenu.getItems().addAll(toggleSidebarItem, collapseTopBarItem, new SeparatorMenuItem(), darkTheme, lightTheme);
+        viewMenu.getItems().addAll(toggleSidebarItem, collapseTopBarItem, focusModeItem,
+                new SeparatorMenuItem(), darkTheme, lightTheme);
 
         // Preferences menu item
         // On macOS, JavaFX automatically moves a MenuItem with Cmd+, shortcut to the app menu.
@@ -371,11 +425,20 @@ public class MainWindow {
         installApplicationShortcut(scene, KeyCode.Q, stage::close);
         installApplicationShortcut(scene, KeyCode.B, this::toggleSidebar);
         installApplicationShortcut(scene, KeyCode.T, this::toggleTopBarCollapse);
+        installApplicationShortcut(scene, KeyCode.F, this::toggleFocusMode, KeyCombination.SHIFT_DOWN);
         installApplicationShortcut(scene, KeyCode.COMMA, () -> openPreferences(stage));
     }
 
     private void installApplicationShortcut(Scene scene, KeyCode keyCode, Runnable action) {
-        KeyCodeCombination shortcut = new KeyCodeCombination(keyCode, KeyCombination.SHORTCUT_DOWN);
+        installApplicationShortcut(scene, keyCode, action, new KeyCombination.Modifier[0]);
+    }
+
+    private void installApplicationShortcut(Scene scene, KeyCode keyCode, Runnable action,
+                                            KeyCombination.Modifier... modifiers) {
+        KeyCombination.Modifier[] allModifiers = new KeyCombination.Modifier[modifiers.length + 1];
+        allModifiers[0] = KeyCombination.SHORTCUT_DOWN;
+        System.arraycopy(modifiers, 0, allModifiers, 1, modifiers.length);
+        KeyCodeCombination shortcut = new KeyCodeCombination(keyCode, allModifiers);
         scene.addEventFilter(KeyEvent.KEY_PRESSED, event -> {
             if (event.isConsumed() || !shortcut.match(event)) {
                 return;
@@ -499,7 +562,8 @@ public class MainWindow {
     public void openPreferences(Stage stage) {
         String selectedSessionId = selectedApiSessionId();
         PreferencesDialog.show(stage, fontProfileService, appSettingsService, i18nService, themeService,
-                connectionProfileService, activeProjectId, apiServer, capabilityBus, selectedSessionId, 0);
+                connectionProfileService, activeProjectId, apiServer, capabilityBus, programPluginManager,
+                pluginManager, selectedSessionId, 0);
         // 导入后刷新侧边栏
         loadConnections();
         // 应用可能变更的 UI 字体设置
@@ -551,6 +615,7 @@ public class MainWindow {
             if (wasTopBarCollapsed) {
                 applyTopBarCollapsed(true);
             }
+            updateTerminalFocusLayoutStyle();
         }
     }
 
@@ -588,7 +653,9 @@ public class MainWindow {
         StackPane.setAlignment(revealSidebarBtn, javafx.geometry.Pos.BOTTOM_LEFT);
         StackPane.setMargin(revealSidebarBtn, new Insets(0, 0, 4, 4));
 
-        // ── 顶栏折叠按钮 overlay（workspace 右上角，外层 tab header 右侧） ──
+        // ── 顶栏折叠按钮 overlay ──
+        // 不放在外层 workspace tab header 右侧：JavaFX 在标签溢出时也会在该位置
+        // 生成“更多标签”按钮，两者会重叠。下移到内层导航行右侧，避开标签溢出区。
         topBarCollapseBtn = new Button("⌄");
         topBarCollapseBtn.getStyleClass().add("topbar-collapse-btn");
         topBarCollapseBtn.setTooltip(new javafx.scene.control.Tooltip(i18nService.get("topbar.collapse")));
@@ -596,7 +663,7 @@ public class MainWindow {
             toggleTopBarCollapse();
         });
         StackPane.setAlignment(topBarCollapseBtn, javafx.geometry.Pos.TOP_RIGHT);
-        StackPane.setMargin(topBarCollapseBtn, new Insets(2, 4, 0, 0));
+        StackPane.setMargin(topBarCollapseBtn, new Insets(34, 8, 0, 0));
         // 初始无 tab 时不显示；有 tab 时由 applyTopBarCollapsed 管理
         topBarCollapseBtn.setVisible(false);
         workspaceTabs.getTabs().addListener((javafx.collections.ListChangeListener<javafx.scene.control.Tab>) c -> {
@@ -649,8 +716,21 @@ public class MainWindow {
         });
 
         centerSplitPane = new SplitPane(sidebarVBox, workspaceStackPane);
-        centerSplitPane.setDividerPositions(0.26);
+        installSidebarDividerLimit(centerSplitPane);
+        centerSplitPane.setDividerPositions(SIDEBAR_EXPANDED_POSITION);
         return centerSplitPane;
+    }
+
+    private void installSidebarDividerLimit(SplitPane splitPane) {
+        splitPane.getDividers().getFirst().positionProperty().addListener((obs, oldPosition, newPosition) -> {
+            if (!sidebarVisible) {
+                return;
+            }
+            double position = newPosition.doubleValue();
+            if (position > SIDEBAR_MAX_POSITION) {
+                splitPane.setDividerPositions(SIDEBAR_MAX_POSITION);
+            }
+        });
     }
 
     private void updateWindowTitle() {
@@ -735,6 +815,11 @@ public class MainWindow {
                 }
             }
         });
+        sidebarTreeView.setOnCopyShare(item -> {
+            if (item instanceof SidebarItem.ConnectionItem conn) {
+                copyConnectionShare(stage, conn.id());
+            }
+        });
         sidebarTreeView.setOnNewSubFolder((parentId, parentDepth) -> createSubFolder(stage, parentId));
         sidebarTreeView.setOnRenameFolder((folderId, currentName) -> renameFolder(stage, folderId, currentName));
         sidebarTreeView.setOnNewConnectionInFolder(folderId -> createConnectionInFolder(stage, folderId));
@@ -780,6 +865,7 @@ public class MainWindow {
                 new javafx.scene.layout.Region(), connectButton, refreshButton, toggleSidebarBtn);
         HBox.setHgrow(actionBar.getChildren().get(4), Priority.ALWAYS);
         actionBar.getStyleClass().add("sidebar-action-bar");
+        VBox.setMargin(actionBar, new Insets(0, 6, 10, 6));
 
         // 搜索框 — 放在 sectionLabel 和 TreeView 之间
         searchField = new javafx.scene.control.TextField();
@@ -794,6 +880,7 @@ public class MainWindow {
         clearSearchBtn.setOnAction(e -> searchField.clear());
         HBox searchRow = new HBox(4, searchIcon != null ? searchIcon : new Region(), searchField, clearSearchBtn);
         searchRow.getStyleClass().add("sidebar-search-row");
+        searchRow.setMaxWidth(420);
         HBox.setHgrow(searchField, Priority.ALWAYS);
         searchField.textProperty().addListener((obs, oldVal, newVal) ->
                 sidebarTreeView.applyFilter(newVal));
@@ -812,16 +899,24 @@ public class MainWindow {
             @Override
             protected void updateItem(ProjectProfile item, boolean empty) {
                 super.updateItem(item, empty);
+                setTextOverrun(OverrunStyle.ELLIPSIS);
                 setText(empty ? "" : (item == DEFAULT_PROJECT ? i18nService.get("project.label.default") : item.name()));
             }
         });
         projectCombo.setCellFactory(lv -> new ListCell<>() {
+            {
+                if (!lv.getStyleClass().contains("sidebar-project-combo-popup")) {
+                    lv.getStyleClass().add("sidebar-project-combo-popup");
+                }
+            }
+
             @Override
             protected void updateItem(ProjectProfile item, boolean empty) {
                 super.updateItem(item, empty);
                 if (!getStyleClass().contains("sidebar-project-cell")) {
                     getStyleClass().add("sidebar-project-cell");
                 }
+                setTextOverrun(OverrunStyle.ELLIPSIS);
                 setText(empty ? "" : (item == DEFAULT_PROJECT ? i18nService.get("project.label.default") : item.name()));
             }
         });
@@ -833,19 +928,23 @@ public class MainWindow {
 
         Button manageProjectBtn = svgIconButton("/icons/project.svg", i18nService.get("project.menu.manage"),
                 () -> {
-                    ProjectManagerDialog.show(stage, connectionProfileService, i18nService, themeService, activeProjectId,
+                    ProjectManagerDialog.show(stage, connectionProfileService, i18nService, themeService, vaultService, activeProjectId,
                             projectId -> FxThread.run(() -> switchProject(projectId)));
                     refreshProjectCombo();
                     loadConnections();
                 });
 
-        Region projectSpacer = new Region();
         HBox.setHgrow(projectCombo, Priority.ALWAYS);
-        HBox.setHgrow(projectSpacer, Priority.ALWAYS);
-        HBox projectRow = new HBox(6, projectSwitchLabel, projectCombo, projectSpacer, manageProjectBtn, settingsButton);
+        HBox projectRow = new HBox(8, projectSwitchLabel, projectCombo, manageProjectBtn, settingsButton);
         projectRow.getStyleClass().add("sidebar-project-row");
+        VBox.setMargin(projectRow, new Insets(10, 6, 8, 6));
 
-        VBox sidebar = new VBox(0, projectRow, sectionLabel, searchRow, sidebarTreeView.getTreeView(), actionBar);
+        VBox listPanel = new VBox(0, sectionLabel, searchRow, sidebarTreeView.getTreeView());
+        listPanel.getStyleClass().add("sidebar-list-panel");
+        VBox.setMargin(listPanel, new Insets(0, 6, 8, 6));
+        VBox.setVgrow(listPanel, Priority.ALWAYS);
+
+        VBox sidebar = new VBox(0, projectRow, listPanel, actionBar);
         sidebar.getStyleClass().add("sidebar");
         VBox.setVgrow(sidebarTreeView.getTreeView(), Priority.ALWAYS);
         return sidebar;
@@ -956,13 +1055,41 @@ public class MainWindow {
         applySidebarVisibility();
     }
 
+    private void toggleFocusMode() {
+        setFocusMode(!focusMode);
+    }
+
+    private void setFocusMode(boolean enabled) {
+        if (focusMode == enabled) {
+            return;
+        }
+        focusMode = enabled;
+        if (enabled) {
+            sidebarVisibleBeforeFocus = sidebarVisible;
+            topBarCollapsedBeforeFocus = topBarCollapsed;
+            if (sidebarVisible) {
+                toggleSidebar();
+            }
+            if (!topBarCollapsed) {
+                toggleTopBarCollapse();
+            }
+        } else {
+            if (sidebarVisible != sidebarVisibleBeforeFocus) {
+                toggleSidebar();
+            }
+            if (topBarCollapsed != topBarCollapsedBeforeFocus) {
+                toggleTopBarCollapse();
+            }
+        }
+    }
+
     private void applySidebarVisibility() {
         if (sidebarVisible) {
             centerSplitPane.getStyleClass().remove("sidebar-collapsed");
             sidebarVBox.setPrefWidth(Region.USE_COMPUTED_SIZE);
             sidebarVBox.setMinWidth(SIDEBAR_EXPANDED_MIN_WIDTH);
             sidebarVBox.setMaxWidth(Region.USE_COMPUTED_SIZE);
-            centerSplitPane.setDividerPositions(0.26);
+            centerSplitPane.setDividerPositions(SIDEBAR_EXPANDED_POSITION);
             revealSidebarBtn.setVisible(false);
         } else {
             if (!centerSplitPane.getStyleClass().contains("sidebar-collapsed")) {
@@ -974,6 +1101,7 @@ public class MainWindow {
             centerSplitPane.setDividerPositions(0);
             revealSidebarBtn.setVisible(true);
         }
+        updateTerminalFocusLayoutStyle();
     }
 
     /** 应用 UI 字体设置（inline style 覆盖 CSS .root 规则） */
@@ -1041,6 +1169,21 @@ public class MainWindow {
             // 隐藏展开按钮和 hover 感应条
             topBarExpandBtn.setVisible(false);
             topHoverZone.setVisible(false);
+        }
+        updateTerminalFocusLayoutStyle();
+    }
+
+    private void updateTerminalFocusLayoutStyle() {
+        if (rootPane == null) {
+            return;
+        }
+        boolean focusedTerminalLayout = !sidebarVisible && topBarCollapsed;
+        if (focusedTerminalLayout) {
+            if (!rootPane.getStyleClass().contains("terminal-focus-layout")) {
+                rootPane.getStyleClass().add("terminal-focus-layout");
+            }
+        } else {
+            rootPane.getStyleClass().remove("terminal-focus-layout");
         }
     }
 
@@ -1249,6 +1392,39 @@ public class MainWindow {
                 .ifPresent(form -> saveConnection(form));
     }
 
+    private void pasteSharedConnection(Stage stage) {
+        ConnectionDialog.showPasteShareDialog(stage, i18nService, themeService)
+                .ifPresent(shared -> ConnectionDialog.show(stage, i18nService, themeService, withActiveProject(shared),
+                        connectionProfileService.listProjects(),
+                        connectionProfileService.listFolders(activeProjectId),
+                        vaultService,
+                        this::testConnection, connectTimeoutSeconds())
+                        .ifPresent(this::saveConnection));
+    }
+
+    private ConnectionFormData withActiveProject(ConnectionFormData form) {
+        return new ConnectionFormData(
+                form.id(),
+                form.displayName(),
+                form.host(),
+                form.port(),
+                form.username(),
+                form.authenticationType(),
+                form.password(),
+                form.privateKeyPath(),
+                form.passphrase(),
+                form.hostKeyVerificationMode(),
+                form.description(),
+                form.defaultRemotePath(),
+                form.favorite(),
+                activeProjectId,
+                form.connectionType(),
+                form.folderId(),
+                form.vaultEntryId(),
+                form.keyContent()
+        );
+    }
+
     private void duplicateConnection(Stage stage, ConnectionProfile source) {
         ConnectionFormData copyData = source.toCopyFormData();
         ConnectionDialog.show(stage, i18nService, themeService, copyData,
@@ -1257,6 +1433,90 @@ public class MainWindow {
                 vaultService,
                 this::testConnection, connectTimeoutSeconds())
                 .ifPresent(form -> saveConnection(form));
+    }
+
+    private void copyConnectionShare(Stage stage, String connectionId) {
+        CompletableFuture.supplyAsync(() -> connectionProfileService.loadForm(connectionId), executor)
+                .whenComplete((formData, throwable) -> FxThread.run(() -> {
+                    if (throwable != null) {
+                        showError(i18nService.get("connection.share.loadFailed", throwable.getMessage()));
+                        return;
+                    }
+                    showConnectionShareDialog(stage, formData);
+                }));
+    }
+
+    private void showConnectionShareDialog(Stage stage, ConnectionFormData formData) {
+        Dialog<Void> dialog = new Dialog<>();
+        dialog.initOwner(stage);
+        dialog.setTitle(i18nService.get("connection.share.title"));
+        dialog.setHeaderText(i18nService.get("connection.share.header", formData.displayName()));
+        themeService.applyToDialog(dialog);
+
+        TextField codeField = new TextField(connectionShareService.generateShareCode());
+        codeField.setPrefColumnCount(22);
+        CheckBox includeShareCode = new CheckBox(i18nService.get("connection.share.includeShareCode"));
+        includeShareCode.setSelected(false);
+
+        TextArea preview = new TextArea();
+        preview.setEditable(false);
+        preview.setWrapText(true);
+        preview.setPrefSize(520, 150);
+
+        Runnable refreshPreview = () -> {
+            try {
+                preview.setText(connectionShareService.exportShareText(
+                        formData,
+                        codeField.getText() == null ? "" : codeField.getText().trim(),
+                        includeShareCode.isSelected()));
+            } catch (RuntimeException e) {
+                preview.setText("");
+            }
+        };
+        codeField.textProperty().addListener((obs, oldValue, newValue) -> refreshPreview.run());
+        includeShareCode.selectedProperty().addListener((obs, oldValue, newValue) -> refreshPreview.run());
+        refreshPreview.run();
+
+        Label hint = new Label(i18nService.get("connection.share.codeHint"));
+        hint.setWrapText(true);
+
+        javafx.scene.layout.GridPane grid = new javafx.scene.layout.GridPane();
+        grid.setHgap(8);
+        grid.setVgap(8);
+        grid.add(new Label(i18nService.get("connection.share.code")), 0, 0);
+        grid.add(codeField, 1, 0);
+        grid.add(new Label(i18nService.get("connection.share.codeCopy")), 0, 1);
+        grid.add(includeShareCode, 1, 1);
+        grid.add(hint, 1, 2);
+        grid.add(new Label(i18nService.get("connection.share.text")), 0, 3);
+        grid.add(preview, 1, 3);
+        dialog.getDialogPane().setContent(grid);
+
+        ButtonType copyButtonType = new ButtonType(i18nService.get("connection.share.copyButton"), ButtonType.OK.getButtonData());
+        dialog.getDialogPane().getButtonTypes().addAll(copyButtonType, ButtonType.CANCEL);
+        javafx.scene.Node copyButton = dialog.getDialogPane().lookupButton(copyButtonType);
+        copyButton.addEventFilter(javafx.event.ActionEvent.ACTION, event -> {
+            event.consume();
+            String code = codeField.getText() == null ? "" : codeField.getText().trim();
+            if (code.isBlank()) {
+                showError(i18nService.get("connection.share.codeRequired"));
+                return;
+            }
+            String shareText = connectionShareService.exportShareText(formData, code, includeShareCode.isSelected());
+            String clipboardText = i18nService.get("connection.share.clipboardHeader",
+                    formData.host() == null || formData.host().isBlank() ? "-" : formData.host())
+                    + System.lineSeparator()
+                    + shareText;
+            javafx.scene.input.ClipboardContent content = new javafx.scene.input.ClipboardContent();
+            content.putString(clipboardText);
+            javafx.scene.input.Clipboard.getSystemClipboard().setContent(content);
+            dialog.close();
+            Alert done = new Alert(Alert.AlertType.INFORMATION, i18nService.get("connection.share.copied"), ButtonType.OK);
+            themeService.applyToDialog(done);
+            done.initOwner(stage);
+            done.showAndWait();
+        });
+        dialog.showAndWait();
     }
 
     private void editSelectedConnection(Stage stage) {
@@ -1361,14 +1621,43 @@ public class MainWindow {
         if (selected == null) {
             return;
         }
+        connectProfile(selected);
+    }
+
+    private void connectProfile(ConnectionProfile selected) {
+        if (!beginConnecting(selected)) {
+            log.debug("Ignoring duplicate connect request for {}", selected.summary());
+            return;
+        }
         log.info("Connect requested for {}", selected.summary());
         viewModel.statusMessageProperty().set(i18nService.get("status.connecting", selected.summary()));
 
-        if (selected.connectionType() == ConnectionType.LOCAL_SHELL) {
-            connectLocalShell(selected);
-        } else {
-            connectSsh(selected);
+        try {
+            if (selected.connectionType() == ConnectionType.LOCAL_SHELL) {
+                connectLocalShell(selected);
+            } else {
+                connectSsh(selected);
+            }
+        } catch (Throwable throwable) {
+            finishConnecting(selected);
+            throw throwable;
         }
+    }
+
+    private boolean beginConnecting(ConnectionProfile profile) {
+        String id = profile.id();
+        if (id == null || id.isBlank()) {
+            return true;
+        }
+        return connectingConnectionIds.add(id);
+    }
+
+    private void finishConnecting(ConnectionProfile profile) {
+        String id = profile.id();
+        if (id == null || id.isBlank()) {
+            return;
+        }
+        connectingConnectionIds.remove(id);
     }
 
     private void connectLocalShell(ConnectionProfile profile) {
@@ -1377,13 +1666,17 @@ public class MainWindow {
                         themeService.activeColorScheme(), terminalRuntimeSettings());
         localShellLauncher.launch(profile.displayName(), request)
                 .whenComplete((viewHandle, throwable) -> FxThread.run(() -> {
-                    if (throwable != null) {
-                        log.error("Local shell launch failed for {}", profile.displayName(), throwable);
-                        showError(i18nService.get("status.connectionFailed",
-                                throwable.getCause() == null ? throwable.getMessage() : throwable.getCause().getMessage()));
-                        return;
+                    try {
+                        if (throwable != null) {
+                            log.error("Local shell launch failed for {}", profile.displayName(), throwable);
+                            showError(i18nService.get("status.connectionFailed",
+                                    throwable.getCause() == null ? throwable.getMessage() : throwable.getCause().getMessage()));
+                            return;
+                        }
+                        openLocalShellTab(profile, viewHandle);
+                    } finally {
+                        finishConnecting(profile);
                     }
-                    openLocalShellTab(profile, viewHandle);
                 }));
     }
 
@@ -1437,12 +1730,22 @@ public class MainWindow {
                 .whenComplete((sshSession, throwable) -> {
                     if (throwable != null) {
                         log.error("SSH connection failed for {}", selected.summary(), throwable);
-                        FxThread.run(() -> showError(i18nService.get("status.connectionFailed",
-                                throwable.getCause() == null ? throwable.getMessage() : throwable.getCause().getMessage())));
+                        FxThread.run(() -> {
+                            showError(i18nService.get("status.connectionFailed",
+                                    throwable.getCause() == null ? throwable.getMessage() : throwable.getCause().getMessage()));
+                            finishConnecting(selected);
+                        });
                         return;
                     }
                     log.info("SSH connection future completed for session {}", sshSession.sessionId());
-                    FxThread.run(() -> openWorkspace(selected, sshSession));
+                    FxThread.run(() -> {
+                        try {
+                            openWorkspace(selected, sshSession);
+                        } catch (Throwable t) {
+                            finishConnecting(selected);
+                            throw t;
+                        }
+                    });
                 });
     }
 
@@ -1491,13 +1794,17 @@ public class MainWindow {
             workspaceTabs.getSelectionModel().select(tab);
             log.info("Workspace tab added for session {}", sshSession.sessionId());
             tab.initialize().whenComplete((unused, t) -> FxThread.run(() -> {
-                if (t != null) {
-                    log.error("Workspace initialization failed for session {}", sshSession.sessionId(), t);
-                    showError(i18nService.get("status.terminalOpenFailed", t.getMessage()));
-                    workspaceTabs.getTabs().remove(tab);
-                } else {
-                    log.info("Workspace initialization completed for session {}", sshSession.sessionId());
-                    viewModel.statusMessageProperty().set(i18nService.get("status.connected", profile.summary()));
+                try {
+                    if (t != null) {
+                        log.error("Workspace initialization failed for session {}", sshSession.sessionId(), t);
+                        showError(i18nService.get("status.terminalOpenFailed", t.getMessage()));
+                        workspaceTabs.getTabs().remove(tab);
+                    } else {
+                        log.info("Workspace initialization completed for session {}", sshSession.sessionId());
+                        viewModel.statusMessageProperty().set(i18nService.get("status.connected", profile.summary()));
+                    }
+                } finally {
+                    finishConnecting(profile);
                 }
             }));
         }));
@@ -1525,7 +1832,7 @@ public class MainWindow {
         duplicate.setOnAction(e -> {
             if (tab instanceof SessionWorkspaceTab swt) {
                 // 复制会话：用同一连接配置新建 SSH 连接
-                connectSsh(swt.getConnectionProfile());
+                connectProfile(swt.getConnectionProfile());
             }
         });
 

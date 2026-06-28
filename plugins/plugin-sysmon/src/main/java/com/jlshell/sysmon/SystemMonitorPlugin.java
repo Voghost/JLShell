@@ -25,6 +25,9 @@ public class SystemMonitorPlugin implements JlShellPlugin, PluginView {
     @Override public String id()              { return "com.jlshell.sysmon"; }
     @Override public String displayName()     { return "System Monitor"; }
     @Override public String version()         { return "0.1.0"; }
+    @Override public String author()          { return "JLShell"; }
+    @Override public String minHostVersionInclusive() { return "0.1.0"; }
+    @Override public String maxHostVersionInclusive() { return "0.1.999"; }
     @Override public String description()     { return "Real-time CPU, memory, network, and disk monitoring with trend charts."; }
     @Override public boolean requiresSshSession() { return false; }
 

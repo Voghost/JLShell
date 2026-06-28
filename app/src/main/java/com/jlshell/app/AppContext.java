@@ -25,6 +25,7 @@ import com.jlshell.data.service.JdbiCustomColorSchemeStore;
 import com.jlshell.data.JdbiPluginStorage;
 import com.jlshell.plugin.loader.CapabilityBusImpl;
 import com.jlshell.plugin.loader.PluginManager;
+import com.jlshell.program.plugin.loader.ProgramPluginManager;
 import com.jlshell.sftp.service.SftpService;
 import com.jlshell.sftp.support.SshjSftpService;
 import com.jlshell.ssh.support.EphemeralTrustHostKeyVerifier;
@@ -59,6 +60,7 @@ public class AppContext implements AutoCloseable {
     private final ExecutorService executor;
     private final MainWindow mainWindow;
     private final com.jlshell.api.server.ApiServer apiServer;
+    private final ProgramPluginManager programPluginManager;
 
     public AppContext() {
         String userHome = System.getProperty("user.home");
@@ -120,7 +122,8 @@ public class AppContext implements AutoCloseable {
         SftpService sftpService = new SshjSftpService(executor);
 
         // 6. Plugins — 延迟到首次 getAvailablePlugins()/activatePlugin() 才扫描 JAR
-        PluginManager pluginManager = new PluginManager();
+        String hostVersion = com.jlshell.ui.dialog.PreferencesDialog.getVersion();
+        PluginManager pluginManager = new PluginManager(userHome + "/.jlshell/plugins", hostVersion);
 
         // 6b. RPC 内核 + 外部 API
         CapabilityBusImpl capabilityBus = new CapabilityBusImpl(pluginManager);
@@ -172,6 +175,22 @@ public class AppContext implements AutoCloseable {
         java.util.function.Function<String, com.jlshell.plugin.api.storage.PluginStorage> storageFactory =
                 pluginId -> new JdbiPluginStorage(jdbi, pluginId);
 
+        ProgramPluginManager programPluginManager = new ProgramPluginManager(
+                userHome + "/.jlshell/program-plugins",
+                hostVersion,
+                pluginManager,
+                pluginManager.globalRegistry(),
+                capabilityBus,
+                storageFactory,
+                (key, fallback) -> {
+                    String value = i18nService.get(key);
+                    return value == null || value.isBlank() || value.equals(key) ? fallback : value;
+                }
+        );
+        programPluginManager.setThemeName(themeService.currentThemeProperty().get().name().toLowerCase());
+        programPluginManager.setLocale(initialLocale);
+        programPluginManager.ensureLoaded();
+
         mainWindow = new MainWindow(
                 viewModel,
                 connectionProfileService,
@@ -187,12 +206,14 @@ public class AppContext implements AutoCloseable {
                 vaultService,
                 5,
                 pluginManager,
+                programPluginManager,
                 apiServer,
                 capabilityBus,
                 storageFactory
         );
 
         this.apiServer = apiServer;
+        this.programPluginManager = programPluginManager;
 
         log.info("AppContext initialised");
     }
@@ -205,6 +226,7 @@ public class AppContext implements AutoCloseable {
     public void close() {
         log.info("AppContext shutting down");
         if (apiServer != null) apiServer.stop();
+        if (programPluginManager != null) programPluginManager.deactivateAll();
         executor.shutdownNow();
         dataSource.close();
     }

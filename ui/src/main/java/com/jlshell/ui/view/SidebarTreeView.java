@@ -52,6 +52,7 @@ public class SidebarTreeView {
     private Consumer<SidebarItem> onEdit;
     private Consumer<List<SidebarItem>> onDelete;
     private Consumer<SidebarItem> onDuplicate;
+    private Consumer<SidebarItem> onCopyShare;
     private Runnable onNewConnectionInEmpty;
     private Runnable onNewFolderInEmpty;
     private BiConsumer<String, Integer> onNewSubFolder;
@@ -151,6 +152,7 @@ public class SidebarTreeView {
     public void setOnEdit(Consumer<SidebarItem> v) { this.onEdit = v; }
     public void setOnDelete(Consumer<List<SidebarItem>> v) { this.onDelete = v; }
     public void setOnDuplicate(Consumer<SidebarItem> v) { this.onDuplicate = v; }
+    public void setOnCopyShare(Consumer<SidebarItem> v) { this.onCopyShare = v; }
     public void setOnNewConnectionInEmpty(Runnable v) { this.onNewConnectionInEmpty = v; }
     public void setOnNewFolderInEmpty(Runnable v) { this.onNewFolderInEmpty = v; }
     public void setOnNewSubFolder(BiConsumer<String, Integer> v) { this.onNewSubFolder = v; }
@@ -467,12 +469,14 @@ public class SidebarTreeView {
             MenuItem connect  = new MenuItem(i18n.get("action.connect"));
             MenuItem edit     = new MenuItem(i18n.get("action.editConnection"));
             MenuItem duplicate = new MenuItem(i18n.get("action.duplicateConnection"));
+            MenuItem copyShare = new MenuItem(i18n.get("connection.share.copy"));
             MenuItem delete   = new MenuItem(i18n.get("action.deleteConnection"));
             connect.setOnAction(e -> { if (onConnect != null) onConnect.run(); });
             edit.setOnAction(e -> { if (onEdit != null) onEdit.accept(conn); });
             duplicate.setOnAction(e -> { if (onDuplicate != null) onDuplicate.accept(conn); });
+            copyShare.setOnAction(e -> { if (onCopyShare != null) onCopyShare.accept(conn); });
             delete.setOnAction(e -> { if (onDelete != null) onDelete.accept(getSelectedItems()); });
-            return transparentPopup(new ContextMenu(connect, edit, duplicate, new SeparatorMenuItem(), delete));
+            return transparentPopup(new ContextMenu(connect, edit, duplicate, copyShare, new SeparatorMenuItem(), delete));
         }
 
         private ContextMenu buildFolderContextMenu(SidebarItem.FolderItem folder, int depth) {
