@@ -60,7 +60,11 @@ public class ThemeService {
     }
 
     public void setTheme(AppTheme theme) {
+        if (theme == null) {
+            return;
+        }
         currentTheme.set(theme);
+        appSettings.set("ui.theme", theme.name());
     }
 
     public ObjectProperty<AccentColor> accentColorProperty() {
