@@ -96,6 +96,7 @@ public class MainWindow {
 
     private static final Logger log = LoggerFactory.getLogger(MainWindow.class);
     private static final String TERMINAL_SWING_NODE_STYLE_CLASS = "terminal-swing-node";
+    private static final String WORKSPACE_TAB_TITLE_KEY = "workspaceTabTitle";
     private static final double WINDOWS_OUTER_CORNER_RADIUS = 10;
 
     private final MainViewModel viewModel;
@@ -752,6 +753,40 @@ public class MainWindow {
             detail = formatConnectionTitle(profile);
         }
         return detail == null || detail.isBlank() ? "JLShell" : detail + " — JLShell";
+    }
+
+    private void installWorkspaceTabHeader(javafx.scene.control.Tab tab, String title) {
+        tab.getProperties().put(WORKSPACE_TAB_TITLE_KEY, title);
+        tab.setText(null);
+        tab.setClosable(false);
+
+        Label titleLabel = new Label(title);
+        titleLabel.getStyleClass().add("workspace-tab-title");
+        titleLabel.setTextOverrun(OverrunStyle.ELLIPSIS);
+        titleLabel.setMaxWidth(190);
+
+        Label closeGlyph = new Label("×");
+        closeGlyph.getStyleClass().add("workspace-tab-close-glyph");
+        closeGlyph.setAlignment(Pos.CENTER);
+
+        StackPane closeGraphic = new StackPane(closeGlyph);
+        closeGraphic.getStyleClass().add("workspace-tab-close-graphic");
+        closeGraphic.setAlignment(Pos.CENTER);
+
+        Button closeButton = new Button();
+        closeButton.getStyleClass().add("workspace-tab-close");
+        closeButton.setGraphic(closeGraphic);
+        closeButton.setFocusTraversable(false);
+        closeButton.setTooltip(new javafx.scene.control.Tooltip(i18nService.get("tab.close")));
+        closeButton.setOnAction(event -> {
+            event.consume();
+            closeTab(tab);
+        });
+
+        HBox header = new HBox(5, titleLabel, closeButton);
+        header.getStyleClass().add("workspace-tab-header");
+        header.setAlignment(Pos.CENTER);
+        tab.setGraphic(header);
     }
 
     private String formatConnectionTitle(ConnectionProfile profile) {
@@ -1694,7 +1729,7 @@ public class MainWindow {
         localShellHandles.add(viewHandle);
         javafx.scene.control.Tab tab = new javafx.scene.control.Tab(profile.displayName());
         tab.setUserData(profile);
-        tab.setClosable(true);
+        installWorkspaceTabHeader(tab, profile.displayName());
         tab.setContextMenu(buildTabContextMenu(tab));
         javax.swing.JComponent component = (javax.swing.JComponent) viewHandle.component();
         javafx.embed.swing.SwingNode swingNode = new javafx.embed.swing.SwingNode();
@@ -1776,7 +1811,7 @@ public class MainWindow {
                     capabilityBus,
                     storageFactory
             );
-            tab.setClosable(true);
+            installWorkspaceTabHeader(tab, profile.displayName());
             tab.setContextMenu(buildTabContextMenu(tab));
             tab.setOnCloseRequest(event -> {
                 event.consume();

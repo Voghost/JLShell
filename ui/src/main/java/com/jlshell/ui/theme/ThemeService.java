@@ -115,8 +115,14 @@ public class ThemeService {
     public String accentStyle() {
         AccentColor accent = accentColor();
         return String.format(
-                "-jl-accent: %s; -jl-accent-hover: %s; -jl-accent-subtle: %s; -jl-accent-border: %s;",
-                accent.color(), accent.hoverColor(), accent.subtleColor(currentTheme()), withAlpha(accent.color(), 0.28));
+                "-jl-accent: %s; -jl-accent-hover: %s; -jl-accent-subtle: %s; -jl-accent-border: %s; "
+                        + "-jl-tab-accent-bg: %s; -jl-tab-accent-border: %s;",
+                accent.color(),
+                accent.hoverColor(),
+                accent.subtleColor(currentTheme()),
+                withAlpha(accent.color(), 0.28),
+                withAlpha(accent.color(), currentTheme() == AppTheme.LIGHT ? 0.18 : 0.14),
+                withAlpha(accent.color(), currentTheme() == AppTheme.LIGHT ? 0.34 : 0.30));
     }
 
     private String withAlpha(String hexColor, double alpha) {
