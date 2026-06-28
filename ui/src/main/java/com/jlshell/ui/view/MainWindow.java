@@ -96,6 +96,14 @@ public class MainWindow {
 
     private static final Logger log = LoggerFactory.getLogger(MainWindow.class);
     private static final String TERMINAL_SWING_NODE_STYLE_CLASS = "terminal-swing-node";
+    private static final String WORKSPACE_TAB_TITLE_KEY = "workspaceTabTitle";
+    private static final String SETTINGS_SIDEBAR_VISIBLE = "ui.sidebar.visible";
+    private static final String SETTINGS_SIDEBAR_DIVIDER_POSITION = "ui.sidebar.dividerPosition";
+    private static final String SETTINGS_SIDEBAR_WIDTH = "ui.sidebar.width";
+    private static final String SETTINGS_TOPBAR_COLLAPSED = "ui.topbar.collapsed";
+    private static final String SETTINGS_FOCUS_MODE = "ui.focusMode";
+    private static final String SETTINGS_FOCUS_SIDEBAR_BEFORE = "ui.focusMode.sidebarVisibleBefore";
+    private static final String SETTINGS_FOCUS_TOPBAR_BEFORE = "ui.focusMode.topbarCollapsedBefore";
     private static final double WINDOWS_OUTER_CORNER_RADIUS = 10;
 
     private final MainViewModel viewModel;
@@ -210,6 +218,17 @@ public class MainWindow {
         String savedProject = appSettingsService.get("ui.activeProject", "");
         if (savedProject != null && !savedProject.isBlank()) {
             this.activeProjectId = savedProject;
+        }
+        this.sidebarVisible = Boolean.parseBoolean(appSettingsService.get(SETTINGS_SIDEBAR_VISIBLE, "true"));
+        this.topBarCollapsed = Boolean.parseBoolean(appSettingsService.get(SETTINGS_TOPBAR_COLLAPSED, "false"));
+        this.focusMode = Boolean.parseBoolean(appSettingsService.get(SETTINGS_FOCUS_MODE, "false"));
+        if (this.focusMode) {
+            this.sidebarVisibleBeforeFocus = Boolean.parseBoolean(
+                    appSettingsService.get(SETTINGS_FOCUS_SIDEBAR_BEFORE, "true"));
+            this.topBarCollapsedBeforeFocus = Boolean.parseBoolean(
+                    appSettingsService.get(SETTINGS_FOCUS_TOPBAR_BEFORE, "false"));
+            this.sidebarVisible = false;
+            this.topBarCollapsed = true;
         }
     }
 
@@ -376,6 +395,10 @@ public class MainWindow {
 
         fileMenu.getItems().addAll(newConnection, pasteShare, refreshConnections, projectsMenu, manageVault, new SeparatorMenuItem(), exit);
 
+        Menu connectionMenu = new Menu(i18nService.get("menu.connections"));
+        connectionMenu.setOnShowing(event -> rebuildOpenConnectionsMenu(connectionMenu));
+        rebuildOpenConnectionsMenu(connectionMenu);
+
         // View 菜单
         Menu viewMenu = new Menu(i18nService.get("menu.view"));
         MenuItem toggleSidebarItem = new MenuItem(i18nService.get("sidebar.toggle"));
@@ -385,8 +408,17 @@ public class MainWindow {
         CheckMenuItem focusModeItem = new CheckMenuItem(i18nService.get("focusMode.toggle"));
         focusModeItem.setSelected(focusMode);
         focusModeItem.setOnAction(event -> setFocusMode(focusModeItem.isSelected()));
-        MenuItem darkTheme = new MenuItem(i18nService.get("theme.dark"));
-        MenuItem lightTheme = new MenuItem(i18nService.get("theme.light"));
+        ToggleGroup themeGroup = new ToggleGroup();
+        RadioMenuItem darkTheme = new RadioMenuItem(i18nService.get("theme.dark"));
+        RadioMenuItem lightTheme = new RadioMenuItem(i18nService.get("theme.light"));
+        darkTheme.setToggleGroup(themeGroup);
+        lightTheme.setToggleGroup(themeGroup);
+        viewMenu.setOnShowing(event -> {
+            AppTheme currentTheme = themeService.currentTheme();
+            darkTheme.setSelected(currentTheme == AppTheme.DARK);
+            lightTheme.setSelected(currentTheme == AppTheme.LIGHT);
+            focusModeItem.setSelected(focusMode);
+        });
         darkTheme.setOnAction(event -> themeService.setTheme(AppTheme.DARK));
         lightTheme.setOnAction(event -> themeService.setTheme(AppTheme.LIGHT));
         viewMenu.getItems().addAll(toggleSidebarItem, collapseTopBarItem, focusModeItem,
@@ -406,7 +438,7 @@ public class MainWindow {
             MenuItem aboutItem = new MenuItem(i18nService.get("menu.help.about"));
             aboutItem.setOnAction(event -> AboutDialog.show(stage, i18nService, themeService));
             helpMenu.getItems().add(aboutItem);
-            menuBar.getMenus().addAll(fileMenu, viewMenu, helpMenu);
+            menuBar.getMenus().addAll(fileMenu, connectionMenu, viewMenu, helpMenu);
         } else {
             Menu settingsMenu = new Menu(i18nService.get("menu.settings"));
             settingsMenu.getItems().add(preferences);
@@ -414,9 +446,74 @@ public class MainWindow {
             MenuItem aboutItem = new MenuItem(i18nService.get("menu.help.about"));
             aboutItem.setOnAction(event -> AboutDialog.show(stage, i18nService, themeService));
             helpMenu.getItems().add(aboutItem);
-            menuBar.getMenus().addAll(fileMenu, viewMenu, settingsMenu, helpMenu);
+            menuBar.getMenus().addAll(fileMenu, connectionMenu, viewMenu, settingsMenu, helpMenu);
         }
+        installMenuCursorRecovery(menuBar);
         return menuBar;
+    }
+
+    private void rebuildOpenConnectionsMenu(Menu connectionMenu) {
+        connectionMenu.getItems().clear();
+        ToggleGroup group = new ToggleGroup();
+        javafx.scene.control.Tab selectedTab = workspaceTabs.getSelectionModel().getSelectedItem();
+        int index = 1;
+        for (javafx.scene.control.Tab tab : workspaceTabs.getTabs()) {
+            String title = workspaceTabTitle(tab);
+            if (title == null || title.isBlank()) {
+                title = i18nService.get("menu.connections.untitled");
+            }
+            RadioMenuItem item = new RadioMenuItem(index + ". " + title);
+            item.setToggleGroup(group);
+            item.setSelected(tab == selectedTab);
+            item.setOnAction(event -> workspaceTabs.getSelectionModel().select(tab));
+            connectionMenu.getItems().add(item);
+            index++;
+        }
+        if (connectionMenu.getItems().isEmpty()) {
+            MenuItem empty = new MenuItem(i18nService.get("menu.connections.empty"));
+            empty.setDisable(true);
+            connectionMenu.getItems().add(empty);
+        }
+    }
+
+    private void installMenuCursorRecovery(MenuBar menuBar) {
+        Runnable resetCursor = () -> {
+            Scene scene = menuBar.getScene();
+            if (scene != null) {
+                scene.setCursor(javafx.scene.Cursor.DEFAULT);
+            }
+        };
+        menuBar.addEventFilter(javafx.scene.input.MouseEvent.MOUSE_ENTERED, event -> resetCursor.run());
+        menuBar.addEventFilter(javafx.scene.input.MouseEvent.MOUSE_MOVED, event -> resetCursor.run());
+        menuBar.addEventFilter(javafx.scene.input.MouseEvent.MOUSE_PRESSED, event -> resetCursor.run());
+        for (Menu menu : menuBar.getMenus()) {
+            installMenuCursorRecovery(menu, resetCursor);
+        }
+    }
+
+    private void installMenuCursorRecovery(Menu menu, Runnable resetCursor) {
+        menu.addEventHandler(Menu.ON_SHOWING, event -> resetCursor.run());
+        menu.addEventHandler(Menu.ON_SHOWN, event -> resetCursor.run());
+        menu.addEventHandler(Menu.ON_HIDDEN, event -> resetCursor.run());
+        for (MenuItem item : menu.getItems()) {
+            if (item instanceof Menu childMenu) {
+                installMenuCursorRecovery(childMenu, resetCursor);
+            }
+        }
+    }
+
+    private boolean isEventFromMenuBar(javafx.event.Event event) {
+        Object target = event.getTarget();
+        if (!(target instanceof Node node)) {
+            return false;
+        }
+        while (node != null) {
+            if (node instanceof MenuBar || node.getStyleClass().contains("embedded-menu-bar")) {
+                return true;
+            }
+            node = node.getParent();
+        }
+        return false;
     }
 
     private void installApplicationShortcuts(Scene scene, Stage stage) {
@@ -613,7 +710,7 @@ public class MainWindow {
             applySidebarVisibility();
             // 恢复顶栏折叠状态
             if (wasTopBarCollapsed) {
-                applyTopBarCollapsed(true);
+                applyTopBarCollapsedDeferred(true);
             }
             updateTerminalFocusLayoutStyle();
         }
@@ -669,6 +766,9 @@ public class MainWindow {
         workspaceTabs.getTabs().addListener((javafx.collections.ListChangeListener<javafx.scene.control.Tab>) c -> {
             if (!topBarCollapsed && !c.getList().isEmpty()) {
                 topBarCollapseBtn.setVisible(true);
+            } else if (topBarCollapsed) {
+                topBarCollapseBtn.setVisible(false);
+                topBarCollapseBtn.setManaged(false);
             }
         });
 
@@ -680,6 +780,7 @@ public class MainWindow {
             topBarCollapsed = false;
             applyTopBarCollapsed(false);
             removeTopBarExitListener();
+            saveLayoutState();
         });
         topBarExpandBtn.setVisible(false);
         StackPane.setAlignment(topBarExpandBtn, javafx.geometry.Pos.TOP_RIGHT);
@@ -701,6 +802,7 @@ public class MainWindow {
                 topBarCollapsed = false;
                 applyTopBarCollapsed(false);
                 installTopBarExitListener();
+                saveLayoutState();
             }
         });
 
@@ -714,10 +816,17 @@ public class MainWindow {
                 applyTopBarCollapsed(true);
             }
         });
+        if (topBarCollapsed) {
+            applyTopBarCollapsedDeferred(true);
+        }
 
         centerSplitPane = new SplitPane(sidebarVBox, workspaceStackPane);
         installSidebarDividerLimit(centerSplitPane);
-        centerSplitPane.setDividerPositions(SIDEBAR_EXPANDED_POSITION);
+        if (sidebarVisible) {
+            restoreSidebarDividerPosition();
+        } else {
+            applySidebarVisibility();
+        }
         return centerSplitPane;
     }
 
@@ -731,6 +840,79 @@ public class MainWindow {
                 splitPane.setDividerPositions(SIDEBAR_MAX_POSITION);
             }
         });
+        javafx.application.Platform.runLater(() -> installSplitPaneCursorRecovery(splitPane));
+        splitPane.addEventFilter(javafx.scene.input.MouseEvent.MOUSE_RELEASED, event -> saveSidebarDividerPosition());
+    }
+
+    private double savedSidebarDividerPosition() {
+        double width = savedSidebarWidth();
+        if (width > 0 && centerSplitPane != null && centerSplitPane.getWidth() > 0) {
+            return Math.max(0.05, Math.min(SIDEBAR_MAX_POSITION, width / centerSplitPane.getWidth()));
+        }
+        try {
+            double position = Double.parseDouble(appSettingsService.get(
+                    SETTINGS_SIDEBAR_DIVIDER_POSITION,
+                    String.valueOf(SIDEBAR_EXPANDED_POSITION)));
+            if (!Double.isFinite(position)) {
+                return SIDEBAR_EXPANDED_POSITION;
+            }
+            return Math.max(0.05, Math.min(SIDEBAR_MAX_POSITION, position));
+        } catch (NumberFormatException ignored) {
+            return SIDEBAR_EXPANDED_POSITION;
+        }
+    }
+
+    private double savedSidebarWidth() {
+        try {
+            double width = Double.parseDouble(appSettingsService.get(SETTINGS_SIDEBAR_WIDTH, "0"));
+            return Double.isFinite(width) ? width : 0;
+        } catch (NumberFormatException ignored) {
+            return 0;
+        }
+    }
+
+    private void restoreSidebarDividerPosition() {
+        if (centerSplitPane == null) {
+            return;
+        }
+        centerSplitPane.setDividerPositions(savedSidebarDividerPosition());
+        javafx.application.Platform.runLater(() -> {
+            if (sidebarVisible && centerSplitPane != null) {
+                centerSplitPane.setDividerPositions(savedSidebarDividerPosition());
+            }
+        });
+    }
+
+    private void saveSidebarDividerPosition() {
+        if (centerSplitPane == null || !sidebarVisible || centerSplitPane.getDividers().isEmpty()) {
+            return;
+        }
+        double position = centerSplitPane.getDividers().getFirst().getPosition();
+        if (position > 0 && position <= SIDEBAR_MAX_POSITION) {
+            appSettingsService.set(SETTINGS_SIDEBAR_DIVIDER_POSITION, String.format(Locale.ROOT, "%.4f", position));
+            double width = centerSplitPane.getWidth() * position;
+            if (Double.isFinite(width) && width > 0) {
+                appSettingsService.set(SETTINGS_SIDEBAR_WIDTH, String.format(Locale.ROOT, "%.0f", width));
+            }
+        }
+    }
+
+    private void installSplitPaneCursorRecovery(SplitPane splitPane) {
+        Scene scene = splitPane.getScene();
+        if (scene == null) {
+            return;
+        }
+        for (Node node : splitPane.lookupAll(".split-pane-divider")) {
+            node.addEventFilter(javafx.scene.input.MouseEvent.MOUSE_RELEASED, event -> {
+                saveSidebarDividerPosition();
+                scene.setCursor(javafx.scene.Cursor.DEFAULT);
+            });
+            node.addEventFilter(javafx.scene.input.MouseEvent.MOUSE_EXITED, event -> {
+                if (!event.isPrimaryButtonDown()) {
+                    scene.setCursor(javafx.scene.Cursor.DEFAULT);
+                }
+            });
+        }
     }
 
     private void updateWindowTitle() {
@@ -752,6 +934,48 @@ public class MainWindow {
             detail = formatConnectionTitle(profile);
         }
         return detail == null || detail.isBlank() ? "JLShell" : detail + " — JLShell";
+    }
+
+    private void installWorkspaceTabHeader(javafx.scene.control.Tab tab, String title) {
+        tab.getProperties().put(WORKSPACE_TAB_TITLE_KEY, title);
+        tab.setText(null);
+        tab.setClosable(false);
+
+        Label titleLabel = new Label(title);
+        titleLabel.getStyleClass().add("workspace-tab-title");
+        titleLabel.setTextOverrun(OverrunStyle.ELLIPSIS);
+        titleLabel.setMaxWidth(190);
+
+        Label closeGlyph = new Label("×");
+        closeGlyph.getStyleClass().add("workspace-tab-close-glyph");
+        closeGlyph.setAlignment(Pos.CENTER);
+
+        StackPane closeGraphic = new StackPane(closeGlyph);
+        closeGraphic.getStyleClass().add("workspace-tab-close-graphic");
+        closeGraphic.setAlignment(Pos.CENTER);
+
+        Button closeButton = new Button();
+        closeButton.getStyleClass().add("workspace-tab-close");
+        closeButton.setGraphic(closeGraphic);
+        closeButton.setFocusTraversable(false);
+        closeButton.setTooltip(new javafx.scene.control.Tooltip(i18nService.get("tab.close")));
+        closeButton.setOnAction(event -> {
+            event.consume();
+            closeTab(tab);
+        });
+
+        HBox header = new HBox(5, titleLabel, closeButton);
+        header.getStyleClass().add("workspace-tab-header");
+        header.setAlignment(Pos.CENTER);
+        tab.setGraphic(header);
+    }
+
+    private String workspaceTabTitle(javafx.scene.control.Tab tab) {
+        Object title = tab.getProperties().get(WORKSPACE_TAB_TITLE_KEY);
+        if (title instanceof String text && !text.isBlank()) {
+            return text;
+        }
+        return tab.getText();
     }
 
     private String formatConnectionTitle(ConnectionProfile profile) {
@@ -1053,6 +1277,7 @@ public class MainWindow {
     private void toggleSidebar() {
         sidebarVisible = !sidebarVisible;
         applySidebarVisibility();
+        saveLayoutState();
     }
 
     private void toggleFocusMode() {
@@ -1067,6 +1292,8 @@ public class MainWindow {
         if (enabled) {
             sidebarVisibleBeforeFocus = sidebarVisible;
             topBarCollapsedBeforeFocus = topBarCollapsed;
+            appSettingsService.set(SETTINGS_FOCUS_SIDEBAR_BEFORE, String.valueOf(sidebarVisibleBeforeFocus));
+            appSettingsService.set(SETTINGS_FOCUS_TOPBAR_BEFORE, String.valueOf(topBarCollapsedBeforeFocus));
             if (sidebarVisible) {
                 toggleSidebar();
             }
@@ -1081,6 +1308,7 @@ public class MainWindow {
                 toggleTopBarCollapse();
             }
         }
+        saveLayoutState();
     }
 
     private void applySidebarVisibility() {
@@ -1089,7 +1317,7 @@ public class MainWindow {
             sidebarVBox.setPrefWidth(Region.USE_COMPUTED_SIZE);
             sidebarVBox.setMinWidth(SIDEBAR_EXPANDED_MIN_WIDTH);
             sidebarVBox.setMaxWidth(Region.USE_COMPUTED_SIZE);
-            centerSplitPane.setDividerPositions(SIDEBAR_EXPANDED_POSITION);
+            restoreSidebarDividerPosition();
             revealSidebarBtn.setVisible(false);
         } else {
             if (!centerSplitPane.getStyleClass().contains("sidebar-collapsed")) {
@@ -1116,6 +1344,13 @@ public class MainWindow {
     private void toggleTopBarCollapse() {
         topBarCollapsed = !topBarCollapsed;
         applyTopBarCollapsed(topBarCollapsed);
+        saveLayoutState();
+    }
+
+    private void saveLayoutState() {
+        appSettingsService.set(SETTINGS_SIDEBAR_VISIBLE, String.valueOf(sidebarVisible));
+        appSettingsService.set(SETTINGS_TOPBAR_COLLAPSED, String.valueOf(topBarCollapsed));
+        appSettingsService.set(SETTINGS_FOCUS_MODE, String.valueOf(focusMode));
     }
 
     private void applyTopBarCollapsed(boolean collapsed) {
@@ -1171,6 +1406,24 @@ public class MainWindow {
             topHoverZone.setVisible(false);
         }
         updateTerminalFocusLayoutStyle();
+    }
+
+    private void applyTopBarCollapsedDeferred(boolean collapsed) {
+        applyTopBarCollapsed(collapsed);
+        applyTopBarCollapsedDeferred(collapsed, 4);
+    }
+
+    private void applyTopBarCollapsedDeferred(boolean collapsed, int remainingAttempts) {
+        if (remainingAttempts <= 0) {
+            return;
+        }
+        javafx.application.Platform.runLater(() -> {
+            if (topBarCollapsed != collapsed) {
+                return;
+            }
+            applyTopBarCollapsed(collapsed);
+            applyTopBarCollapsedDeferred(collapsed, remainingAttempts - 1);
+        });
     }
 
     private void updateTerminalFocusLayoutStyle() {
@@ -1263,12 +1516,14 @@ public class MainWindow {
                     if (!stillInAny) {
                         topBarCollapsed = true;
                         collapseDelay.playFromStart();
+                        saveLayoutState();
                     }
                 }
             });
             node.setOnMouseEntered(e -> {
                 collapseDelay.stop();
                 topBarCollapsed = false;
+                saveLayoutState();
             });
         }
     }
@@ -1694,7 +1949,7 @@ public class MainWindow {
         localShellHandles.add(viewHandle);
         javafx.scene.control.Tab tab = new javafx.scene.control.Tab(profile.displayName());
         tab.setUserData(profile);
-        tab.setClosable(true);
+        installWorkspaceTabHeader(tab, profile.displayName());
         tab.setContextMenu(buildTabContextMenu(tab));
         javax.swing.JComponent component = (javax.swing.JComponent) viewHandle.component();
         javafx.embed.swing.SwingNode swingNode = new javafx.embed.swing.SwingNode();
@@ -1719,6 +1974,7 @@ public class MainWindow {
         });
         workspaceTabs.getTabs().add(tab);
         workspaceTabs.getSelectionModel().select(tab);
+        applyTopBarCollapsedAfterTabAdded(tab);
         FxThread.run(viewHandle::requestFocus);
         viewModel.statusMessageProperty().set(i18nService.get("status.connected", profile.displayName()));
     }
@@ -1776,7 +2032,7 @@ public class MainWindow {
                     capabilityBus,
                     storageFactory
             );
-            tab.setClosable(true);
+            installWorkspaceTabHeader(tab, profile.displayName());
             tab.setContextMenu(buildTabContextMenu(tab));
             tab.setOnCloseRequest(event -> {
                 event.consume();
@@ -1792,6 +2048,7 @@ public class MainWindow {
             });
             workspaceTabs.getTabs().add(tab);
             workspaceTabs.getSelectionModel().select(tab);
+            applyTopBarCollapsedAfterTabAdded(tab);
             log.info("Workspace tab added for session {}", sshSession.sessionId());
             tab.initialize().whenComplete((unused, t) -> FxThread.run(() -> {
                 try {
@@ -1802,12 +2059,43 @@ public class MainWindow {
                     } else {
                         log.info("Workspace initialization completed for session {}", sshSession.sessionId());
                         viewModel.statusMessageProperty().set(i18nService.get("status.connected", profile.summary()));
+                        applyTopBarCollapsedAfterTabAdded(tab);
                     }
                 } finally {
                     finishConnecting(profile);
                 }
             }));
         }));
+    }
+
+    private void applyTopBarCollapsedAfterTabAdded(javafx.scene.control.Tab tab) {
+        if (!topBarCollapsed) {
+            return;
+        }
+        applyTopBarCollapsed(true);
+        applyTopBarCollapsedToTab(tab, false);
+        applyTopBarCollapsedToTabDeferred(tab, false, 4);
+    }
+
+    private void applyTopBarCollapsedToTabDeferred(javafx.scene.control.Tab tab, boolean visible, int remainingAttempts) {
+        if (remainingAttempts <= 0) {
+            return;
+        }
+        javafx.application.Platform.runLater(() -> {
+            if (topBarCollapsed == visible) {
+                return;
+            }
+            setTabHeaderVisible(workspaceTabs, visible);
+            applyTopBarCollapsedToTab(tab, visible);
+            applyTopBarCollapsedToTabDeferred(tab, visible, remainingAttempts - 1);
+        });
+    }
+
+    private void applyTopBarCollapsedToTab(javafx.scene.control.Tab tab, boolean visible) {
+        if (tab instanceof SessionWorkspaceTab swt) {
+            setTabHeaderVisible(swt.getInnerTabPane(), visible);
+            swt.setToolbarVisible(visible);
+        }
     }
 
     /**
@@ -2004,22 +2292,38 @@ public class MainWindow {
         );
 
         javafx.scene.Cursor[] activeCursor = {null};
+        boolean[] resizing = {false};
         double[] startDragX = {0}, startDragY = {0};
         double[] startStageX = {0}, startStageY = {0}, startW = {0}, startH = {0};
+        Runnable resetResizeCursor = () -> {
+            activeCursor[0] = null;
+            resizing[0] = false;
+            scene.setCursor(javafx.scene.Cursor.DEFAULT);
+        };
 
         // 窗口获得焦点时重置光标，避免从其他程序切换回来时
         // 光标还停留在 resize 箭头样式
-        stage.focusedProperty().addListener((obs, wasFocused, isFocused) -> {
-            if (isFocused) {
-                scene.setCursor(javafx.scene.Cursor.DEFAULT);
-                activeCursor[0] = null;
+        stage.focusedProperty().addListener((obs, wasFocused, isFocused) -> resetResizeCursor.run());
+        stage.maximizedProperty().addListener((obs, wasMaximized, isMaximized) -> resetResizeCursor.run());
+        stage.fullScreenProperty().addListener((obs, wasFullScreen, isFullScreen) -> resetResizeCursor.run());
+
+        scene.addEventFilter(javafx.scene.input.MouseEvent.MOUSE_RELEASED, event -> resetResizeCursor.run());
+        scene.addEventFilter(javafx.scene.input.MouseEvent.MOUSE_EXITED, event -> {
+            if (!event.isPrimaryButtonDown()) {
+                resetResizeCursor.run();
             }
         });
 
         scene.setOnMouseMoved(e -> {
+            if (resizing[0]) {
+                return;
+            }
+            if (isEventFromMenuBar(e)) {
+                resetResizeCursor.run();
+                return;
+            }
             if (stage.isMaximized() || stage.isFullScreen()) {
-                scene.setCursor(javafx.scene.Cursor.DEFAULT);
-                activeCursor[0] = null;
+                resetResizeCursor.run();
                 return;
             }
             double x = e.getSceneX(), y = e.getSceneY();
@@ -2036,11 +2340,18 @@ public class MainWindow {
             else if (onTop)    cursor = javafx.scene.Cursor.N_RESIZE;
             else if (onBottom) cursor = javafx.scene.Cursor.S_RESIZE;
             scene.setCursor(cursor);
-            activeCursor[0] = cursor;
+            activeCursor[0] = resizeDirections.containsKey(cursor) ? cursor : null;
         });
 
         scene.setOnMousePressed(e -> {
-            if (activeCursor[0] != null && e.getButton() == javafx.scene.input.MouseButton.PRIMARY) {
+            if (isEventFromMenuBar(e)) {
+                resetResizeCursor.run();
+                return;
+            }
+            if (activeCursor[0] != null
+                    && resizeDirections.containsKey(activeCursor[0])
+                    && e.getButton() == javafx.scene.input.MouseButton.PRIMARY) {
+                resizing[0] = true;
                 startDragX[0] = e.getScreenX();
                 startDragY[0] = e.getScreenY();
                 startStageX[0] = stage.getX();
@@ -2052,7 +2363,7 @@ public class MainWindow {
         });
 
         scene.setOnMouseDragged(e -> {
-            if (activeCursor[0] == null) return;
+            if (!resizing[0] || activeCursor[0] == null) return;
             String dir = resizeDirections.get(activeCursor[0]);
             if (dir == null) return;
             double dx = e.getScreenX() - startDragX[0];
@@ -2081,12 +2392,7 @@ public class MainWindow {
             e.consume();
         });
 
-        scene.setOnMouseReleased(e -> {
-            if (activeCursor[0] != null) {
-                activeCursor[0] = null;
-                scene.setCursor(javafx.scene.Cursor.DEFAULT);
-            }
-        });
+        scene.setOnMouseReleased(e -> resetResizeCursor.run());
     }
 
     private void showError(String message) {
