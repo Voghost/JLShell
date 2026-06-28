@@ -99,6 +99,7 @@ public class MainWindow {
     private static final String WORKSPACE_TAB_TITLE_KEY = "workspaceTabTitle";
     private static final String SETTINGS_SIDEBAR_VISIBLE = "ui.sidebar.visible";
     private static final String SETTINGS_SIDEBAR_DIVIDER_POSITION = "ui.sidebar.dividerPosition";
+    private static final String SETTINGS_SIDEBAR_WIDTH = "ui.sidebar.width";
     private static final String SETTINGS_TOPBAR_COLLAPSED = "ui.topbar.collapsed";
     private static final String SETTINGS_FOCUS_MODE = "ui.focusMode";
     private static final String SETTINGS_FOCUS_SIDEBAR_BEFORE = "ui.focusMode.sidebarVisibleBefore";
@@ -394,6 +395,10 @@ public class MainWindow {
 
         fileMenu.getItems().addAll(newConnection, pasteShare, refreshConnections, projectsMenu, manageVault, new SeparatorMenuItem(), exit);
 
+        Menu connectionMenu = new Menu(i18nService.get("menu.connections"));
+        connectionMenu.setOnShowing(event -> rebuildOpenConnectionsMenu(connectionMenu));
+        rebuildOpenConnectionsMenu(connectionMenu);
+
         // View 菜单
         Menu viewMenu = new Menu(i18nService.get("menu.view"));
         MenuItem toggleSidebarItem = new MenuItem(i18nService.get("sidebar.toggle"));
@@ -433,7 +438,7 @@ public class MainWindow {
             MenuItem aboutItem = new MenuItem(i18nService.get("menu.help.about"));
             aboutItem.setOnAction(event -> AboutDialog.show(stage, i18nService, themeService));
             helpMenu.getItems().add(aboutItem);
-            menuBar.getMenus().addAll(fileMenu, viewMenu, helpMenu);
+            menuBar.getMenus().addAll(fileMenu, connectionMenu, viewMenu, helpMenu);
         } else {
             Menu settingsMenu = new Menu(i18nService.get("menu.settings"));
             settingsMenu.getItems().add(preferences);
@@ -441,10 +446,34 @@ public class MainWindow {
             MenuItem aboutItem = new MenuItem(i18nService.get("menu.help.about"));
             aboutItem.setOnAction(event -> AboutDialog.show(stage, i18nService, themeService));
             helpMenu.getItems().add(aboutItem);
-            menuBar.getMenus().addAll(fileMenu, viewMenu, settingsMenu, helpMenu);
+            menuBar.getMenus().addAll(fileMenu, connectionMenu, viewMenu, settingsMenu, helpMenu);
         }
         installMenuCursorRecovery(menuBar);
         return menuBar;
+    }
+
+    private void rebuildOpenConnectionsMenu(Menu connectionMenu) {
+        connectionMenu.getItems().clear();
+        ToggleGroup group = new ToggleGroup();
+        javafx.scene.control.Tab selectedTab = workspaceTabs.getSelectionModel().getSelectedItem();
+        int index = 1;
+        for (javafx.scene.control.Tab tab : workspaceTabs.getTabs()) {
+            String title = workspaceTabTitle(tab);
+            if (title == null || title.isBlank()) {
+                title = i18nService.get("menu.connections.untitled");
+            }
+            RadioMenuItem item = new RadioMenuItem(index + ". " + title);
+            item.setToggleGroup(group);
+            item.setSelected(tab == selectedTab);
+            item.setOnAction(event -> workspaceTabs.getSelectionModel().select(tab));
+            connectionMenu.getItems().add(item);
+            index++;
+        }
+        if (connectionMenu.getItems().isEmpty()) {
+            MenuItem empty = new MenuItem(i18nService.get("menu.connections.empty"));
+            empty.setDisable(true);
+            connectionMenu.getItems().add(empty);
+        }
     }
 
     private void installMenuCursorRecovery(MenuBar menuBar) {
@@ -791,7 +820,7 @@ public class MainWindow {
         centerSplitPane = new SplitPane(sidebarVBox, workspaceStackPane);
         installSidebarDividerLimit(centerSplitPane);
         if (sidebarVisible) {
-            centerSplitPane.setDividerPositions(savedSidebarDividerPosition());
+            restoreSidebarDividerPosition();
         } else {
             applySidebarVisibility();
         }
@@ -813,6 +842,10 @@ public class MainWindow {
     }
 
     private double savedSidebarDividerPosition() {
+        double width = savedSidebarWidth();
+        if (width > 0 && centerSplitPane != null && centerSplitPane.getWidth() > 0) {
+            return Math.max(0.05, Math.min(SIDEBAR_MAX_POSITION, width / centerSplitPane.getWidth()));
+        }
         try {
             double position = Double.parseDouble(appSettingsService.get(
                     SETTINGS_SIDEBAR_DIVIDER_POSITION,
@@ -826,6 +859,27 @@ public class MainWindow {
         }
     }
 
+    private double savedSidebarWidth() {
+        try {
+            double width = Double.parseDouble(appSettingsService.get(SETTINGS_SIDEBAR_WIDTH, "0"));
+            return Double.isFinite(width) ? width : 0;
+        } catch (NumberFormatException ignored) {
+            return 0;
+        }
+    }
+
+    private void restoreSidebarDividerPosition() {
+        if (centerSplitPane == null) {
+            return;
+        }
+        centerSplitPane.setDividerPositions(savedSidebarDividerPosition());
+        javafx.application.Platform.runLater(() -> {
+            if (sidebarVisible && centerSplitPane != null) {
+                centerSplitPane.setDividerPositions(savedSidebarDividerPosition());
+            }
+        });
+    }
+
     private void saveSidebarDividerPosition() {
         if (centerSplitPane == null || !sidebarVisible || centerSplitPane.getDividers().isEmpty()) {
             return;
@@ -833,6 +887,10 @@ public class MainWindow {
         double position = centerSplitPane.getDividers().getFirst().getPosition();
         if (position > 0 && position <= SIDEBAR_MAX_POSITION) {
             appSettingsService.set(SETTINGS_SIDEBAR_DIVIDER_POSITION, String.format(Locale.ROOT, "%.4f", position));
+            double width = centerSplitPane.getWidth() * position;
+            if (Double.isFinite(width) && width > 0) {
+                appSettingsService.set(SETTINGS_SIDEBAR_WIDTH, String.format(Locale.ROOT, "%.0f", width));
+            }
         }
     }
 
@@ -907,6 +965,14 @@ public class MainWindow {
         header.getStyleClass().add("workspace-tab-header");
         header.setAlignment(Pos.CENTER);
         tab.setGraphic(header);
+    }
+
+    private String workspaceTabTitle(javafx.scene.control.Tab tab) {
+        Object title = tab.getProperties().get(WORKSPACE_TAB_TITLE_KEY);
+        if (title instanceof String text && !text.isBlank()) {
+            return text;
+        }
+        return tab.getText();
     }
 
     private String formatConnectionTitle(ConnectionProfile profile) {
@@ -1248,7 +1314,7 @@ public class MainWindow {
             sidebarVBox.setPrefWidth(Region.USE_COMPUTED_SIZE);
             sidebarVBox.setMinWidth(SIDEBAR_EXPANDED_MIN_WIDTH);
             sidebarVBox.setMaxWidth(Region.USE_COMPUTED_SIZE);
-            centerSplitPane.setDividerPositions(savedSidebarDividerPosition());
+            restoreSidebarDividerPosition();
             revealSidebarBtn.setVisible(false);
         } else {
             if (!centerSplitPane.getStyleClass().contains("sidebar-collapsed")) {
