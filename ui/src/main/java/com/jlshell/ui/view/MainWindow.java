@@ -710,7 +710,7 @@ public class MainWindow {
             applySidebarVisibility();
             // 恢复顶栏折叠状态
             if (wasTopBarCollapsed) {
-                applyTopBarCollapsed(true);
+                applyTopBarCollapsedDeferred(true);
             }
             updateTerminalFocusLayoutStyle();
         }
@@ -766,6 +766,9 @@ public class MainWindow {
         workspaceTabs.getTabs().addListener((javafx.collections.ListChangeListener<javafx.scene.control.Tab>) c -> {
             if (!topBarCollapsed && !c.getList().isEmpty()) {
                 topBarCollapseBtn.setVisible(true);
+            } else if (topBarCollapsed) {
+                topBarCollapseBtn.setVisible(false);
+                topBarCollapseBtn.setManaged(false);
             }
         });
 
@@ -814,7 +817,7 @@ public class MainWindow {
             }
         });
         if (topBarCollapsed) {
-            applyTopBarCollapsed(true);
+            applyTopBarCollapsedDeferred(true);
         }
 
         centerSplitPane = new SplitPane(sidebarVBox, workspaceStackPane);
@@ -1405,6 +1408,24 @@ public class MainWindow {
         updateTerminalFocusLayoutStyle();
     }
 
+    private void applyTopBarCollapsedDeferred(boolean collapsed) {
+        applyTopBarCollapsed(collapsed);
+        applyTopBarCollapsedDeferred(collapsed, 4);
+    }
+
+    private void applyTopBarCollapsedDeferred(boolean collapsed, int remainingAttempts) {
+        if (remainingAttempts <= 0) {
+            return;
+        }
+        javafx.application.Platform.runLater(() -> {
+            if (topBarCollapsed != collapsed) {
+                return;
+            }
+            applyTopBarCollapsed(collapsed);
+            applyTopBarCollapsedDeferred(collapsed, remainingAttempts - 1);
+        });
+    }
+
     private void updateTerminalFocusLayoutStyle() {
         if (rootPane == null) {
             return;
@@ -1953,6 +1974,7 @@ public class MainWindow {
         });
         workspaceTabs.getTabs().add(tab);
         workspaceTabs.getSelectionModel().select(tab);
+        applyTopBarCollapsedAfterTabAdded(tab);
         FxThread.run(viewHandle::requestFocus);
         viewModel.statusMessageProperty().set(i18nService.get("status.connected", profile.displayName()));
     }
@@ -2026,6 +2048,7 @@ public class MainWindow {
             });
             workspaceTabs.getTabs().add(tab);
             workspaceTabs.getSelectionModel().select(tab);
+            applyTopBarCollapsedAfterTabAdded(tab);
             log.info("Workspace tab added for session {}", sshSession.sessionId());
             tab.initialize().whenComplete((unused, t) -> FxThread.run(() -> {
                 try {
@@ -2036,12 +2059,43 @@ public class MainWindow {
                     } else {
                         log.info("Workspace initialization completed for session {}", sshSession.sessionId());
                         viewModel.statusMessageProperty().set(i18nService.get("status.connected", profile.summary()));
+                        applyTopBarCollapsedAfterTabAdded(tab);
                     }
                 } finally {
                     finishConnecting(profile);
                 }
             }));
         }));
+    }
+
+    private void applyTopBarCollapsedAfterTabAdded(javafx.scene.control.Tab tab) {
+        if (!topBarCollapsed) {
+            return;
+        }
+        applyTopBarCollapsed(true);
+        applyTopBarCollapsedToTab(tab, false);
+        applyTopBarCollapsedToTabDeferred(tab, false, 4);
+    }
+
+    private void applyTopBarCollapsedToTabDeferred(javafx.scene.control.Tab tab, boolean visible, int remainingAttempts) {
+        if (remainingAttempts <= 0) {
+            return;
+        }
+        javafx.application.Platform.runLater(() -> {
+            if (topBarCollapsed == visible) {
+                return;
+            }
+            setTabHeaderVisible(workspaceTabs, visible);
+            applyTopBarCollapsedToTab(tab, visible);
+            applyTopBarCollapsedToTabDeferred(tab, visible, remainingAttempts - 1);
+        });
+    }
+
+    private void applyTopBarCollapsedToTab(javafx.scene.control.Tab tab, boolean visible) {
+        if (tab instanceof SessionWorkspaceTab swt) {
+            setTabHeaderVisible(swt.getInnerTabPane(), visible);
+            swt.setToolbarVisible(visible);
+        }
     }
 
     /**
