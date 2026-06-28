@@ -47,6 +47,11 @@
         </dependency>
         <dependency>
             <groupId>com.jlshell</groupId>
+            <artifactId>program-plugin-loader</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.jlshell</groupId>
             <artifactId>api-server</artifactId>
             <version>${project.version}</version>
         </dependency>

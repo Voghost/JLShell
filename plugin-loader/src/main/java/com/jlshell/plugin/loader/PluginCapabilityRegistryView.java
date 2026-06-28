@@ -11,11 +11,11 @@ import com.jlshell.plugin.api.rpc.CapabilitySpec;
  * 暴露给单个插件的 registry 视图：把 register(Capability) 绑定到该插件的 id。
  * 这样插件调 ctx.capabilityRegistry().register(cap) 时自动带上自己的 pluginId。
  */
-class PluginCapabilityRegistryView implements CapabilityRegistry {
+public class PluginCapabilityRegistryView implements CapabilityRegistry {
     private final CapabilityRegistryImpl delegate;
     private final String pluginId;
 
-    PluginCapabilityRegistryView(CapabilityRegistryImpl delegate, String pluginId) {
+    public PluginCapabilityRegistryView(CapabilityRegistryImpl delegate, String pluginId) {
         this.delegate = delegate;
         this.pluginId = pluginId;
     }

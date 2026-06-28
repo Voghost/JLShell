@@ -11,6 +11,8 @@
     <name>JLShell Plugins Parent</name>
 
     <modules>
+        <module>plugin-program-demo</module>
+        <module>plugin-session-demo</module>
         <module>plugin-demo</module>
         <module>plugin-sysmon</module>
     </modules>

@@ -18,6 +18,12 @@ public interface JlShellPlugin {
 
     String version();
 
+    default String author() { return "system"; }
+
+    default String minHostVersionInclusive() { return ""; }
+
+    default String maxHostVersionInclusive() { return ""; }
+
     String description();
 
     /** Locale-aware description. Override to return a translated description from the plugin's own ResourceBundle. */

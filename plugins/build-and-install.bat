@@ -5,6 +5,7 @@ set "JAVA_HOME=D:\Program Files\java\jdk-21.0.10_windows-x64_bin\jdk-21.0.10"
 
 set SCRIPT_DIR=%~dp0
 set PLUGINS_DIR=%USERPROFILE%\.jlshell\plugins
+set PROGRAM_PLUGINS_DIR=%USERPROFILE%\.jlshell\program-plugins
 
 if "%1"=="" goto usage
 if /i "%1"=="install" goto do_install
@@ -16,8 +17,8 @@ goto usage
 echo Usage: %~nx0 ^<command^>
 echo.
 echo Commands:
-echo   install    Build all plugins and install to ~/.jlshell/plugins/
-echo   uninstall  Remove all installed plugins from ~/.jlshell/plugins/
+echo   install    Build all plugins and install to ~/.jlshell/plugins/ and ~/.jlshell/program-plugins/
+echo   uninstall  Remove installed plugin demo JARs from both plugin directories
 echo   clean      Remove all installed plugins AND local build artifacts
 goto end
 
@@ -27,38 +28,54 @@ cd /d "%SCRIPT_DIR%"
 call mvn clean package -q
 
 if not exist "%PLUGINS_DIR%" mkdir "%PLUGINS_DIR%"
+if not exist "%PROGRAM_PLUGINS_DIR%" mkdir "%PROGRAM_PLUGINS_DIR%"
 
 set INSTALLED=0
-for /r %%f in (*-fat.jar) do (
-    copy /y "%%f" "%PLUGINS_DIR%\%%~nxf" >nul
-    echo Installed: %%~nxf
-    set /a INSTALLED+=1
+for /d %%m in (*) do (
+    for %%f in ("%%m\target\*-fat.jar") do (
+        if exist "%%f" (
+            if /i "%%~nxm"=="plugin-program-demo" (
+                copy /y "%%f" "%PROGRAM_PLUGINS_DIR%\%%~nxf" >nul
+                echo Installed program plugin: %%~nxf
+            ) else (
+                copy /y "%%f" "%PLUGINS_DIR%\%%~nxf" >nul
+                echo Installed session plugin: %%~nxf
+            )
+            set /a INSTALLED+=1
+        )
+    )
 )
 
 if !INSTALLED!==0 (
     echo No plugin fat JARs found.
 ) else (
-    echo Done. !INSTALLED! plugin(s^) installed to %PLUGINS_DIR%
+    echo Done. !INSTALLED! plugin(s^) installed.
+    echo Session plugins: %PLUGINS_DIR%
+    echo Program plugins: %PROGRAM_PLUGINS_DIR%
 )
 goto end
 
 :do_uninstall
-if not exist "%PLUGINS_DIR%" (
-    echo Plugin directory does not exist: %PLUGINS_DIR%
-    goto end
-)
-
 set REMOVED=0
 for %%f in ("%PLUGINS_DIR%\*-fat.jar") do (
-    del "%%f"
-    echo Removed: %%~nxf
-    set /a REMOVED+=1
+    if exist "%%f" (
+        del "%%f"
+        echo Removed: %%~nxf
+        set /a REMOVED+=1
+    )
+)
+for %%f in ("%PROGRAM_PLUGINS_DIR%\*-fat.jar") do (
+    if exist "%%f" (
+        del "%%f"
+        echo Removed: %%~nxf
+        set /a REMOVED+=1
+    )
 )
 
 if !REMOVED!==0 (
-    echo No plugins found in %PLUGINS_DIR%
+    echo No plugins found in %PLUGINS_DIR% or %PROGRAM_PLUGINS_DIR%
 ) else (
-    echo Done. !REMOVED! plugin(s^) removed from %PLUGINS_DIR%
+    echo Done. !REMOVED! plugin(s^) removed.
 )
 goto end
 

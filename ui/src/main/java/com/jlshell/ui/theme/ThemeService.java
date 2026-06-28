@@ -115,8 +115,18 @@ public class ThemeService {
     public String accentStyle() {
         AccentColor accent = accentColor();
         return String.format(
-                "-jl-accent: %s; -jl-accent-hover: %s; -jl-accent-subtle: %s;",
-                accent.color(), accent.hoverColor(), accent.subtleColor(currentTheme()));
+                "-jl-accent: %s; -jl-accent-hover: %s; -jl-accent-subtle: %s; -jl-accent-border: %s;",
+                accent.color(), accent.hoverColor(), accent.subtleColor(currentTheme()), withAlpha(accent.color(), 0.28));
+    }
+
+    private String withAlpha(String hexColor, double alpha) {
+        if (hexColor == null || !hexColor.matches("#[0-9a-fA-F]{6}")) {
+            return hexColor;
+        }
+        int red = Integer.parseInt(hexColor.substring(1, 3), 16);
+        int green = Integer.parseInt(hexColor.substring(3, 5), 16);
+        int blue = Integer.parseInt(hexColor.substring(5, 7), 16);
+        return String.format("rgba(%d, %d, %d, %.2f)", red, green, blue, alpha);
     }
 
     public String uiStyle() {

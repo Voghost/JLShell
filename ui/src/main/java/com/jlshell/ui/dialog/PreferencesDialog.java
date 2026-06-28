@@ -6,8 +6,10 @@ import com.jlshell.core.service.FontProfileService;
 import com.jlshell.plugin.api.rpc.Capability;
 import com.jlshell.plugin.api.rpc.CapabilityBus;
 import com.jlshell.plugin.api.rpc.CapabilitySpec;
+import com.jlshell.plugin.loader.PluginManager;
 import com.jlshell.program.api.ProgramApiCatalog;
 import com.jlshell.program.api.ProgramApiDefinition;
+import com.jlshell.program.plugin.loader.ProgramPluginManager;
 import com.jlshell.terminal.model.TerminalColorScheme;
 import com.jlshell.terminal.model.TerminalRuntimeSettings;
 import com.jlshell.terminal.service.ColorSchemeRegistry;
@@ -31,6 +33,7 @@ import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
+import javafx.scene.control.PasswordField;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.Slider;
 import javafx.scene.control.Tab;
@@ -121,7 +124,7 @@ public class PreferencesDialog {
                             String activeProjectId,
                             com.jlshell.api.server.ApiServer apiServer) {
         show(owner, fontProfileService, appSettings, i18n, themeService,
-                connectionProfileService, activeProjectId, apiServer, null, null, 0);
+                connectionProfileService, activeProjectId, apiServer, null, null, null, null, 0);
     }
 
     /** 打开偏好设置对话框，可指定初始选中的 Tab 索引。 */
@@ -132,7 +135,7 @@ public class PreferencesDialog {
                             com.jlshell.api.server.ApiServer apiServer,
                             int initialTabIndex) {
         show(owner, fontProfileService, appSettings, i18n, themeService,
-                connectionProfileService, activeProjectId, apiServer, null, null, initialTabIndex);
+                connectionProfileService, activeProjectId, apiServer, null, null, null, null, initialTabIndex);
     }
 
     /** 打开偏好设置对话框，可指定初始选中的 Tab 索引。 */
@@ -144,7 +147,7 @@ public class PreferencesDialog {
                             CapabilityBus capabilityBus,
                             int initialTabIndex) {
         show(owner, fontProfileService, appSettings, i18n, themeService,
-                connectionProfileService, activeProjectId, apiServer, capabilityBus, null, initialTabIndex);
+                connectionProfileService, activeProjectId, apiServer, capabilityBus, null, null, null, initialTabIndex);
     }
 
     /** 打开偏好设置对话框，可指定初始选中的 Tab 索引。 */
@@ -154,6 +157,8 @@ public class PreferencesDialog {
                             String activeProjectId,
                             com.jlshell.api.server.ApiServer apiServer,
                             CapabilityBus capabilityBus,
+                            ProgramPluginManager programPluginManager,
+                            PluginManager pluginManager,
                             String selectedSessionId,
                             int initialTabIndex) {
         Dialog<Void> dialog = new Dialog<>();
@@ -183,7 +188,8 @@ public class PreferencesDialog {
 
         TabPane tabs = buildTabPane(fontProfileService, appSettings, i18n, themeService,
                 pending, pendingLang, pendingTheme, pendingAccent, pendingConnTimeout, pendingHoverExpand, pendingScheme,
-                connectionProfileService, activeProjectId, apiServer, capabilityBus, selectedSessionId,
+                connectionProfileService, activeProjectId, apiServer, capabilityBus, programPluginManager, pluginManager,
+                selectedSessionId,
                 pendingApiEnabled, pendingApiPort,
                 pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines, preferenceChanged);
         // 选中指定的初始 Tab（如从终端字体按钮打开时选中"终端"Tab）
@@ -338,12 +344,15 @@ public class PreferencesDialog {
                                          String activeProjectId,
                                          com.jlshell.api.server.ApiServer apiServer,
                                          CapabilityBus capabilityBus,
+                                         ProgramPluginManager programPluginManager,
+                                         PluginManager pluginManager,
                                          String selectedSessionId,
                                          String[] pendingApiEnabled, String[] pendingApiPort,
                                          String[] pendingUiFontFamily, String[] pendingUiFontSize,
                                          String[] pendingScrollbackLines,
                                          Runnable preferenceChanged) {
         TabPane tabPane = new TabPane();
+        tabPane.getStyleClass().add("preferences-tabs");
         tabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
 
         Tab generalTab = new Tab(i18n.get("preferences.tab.general"));
@@ -368,6 +377,10 @@ public class PreferencesDialog {
         apiTab.setContent(buildApiPane(appSettings, i18n, apiServer, capabilityBus, selectedSessionId,
                 pendingApiEnabled, pendingApiPort, preferenceChanged));
         tabPane.getTabs().add(apiTab);
+
+        Tab pluginsTab = new Tab(i18n.get("preferences.tab.plugins"));
+        pluginsTab.setContent(buildPluginsPane(i18n, programPluginManager, pluginManager));
+        tabPane.getTabs().add(pluginsTab);
 
         Tab aboutTab = new Tab(i18n.get("preferences.tab.about"));
         aboutTab.setContent(buildAboutPane(i18n));
@@ -1144,6 +1157,134 @@ public class PreferencesDialog {
         return json == null || json.isBlank() ? "{}" : json.trim().replace("\n", "");
     }
 
+    // ── Plugins Tab ────────────────────────────────────────────────────────
+
+    private static VBox buildPluginsPane(I18nService i18n, ProgramPluginManager programPluginManager,
+                                         PluginManager pluginManager) {
+        VBox pane = new VBox(10);
+        pane.setPadding(new Insets(16, 20, 12, 20));
+
+        ObservableList<PluginDocEntry> entries = FXCollections.observableArrayList(pluginDocEntries(programPluginManager, pluginManager));
+        FilteredList<PluginDocEntry> filtered = new FilteredList<>(entries, e -> true);
+
+        ComboBox<String> scopeFilter = new ComboBox<>(FXCollections.observableArrayList(
+                i18n.get("plugins.filter.all"),
+                i18n.get("plugins.filter.program"),
+                i18n.get("plugins.filter.session")
+        ));
+        scopeFilter.getSelectionModel().select(0);
+        scopeFilter.valueProperty().addListener((obs, oldValue, newValue) -> {
+            String selected = newValue == null ? i18n.get("plugins.filter.all") : newValue;
+            filtered.setPredicate(entry -> selected.equals(i18n.get("plugins.filter.all"))
+                    || (selected.equals(i18n.get("plugins.filter.program")) && entry.scope() == com.jlshell.plugin.api.PluginScope.PROGRAM)
+                    || (selected.equals(i18n.get("plugins.filter.session")) && entry.scope() == com.jlshell.plugin.api.PluginScope.SESSION));
+        });
+
+        ListView<PluginDocEntry> list = new ListView<>(filtered);
+        list.setPrefWidth(230);
+        list.setCellFactory(lv -> new ListCell<>() {
+            @Override protected void updateItem(PluginDocEntry item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setText(null);
+                    setGraphic(null);
+                    return;
+                }
+                Label name = new Label(item.metadata().displayName());
+                name.setStyle("-fx-font-weight: bold;");
+                Label scope = new Label(item.scopeLabel(i18n));
+                scope.getStyleClass().add("plugin-scope-badge");
+                scope.getStyleClass().add(item.scope() == com.jlshell.plugin.api.PluginScope.PROGRAM
+                        ? "plugin-scope-program"
+                        : "plugin-scope-session");
+                Label version = new Label(item.metadata().version());
+                version.getStyleClass().add("plugin-version-label");
+                HBox meta = new HBox(6, scope, version);
+                meta.setAlignment(Pos.CENTER_LEFT);
+                VBox row = new VBox(5, name, meta);
+                setText(null);
+                setGraphic(row);
+            }
+        });
+
+        TextArea detail = new TextArea();
+        detail.setEditable(false);
+        detail.setWrapText(true);
+        detail.setPrefHeight(180);
+
+        VBox settingsHost = new VBox(8);
+        settingsHost.setPadding(new Insets(8, 0, 0, 0));
+        list.getSelectionModel().selectedItemProperty().addListener((obs, oldValue, entry) -> {
+            detail.setText(entry == null ? "" : entry.detailText(i18n));
+            settingsHost.getChildren().clear();
+            if (entry != null && entry.settingsNode() != null) {
+                settingsHost.getChildren().add(new Label(i18n.get("plugins.settings")));
+                settingsHost.getChildren().add(entry.settingsNode());
+            }
+        });
+        if (!filtered.isEmpty()) {
+            list.getSelectionModel().select(0);
+        }
+
+        VBox right = new VBox(8, detail, settingsHost);
+        SplitPane split = new SplitPane(list, right);
+        split.setDividerPositions(0.35);
+        VBox.setVgrow(split, Priority.ALWAYS);
+
+        pane.getChildren().addAll(scopeFilter, split);
+        return pane;
+    }
+
+    private static List<PluginDocEntry> pluginDocEntries(ProgramPluginManager programPluginManager,
+                                                         PluginManager pluginManager) {
+        List<PluginDocEntry> entries = new ArrayList<>();
+        if (programPluginManager != null) {
+            programPluginManager.getAvailablePlugins().forEach(desc -> {
+                javafx.scene.Node settings = desc.instance().settingsView(desc.context());
+                entries.add(new PluginDocEntry(desc.metadata(), settings));
+            });
+        }
+        if (pluginManager != null) {
+            pluginManager.getAvailablePlugins().forEach(desc -> entries.add(new PluginDocEntry(desc.metadata(), null)));
+        }
+        return entries;
+    }
+
+    private record PluginDocEntry(com.jlshell.plugin.api.PluginMetadata metadata, javafx.scene.Node settingsNode) {
+        com.jlshell.plugin.api.PluginScope scope() {
+            return metadata.scope();
+        }
+
+        String scopeLabel(I18nService i18n) {
+            return scope() == com.jlshell.plugin.api.PluginScope.PROGRAM
+                    ? i18n.get("plugins.scope.program")
+                    : i18n.get("plugins.scope.session");
+        }
+
+        String detailText(I18nService i18n) {
+            String range = (blank(metadata.minHostVersionInclusive()) && blank(metadata.maxHostVersionInclusive()))
+                    ? i18n.get("plugins.compat.undeclared")
+                    : (blank(metadata.minHostVersionInclusive()) ? "*" : metadata.minHostVersionInclusive())
+                    + " - "
+                    + (blank(metadata.maxHostVersionInclusive()) ? "*" : metadata.maxHostVersionInclusive());
+            String warning = blank(metadata.compatibilityWarning()) ? "" : "\n\n" + i18n.get("plugins.warning")
+                    + ":\n" + metadata.compatibilityWarning();
+            return i18n.get("plugins.field.id") + ": " + metadata.id() + "\n"
+                    + i18n.get("plugins.field.name") + ": " + metadata.displayName() + "\n"
+                    + i18n.get("plugins.field.version") + ": " + metadata.version() + "\n"
+                    + i18n.get("plugins.field.author") + ": " + metadata.author() + "\n"
+                    + i18n.get("plugins.field.scope") + ": " + scopeLabel(i18n) + "\n"
+                    + i18n.get("plugins.field.hostRange") + ": " + range + "\n"
+                    + i18n.get("plugins.field.status") + ": " + metadata.compatibilityStatus().name() + "\n\n"
+                    + i18n.get("plugins.field.description") + ":\n" + metadata.description()
+                    + warning;
+        }
+
+        private static boolean blank(String value) {
+            return value == null || value.isBlank();
+        }
+    }
+
     // ── Import Tab ─────────────────────────────────────────────────────────
 
     private static VBox buildImportPane(I18nService i18n,
@@ -1601,6 +1742,25 @@ public class PreferencesDialog {
             String text = pasteArea.getText().trim();
             if (text.isEmpty()) return;
             try {
+                com.jlshell.ui.service.ConnectionShareService shareService =
+                        new com.jlshell.ui.service.ConnectionShareService();
+                if (shareService.isShareText(text)) {
+                    com.jlshell.ui.model.ConnectionFormData form;
+                    if (shareService.requiresShareCode(text)) {
+                        java.util.Optional<String> code = showShareCodeDialog(anchor, i18n);
+                        if (code.isEmpty()) {
+                            return;
+                        }
+                        form = shareService.importShareText(text, code.get().toCharArray(), projectId);
+                    } else {
+                        form = shareService.importShareText(text, projectId);
+                    }
+                    performImport(service, projectId, java.util.List.of(form),
+                            i18n.get("import.section.share"), globalResult, i18n);
+                    popup.hide();
+                    return;
+                }
+
                 java.util.List<com.jlshell.ui.model.ConnectionFormData> parsed =
                         new com.jlshell.ui.service.importer.ManualJsonParser(projectId)
                                 .parseJsonText(text);
@@ -1626,6 +1786,35 @@ public class PreferencesDialog {
         popup.getScene().getStylesheets().addAll(anchor.getScene().getStylesheets());
         popup.show(anchor, anchor.getScene().getWindow().getX() + anchor.getLayoutX(),
                 anchor.getScene().getWindow().getY() + anchor.getLayoutY() + anchor.getHeight() + 4);
+    }
+
+    private static java.util.Optional<String> showShareCodeDialog(javafx.scene.Node owner, I18nService i18n) {
+        Dialog<String> dialog = new Dialog<>();
+        dialog.setTitle(i18n.get("connection.share.importCodeTitle"));
+        dialog.setHeaderText(i18n.get("connection.share.importCodeHeader"));
+        if (owner != null && owner.getScene() != null) {
+            dialog.initOwner(owner.getScene().getWindow());
+            dialog.getDialogPane().getStylesheets().addAll(owner.getScene().getStylesheets());
+        }
+
+        PasswordField codeField = new PasswordField();
+        codeField.setPromptText(i18n.get("connection.share.code"));
+        codeField.setPrefColumnCount(24);
+
+        VBox content = new VBox(8, new Label(i18n.get("connection.share.code")), codeField);
+        content.setPadding(new Insets(8, 0, 0, 0));
+        dialog.getDialogPane().setContent(content);
+
+        ButtonType importType = new ButtonType(i18n.get("import.button.import"), ButtonBar.ButtonData.OK_DONE);
+        dialog.getDialogPane().getButtonTypes().addAll(importType, ButtonType.CANCEL);
+        javafx.scene.Node importButton = dialog.getDialogPane().lookupButton(importType);
+        importButton.addEventFilter(javafx.event.ActionEvent.ACTION, event -> {
+            if (codeField.getText() == null || codeField.getText().isBlank()) {
+                event.consume();
+            }
+        });
+        dialog.setResultConverter(button -> button == importType ? codeField.getText().trim() : null);
+        return dialog.showAndWait();
     }
 
     /**
@@ -1829,6 +2018,8 @@ public class PreferencesDialog {
         techDetail.setStyle("-fx-font-size: 0.77em;");
         techDetail.setWrapText(true);
         techDetail.setMaxWidth(400);
+        techDetail.setPrefWidth(400);
+        techDetail.setAlignment(Pos.CENTER);
         techDetail.setTextAlignment(TextAlignment.CENTER);
 
         pane.getChildren().addAll(appName, version, desc, sep, authorBox, sep2, techTitle, techDetail);

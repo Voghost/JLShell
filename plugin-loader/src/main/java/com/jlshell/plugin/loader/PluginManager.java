@@ -13,6 +13,7 @@ import java.util.ServiceLoader;
 import java.util.concurrent.ConcurrentHashMap;
 
 import com.jlshell.plugin.api.JlShellPlugin;
+import com.jlshell.plugin.api.PluginCompatibility;
 import com.jlshell.plugin.api.PluginContext;
 import com.jlshell.plugin.api.PluginView;
 
@@ -31,12 +32,14 @@ public class PluginManager {
 
     private static final Logger log = LoggerFactory.getLogger(PluginManager.class);
     private static final String GLOBAL_KEY = "__global__";
+    private static final String DEFAULT_HOST_VERSION = "0.1.0";
 
     // 未知 sessionId 的共享只读空哨兵 registry：resolve/specs 返回空，禁止向其 register。
     // 任何 register 到此对象的调用都是调用方 bug（host 只经真实 session 桶的 DefaultPluginContext 注册）。
     private static final CapabilityRegistryImpl EMPTY_TRANSIENT = new CapabilityRegistryImpl();
 
     private final String userPluginsDir;
+    private final String hostVersion;
     private final List<PluginDescriptor> plugins = new ArrayList<>();
     private final Map<String, SessionPluginSet> activeBySession = new ConcurrentHashMap<>();
     private volatile boolean loaded = false;
@@ -46,6 +49,12 @@ public class PluginManager {
 
     public PluginManager(String userPluginsDir) {
         this.userPluginsDir = userPluginsDir;
+        this.hostVersion = DEFAULT_HOST_VERSION;
+    }
+
+    public PluginManager(String userPluginsDir, String hostVersion) {
+        this.userPluginsDir = userPluginsDir;
+        this.hostVersion = hostVersion == null || hostVersion.isBlank() ? DEFAULT_HOST_VERSION : hostVersion;
     }
 
     public PluginManager() {
@@ -286,13 +295,21 @@ public class PluginManager {
                 });
     }
 
-    private static PluginDescriptor toDescriptor(JlShellPlugin plugin) {
+    private PluginDescriptor toDescriptor(JlShellPlugin plugin) {
+        PluginCompatibility.Result compatibility = PluginCompatibility.evaluate(hostVersion,
+                plugin.minHostVersionInclusive(),
+                plugin.maxHostVersionInclusive());
         return new PluginDescriptor(
                 plugin.id(),
                 plugin.displayName(),
                 plugin.version(),
+                plugin.author(),
                 plugin.description(),
                 plugin.requiresSshSession(),
+                plugin.minHostVersionInclusive(),
+                plugin.maxHostVersionInclusive(),
+                compatibility.status(),
+                compatibility.warning(),
                 plugin
         );
     }

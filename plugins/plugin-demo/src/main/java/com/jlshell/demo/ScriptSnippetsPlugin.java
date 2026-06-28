@@ -53,6 +53,9 @@ public class ScriptSnippetsPlugin implements JlShellPlugin, PluginView {
     @Override public String id()          { return "com.jlshell.demo.script-snippets"; }
     @Override public String displayName() { return "Script Snippets"; }
     @Override public String version()     { return "0.1.0"; }
+    @Override public String author()      { return "JLShell"; }
+    @Override public String minHostVersionInclusive() { return "0.1.0"; }
+    @Override public String maxHostVersionInclusive() { return "0.1.999"; }
     @Override public String description() { return "Run common SSH diagnostic commands with one click."; }
     @Override public boolean requiresSshSession() { return true; }
 

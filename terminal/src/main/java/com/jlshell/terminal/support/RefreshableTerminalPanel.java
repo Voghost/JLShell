@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.function.Function;
 
 import javax.swing.BorderFactory;
+import javax.swing.KeyStroke;
 import javax.swing.JMenuItem;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
@@ -196,6 +197,7 @@ public class RefreshableTerminalPanel extends TerminalPanel {
                 String label   = ACTION_KEY_MAP.containsKey(rawName)
                         ? i18n.apply(ACTION_KEY_MAP.get(rawName))
                         : rawName;
+                String shortcut = shortcutText(action);
                 boolean enabled = action.isEnabled(null);
 
                 // 自绘菜单项：JPanel 整行绘制 hover 背景 + 左右边框线，
@@ -218,8 +220,19 @@ public class RefreshableTerminalPanel extends TerminalPanel {
                 javax.swing.JLabel textLabel = new javax.swing.JLabel(label);
                 textLabel.setFont(menuFont);
                 textLabel.setForeground(enabled ? fg : disabled);
-                textLabel.setBorder(BorderFactory.createEmptyBorder(6, 16, 6, 16));
+                textLabel.setBorder(BorderFactory.createEmptyBorder(6, 16, 6, 28));
                 item.add(textLabel, java.awt.BorderLayout.CENTER);
+
+                if (!shortcut.isBlank()) {
+                    javax.swing.JLabel shortcutLabel = new javax.swing.JLabel(shortcut);
+                    shortcutLabel.setFont(menuFont);
+                    shortcutLabel.setForeground(enabled ? blend(bg, fg, 0.62f) : disabled);
+                    shortcutLabel.setHorizontalAlignment(javax.swing.SwingConstants.RIGHT);
+                    shortcutLabel.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 16));
+                    item.add(shortcutLabel, java.awt.BorderLayout.EAST);
+                }
+
+                item.setPreferredSize(new java.awt.Dimension(230, 34));
 
                 if (enabled) {
                     item.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
@@ -269,6 +282,77 @@ public class RefreshableTerminalPanel extends TerminalPanel {
         });
 
         return menu;
+    }
+
+    private static String shortcutText(TerminalAction action) {
+        java.util.List<KeyStroke> strokes = action.getPresentation().getKeyStrokes();
+        if (strokes.isEmpty()) {
+            return "";
+        }
+        return strokes.stream()
+                .map(RefreshableTerminalPanel::formatKeyStroke)
+                .filter(text -> !text.isBlank())
+                .distinct()
+                .collect(java.util.stream.Collectors.joining(" / "));
+    }
+
+    private static String formatKeyStroke(KeyStroke stroke) {
+        if (stroke == null) {
+            return "";
+        }
+        int modifiers = stroke.getModifiers();
+        int keyCode = stroke.getKeyCode();
+        if (keyCode == KeyEvent.VK_UNDEFINED) {
+            return "";
+        }
+
+        java.util.List<String> parts = new java.util.ArrayList<>();
+        if (isMac()) {
+            if ((modifiers & KeyEvent.META_DOWN_MASK) != 0) parts.add("⌘");
+            if ((modifiers & KeyEvent.CTRL_DOWN_MASK) != 0) parts.add("⌃");
+            if ((modifiers & KeyEvent.ALT_DOWN_MASK) != 0) parts.add("⌥");
+            if ((modifiers & KeyEvent.SHIFT_DOWN_MASK) != 0) parts.add("⇧");
+            parts.add(macKeyText(keyCode));
+            return String.join("", parts);
+        }
+
+        if ((modifiers & KeyEvent.CTRL_DOWN_MASK) != 0) parts.add("Ctrl");
+        if ((modifiers & KeyEvent.ALT_DOWN_MASK) != 0) parts.add("Alt");
+        if ((modifiers & KeyEvent.SHIFT_DOWN_MASK) != 0) parts.add("Shift");
+        if ((modifiers & KeyEvent.META_DOWN_MASK) != 0) parts.add("Meta");
+        parts.add(nonMacKeyText(keyCode));
+        return String.join("+", parts);
+    }
+
+    private static String macKeyText(int keyCode) {
+        return switch (keyCode) {
+            case KeyEvent.VK_UP -> "↑";
+            case KeyEvent.VK_DOWN -> "↓";
+            case KeyEvent.VK_LEFT -> "←";
+            case KeyEvent.VK_RIGHT -> "→";
+            case KeyEvent.VK_PAGE_UP -> "Page Up";
+            case KeyEvent.VK_PAGE_DOWN -> "Page Down";
+            case KeyEvent.VK_INSERT -> "Ins";
+            case KeyEvent.VK_DELETE -> "Del";
+            case KeyEvent.VK_BACK_SPACE -> "⌫";
+            case KeyEvent.VK_ENTER -> "↩";
+            case KeyEvent.VK_ESCAPE -> "Esc";
+            default -> KeyEvent.getKeyText(keyCode);
+        };
+    }
+
+    private static String nonMacKeyText(int keyCode) {
+        return switch (keyCode) {
+            case KeyEvent.VK_PAGE_UP -> "PgUp";
+            case KeyEvent.VK_PAGE_DOWN -> "PgDn";
+            case KeyEvent.VK_INSERT -> "Ins";
+            case KeyEvent.VK_DELETE -> "Del";
+            case KeyEvent.VK_UP -> "Up";
+            case KeyEvent.VK_DOWN -> "Down";
+            case KeyEvent.VK_LEFT -> "Left";
+            case KeyEvent.VK_RIGHT -> "Right";
+            default -> KeyEvent.getKeyText(keyCode);
+        };
     }
 
     /** 在 color a 和 b 之间线性插值，ratio=0 返回 a，ratio=1 返回 b */
@@ -493,5 +577,9 @@ public class RefreshableTerminalPanel extends TerminalPanel {
 
     private static boolean isWindows() {
         return System.getProperty("os.name", "").toLowerCase().contains("win");
+    }
+
+    private static boolean isMac() {
+        return System.getProperty("os.name", "").toLowerCase().contains("mac");
     }
 }
