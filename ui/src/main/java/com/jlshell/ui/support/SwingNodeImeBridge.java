@@ -44,6 +44,12 @@ public final class SwingNodeImeBridge {
         });
     }
 
+    public static void detach(SwingNode swingNode) {
+        if (swingNode == null) return;
+        swingNode.setOnInputMethodTextChanged(null);
+        swingNode.setInputMethodRequests(null);
+    }
+
     private static void handleEvent(InputMethodEvent event, TerminalViewHandle handle) {
         String committed = event.getCommitted();
         if (committed != null && !committed.isEmpty()) {

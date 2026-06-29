@@ -82,6 +82,7 @@ jobs:
             --description "JLShell SSH Client" \
             --java-options "-Xms64m" \
             --java-options "-Xmx512m" \
+            --java-options "-XX:+ExplicitGCInvokesConcurrent" \
             --java-options "--add-opens java.base/java.lang=ALL-UNNAMED" \
             --java-options "--add-opens java.desktop/sun.awt=ALL-UNNAMED" \
             --java-options "-Dapple.laf.useScreenMenuBar=true" \
@@ -156,12 +157,13 @@ jobs:
           # User override path on Linux: ~/.config/jlshell/JLShell.vmoptions
           -Xms64m
           -Xmx512m
+          -XX:+ExplicitGCInvokesConcurrent
           EOF
 
           cat > dist/linux-work/JLShell/JLShell.sh <<'EOF'
           #!/bin/bash
           DIR="$(cd "$(dirname "$0")" && pwd)"
-          DEFAULT_VM_OPTS=(-Xms64m -Xmx512m)
+          DEFAULT_VM_OPTS=(-Xms64m -Xmx512m -XX:+ExplicitGCInvokesConcurrent)
           USER_VMOPTIONS="${XDG_CONFIG_HOME:-$HOME/.config}/jlshell/JLShell.vmoptions"
           BUNDLED_VMOPTIONS="$DIR/JLShell.vmoptions"
           VMOPTIONS_FILE=""
@@ -209,12 +211,13 @@ jobs:
           # User override path on Linux: ~/.config/jlshell/JLShell.vmoptions
           -Xms64m
           -Xmx512m
+          -XX:+ExplicitGCInvokesConcurrent
           EOF
 
           cat > $PKG/opt/jlshell/JLShell.sh <<'EOF'
           #!/bin/bash
           DIR="$(cd "$(dirname "$0")" && pwd)"
-          DEFAULT_VM_OPTS=(-Xms64m -Xmx512m)
+          DEFAULT_VM_OPTS=(-Xms64m -Xmx512m -XX:+ExplicitGCInvokesConcurrent)
           USER_VMOPTIONS="${XDG_CONFIG_HOME:-$HOME/.config}/jlshell/JLShell.vmoptions"
           BUNDLED_VMOPTIONS="$DIR/JLShell.vmoptions"
           VMOPTIONS_FILE=""
@@ -298,13 +301,14 @@ jobs:
           # User override path on Linux: ~/.config/jlshell/JLShell.vmoptions
           -Xms64m
           -Xmx512m
+          -XX:+ExplicitGCInvokesConcurrent
           EOF
 
           # AppRun
           cat > $APPDIR/AppRun <<'EOF'
           #!/bin/bash
           HERE="$(cd "$(dirname "$0")" && pwd)"
-          DEFAULT_VM_OPTS=(-Xms64m -Xmx512m)
+          DEFAULT_VM_OPTS=(-Xms64m -Xmx512m -XX:+ExplicitGCInvokesConcurrent)
           USER_VMOPTIONS="${XDG_CONFIG_HOME:-$HOME/.config}/jlshell/JLShell.vmoptions"
           BUNDLED_VMOPTIONS="$HERE/usr/JLShell.vmoptions"
           VMOPTIONS_FILE=""
@@ -430,6 +434,7 @@ jobs:
             --description "JLShell SSH Client" \
             --java-options "-Xms64m" \
             --java-options "-Xmx512m" \
+            --java-options "-XX:+ExplicitGCInvokesConcurrent" \
             --java-options "--add-opens java.base/java.lang=ALL-UNNAMED" \
             --java-options "--add-opens java.desktop/sun.awt=ALL-UNNAMED" \
             --dest dist/win-image
@@ -456,6 +461,7 @@ jobs:
             --description "JLShell SSH Client" \
             --java-options "-Xms64m" \
             --java-options "-Xmx512m" \
+            --java-options "-XX:+ExplicitGCInvokesConcurrent" \
             --java-options "--add-opens java.base/java.lang=ALL-UNNAMED" \
             --java-options "--add-opens java.desktop/sun.awt=ALL-UNNAMED" \
             --win-dir-chooser \
