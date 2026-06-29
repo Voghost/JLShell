@@ -14,6 +14,7 @@ import com.jlshell.terminal.model.TerminalColorScheme;
 import com.jlshell.terminal.model.TerminalRuntimeSettings;
 import com.jlshell.terminal.service.ColorSchemeRegistry;
 import com.jlshell.ui.service.I18nService;
+import com.jlshell.ui.service.MemoryReclaimService;
 import com.jlshell.ui.theme.AccentColor;
 import com.jlshell.ui.theme.AppTheme;
 import com.jlshell.ui.theme.ThemeService;
@@ -124,7 +125,7 @@ public class PreferencesDialog {
                             String activeProjectId,
                             com.jlshell.api.server.ApiServer apiServer) {
         show(owner, fontProfileService, appSettings, i18n, themeService,
-                connectionProfileService, activeProjectId, apiServer, null, null, null, null, 0);
+                connectionProfileService, activeProjectId, apiServer, null, null, null, null, null, 0);
     }
 
     /** 打开偏好设置对话框，可指定初始选中的 Tab 索引。 */
@@ -135,7 +136,7 @@ public class PreferencesDialog {
                             com.jlshell.api.server.ApiServer apiServer,
                             int initialTabIndex) {
         show(owner, fontProfileService, appSettings, i18n, themeService,
-                connectionProfileService, activeProjectId, apiServer, null, null, null, null, initialTabIndex);
+                connectionProfileService, activeProjectId, apiServer, null, null, null, null, null, initialTabIndex);
     }
 
     /** 打开偏好设置对话框，可指定初始选中的 Tab 索引。 */
@@ -147,7 +148,7 @@ public class PreferencesDialog {
                             CapabilityBus capabilityBus,
                             int initialTabIndex) {
         show(owner, fontProfileService, appSettings, i18n, themeService,
-                connectionProfileService, activeProjectId, apiServer, capabilityBus, null, null, null, initialTabIndex);
+                connectionProfileService, activeProjectId, apiServer, capabilityBus, null, null, null, null, initialTabIndex);
     }
 
     /** 打开偏好设置对话框，可指定初始选中的 Tab 索引。 */
@@ -160,6 +161,7 @@ public class PreferencesDialog {
                             ProgramPluginManager programPluginManager,
                             PluginManager pluginManager,
                             String selectedSessionId,
+                            MemoryReclaimService memoryReclaimService,
                             int initialTabIndex) {
         Dialog<Void> dialog = new Dialog<>();
         dialog.setTitle(i18n.get("preferences.title"));
@@ -191,7 +193,7 @@ public class PreferencesDialog {
                 connectionProfileService, activeProjectId, apiServer, capabilityBus, programPluginManager, pluginManager,
                 selectedSessionId,
                 pendingApiEnabled, pendingApiPort,
-                pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines, preferenceChanged);
+                pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines, memoryReclaimService, preferenceChanged);
         // 选中指定的初始 Tab（如从终端字体按钮打开时选中"终端"Tab）
         if (initialTabIndex >= 0 && initialTabIndex < tabs.getTabs().size()) {
             tabs.getSelectionModel().select(initialTabIndex);
@@ -350,6 +352,7 @@ public class PreferencesDialog {
                                          String[] pendingApiEnabled, String[] pendingApiPort,
                                          String[] pendingUiFontFamily, String[] pendingUiFontSize,
                                          String[] pendingScrollbackLines,
+                                         MemoryReclaimService memoryReclaimService,
                                          Runnable preferenceChanged) {
         TabPane tabPane = new TabPane();
         tabPane.getStyleClass().add("preferences-tabs");
@@ -357,7 +360,8 @@ public class PreferencesDialog {
 
         Tab generalTab = new Tab(i18n.get("preferences.tab.general"));
         generalTab.setContent(buildGeneralPane(appSettings, i18n, themeService, pendingLang, pendingTheme,
-                pendingAccent, pendingHoverExpand, pendingUiFontFamily, pendingUiFontSize, preferenceChanged));
+                pendingAccent, pendingHoverExpand, pendingUiFontFamily, pendingUiFontSize,
+                memoryReclaimService, preferenceChanged));
         tabPane.getTabs().add(generalTab);
 
         Tab connectionTab = new Tab(i18n.get("preferences.tab.connection"));
@@ -395,6 +399,7 @@ public class PreferencesDialog {
                                           ThemeService themeService, String[] pendingLang, String[] pendingTheme,
                                           AccentColor[] pendingAccent, String[] pendingHoverExpand,
                                           String[] pendingUiFontFamily, String[] pendingUiFontSize,
+                                          MemoryReclaimService memoryReclaimService,
                                           Runnable preferenceChanged) {
         // 首次启动：未设置语言时根据系统语言环境推断
         String currentLang = appSettings.get("ui.language", null);
@@ -533,6 +538,23 @@ public class PreferencesDialog {
         grid.add(uiFontSizeRow, 1, 5);
         grid.add(new Label(i18n.get("preferences.general.uiFontPreview")), 0, 6);
         grid.add(uiFontPreview, 1, 6);
+
+        Button gcButton = new Button(i18n.get("preferences.general.memoryGc"));
+        Label memoryStatus = new Label("");
+        gcButton.setDisable(memoryReclaimService == null);
+        gcButton.setOnAction(event -> {
+            if (memoryReclaimService == null) return;
+            gcButton.setDisable(true);
+            memoryStatus.setText(i18n.get("preferences.general.memoryGc.running"));
+            memoryReclaimService.requestNowWithStatus(result -> {
+                memoryStatus.setText(i18n.get("preferences.general.memoryGc.done", result));
+                gcButton.setDisable(false);
+            });
+        });
+        HBox memoryRow = new HBox(8, gcButton, memoryStatus);
+        memoryRow.setAlignment(Pos.CENTER_LEFT);
+        grid.add(new Label(i18n.get("preferences.general.memory")), 0, 7);
+        grid.add(memoryRow, 1, 7);
 
         VBox pane = new VBox(grid);
         pane.setPadding(new Insets(8));

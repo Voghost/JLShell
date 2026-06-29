@@ -39,8 +39,9 @@ import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.support.FxThread;
 import com.jlshell.ui.support.SwingNodeImeBridge;
 import com.jlshell.ui.theme.ThemeService;
-import javafx.application.Platform;
 import javafx.beans.value.ChangeListener;
+import javafx.application.Platform;
+import javafx.event.EventHandler;
 import javafx.embed.swing.SwingNode;
 import javafx.geometry.Insets;
 import javafx.geometry.Point2D;
@@ -91,6 +92,8 @@ public class TerminalWorkspaceView extends BorderPane {
     private final Set<String> activatedPluginIds = ConcurrentHashMap.newKeySet();
 
     private Node primaryNode;
+    private ChangeListener<Boolean> primaryFocusListener;
+    private EventHandler<MouseEvent> primaryMouseClickHandler;
     private TabPane workspaceTabPane;
 
     /**
@@ -226,9 +229,7 @@ public class TerminalWorkspaceView extends BorderPane {
 
     public CompletableFuture<Void> closeAsync() {
         hideFloatingCard();
-        if (primaryNode instanceof SwingNode swingNode) {
-            swingNode.setContent(null);
-        }
+        detachPrimarySwingNode();
         for (int i = 0; i < handles.size(); i++) {
             TerminalViewHandle handle = handles.get(i);
             if (i < cwdListeners.size()) {
@@ -247,11 +248,14 @@ public class TerminalWorkspaceView extends BorderPane {
 
     private void disposeUiReferences() {
         hideFloatingCard();
+        detachPrimarySwingNode();
         terminalHost.getChildren().clear();
         pinnedPluginButtons.clear();
         handles.clear();
         cwdListeners.clear();
         primaryNode = null;
+        primaryFocusListener = null;
+        primaryMouseClickHandler = null;
         disconnectOverlay = null;
         disconnectLabel = null;
         reconnectBtn = null;
@@ -259,6 +263,19 @@ public class TerminalWorkspaceView extends BorderPane {
         pluginQuickLaunchBtn = null;
         pluginDivider = null;
         onReconnect = null;
+    }
+
+    private void detachPrimarySwingNode() {
+        if (primaryNode instanceof SwingNode swingNode) {
+            if (primaryFocusListener != null) {
+                swingNode.focusedProperty().removeListener(primaryFocusListener);
+            }
+            if (primaryMouseClickHandler != null) {
+                swingNode.removeEventHandler(MouseEvent.MOUSE_CLICKED, primaryMouseClickHandler);
+            }
+            SwingNodeImeBridge.detach(swingNode);
+            swingNode.setContent(null);
+        }
     }
 
     /** 设置重连回调，由 SessionWorkspaceTab 在创建时注入。 */
@@ -1040,12 +1057,14 @@ public class TerminalWorkspaceView extends BorderPane {
         swingNode.getStyleClass().add(TERMINAL_SWING_NODE_STYLE_CLASS);
         swingNode.setCursor(javafx.scene.Cursor.TEXT);
         swingNode.setContent(component);
-        swingNode.focusedProperty().addListener((obs, oldFocused, focused) -> {
+        primaryFocusListener = (obs, oldFocused, focused) -> {
             if (focused) {
                 handle.requestFocus();
             }
-        });
-        swingNode.addEventHandler(MouseEvent.MOUSE_CLICKED, event -> handle.requestFocus());
+        };
+        swingNode.focusedProperty().addListener(primaryFocusListener);
+        primaryMouseClickHandler = event -> handle.requestFocus();
+        swingNode.addEventHandler(MouseEvent.MOUSE_CLICKED, primaryMouseClickHandler);
         HBox.setHgrow(swingNode, Priority.ALWAYS);
         SwingNodeImeBridge.attach(swingNode, handle);
         FxThread.run(handle::requestFocus);

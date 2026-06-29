@@ -37,6 +37,7 @@ import com.jlshell.ui.service.ConnectionProfileService;
 import com.jlshell.ui.service.HostKeyConfirmationService;
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.service.LocalShellLauncher;
+import com.jlshell.ui.service.MemoryReclaimService;
 import com.jlshell.ui.service.VaultKeyService;
 import com.jlshell.ui.service.VaultService;
 import com.jlshell.ui.support.BundledFontLoader;
@@ -61,6 +62,7 @@ public class AppContext implements AutoCloseable {
     private final MainWindow mainWindow;
     private final com.jlshell.api.server.ApiServer apiServer;
     private final ProgramPluginManager programPluginManager;
+    private final MemoryReclaimService memoryReclaimService;
 
     public AppContext() {
         String userHome = System.getProperty("user.home");
@@ -155,6 +157,7 @@ public class AppContext implements AutoCloseable {
                 jdbi, credentialCipher, appSettingsService, vaultService);
         LocalShellLauncher localShellLauncher = new LocalShellLauncher(
                 fontProfileService, executor, i18nService, BundledFontLoader::ensureAwtRegistered);
+        memoryReclaimService = new MemoryReclaimService();
 
         // 7b. Host methods + API server
         com.jlshell.program.api.ProgramHostMethods hostMethods =
@@ -209,7 +212,8 @@ public class AppContext implements AutoCloseable {
                 programPluginManager,
                 apiServer,
                 capabilityBus,
-                storageFactory
+                storageFactory,
+                memoryReclaimService
         );
 
         this.apiServer = apiServer;
@@ -227,6 +231,7 @@ public class AppContext implements AutoCloseable {
         log.info("AppContext shutting down");
         if (apiServer != null) apiServer.stop();
         if (programPluginManager != null) programPluginManager.deactivateAll();
+        if (memoryReclaimService != null) memoryReclaimService.close();
         executor.shutdownNow();
         dataSource.close();
     }

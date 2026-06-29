@@ -216,6 +216,7 @@
                                 <opts>
                                     <opt>-Xms${jlshell.jvm.xms}</opt>
                                     <opt>-Xmx${jlshell.jvm.xmx}</opt>
+                                    <opt>-XX:+ExplicitGCInvokesConcurrent</opt>
                                     <opt>--add-opens java.base/java.lang=ALL-UNNAMED</opt>
                                     <opt>--add-opens java.desktop/sun.awt=ALL-UNNAMED</opt>
                                 </opts>

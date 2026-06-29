@@ -32,6 +32,7 @@ import com.jlshell.ui.service.ConnectionProfileService;
 import com.jlshell.ui.service.ConnectionShareService;
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.service.LocalShellLauncher;
+import com.jlshell.ui.service.MemoryReclaimService;
 import com.jlshell.ui.service.VaultService;
 import com.jlshell.ui.support.FxThread;
 import com.jlshell.ui.theme.AppTheme;
@@ -122,6 +123,7 @@ public class MainWindow {
     private final ApiServer apiServer;
     private final CapabilityBus capabilityBus;
     private final VaultService vaultService;
+    private final MemoryReclaimService memoryReclaimService;
     private final ConnectionShareService connectionShareService = new ConnectionShareService();
     private final TabPane workspaceTabs = new TabPane();
     private final List<com.jlshell.terminal.service.TerminalViewHandle> localShellHandles = new ArrayList<>();
@@ -193,7 +195,8 @@ public class MainWindow {
             ProgramPluginManager programPluginManager,
             ApiServer apiServer,
             CapabilityBus capabilityBus,
-            java.util.function.Function<String, com.jlshell.plugin.api.storage.PluginStorage> storageFactory
+            java.util.function.Function<String, com.jlshell.plugin.api.storage.PluginStorage> storageFactory,
+            MemoryReclaimService memoryReclaimService
     ) {
         this.viewModel = viewModel;
         this.connectionProfileService = connectionProfileService;
@@ -213,6 +216,7 @@ public class MainWindow {
         this.apiServer = apiServer;
         this.capabilityBus = capabilityBus;
         this.storageFactory = storageFactory;
+        this.memoryReclaimService = memoryReclaimService;
 
         // Restore saved active project
         String savedProject = appSettingsService.get("ui.activeProject", "");
@@ -660,7 +664,7 @@ public class MainWindow {
         String selectedSessionId = selectedApiSessionId();
         PreferencesDialog.show(stage, fontProfileService, appSettingsService, i18nService, themeService,
                 connectionProfileService, activeProjectId, apiServer, capabilityBus, programPluginManager,
-                pluginManager, selectedSessionId, 0);
+                pluginManager, selectedSessionId, memoryReclaimService, 0);
         // 导入后刷新侧边栏
         loadConnections();
         // 应用可能变更的 UI 字体设置
@@ -1957,19 +1961,27 @@ public class MainWindow {
         swingNode.getStyleClass().add(TERMINAL_SWING_NODE_STYLE_CLASS);
         swingNode.setCursor(javafx.scene.Cursor.TEXT);
         swingNode.setContent(component);
-        swingNode.focusedProperty().addListener((obs, oldFocused, focused) -> {
+        javafx.beans.value.ChangeListener<Boolean> focusListener = (obs, oldFocused, focused) -> {
             if (focused) {
                 viewHandle.requestFocus();
             }
-        });
-        swingNode.addEventHandler(javafx.scene.input.MouseEvent.MOUSE_CLICKED, event -> viewHandle.requestFocus());
+        };
+        swingNode.focusedProperty().addListener(focusListener);
+        javafx.event.EventHandler<javafx.scene.input.MouseEvent> clickHandler = event -> viewHandle.requestFocus();
+        swingNode.addEventHandler(javafx.scene.input.MouseEvent.MOUSE_CLICKED, clickHandler);
         com.jlshell.ui.support.SwingNodeImeBridge.attach(swingNode, viewHandle);
         tab.setContent(swingNode);
         tab.setOnCloseRequest(event -> {
             event.consume();
+            swingNode.focusedProperty().removeListener(focusListener);
+            swingNode.removeEventHandler(javafx.scene.input.MouseEvent.MOUSE_CLICKED, clickHandler);
+            com.jlshell.ui.support.SwingNodeImeBridge.detach(swingNode);
+            swingNode.setContent(null);
+            tab.setContent(null);
             viewHandle.closeAsync().whenComplete((unused, t) -> FxThread.run(() -> {
                 localShellHandles.remove(viewHandle);
                 workspaceTabs.getTabs().remove(tab);
+                afterWorkspaceTabRemoved();
             }));
         });
         workspaceTabs.getTabs().add(tab);
@@ -2038,9 +2050,7 @@ public class MainWindow {
                 event.consume();
                 tab.closeWorkspace().whenComplete((unused, t) -> FxThread.run(() -> {
                     workspaceTabs.getTabs().remove(tab);
-                    if (workspaceTabs.getTabs().isEmpty() && welcomePane != null) {
-                        welcomePane.refresh();
-                    }
+                    afterWorkspaceTabRemoved();
                     if (t != null) {
                         showError(i18nService.get("status.sessionCloseFailed", t.getMessage()));
                     }
@@ -2149,9 +2159,7 @@ public class MainWindow {
         if (tab instanceof SessionWorkspaceTab swt) {
             swt.closeWorkspace().whenComplete((unused, t) -> FxThread.run(() -> {
                 workspaceTabs.getTabs().remove(swt);
-                if (workspaceTabs.getTabs().isEmpty() && welcomePane != null) {
-                    welcomePane.refresh();
-                }
+                afterWorkspaceTabRemoved();
                 if (t != null) {
                     showError(i18nService.get("status.sessionCloseFailed", t.getMessage()));
                 }
@@ -2159,6 +2167,16 @@ public class MainWindow {
         } else {
             // 本地 Shell Tab
             tab.getOnCloseRequest().handle(new javafx.event.Event(tab, tab, javafx.scene.control.Tab.TAB_CLOSE_REQUEST_EVENT));
+        }
+    }
+
+    private void afterWorkspaceTabRemoved() {
+        boolean noOpenWorkspaces = workspaceTabs.getTabs().isEmpty();
+        if (noOpenWorkspaces && welcomePane != null) {
+            welcomePane.refresh();
+        }
+        if (memoryReclaimService != null) {
+            memoryReclaimService.requestAfterWorkspaceClosed(noOpenWorkspaces);
         }
     }
 

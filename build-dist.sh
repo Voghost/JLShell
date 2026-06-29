@@ -44,6 +44,7 @@ write_vmoptions_file() {
 # User override path on Linux: ~/.config/jlshell/JLShell.vmoptions
 -Xms$JLSHELL_JVM_XMS
 -Xmx$JLSHELL_JVM_XMX
+-XX:+ExplicitGCInvokesConcurrent
 EOF
 }
 
@@ -171,6 +172,7 @@ assemble_mac() {
         --description "JLShell SSH Client" \
         --java-options "-Xms$JLSHELL_JVM_XMS" \
         --java-options "-Xmx$JLSHELL_JVM_XMX" \
+        --java-options "-XX:+ExplicitGCInvokesConcurrent" \
         --java-options "--add-opens java.base/java.lang=ALL-UNNAMED" \
         --java-options "--add-opens java.desktop/sun.awt=ALL-UNNAMED" \
         --java-options "-Dapple.laf.useScreenMenuBar=true" \
@@ -213,7 +215,7 @@ assemble_linux() {
     cat > "$work/JLShell.sh" <<LAUNCHER
 #!/bin/bash
 DIR="\$(cd "\$(dirname "\$0")" && pwd)"
-DEFAULT_VM_OPTS=(-Xms64m -Xmx512m)
+DEFAULT_VM_OPTS=(-Xms64m -Xmx512m -XX:+ExplicitGCInvokesConcurrent)
 USER_VMOPTIONS="\${XDG_CONFIG_HOME:-\$HOME/.config}/jlshell/JLShell.vmoptions"
 BUNDLED_VMOPTIONS="\$DIR/JLShell.vmoptions"
 VMOPTIONS_FILE=""
@@ -291,7 +293,7 @@ assemble_win() {
 setlocal
 set DIR=%~dp0
 set JAVA=%DIR%runtime\bin\javaw.exe
-set VM_OPTS=-Xms64m -Xmx512m
+set VM_OPTS=-Xms64m -Xmx512m -XX:+ExplicitGCInvokesConcurrent
 set USER_VMOPTIONS=%APPDATA%\JLShell\JLShell.vmoptions
 set BUNDLED_VMOPTIONS=%DIR%JLShell.vmoptions
 set VMOPTIONS_FILE=
