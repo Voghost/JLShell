@@ -94,17 +94,22 @@ public class RefreshableTerminalPanel extends TerminalPanel {
     protected void setupAntialiasing(Graphics graphics) {
         if (graphics instanceof Graphics2D gfx) {
             Object aaMode;
+            Object fractionalMetrics;
             if (isWindows()) {
-                // Windows SwingNode 支持 LCD 子像素渲染
+                // Windows SwingNode 支持 LCD 子像素渲染；关闭 fractional metrics
+                // 让等宽终端字形落在整像素网格上，更接近 MobaXterm 的清透锐利感。
                 aaMode = RenderingHints.VALUE_TEXT_ANTIALIAS_LCD_HRGB;
+                fractionalMetrics = RenderingHints.VALUE_FRACTIONALMETRICS_OFF;
             } else {
                 // macOS/Linux SwingNode 用灰度 AA（LCD AA 在 macOS 上无效）
                 aaMode = RenderingHints.VALUE_TEXT_ANTIALIAS_ON;
+                fractionalMetrics = RenderingHints.VALUE_FRACTIONALMETRICS_ON;
             }
             gfx.setRenderingHints(Map.of(
                     RenderingHints.KEY_TEXT_ANTIALIASING, aaMode,
                     RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY,
-                    RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_ON
+                    RenderingHints.KEY_FRACTIONALMETRICS, fractionalMetrics,
+                    RenderingHints.KEY_TEXT_LCD_CONTRAST, 180
             ));
         }
     }
