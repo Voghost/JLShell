@@ -42,7 +42,7 @@ public class ThemeService {
 
         // 异步解析保存的方案名；失败则保持 dark()。
         // 启动时还没有 terminal，set 触发的 listener 体里 workspaceTabs 是空的，安全。
-        String savedScheme = appSettings.get("terminal.colorScheme.active", "dark");
+        String savedScheme = normalizeBuiltInSchemeName(appSettings.get("terminal.colorScheme.active", "dark"));
         CompletableFuture.supplyAsync(() -> registry.findByName(savedScheme).orElse(null), executor)
                 .thenAcceptAsync(scheme -> {
                     if (scheme != null && !scheme.equals(activeColorScheme.get())) {
@@ -91,6 +91,13 @@ public class ThemeService {
     public void setActiveColorScheme(TerminalColorScheme scheme) {
         activeColorScheme.set(scheme);
         appSettings.set("terminal.colorScheme.active", scheme.name());
+    }
+
+    private String normalizeBuiltInSchemeName(String name) {
+        if (name == null || name.isBlank() || "dark".equals(name)) {
+            return TerminalColorScheme.dark().name();
+        }
+        return name;
     }
 
     public void apply(Scene scene) {
