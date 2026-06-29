@@ -19,6 +19,7 @@ import com.jlshell.plugin.api.storage.PluginStorage;
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.theme.ThemeService;
 import com.jlshell.ui.support.FxThread;
+import javafx.beans.value.ChangeListener;
 import javafx.scene.control.Label;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
@@ -63,6 +64,7 @@ public class SessionWorkspaceTab extends Tab {
     private boolean filePaneInitialized;
     private Tab pluginsTab;
     private PluginsTabView pluginsTabView;
+    private final ChangeListener<java.util.Locale> localeListener;
     /** SFTP 面板，首次激活时创建 */
     private SftpBrowserPane sftpPane;
     /** 内层 TabPane（Terminal / Files / Plugins），用于折叠顶栏时控制 tab-header 显隐 */
@@ -145,11 +147,12 @@ public class SessionWorkspaceTab extends Tab {
             workspaceTabs.getTabs().add(pluginsTab);
         }
 
-        i18nService.localeProperty().addListener((obs, oldLocale, newLocale) -> {
+        localeListener = (obs, oldLocale, newLocale) -> {
             if (pluginsTab != null) {
                 pluginsTab.setText(i18nService.get("workspace.plugins"));
             }
-        });
+        };
+        i18nService.localeProperty().addListener(localeListener);
 
         setContent(workspaceTabs);
     }
@@ -163,9 +166,11 @@ public class SessionWorkspaceTab extends Tab {
     }
 
     public CompletableFuture<Void> closeWorkspace() {
+        i18nService.localeProperty().removeListener(localeListener);
         terminalWorkspaceView.stopPlugins();
         if (pluginsTabView != null) {
-            pluginsTabView.stopPlugins();
+            pluginsTabView.dispose();
+            pluginsTabView = null;
         }
         return terminalWorkspaceView.closeAsync()
                 .exceptionally(throwable -> null)
@@ -181,7 +186,21 @@ public class SessionWorkspaceTab extends Tab {
                         throw new java.util.concurrent.CompletionException(throwable);
                     }
                     return null;
-                });
+                })
+                .thenApply(unused -> (Void) null)
+                .whenComplete((unused, throwable) -> FxThread.run(this::disposeUiReferences));
+    }
+
+    private void disposeUiReferences() {
+        if (sftpPane != null) {
+            sftpPane.dispose();
+            sftpPane = null;
+        }
+        innerTabPane.getTabs().forEach(tab -> tab.setContent(null));
+        innerTabPane.getTabs().clear();
+        setContent(null);
+        terminalWorkspaceView = null;
+        pluginsTab = null;
     }
 
     /**

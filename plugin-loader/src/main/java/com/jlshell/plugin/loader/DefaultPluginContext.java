@@ -119,6 +119,11 @@ public class DefaultPluginContext implements PluginContext {
         return locale;
     }
 
+    public void disposeBindings() {
+        themeName.unbind();
+        locale.unbind();
+    }
+
     @Override
     public Optional<SshSessionContext> sshSession() {
         return sshSession;

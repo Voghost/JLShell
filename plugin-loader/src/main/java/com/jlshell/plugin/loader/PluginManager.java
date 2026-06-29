@@ -201,9 +201,10 @@ public class PluginManager {
         SessionPluginSet set = activeBySession.get(key);
         if (set == null) return;
         JlShellPlugin plugin = set.plugins.remove(pluginId);
-        set.contexts.remove(pluginId);
+        PluginContext context = set.contexts.remove(pluginId);
         if (plugin != null) {
             set.registry.clearForPlugin(pluginId);
+            disposeContext(context);
             PluginView view = plugin.view();
             if (view != null) view.onSessionClosed();
             plugin.deactivate();
@@ -219,9 +220,10 @@ public class PluginManager {
     public void deactivatePlugin(String pluginId) {
         activeBySession.forEach((key, set) -> {
             JlShellPlugin plugin = set.plugins.remove(pluginId);
-            set.contexts.remove(pluginId);
+            PluginContext context = set.contexts.remove(pluginId);
             if (plugin != null) {
                 set.registry.clearForPlugin(pluginId);
+                disposeContext(context);
                 PluginView view = plugin.view();
                 if (view != null) view.onSessionClosed();
                 plugin.deactivate();
@@ -236,6 +238,7 @@ public class PluginManager {
     public void deactivateAll() {
         activeBySession.values().forEach(set -> {
             set.plugins.values().forEach(p -> {
+                disposeContext(set.contexts.get(p.id()));
                 PluginView view = p.view();
                 if (view != null) view.onSessionClosed();
                 p.deactivate();
@@ -245,6 +248,12 @@ public class PluginManager {
             set.registry.clear();
         });
         activeBySession.clear();
+    }
+
+    private static void disposeContext(PluginContext context) {
+        if (context instanceof DefaultPluginContext defaultContext) {
+            defaultContext.disposeBindings();
+        }
     }
 
     private void notifyThemeChanged(String themeName) {

@@ -15,6 +15,7 @@ import com.jlshell.sftp.service.SftpService;
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.theme.ThemeService;
 import javafx.application.Platform;
+import javafx.beans.value.ChangeListener;
 import javafx.geometry.Insets;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
@@ -40,6 +41,7 @@ public class PluginsTabView extends BorderPane {
     /** 本工作区 Tab 对应的会话 id（SSH 会话或合成的 local-uuid），用于 per-session registry 路由 */
     private final String sessionId;
     private final java.util.Set<String> activatedPluginIds = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final ChangeListener<java.util.Locale> localeListener;
 
     public PluginsTabView(
             PluginManager pluginManager,
@@ -144,7 +146,8 @@ public class PluginsTabView extends BorderPane {
             }
         });
 
-        i18nService.localeProperty().addListener((obs, oldLocale, newLocale) -> listView.refresh());
+        localeListener = (obs, oldLocale, newLocale) -> listView.refresh();
+        i18nService.localeProperty().addListener(localeListener);
 
         if (listView.getItems().isEmpty()) {
             setCenter(new Label(i18nService.get("plugin.noPlugins")));
@@ -156,5 +159,11 @@ public class PluginsTabView extends BorderPane {
     public void stopPlugins() {
         activatedPluginIds.forEach(id -> pluginManager.deactivatePlugin(sessionId, id));
         activatedPluginIds.clear();
+    }
+
+    public void dispose() {
+        i18nService.localeProperty().removeListener(localeListener);
+        stopPlugins();
+        setCenter(null);
     }
 }
