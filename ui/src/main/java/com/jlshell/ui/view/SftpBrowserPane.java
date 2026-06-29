@@ -28,6 +28,7 @@ import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.support.FxThread;
 import com.jlshell.ui.theme.ThemeService;
 import com.jlshell.ui.viewmodel.SftpBrowserViewModel;
+import javafx.beans.value.ChangeListener;
 import javafx.beans.property.ReadOnlyStringWrapper;
 import javafx.beans.property.SimpleBooleanProperty;
 import javafx.beans.property.StringProperty;
@@ -105,6 +106,7 @@ public class SftpBrowserPane extends BorderPane {
     private final SimpleBooleanProperty followTerminalCwd = new SimpleBooleanProperty(false);
     /** 终端的 cwd 属性引用，由 SessionWorkspaceTab 设置 */
     private StringProperty terminalCwdProperty;
+    private ChangeListener<String> terminalCwdListener;
     /** 注入 OSC 7 钩子的回调，由 SessionWorkspaceTab 设置 */
     private Runnable injectOsc7HookCallback;
     /** 钩子是否已注入 */
@@ -151,14 +153,34 @@ public class SftpBrowserPane extends BorderPane {
      * 由 SessionWorkspaceTab 在创建 SftpBrowserPane 后调用。
      */
     public void setTerminalCwdProperty(StringProperty cwdProperty) {
+        if (terminalCwdProperty != null && terminalCwdListener != null) {
+            terminalCwdProperty.removeListener(terminalCwdListener);
+        }
         this.terminalCwdProperty = cwdProperty;
         // 当 cwd 变化且"跟随"启用时，自动导航到该目录
-        cwdProperty.addListener((obs, oldCwd, newCwd) -> {
+        terminalCwdListener = (obs, oldCwd, newCwd) -> {
             if (followTerminalCwd.get() && newCwd != null && !newCwd.isBlank()) {
                 loadRemoteFilesOnly(newCwd);
                 selectRemoteTreeNode(newCwd);
             }
-        });
+        };
+        cwdProperty.addListener(terminalCwdListener);
+    }
+
+    public void dispose() {
+        transferCancelled = true;
+        if (terminalCwdProperty != null && terminalCwdListener != null) {
+            terminalCwdProperty.removeListener(terminalCwdListener);
+        }
+        terminalCwdProperty = null;
+        terminalCwdListener = null;
+        injectOsc7HookCallback = null;
+        localDirTree.setRoot(null);
+        remoteDirTree.setRoot(null);
+        localFileTable.getItems().clear();
+        remoteFileTable.getItems().clear();
+        setCenter(null);
+        setBottom(null);
     }
 
     /**

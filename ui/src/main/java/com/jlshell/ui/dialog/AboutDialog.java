@@ -87,6 +87,8 @@ public class AboutDialog {
         techDetail.setStyle("-fx-font-size: 0.77em;");
         techDetail.setWrapText(true);
         techDetail.setMaxWidth(400);
+        techDetail.setPrefWidth(400);
+        techDetail.setAlignment(Pos.CENTER);
         techDetail.setTextAlignment(TextAlignment.CENTER);
 
         pane.getChildren().addAll(appName, versionLabel, desc, sep, authorBox, sep2, techTitle, techDetail);

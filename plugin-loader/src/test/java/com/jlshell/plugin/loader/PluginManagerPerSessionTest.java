@@ -5,6 +5,7 @@ import com.jlshell.plugin.api.JlShellPlugin;
 import com.jlshell.plugin.api.rpc.Capability;
 import org.junit.jupiter.api.Test;
 import java.util.Optional;
+import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -70,5 +71,24 @@ class PluginManagerPerSessionTest {
         mgr.deactivatePlugin("sess-A", "com.test.cap");
         assertThat(mgr.registryFor("sess-A").resolve("com.test.cap", "ping")).isEmpty();
         assertThat(mgr.registryFor("sess-B").resolve("com.test.cap", "ping")).isPresent();
+    }
+
+    @Test
+    void deactivatingPluginUnbindsContextProperties() {
+        PluginManager mgr = new PluginManager();
+        CapPlugin plugin = new CapPlugin("com.test.cap");
+        DefaultPluginContext ctx = ctxFor(mgr, "com.test.cap", "sess-A");
+        ctx.writableThemeNameProperty().bind(mgr.themeNameProperty());
+        ctx.writableLocaleProperty().bind(mgr.localeProperty());
+        mgr.activateInstance(plugin, ctx);
+
+        mgr.deactivatePlugin("sess-A", "com.test.cap");
+
+        assertThat(ctx.writableThemeNameProperty().isBound()).isFalse();
+        assertThat(ctx.writableLocaleProperty().isBound()).isFalse();
+        ctx.writableThemeNameProperty().set("light");
+        ctx.writableLocaleProperty().set(Locale.CHINA);
+        assertThat(ctx.themeName()).isEqualTo("light");
+        assertThat(ctx.locale()).isEqualTo(Locale.CHINA);
     }
 }

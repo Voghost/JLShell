@@ -40,6 +40,7 @@ import com.jlshell.ui.support.FxThread;
 import com.jlshell.ui.support.SwingNodeImeBridge;
 import com.jlshell.ui.theme.ThemeService;
 import javafx.application.Platform;
+import javafx.beans.value.ChangeListener;
 import javafx.embed.swing.SwingNode;
 import javafx.geometry.Insets;
 import javafx.geometry.Point2D;
@@ -86,6 +87,7 @@ public class TerminalWorkspaceView extends BorderPane {
     private final String sessionId;
     private final StackPane terminalHost = new StackPane();
     private final List<TerminalViewHandle> handles = new ArrayList<>();
+    private final List<ChangeListener<String>> cwdListeners = new ArrayList<>();
     private final Set<String> activatedPluginIds = ConcurrentHashMap.newKeySet();
 
     private Node primaryNode;
@@ -223,11 +225,40 @@ public class TerminalWorkspaceView extends BorderPane {
     }
 
     public CompletableFuture<Void> closeAsync() {
+        hideFloatingCard();
+        if (primaryNode instanceof SwingNode swingNode) {
+            swingNode.setContent(null);
+        }
+        for (int i = 0; i < handles.size(); i++) {
+            TerminalViewHandle handle = handles.get(i);
+            if (i < cwdListeners.size()) {
+                handle.cwdProperty().removeListener(cwdListeners.get(i));
+            }
+            if (handle instanceof DefaultTerminalViewHandle dvh) {
+                dvh.setOnDisconnected(null);
+            }
+        }
         return CompletableFuture.allOf(
-                handles.stream()
+                new ArrayList<>(handles).stream()
                         .map(TerminalViewHandle::closeAsync)
                         .toArray(CompletableFuture[]::new)
-        );
+        ).whenComplete((unused, throwable) -> FxThread.run(this::disposeUiReferences));
+    }
+
+    private void disposeUiReferences() {
+        hideFloatingCard();
+        terminalHost.getChildren().clear();
+        pinnedPluginButtons.clear();
+        handles.clear();
+        cwdListeners.clear();
+        primaryNode = null;
+        disconnectOverlay = null;
+        disconnectLabel = null;
+        reconnectBtn = null;
+        toolbar = null;
+        pluginQuickLaunchBtn = null;
+        pluginDivider = null;
+        onReconnect = null;
     }
 
     /** 设置重连回调，由 SessionWorkspaceTab 在创建时注入。 */
@@ -975,11 +1006,13 @@ public class TerminalWorkspaceView extends BorderPane {
                 .thenCompose(handle -> {
                     handles.add(handle);
                     // 桥接终端 cwd 属性：当 handle 的 cwd 变化时同步到持久属性
-                    handle.cwdProperty().addListener((obs, oldCwd, newCwd) -> {
+                    ChangeListener<String> cwdListener = (obs, oldCwd, newCwd) -> {
                         if (newCwd != null && !newCwd.isBlank()) {
                             cwdProperty.set(newCwd);
                         }
-                    });
+                    };
+                    handle.cwdProperty().addListener(cwdListener);
+                    cwdListeners.add(cwdListener);
                     // 注册断连回调：连接丢失时在终端上显示断连提示 + 重连按钮
                     if (handle instanceof DefaultTerminalViewHandle dvh) {
                         dvh.setOnDisconnected(this::onTerminalDisconnected);
