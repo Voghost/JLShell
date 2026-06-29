@@ -20,6 +20,7 @@ import com.jlshell.plugin.api.storage.PluginStorage;
 import com.jlshell.plugin.loader.CapabilityRegistryImpl;
 import com.jlshell.plugin.loader.PluginCapabilityRegistryView;
 import com.jlshell.plugin.loader.PluginManager;
+import com.jlshell.plugin.loader.RuntimePluginDirectories;
 import javafx.beans.property.ObjectProperty;
 import javafx.beans.property.SimpleObjectProperty;
 import javafx.beans.property.SimpleStringProperty;
@@ -86,13 +87,8 @@ public class ProgramPluginManager {
     }
 
     private void loadFromExternalDirs() {
-        loadFromDirectory(Path.of(userPluginsDir));
-        Path appDir = resolveApplicationDir();
-        if (appDir != null) {
-            Path bundledDir = appDir.resolve("program-plugins");
-            if (!bundledDir.equals(Path.of(userPluginsDir))) {
-                loadFromDirectory(bundledDir);
-            }
+        for (Path dir : RuntimePluginDirectories.resolve(userPluginsDir, "program-plugins")) {
+            loadFromDirectory(dir);
         }
     }
 
@@ -110,25 +106,6 @@ public class ProgramPluginManager {
                 log.warn("Failed to load program plugin JAR: {}", jar.getName(), e);
             }
         }
-    }
-
-    private static Path resolveApplicationDir() {
-        String appDir = System.getProperty("jlshell.app.dir");
-        if (appDir != null && !appDir.isBlank()) return Path.of(appDir);
-        try {
-            Path codeSourcePath = Path.of(ProgramPluginManager.class.getProtectionDomain()
-                    .getCodeSource().getLocation().toURI());
-            if (Files.isRegularFile(codeSourcePath)) return codeSourcePath.getParent();
-            if (Files.isDirectory(codeSourcePath)) return codeSourcePath;
-        } catch (Exception ignored) {}
-        try {
-            String cmd = java.lang.ProcessHandle.current().info().command().orElse("");
-            if (!cmd.isEmpty()) {
-                Path exePath = Path.of(cmd);
-                if (Files.isRegularFile(exePath)) return exePath.getParent();
-            }
-        } catch (Exception ignored) {}
-        return null;
     }
 
     public List<ProgramPluginDescriptor> getAvailablePlugins() {

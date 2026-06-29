@@ -93,13 +93,8 @@ public class PluginManager {
     }
 
     private void loadFromExternalDirs() {
-        loadFromDirectory(Path.of(userPluginsDir));
-        Path appDir = resolveApplicationDir();
-        if (appDir != null) {
-            Path bundledDir = appDir.resolve("plugins");
-            if (!bundledDir.equals(Path.of(userPluginsDir))) {
-                loadFromDirectory(bundledDir);
-            }
+        for (Path dir : RuntimePluginDirectories.resolve(userPluginsDir, "plugins")) {
+            loadFromDirectory(dir);
         }
     }
 
@@ -117,31 +112,6 @@ public class PluginManager {
                 log.warn("Failed to load plugin JAR: {}", jar.getName(), e.getMessage());
             }
         }
-    }
-
-    private static Path resolveApplicationDir() {
-        // 1. Explicit system property override
-        String appDir = System.getProperty("jlshell.app.dir");
-        if (appDir != null && !appDir.isBlank()) return Path.of(appDir);
-
-        // 2. Code-source location (works for jpackage app-image, jar-in-exe, etc.)
-        try {
-            Path codeSourcePath = Path.of(PluginManager.class.getProtectionDomain()
-                    .getCodeSource().getLocation().toURI());
-            if (Files.isRegularFile(codeSourcePath)) return codeSourcePath.getParent();
-            if (Files.isDirectory(codeSourcePath)) return codeSourcePath;
-        } catch (Exception ignored) {}
-
-        // 3. Fallback: process executable path (Launch4j exe on Windows)
-        try {
-            String cmd = java.lang.ProcessHandle.current().info().command().orElse("");
-            if (!cmd.isEmpty()) {
-                Path exePath = Path.of(cmd);
-                if (Files.isRegularFile(exePath)) return exePath.getParent();
-            }
-        } catch (Exception ignored) {}
-
-        return null;
     }
 
     public List<PluginDescriptor> getAvailablePlugins() {
