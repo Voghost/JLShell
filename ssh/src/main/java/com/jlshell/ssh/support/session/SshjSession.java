@@ -8,9 +8,11 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 import com.jlshell.core.exception.SessionOperationException;
 import com.jlshell.core.model.CommandRequest;
@@ -22,8 +24,10 @@ import com.jlshell.core.model.ShellRequest;
 import com.jlshell.core.session.ShellChannel;
 import com.jlshell.core.session.SshSession;
 import net.schmizz.sshj.SSHClient;
+import net.schmizz.sshj.common.DisconnectReason;
 import net.schmizz.sshj.connection.channel.direct.PTYMode;
 import net.schmizz.sshj.connection.channel.direct.Session;
+import net.schmizz.sshj.transport.DisconnectListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,6 +46,7 @@ public class SshjSession implements SshSession {
     private final ExecutorService executorService;
     private final Instant connectedAt;
     private final AtomicReference<SessionState> state = new AtomicReference<>(SessionState.CONNECTED);
+    private final CopyOnWriteArrayList<Consumer<String>> disconnectListeners = new CopyOnWriteArrayList<>();
 
     public SshjSession(
             SessionId sessionId,
@@ -56,6 +61,7 @@ public class SshjSession implements SshSession {
         this.client = client;
         this.executorService = executorService;
         this.connectedAt = Instant.now();
+        installDisconnectListener();
     }
 
     @Override
@@ -122,10 +128,25 @@ public class SshjSession implements SshSession {
 
     @Override
     public <T> Optional<T> unwrap(Class<T> type) {
+        ensureConnected();
         if (type.isInstance(client)) {
             return Optional.of(type.cast(client));
         }
         return Optional.empty();
+    }
+
+    @Override
+    public void addDisconnectListener(Consumer<String> listener) {
+        if (listener != null) {
+            disconnectListeners.addIfAbsent(listener);
+        }
+    }
+
+    @Override
+    public void removeDisconnectListener(Consumer<String> listener) {
+        if (listener != null) {
+            disconnectListeners.remove(listener);
+        }
     }
 
     private CommandResult executeBlocking(CommandRequest request) {
@@ -150,7 +171,8 @@ public class SshjSession implements SshSession {
             } finally {
                 command.close();
             }
-        } catch (IOException exception) {
+        } catch (Exception exception) {
+            markTransportDisconnectedIfNeeded("Command execution failed: " + rootMessage(exception));
             throw new SessionOperationException("Failed to execute remote command: " + request.command(), exception);
         }
     }
@@ -170,7 +192,8 @@ public class SshjSession implements SshSession {
 
             Session.Shell shell = sshSession.startShell();
             return new SshjShellChannel(sshSession, shell, executorService);
-        } catch (IOException exception) {
+        } catch (Exception exception) {
+            markTransportDisconnectedIfNeeded("Open shell failed: " + rootMessage(exception));
             throw new SessionOperationException("Failed to open interactive shell for session " + sessionId, exception);
         }
     }
@@ -182,9 +205,55 @@ public class SshjSession implements SshSession {
     }
 
     private void ensureConnected() {
-        if (state.get() != SessionState.CONNECTED) {
+        if (state.get() != SessionState.CONNECTED || !client.isConnected() || !client.getTransport().isRunning()) {
+            markTransportDisconnectedIfNeeded("SSH transport is not connected");
             // 这里尽早失败，防止调用方误以为命令已被提交到远端。
             throw new SessionOperationException("Session is not connected: " + sessionId);
         }
+    }
+
+    private void installDisconnectListener() {
+        var transport = client.getTransport();
+        DisconnectListener previous = transport.getDisconnectListener();
+        transport.setDisconnectListener((reason, message) -> {
+            if (previous != null && previous != transport) {
+                try {
+                    previous.notifyDisconnect(reason, message);
+                } catch (Exception e) {
+                    log.debug("Ignoring previous SSH disconnect listener failure", e);
+                }
+            }
+            if (reason != DisconnectReason.BY_APPLICATION) {
+                markDisconnected("SSH disconnected: " + reason + (message == null || message.isBlank() ? "" : " - " + message));
+            }
+        });
+    }
+
+    private void markTransportDisconnectedIfNeeded(String message) {
+        if (state.get() == SessionState.CONNECTED && (!client.isConnected() || !client.getTransport().isRunning())) {
+            markDisconnected(message);
+        }
+    }
+
+    private void markDisconnected(String message) {
+        if (!state.compareAndSet(SessionState.CONNECTED, SessionState.FAILED)) {
+            return;
+        }
+        log.warn("SSH session {} marked disconnected: {}", sessionId, message);
+        disconnectListeners.forEach(listener -> {
+            try {
+                listener.accept(message);
+            } catch (Exception e) {
+                log.debug("Ignoring SSH disconnect listener failure", e);
+            }
+        });
+    }
+
+    private static String rootMessage(Throwable throwable) {
+        Throwable current = throwable;
+        while (current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
     }
 }

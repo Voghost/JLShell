@@ -7,9 +7,40 @@ on:
         description: 'Release version (e.g. 1.0.0)'
         required: true
         default: '0.1.0'
+      channel:
+        description: 'Release channel for website update API'
+        required: true
+        default: 'stable'
+        type: choice
+        options:
+          - stable
+          - beta
+      publish:
+        description: 'Publish release on website immediately'
+        required: true
+        default: false
+        type: boolean
+      asset_visible:
+        description: 'Make uploaded OSS assets visible on public website APIs'
+        required: true
+        default: false
+        type: boolean
+      upload_to_oss:
+        description: 'Upload release assets to Aliyun OSS from GitHub Actions'
+        required: true
+        default: true
+        type: boolean
+      notify_website:
+        description: 'Notify jlshell.oomn.net after OSS upload'
+        required: true
+        default: true
+        type: boolean
 
 env:
   VERSION: ${{ github.event.inputs.version }}
+  RELEASE_CHANNEL: ${{ github.event.inputs.channel }}
+  RELEASE_PUBLISH: ${{ github.event.inputs.publish }}
+  RELEASE_ASSET_VISIBLE: ${{ github.event.inputs.asset_visible }}
   MODULES: "java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.management.rmi,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.transaction.xa,java.xml,java.xml.crypto,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.httpserver,jdk.jfr,jdk.localedata,jdk.management,jdk.naming.dns,jdk.net,jdk.unsupported,jdk.unsupported.desktop,jdk.zipfs,javafx.base,javafx.controls,javafx.fxml,javafx.graphics,javafx.swing"
 
 jobs:
@@ -32,13 +63,13 @@ jobs:
 
       - name: Build
         run: |
-          mvn package -DskipTests -pl app -am -q
+          mvn package -DskipTests -pl launcher,app -am -q
 
           # Discover the built jar dynamically (no hardcoded version)
-          JAR=$(ls app/target/app-*.jar | head -1)
-          JAR_NAME=$(basename "$JAR")
+          JAR=$(ls app/target/jlshell-app-*.jar | head -1)
+          LAUNCHER_JAR=$(ls launcher/target/jlshell-launcher-*.jar | head -1)
           echo "JAR=$JAR" >> $GITHUB_ENV
-          echo "JAR_NAME=$JAR_NAME" >> $GITHUB_ENV
+          echo "LAUNCHER_JAR=$LAUNCHER_JAR" >> $GITHUB_ENV
 
           JDK=$JAVA_HOME
 
@@ -67,15 +98,17 @@ jobs:
           PKG_VERSION="1.${PKG_VERSION}"
 
           mkdir -p dist/input
-          cp "$JAR" dist/input/
+          mkdir -p dist/input/app
+          cp "$LAUNCHER_JAR" dist/input/jlshell-launcher.jar
+          cp "$JAR" dist/input/app/jlshell-app-bundled.jar
 
           $JDK/bin/jpackage \
             --type app-image \
             --name JLShell \
             --app-version "$PKG_VERSION" \
             --input dist/input \
-            --main-jar "$JAR_NAME" \
-            --main-class com.jlshell.app.Launcher \
+            --main-jar jlshell-launcher.jar \
+            --main-class com.jlshell.launcher.BootstrapLauncher \
             --runtime-image dist/jre \
             --icon dist/AppIcon.icns \
             --vendor JLShell \
@@ -130,11 +163,13 @@ jobs:
 
       - name: Build fat jar + jlink runtime
         run: |
-          mvn package -DskipTests -pl app -am -q
+          mvn package -DskipTests -pl launcher,app -am -q
 
           # Discover the built jar dynamically (no hardcoded version)
-          JAR=$(ls app/target/app-*.jar | head -1)
+          JAR=$(ls app/target/jlshell-app-*.jar | head -1)
+          LAUNCHER_JAR=$(ls launcher/target/jlshell-launcher-*.jar | head -1)
           echo "JAR=$JAR" >> $GITHUB_ENV
+          echo "LAUNCHER_JAR=$LAUNCHER_JAR" >> $GITHUB_ENV
 
           JDK=$JAVA_HOME
           mkdir -p dist
@@ -144,14 +179,18 @@ jobs:
             --output dist/runtime \
             --strip-debug --no-man-pages --no-header-files --compress zip-6
 
-          cp "$JAR" dist/app.jar
+          cp "$LAUNCHER_JAR" dist/jlshell-launcher.jar
+          mkdir -p dist/app
+          cp "$JAR" dist/app/jlshell-app-bundled.jar
+          cp "$JAR" "dist/jlshell-app-${VERSION}.jar"
 
       # ── tar.gz ──────────────────────────────────────────────────────────────
       - name: Package tar.gz
         run: |
           mkdir -p dist/linux-work/JLShell
           cp -r dist/runtime dist/linux-work/JLShell/
-          cp dist/app.jar dist/linux-work/JLShell/
+          cp dist/jlshell-launcher.jar dist/linux-work/JLShell/
+          cp -r dist/app dist/linux-work/JLShell/
           cat > dist/linux-work/JLShell/JLShell.vmoptions <<'EOF'
           # JLShell JVM options. One option per line.
           # User override path on Linux: ~/.config/jlshell/JLShell.vmoptions
@@ -188,7 +227,7 @@ jobs:
           exec "$DIR/runtime/bin/java" "${VM_OPTS[@]}" \
             --add-opens java.base/java.lang=ALL-UNNAMED \
             --add-opens java.desktop/sun.awt=ALL-UNNAMED \
-            -jar "$DIR/app.jar" "$@"
+            -jar "$DIR/jlshell-launcher.jar" "$@"
           EOF
           chmod +x dist/linux-work/JLShell/JLShell.sh
 
@@ -205,7 +244,8 @@ jobs:
           mkdir -p $PKG/DEBIAN
 
           cp -r dist/runtime $PKG/opt/jlshell/
-          cp dist/app.jar $PKG/opt/jlshell/
+          cp dist/jlshell-launcher.jar $PKG/opt/jlshell/
+          cp -r dist/app $PKG/opt/jlshell/
           cat > $PKG/opt/jlshell/JLShell.vmoptions <<'EOF'
           # JLShell JVM options. One option per line.
           # User override path on Linux: ~/.config/jlshell/JLShell.vmoptions
@@ -242,7 +282,7 @@ jobs:
           exec "$DIR/runtime/bin/java" "${VM_OPTS[@]}" \
             --add-opens java.base/java.lang=ALL-UNNAMED \
             --add-opens java.desktop/sun.awt=ALL-UNNAMED \
-            -jar "$DIR/app.jar" "$@"
+            -jar "$DIR/jlshell-launcher.jar" "$@"
           EOF
           chmod +x $PKG/opt/jlshell/JLShell.sh
 
@@ -295,7 +335,8 @@ jobs:
           mkdir -p $APPDIR/usr/{bin,lib,share/applications,share/pixmaps}
 
           cp -r dist/runtime $APPDIR/usr/
-          cp dist/app.jar $APPDIR/usr/
+          cp dist/jlshell-launcher.jar $APPDIR/usr/
+          cp -r dist/app $APPDIR/usr/
           cat > $APPDIR/usr/JLShell.vmoptions <<'EOF'
           # JLShell JVM options. One option per line.
           # User override path on Linux: ~/.config/jlshell/JLShell.vmoptions
@@ -333,7 +374,7 @@ jobs:
           exec "$HERE/usr/runtime/bin/java" "${VM_OPTS[@]}" \
             --add-opens java.base/java.lang=ALL-UNNAMED \
             --add-opens java.desktop/sun.awt=ALL-UNNAMED \
-            -jar "$HERE/usr/app.jar" "$@"
+            -jar "$HERE/usr/jlshell-launcher.jar" "$@"
           EOF
           chmod +x $APPDIR/AppRun
 
@@ -353,6 +394,7 @@ jobs:
             dist/JLShell-${{ env.VERSION }}-linux-x64.tar.gz
             dist/JLShell-${{ env.VERSION }}-linux-x64.deb
             dist/JLShell-${{ env.VERSION }}-linux-x86_64.AppImage
+            dist/jlshell-app-${{ env.VERSION }}.jar
 
   # ── Windows ─────────────────────────────────────────────────────────────────
   build-windows:
@@ -395,12 +437,12 @@ jobs:
       - name: Build fat jar + jlink runtime
         shell: bash
         run: |
-          mvn package -DskipTests -pl app -am -P dist -q
+          mvn package -DskipTests -pl launcher,app -am -P dist -q
 
-          JAR=$(ls app/target/app-*.jar | head -1)
-          JAR_NAME=$(basename "$JAR")
+          JAR=$(ls app/target/jlshell-app-*.jar | head -1)
+          LAUNCHER_JAR=$(ls launcher/target/jlshell-launcher-*.jar | head -1)
           echo "JAR=$JAR" >> $GITHUB_ENV
-          echo "JAR_NAME=$JAR_NAME" >> $GITHUB_ENV
+          echo "LAUNCHER_JAR=$LAUNCHER_JAR" >> $GITHUB_ENV
 
           JDK=$JAVA_HOME
           rm -rf dist/runtime
@@ -419,15 +461,17 @@ jobs:
 
           rm -rf dist/win-input dist/win-image dist/win-installer
           mkdir -p dist/win-input
-          cp "$JAR" dist/win-input/
+          mkdir -p dist/win-input/app
+          cp "$LAUNCHER_JAR" dist/win-input/jlshell-launcher.jar
+          cp "$JAR" dist/win-input/app/jlshell-app-bundled.jar
 
           "$JDK/bin/jpackage" \
             --type app-image \
             --name JLShell \
             --app-version "$PKG_VERSION" \
             --input dist/win-input \
-            --main-jar "$JAR_NAME" \
-            --main-class com.jlshell.app.Launcher \
+            --main-jar jlshell-launcher.jar \
+            --main-class com.jlshell.launcher.BootstrapLauncher \
             --runtime-image dist/runtime \
             --icon app/src/main/resources/icons/app_icon.ico \
             --vendor JLShell \
@@ -453,8 +497,8 @@ jobs:
             --name JLShell \
             --app-version "$PKG_VERSION" \
             --input dist/win-input \
-            --main-jar "$JAR_NAME" \
-            --main-class com.jlshell.app.Launcher \
+            --main-jar jlshell-launcher.jar \
+            --main-class com.jlshell.launcher.BootstrapLauncher \
             --runtime-image dist/runtime \
             --icon app/src/main/resources/icons/app_icon.ico \
             --vendor JLShell \
@@ -507,6 +551,7 @@ jobs:
             artifacts/JLShell-${{ env.VERSION }}-linux-x86_64.AppImage
             artifacts/JLShell-${{ env.VERSION }}-win-x64.zip
             artifacts/JLShell-${{ env.VERSION }}-win-x64.msi
+            artifacts/jlshell-app-${{ env.VERSION }}.jar
           body: |
             ## JLShell v${{ env.VERSION }}
 
@@ -520,5 +565,210 @@ jobs:
             | Linux | `JLShell-${{ env.VERSION }}-linux-x86_64.AppImage` | `chmod +x` 后直接运行 |
             | Windows | `JLShell-${{ env.VERSION }}-win-x64.zip` | 解压后双击 `JLShell.exe` |
             | Windows | `JLShell-${{ env.VERSION }}-win-x64.msi` | 安装后可从开始菜单搜索 `JLShell` |
+            | Incremental | `jlshell-app-${{ env.VERSION }}.jar` | 官网更新 API 使用的 jar 增量包 |
 
             > 所有包均内置精简 JRE，无需安装 JDK。
+
+  # ── Upload assets to OSS and notify website ────────────────────────────────
+  publish-oss:
+    name: Upload OSS and Notify Website
+    needs: [release]
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.upload_to_oss == 'true' }}
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install OSS SDK
+        run: python -m pip install --upgrade oss2
+
+      - name: Upload release assets to Aliyun OSS
+        id: oss_upload
+        continue-on-error: true
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          JLSHELL_OSS_ENDPOINT: ${{ vars.JLSHELL_OSS_ENDPOINT }}
+          JLSHELL_OSS_BUCKET: ${{ vars.JLSHELL_OSS_BUCKET }}
+          JLSHELL_OSS_RELEASE_PREFIX: ${{ vars.JLSHELL_OSS_RELEASE_PREFIX }}
+          JLSHELL_OSS_PUBLIC_BASE_URL: ${{ vars.JLSHELL_OSS_PUBLIC_BASE_URL }}
+        run: |
+          python <<'PY'
+          import hashlib
+          import json
+          import mimetypes
+          import os
+          from pathlib import Path
+          from urllib.parse import urlparse
+
+          import oss2
+
+          version = os.environ["VERSION"]
+          artifacts = Path("artifacts")
+          endpoint = os.environ.get("JLSHELL_OSS_ENDPOINT") or "https://oss-cn-hangzhou.aliyuncs.com"
+          bucket_name = os.environ.get("JLSHELL_OSS_BUCKET")
+          access_key_id = os.environ.get("OSS_ACCESS_KEY_ID")
+          access_key_secret = os.environ.get("OSS_ACCESS_KEY_SECRET")
+          prefix = (os.environ.get("JLSHELL_OSS_RELEASE_PREFIX") or "releases").strip("/")
+          public_base_url = (os.environ.get("JLSHELL_OSS_PUBLIC_BASE_URL") or "").rstrip("/")
+
+          required = {
+              "OSS_ACCESS_KEY_ID": access_key_id,
+              "OSS_ACCESS_KEY_SECRET": access_key_secret,
+              "JLSHELL_OSS_BUCKET": bucket_name,
+          }
+          missing = [key for key, value in required.items() if not value]
+          if missing:
+              raise SystemExit("Missing required GitHub Secrets/Variables: " + ", ".join(missing))
+
+          if not public_base_url:
+              parsed = urlparse(endpoint)
+              scheme = parsed.scheme or "https"
+              host = parsed.netloc or parsed.path
+              public_base_url = f"{scheme}://{bucket_name}.{host}"
+
+          auth = oss2.Auth(access_key_id, access_key_secret)
+          bucket = oss2.Bucket(auth, endpoint, bucket_name)
+
+          def asset(file_name, os_name, arch, package_type):
+              path = artifacts / file_name
+              if not path.is_file():
+                  raise SystemExit(f"Missing release asset: {path}")
+              return {
+                  "path": path,
+                  "fileName": file_name,
+                  "os": os_name,
+                  "arch": arch,
+                  "packageType": package_type,
+              }
+
+          jar_name = f"jlshell-app-{version}.jar"
+          requested_assets = [
+              asset(jar_name, "windows", "any", "jar"),
+              asset(jar_name, "linux", "any", "jar"),
+              asset(jar_name, "mac", "any", "jar"),
+              asset(f"JLShell-{version}-mac.zip", "mac", "any", "zip"),
+              asset(f"JLShell-{version}-linux-x64.tar.gz", "linux", "x64", "tar.gz"),
+              asset(f"JLShell-{version}-linux-x64.deb", "linux", "x64", "deb"),
+              asset(f"JLShell-{version}-linux-x86_64.AppImage", "linux", "x64", "appimage"),
+              asset(f"JLShell-{version}-win-x64.zip", "windows", "x64", "zip"),
+              asset(f"JLShell-{version}-win-x64.msi", "windows", "x64", "msi"),
+          ]
+
+          content_types = {
+              ".jar": "application/java-archive",
+              ".zip": "application/zip",
+              ".gz": "application/gzip",
+              ".deb": "application/vnd.debian.binary-package",
+              ".msi": "application/octet-stream",
+              ".appimage": "application/octet-stream",
+          }
+
+          uploaded = {}
+          payload_assets = []
+          for item in requested_assets:
+              file_name = item["fileName"]
+              path = item["path"]
+              object_key = f"{prefix}/{version}/{file_name}"
+              if file_name not in uploaded:
+                  suffix = "".join(path.suffixes).lower()
+                  content_type = content_types.get(suffix) or content_types.get(path.suffix.lower())
+                  if content_type is None:
+                      content_type = mimetypes.guess_type(file_name)[0] or "application/octet-stream"
+                  bucket.put_object_from_file(object_key, str(path), headers={"Content-Type": content_type})
+                  sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+                  size = path.stat().st_size
+                  url = f"{public_base_url}/{object_key}"
+                  uploaded[file_name] = {"url": url, "size": size, "sha256": sha256}
+
+              metadata = uploaded[file_name]
+              payload_assets.append({
+                  "os": item["os"],
+                  "arch": item["arch"],
+                  "packageType": item["packageType"],
+                  "fileName": file_name,
+                  "downloadUrl": "",
+                  "url": metadata["url"],
+                  "size": metadata["size"],
+                  "sha256": metadata["sha256"],
+                  "visible": os.environ.get("RELEASE_ASSET_VISIBLE", "false").lower() == "true",
+              })
+
+          payload = {
+              "version": version,
+              "channel": os.environ.get("RELEASE_CHANNEL") or "stable",
+              "updateType": "jar",
+              "title": f"JLShell v{version}",
+              "summary": f"Release generated by GitHub Actions run {os.environ.get('GITHUB_RUN_ID', '')}".strip(),
+              "releaseNotes": f"https://github.com/{os.environ.get('GITHUB_REPOSITORY', '')}/releases/tag/v{version}",
+              "mandatory": False,
+              "requiresFullInstaller": False,
+              "minLauncherVersion": "0.1.0",
+              "publish": os.environ.get("RELEASE_PUBLISH", "false").lower() == "true",
+              "assets": payload_assets,
+          }
+          Path("release-action-payload.json").write_text(
+              json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+              encoding="utf-8",
+          )
+          Path("oss-upload-manifest.json").write_text(
+              json.dumps({"version": version, "objects": uploaded}, ensure_ascii=False, indent=2),
+              encoding="utf-8",
+          )
+          print(f"Uploaded {len(uploaded)} files to OSS and prepared {len(payload_assets)} website assets.")
+          PY
+
+      - name: Notify JLShell website
+        id: website_notify
+        if: ${{ github.event.inputs.notify_website == 'true' && steps.oss_upload.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          JLSHELL_SITE_URL: ${{ vars.JLSHELL_SITE_URL }}
+          JLSHELL_ACTION_WEBHOOK_SECRET: ${{ secrets.JLSHELL_ACTION_WEBHOOK_SECRET }}
+        run: |
+          JLSHELL_SITE_URL="${JLSHELL_SITE_URL:-https://jlshell.oomn.net}"
+          if [[ -z "$JLSHELL_ACTION_WEBHOOK_SECRET" ]]; then
+            echo "Missing required GitHub secret: JLSHELL_ACTION_WEBHOOK_SECRET" >&2
+            exit 1
+          fi
+          body="$(cat release-action-payload.json)"
+          ts="$(date +%s)"
+          sig="sha256=$(printf '%s.%s' "$ts" "$body" \
+            | openssl dgst -sha256 -hmac "$JLSHELL_ACTION_WEBHOOK_SECRET" -hex \
+            | awk '{print $2}')"
+          curl -fS -X POST "${JLSHELL_SITE_URL%/}/api/v1/actions/releases" \
+            -H "Content-Type: application/json" \
+            -H "X-JLShell-Timestamp: $ts" \
+            -H "X-JLShell-Signature: $sig" \
+            --data "$body"
+
+      - name: Report optional OSS publish result
+        if: ${{ always() }}
+        run: |
+          if [[ "${{ steps.oss_upload.outcome }}" != "success" ]]; then
+            echo "::warning::Optional OSS upload failed or was skipped. GitHub Release artifacts were already produced."
+            exit 0
+          fi
+          if [[ "${{ github.event.inputs.notify_website }}" == "true" && "${{ steps.website_notify.outcome }}" != "success" ]]; then
+            echo "::warning::Optional website notification failed or was skipped. OSS upload artifacts were already produced."
+            exit 0
+          fi
+          echo "Optional OSS publish completed."
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && steps.oss_upload.outcome == 'success' }}
+        with:
+          name: oss-upload-manifest
+          path: |
+            oss-upload-manifest.json
+            release-action-payload.json
+          if-no-files-found: warn

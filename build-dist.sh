@@ -14,16 +14,18 @@ set -euo pipefail
 
 # ── Config ────────────────────────────────────────────────────────────────────
 APP_NAME="JLShell"
-APP_VERSION="0.1.0"
-MAIN_CLASS="com.jlshell.app.Launcher"
-MAIN_JAR="app-0.1.0.RELEASE.jar"
+APP_VERSION="${APP_VERSION:-$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null | sed 's/\.RELEASE$//')}"
+MAIN_CLASS="com.jlshell.launcher.BootstrapLauncher"
+LAUNCHER_MAIN_JAR="jlshell-launcher.jar"
+BUNDLED_APP_JAR="jlshell-app-bundled.jar"
 JLSHELL_JVM_XMS="${JLSHELL_JVM_XMS:-64m}"
 JLSHELL_JVM_XMX="${JLSHELL_JVM_XMX:-512m}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET_DIR="$SCRIPT_DIR/app/target"
 DIST_DIR="$SCRIPT_DIR/dist"
-FAT_JAR="$TARGET_DIR/$MAIN_JAR"
+APP_JAR=""
+LAUNCHER_JAR=""
 
 # JDK 21 locations — override via env vars if needed
 JDK21_MAC="${JDK21_MAC:-/opt/homebrew/Cellar/openjdk@21/21.0.11/libexec/openjdk.jdk/Contents/Home}"
@@ -67,10 +69,14 @@ current_os() {
 
 # ── Step 1: Maven build ───────────────────────────────────────────────────────
 build_jar() {
-    log "Building fat jar with cross-platform natives (profile: dist)..."
-    mvn package -DskipTests -pl app -am -P dist -q
-    [[ -f "$FAT_JAR" ]] || err "Fat jar not found: $FAT_JAR"
-    ok "Fat jar: $FAT_JAR ($(du -sh "$FAT_JAR" | cut -f1))"
+    log "Building launcher and app jar with cross-platform natives (profile: dist)..."
+    mvn package -DskipTests -pl launcher,app -am -P dist -q
+    APP_JAR="$(ls "$SCRIPT_DIR"/app/target/jlshell-app-*.jar | head -1)"
+    LAUNCHER_JAR="$(ls "$SCRIPT_DIR"/launcher/target/jlshell-launcher-*.jar | head -1)"
+    [[ -f "$APP_JAR" ]] || err "App jar not found"
+    [[ -f "$LAUNCHER_JAR" ]] || err "Launcher jar not found"
+    ok "App jar: $APP_JAR ($(du -sh "$APP_JAR" | cut -f1))"
+    ok "Launcher jar: $LAUNCHER_JAR ($(du -sh "$LAUNCHER_JAR" | cut -f1))"
 }
 
 # ── Step 2: Required Java modules (fixed list, covers Spring Boot + JavaFX + SQLite + SSH) ──
@@ -153,10 +159,11 @@ assemble_mac() {
     local pkg_version="${APP_VERSION#0.}"
     pkg_version="1.${pkg_version}"
 
-    # Prepare a clean input directory with only the fat jar
+    # Prepare a clean input directory with the stable launcher and bundled app jar.
     local input_dir="$work/input"
-    mkdir -p "$input_dir"
-    cp "$FAT_JAR" "$input_dir/"
+    mkdir -p "$input_dir/app"
+    cp "$LAUNCHER_JAR" "$input_dir/$LAUNCHER_MAIN_JAR"
+    cp "$APP_JAR" "$input_dir/app/$BUNDLED_APP_JAR"
 
     log "Running jpackage → $APP_NAME.app"
     "$jpackage" \
@@ -164,8 +171,8 @@ assemble_mac() {
         --name "$APP_NAME" \
         --app-version "$pkg_version" \
         --input "$input_dir" \
-        --main-jar "$MAIN_JAR" \
-        --main-class com.jlshell.app.Launcher \
+        --main-jar "$LAUNCHER_MAIN_JAR" \
+        --main-class "$MAIN_CLASS" \
         --runtime-image "$jre_dir" \
         --icon "$icns_file" \
         --vendor "JLShell" \
@@ -209,7 +216,9 @@ assemble_linux() {
 
     run_jlink "$jdk" "$modules" "$work/runtime" "${JAVAFX_MODS_LINUX:-}"
 
-    cp "$FAT_JAR" "$work/$MAIN_JAR"
+    mkdir -p "$work/app"
+    cp "$LAUNCHER_JAR" "$work/$LAUNCHER_MAIN_JAR"
+    cp "$APP_JAR" "$work/app/$BUNDLED_APP_JAR"
     write_vmoptions_file "$work/JLShell.vmoptions"
 
     cat > "$work/JLShell.sh" <<LAUNCHER
@@ -240,7 +249,7 @@ fi
 exec "\$DIR/runtime/bin/java" "\${VM_OPTS[@]}" \\
     --add-opens java.base/java.lang=ALL-UNNAMED \\
     --add-opens java.desktop/sun.awt=ALL-UNNAMED \\
-    -jar "\$DIR/$MAIN_JAR" "\$@"
+    -jar "\$DIR/$LAUNCHER_MAIN_JAR" "\$@"
 LAUNCHER
     chmod +x "$work/JLShell.sh"
 
@@ -275,20 +284,11 @@ assemble_win() {
 
     run_jlink "$jdk" "$modules" "$work/runtime" "${JAVAFX_MODS_WIN:-}"
 
-    # Build native Windows exe via Launch4j Maven plugin (jar is embedded in exe)
-    log "Building Windows native exe via Launch4j..."
-    mvn package -DskipTests -pl app -am -P dist,win-exe -q
-
-    local maven_exe="$TARGET_DIR/${APP_NAME}.exe"
-    if [[ -f "$maven_exe" ]]; then
-        cp "$maven_exe" "$work/$APP_NAME.exe"
-        write_vmoptions_file "$work/JLShell.vmoptions"
-        ok "Windows native exe: $APP_NAME.exe"
-    else
-        # Fallback: batch launcher using javaw (no console window)
-        log "WARN: Launch4j exe not found, falling back to .bat launcher"
-        write_vmoptions_file "$work/JLShell.vmoptions"
-        cat > "$work/JLShell.bat" <<'BAT'
+    mkdir -p "$work/app"
+    cp "$LAUNCHER_JAR" "$work/$LAUNCHER_MAIN_JAR"
+    cp "$APP_JAR" "$work/app/$BUNDLED_APP_JAR"
+    write_vmoptions_file "$work/JLShell.vmoptions"
+    cat > "$work/JLShell.bat" <<'BAT'
 @echo off
 setlocal
 set DIR=%~dp0
@@ -315,9 +315,8 @@ if not "%VMOPTIONS_FILE%"=="" (
     --add-opens java.desktop/sun.awt=ALL-UNNAMED ^
     -jar "%DIR%MAIN_JAR_PLACEHOLDER" %*
 BAT
-        sed -i '' "s/MAIN_JAR_PLACEHOLDER/$MAIN_JAR/" "$work/JLShell.bat" 2>/dev/null || \
-        sed -i    "s/MAIN_JAR_PLACEHOLDER/$MAIN_JAR/" "$work/JLShell.bat"
-    fi
+    sed -i '' "s/MAIN_JAR_PLACEHOLDER/$LAUNCHER_MAIN_JAR/" "$work/JLShell.bat" 2>/dev/null || \
+    sed -i    "s/MAIN_JAR_PLACEHOLDER/$LAUNCHER_MAIN_JAR/" "$work/JLShell.bat"
 
     # plugins directory — drop plugin JARs here to install them
     mkdir -p "$work/plugins"

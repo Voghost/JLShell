@@ -15,6 +15,8 @@ import com.jlshell.terminal.model.TerminalRuntimeSettings;
 import com.jlshell.terminal.service.ColorSchemeRegistry;
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.service.MemoryReclaimService;
+import com.jlshell.ui.service.account.AccountService;
+import com.jlshell.ui.service.update.UpdateService;
 import com.jlshell.ui.theme.AccentColor;
 import com.jlshell.ui.theme.AppTheme;
 import com.jlshell.ui.theme.ThemeService;
@@ -163,6 +165,24 @@ public class PreferencesDialog {
                             String selectedSessionId,
                             MemoryReclaimService memoryReclaimService,
                             int initialTabIndex) {
+        show(owner, fontProfileService, appSettings, i18n, themeService,
+                connectionProfileService, activeProjectId, apiServer, capabilityBus, programPluginManager,
+                pluginManager, selectedSessionId, memoryReclaimService, null, initialTabIndex);
+    }
+
+    /** 打开偏好设置对话框，可指定初始选中的 Tab 索引。 */
+    public static void show(Stage owner, FontProfileService fontProfileService, AppSettingsService appSettings,
+                            I18nService i18n, ThemeService themeService,
+                            com.jlshell.ui.service.ConnectionProfileService connectionProfileService,
+                            String activeProjectId,
+                            com.jlshell.api.server.ApiServer apiServer,
+                            CapabilityBus capabilityBus,
+                            ProgramPluginManager programPluginManager,
+                            PluginManager pluginManager,
+                            String selectedSessionId,
+                            MemoryReclaimService memoryReclaimService,
+                            AccountService accountService,
+                            int initialTabIndex) {
         Dialog<Void> dialog = new Dialog<>();
         dialog.setTitle(i18n.get("preferences.title"));
         dialog.setHeaderText(null);
@@ -183,6 +203,11 @@ public class PreferencesDialog {
         String[] pendingUiFontSize = { appSettings.get("ui.font.size", "13") };
         String[] pendingScrollbackLines = { appSettings.get("terminal.scrollback.lines",
                 String.valueOf(TerminalRuntimeSettings.DEFAULT_SCROLLBACK_LINES)) };
+        String[] pendingUpdateAutoCheck = { appSettings.get(UpdateService.SETTINGS_AUTO_CHECK, "true") };
+        String[] pendingUpdateChannel = { appSettings.get(UpdateService.SETTINGS_CHANNEL, "stable") };
+        String[] pendingUpdateBaseUrl = { appSettings.get(UpdateService.SETTINGS_BASE_URL, "https://jlshell.com") };
+        String[] pendingAccountSyncEnabled = { appSettings.get(AccountService.SETTINGS_SYNC_ENABLED, "false") };
+        String[] pendingAccountBaseUrl = { appSettings.get(AccountService.SETTINGS_BASE_URL, pendingUpdateBaseUrl[0]) };
         Runnable[] updateApplyState = new Runnable[1];
         Runnable preferenceChanged = () -> {
             if (updateApplyState[0] != null) updateApplyState[0].run();
@@ -193,7 +218,11 @@ public class PreferencesDialog {
                 connectionProfileService, activeProjectId, apiServer, capabilityBus, programPluginManager, pluginManager,
                 selectedSessionId,
                 pendingApiEnabled, pendingApiPort,
-                pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines, memoryReclaimService, preferenceChanged);
+                pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines,
+                pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl,
+                pendingAccountSyncEnabled, pendingAccountBaseUrl,
+                accountService, owner,
+                memoryReclaimService, preferenceChanged);
         // 选中指定的初始 Tab（如从终端字体按钮打开时选中"终端"Tab）
         if (initialTabIndex >= 0 && initialTabIndex < tabs.getTabs().size()) {
             tabs.getSelectionModel().select(initialTabIndex);
@@ -208,25 +237,35 @@ public class PreferencesDialog {
         Button applyButton = (Button) dialog.getDialogPane().lookupButton(applyBtnType);
         PreferencesSnapshot[] lastApplied = { snapshotOf(pending, pendingLang, pendingTheme, pendingAccent,
                 pendingConnTimeout, pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort,
-                pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines) };
+                pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines,
+                pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl,
+                pendingAccountSyncEnabled, pendingAccountBaseUrl) };
         updateApplyState[0] = () -> applyButton.setDisable(!hasPendingSettingsChanges(lastApplied[0],
                 snapshotOf(pending, pendingLang, pendingTheme, pendingAccent, pendingConnTimeout,
                         pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort,
-                        pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines)));
+                        pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines,
+                        pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl,
+                        pendingAccountSyncEnabled, pendingAccountBaseUrl)));
         updateApplyState[0].run();
         applyButton.addEventFilter(javafx.event.ActionEvent.ACTION, e -> {
             e.consume(); // 阻止 Dialog 默认的关闭逻辑
-            boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending, pendingLang, pendingTheme, pendingAccent, pendingConnTimeout, pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort, pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines);
+            boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending, pendingLang, pendingTheme, pendingAccent, pendingConnTimeout, pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort, pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines, pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl, pendingAccountSyncEnabled, pendingAccountBaseUrl);
             lastApplied[0] = snapshotOf(pending, pendingLang, pendingTheme, pendingAccent,
                     pendingConnTimeout, pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort,
-                    pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines);
+                    pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines,
+                    pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl,
+                    pendingAccountSyncEnabled, pendingAccountBaseUrl);
             updateApplyState[0].run();
             if (needRestart) showRestartPrompt(owner, i18n);
         });
 
         dialog.setResultConverter(btn -> {
             if (btn.getButtonData() == ButtonBar.ButtonData.OK_DONE) {
-                boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending, pendingLang, pendingTheme, pendingAccent, pendingConnTimeout, pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort, pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines);
+                boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending,
+                        pendingLang, pendingTheme, pendingAccent, pendingConnTimeout, pendingHoverExpand, pendingScheme,
+                        pendingApiEnabled, pendingApiPort, pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines,
+                        pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl,
+                        pendingAccountSyncEnabled, pendingAccountBaseUrl);
                 if (needRestart) showRestartPrompt(owner, i18n);
             }
             return null;
@@ -253,7 +292,10 @@ public class PreferencesDialog {
                                               TerminalColorScheme[] pendingScheme,
                                               String[] pendingApiEnabled, String[] pendingApiPort,
                                               String[] pendingUiFontFamily, String[] pendingUiFontSize,
-                                              String[] pendingScrollbackLines) {
+                                              String[] pendingScrollbackLines,
+                                              String[] pendingUpdateAutoCheck, String[] pendingUpdateChannel,
+                                              String[] pendingUpdateBaseUrl,
+                                              String[] pendingAccountSyncEnabled, String[] pendingAccountBaseUrl) {
         String prevLang = appSettings.get("ui.language", null);
         fontProfileService.updateActiveProfile(pending[0]);
         appSettings.set("ui.language", pendingLang[0]);
@@ -285,6 +327,11 @@ public class PreferencesDialog {
         appSettings.set("ui.font.family", pendingUiFontFamily[0] != null ? pendingUiFontFamily[0] : "");
         appSettings.set("ui.font.size", pendingUiFontSize[0]);
         appSettings.set("terminal.scrollback.lines", pendingScrollbackLines[0]);
+        appSettings.set(UpdateService.SETTINGS_AUTO_CHECK, pendingUpdateAutoCheck[0]);
+        appSettings.set(UpdateService.SETTINGS_CHANNEL, pendingUpdateChannel[0]);
+        appSettings.set(UpdateService.SETTINGS_BASE_URL, pendingUpdateBaseUrl[0]);
+        appSettings.set(AccountService.SETTINGS_SYNC_ENABLED, pendingAccountSyncEnabled[0]);
+        appSettings.set(AccountService.SETTINGS_BASE_URL, pendingAccountBaseUrl[0]);
 
         boolean langChanged = !Objects.equals(prevLang, pendingLang[0]);
         return langChanged || apiChanged;
@@ -302,7 +349,12 @@ public class PreferencesDialog {
             String apiPort,
             String uiFontFamily,
             String uiFontSize,
-            String scrollbackLines
+            String scrollbackLines,
+            String updateAutoCheck,
+            String updateChannel,
+            String updateBaseUrl,
+            String accountSyncEnabled,
+            String accountBaseUrl
     ) {}
 
     private static PreferencesSnapshot snapshotOf(FontProfile[] pending, String[] pendingLang,
@@ -311,7 +363,10 @@ public class PreferencesDialog {
                                                   TerminalColorScheme[] pendingScheme,
                                                   String[] pendingApiEnabled, String[] pendingApiPort,
                                                   String[] pendingUiFontFamily, String[] pendingUiFontSize,
-                                                  String[] pendingScrollbackLines) {
+                                                  String[] pendingScrollbackLines,
+                                                  String[] pendingUpdateAutoCheck, String[] pendingUpdateChannel,
+                                                  String[] pendingUpdateBaseUrl,
+                                                  String[] pendingAccountSyncEnabled, String[] pendingAccountBaseUrl) {
         return new PreferencesSnapshot(
                 pending[0],
                 pendingLang[0],
@@ -324,7 +379,12 @@ public class PreferencesDialog {
                 pendingApiPort[0],
                 normalizeNullableBlank(pendingUiFontFamily[0]),
                 pendingUiFontSize[0],
-                pendingScrollbackLines[0]
+                pendingScrollbackLines[0],
+                pendingUpdateAutoCheck[0],
+                pendingUpdateChannel[0],
+                pendingUpdateBaseUrl[0],
+                pendingAccountSyncEnabled[0],
+                pendingAccountBaseUrl[0]
         );
     }
 
@@ -352,6 +412,10 @@ public class PreferencesDialog {
                                          String[] pendingApiEnabled, String[] pendingApiPort,
                                          String[] pendingUiFontFamily, String[] pendingUiFontSize,
                                          String[] pendingScrollbackLines,
+                                         String[] pendingUpdateAutoCheck, String[] pendingUpdateChannel,
+                                         String[] pendingUpdateBaseUrl,
+                                         String[] pendingAccountSyncEnabled, String[] pendingAccountBaseUrl,
+                                         AccountService accountService, Stage owner,
                                          MemoryReclaimService memoryReclaimService,
                                          Runnable preferenceChanged) {
         TabPane tabPane = new TabPane();
@@ -361,8 +425,14 @@ public class PreferencesDialog {
         Tab generalTab = new Tab(i18n.get("preferences.tab.general"));
         generalTab.setContent(buildGeneralPane(appSettings, i18n, themeService, pendingLang, pendingTheme,
                 pendingAccent, pendingHoverExpand, pendingUiFontFamily, pendingUiFontSize,
+                pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl,
                 memoryReclaimService, preferenceChanged));
         tabPane.getTabs().add(generalTab);
+
+        Tab accountTab = new Tab(i18n.get("preferences.tab.account"));
+        accountTab.setContent(buildAccountPane(i18n, themeService, accountService, owner,
+                pendingAccountSyncEnabled, pendingAccountBaseUrl, preferenceChanged));
+        tabPane.getTabs().add(accountTab);
 
         Tab connectionTab = new Tab(i18n.get("preferences.tab.connection"));
         connectionTab.setContent(buildConnectionPane(appSettings, i18n, pendingConnTimeout, preferenceChanged));
@@ -393,12 +463,118 @@ public class PreferencesDialog {
         return tabPane;
     }
 
+    // ── Account Tab ────────────────────────────────────────────────────────
+
+    private static VBox buildAccountPane(I18nService i18n, ThemeService themeService,
+                                         AccountService accountService, Stage owner,
+                                         String[] pendingAccountSyncEnabled,
+                                         String[] pendingAccountBaseUrl,
+                                         Runnable preferenceChanged) {
+        Label statusValue = new Label();
+        Label emailValue = new Label();
+        Label userIdValue = new Label();
+
+        TextField baseUrl = new TextField(pendingAccountBaseUrl[0]);
+        baseUrl.setPrefWidth(280);
+        baseUrl.textProperty().addListener((o, ov, nv) -> {
+            pendingAccountBaseUrl[0] = nv == null || nv.isBlank() ? "https://jlshell.com" : nv.strip();
+            preferenceChanged.run();
+        });
+
+        CheckBox syncEnabled = new CheckBox(i18n.get("preferences.account.syncEnabled"));
+        syncEnabled.setSelected(Boolean.parseBoolean(pendingAccountSyncEnabled[0]));
+        syncEnabled.selectedProperty().addListener((o, ov, nv) -> {
+            pendingAccountSyncEnabled[0] = String.valueOf(nv);
+            preferenceChanged.run();
+        });
+
+        Label syncHint = new Label(i18n.get("preferences.account.syncHint"));
+        syncHint.setWrapText(true);
+        syncHint.setMaxWidth(420);
+
+        Button loginButton = new Button(i18n.get("account.login.action"));
+        Button registerButton = new Button(i18n.get("account.register.action"));
+        Button logoutButton = new Button(i18n.get("account.logout"));
+
+        Runnable refreshAccountState = () -> {
+            if (accountService == null || accountService.currentSession().isEmpty()) {
+                statusValue.setText(i18n.get("preferences.account.signedOut"));
+                emailValue.setText("-");
+                userIdValue.setText("-");
+                loginButton.setVisible(true);
+                loginButton.setManaged(true);
+                registerButton.setVisible(true);
+                registerButton.setManaged(true);
+                logoutButton.setVisible(false);
+                logoutButton.setManaged(false);
+                return;
+            }
+            AccountService.AccountSession session = accountService.currentSession().orElseThrow();
+            statusValue.setText(i18n.get("preferences.account.signedIn"));
+            emailValue.setText(session.email().isBlank() ? session.displayName() : session.email());
+            userIdValue.setText(session.userId().isBlank() ? "-" : session.userId());
+            loginButton.setVisible(false);
+            loginButton.setManaged(false);
+            registerButton.setVisible(false);
+            registerButton.setManaged(false);
+            logoutButton.setVisible(true);
+            logoutButton.setManaged(true);
+        };
+
+        loginButton.setDisable(accountService == null);
+        registerButton.setDisable(accountService == null);
+        logoutButton.setDisable(accountService == null);
+        loginButton.setOnAction(event -> {
+            AccountDialog.showLogin(owner, i18n, themeService, accountService);
+            refreshAccountState.run();
+        });
+        registerButton.setOnAction(event -> {
+            AccountDialog.showRegister(owner, i18n, themeService, accountService);
+            refreshAccountState.run();
+        });
+        logoutButton.setOnAction(event -> {
+            accountService.logout();
+            refreshAccountState.run();
+            Alert alert = new Alert(Alert.AlertType.INFORMATION, i18n.get("account.logout.success"), ButtonType.OK);
+            alert.setTitle(i18n.get("account.title"));
+            alert.setHeaderText(null);
+            if (owner != null) alert.initOwner(owner);
+            alert.showAndWait();
+        });
+
+        GridPane grid = new GridPane();
+        grid.setHgap(12);
+        grid.setVgap(10);
+        grid.setPadding(new Insets(16, 20, 8, 20));
+        grid.add(new Label(i18n.get("preferences.account.status")), 0, 0);
+        grid.add(statusValue, 1, 0);
+        grid.add(new Label(i18n.get("account.email")), 0, 1);
+        grid.add(emailValue, 1, 1);
+        grid.add(new Label(i18n.get("preferences.account.userId")), 0, 2);
+        grid.add(userIdValue, 1, 2);
+        HBox actions = new HBox(8, loginButton, registerButton, logoutButton);
+        actions.setAlignment(Pos.CENTER_LEFT);
+        grid.add(actions, 1, 3);
+        grid.add(new Label(i18n.get("preferences.account.baseUrl")), 0, 4);
+        grid.add(baseUrl, 1, 4);
+        grid.add(syncEnabled, 1, 5);
+        grid.add(syncHint, 1, 6);
+
+        refreshAccountState.run();
+
+        VBox pane = new VBox(grid);
+        pane.setPadding(new Insets(8));
+        return pane;
+    }
+
     // ── General Tab ────────────────────────────────────────────────────────
 
     private static VBox buildGeneralPane(AppSettingsService appSettings, I18nService i18n,
                                           ThemeService themeService, String[] pendingLang, String[] pendingTheme,
                                           AccentColor[] pendingAccent, String[] pendingHoverExpand,
                                           String[] pendingUiFontFamily, String[] pendingUiFontSize,
+                                          String[] pendingUpdateAutoCheck, String[] pendingUpdateChannel,
+                                          String[] pendingUpdateBaseUrl,
                                           MemoryReclaimService memoryReclaimService,
                                           Runnable preferenceChanged) {
         // 首次启动：未设置语言时根据系统语言环境推断
@@ -451,6 +627,30 @@ public class PreferencesDialog {
         hoverExpandCheck.setSelected("true".equals(pendingHoverExpand[0]));
         hoverExpandCheck.selectedProperty().addListener((o, ov, nv) -> {
             pendingHoverExpand[0] = String.valueOf(nv);
+            preferenceChanged.run();
+        });
+
+        CheckBox updateAutoCheck = new CheckBox(i18n.get("preferences.updates.autoCheck"));
+        updateAutoCheck.setSelected(Boolean.parseBoolean(pendingUpdateAutoCheck[0]));
+        updateAutoCheck.selectedProperty().addListener((o, ov, nv) -> {
+            pendingUpdateAutoCheck[0] = String.valueOf(nv);
+            preferenceChanged.run();
+        });
+
+        ComboBox<String> updateChannel = new ComboBox<>();
+        updateChannel.getItems().addAll("stable", "beta");
+        updateChannel.setValue(pendingUpdateChannel[0] == null || pendingUpdateChannel[0].isBlank()
+                ? "stable" : pendingUpdateChannel[0]);
+        updateChannel.setPrefWidth(120);
+        updateChannel.valueProperty().addListener((o, ov, nv) -> {
+            pendingUpdateChannel[0] = nv == null ? "stable" : nv;
+            preferenceChanged.run();
+        });
+
+        TextField updateBaseUrl = new TextField(pendingUpdateBaseUrl[0]);
+        updateBaseUrl.setPrefWidth(260);
+        updateBaseUrl.textProperty().addListener((o, ov, nv) -> {
+            pendingUpdateBaseUrl[0] = nv == null || nv.isBlank() ? "https://jlshell.com" : nv.strip();
             preferenceChanged.run();
         });
 
@@ -555,6 +755,12 @@ public class PreferencesDialog {
         memoryRow.setAlignment(Pos.CENTER_LEFT);
         grid.add(new Label(i18n.get("preferences.general.memory")), 0, 7);
         grid.add(memoryRow, 1, 7);
+        grid.add(new Label(i18n.get("preferences.updates.title")), 0, 8);
+        grid.add(updateAutoCheck, 1, 8);
+        grid.add(new Label(i18n.get("preferences.updates.channel")), 0, 9);
+        grid.add(updateChannel, 1, 9);
+        grid.add(new Label(i18n.get("preferences.updates.baseUrl")), 0, 10);
+        grid.add(updateBaseUrl, 1, 10);
 
         VBox pane = new VBox(grid);
         pane.setPadding(new Insets(8));

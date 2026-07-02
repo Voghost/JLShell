@@ -38,6 +38,8 @@ import com.jlshell.ui.service.HostKeyConfirmationService;
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.service.LocalShellLauncher;
 import com.jlshell.ui.service.MemoryReclaimService;
+import com.jlshell.ui.service.account.AccountService;
+import com.jlshell.ui.service.update.UpdateService;
 import com.jlshell.ui.service.VaultKeyService;
 import com.jlshell.ui.service.VaultService;
 import com.jlshell.ui.support.BundledFontLoader;
@@ -158,6 +160,8 @@ public class AppContext implements AutoCloseable {
         LocalShellLauncher localShellLauncher = new LocalShellLauncher(
                 fontProfileService, executor, i18nService, BundledFontLoader::ensureAwtRegistered);
         memoryReclaimService = new MemoryReclaimService();
+        UpdateService updateService = new UpdateService(appSettingsService, executor);
+        AccountService accountService = new AccountService(appSettingsService, executor);
 
         // 7b. Host methods + API server
         com.jlshell.program.api.ProgramHostMethods hostMethods =
@@ -213,7 +217,9 @@ public class AppContext implements AutoCloseable {
                 apiServer,
                 capabilityBus,
                 storageFactory,
-                memoryReclaimService
+                memoryReclaimService,
+                updateService,
+                accountService
         );
 
         this.apiServer = apiServer;

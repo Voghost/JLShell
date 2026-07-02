@@ -12,6 +12,7 @@
     <description>Production-grade cross-platform desktop SSH client based on Java 21 and JavaFX.</description>
 
     <modules>
+        <module>launcher</module>
         <module>app</module>
         <module>core</module>
         <module>ssh</module>

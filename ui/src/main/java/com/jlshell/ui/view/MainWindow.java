@@ -33,12 +33,15 @@ import com.jlshell.ui.service.ConnectionShareService;
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.service.LocalShellLauncher;
 import com.jlshell.ui.service.MemoryReclaimService;
+import com.jlshell.ui.service.account.AccountService;
+import com.jlshell.ui.service.update.UpdateService;
 import com.jlshell.ui.service.VaultService;
 import com.jlshell.ui.support.FxThread;
 import com.jlshell.ui.theme.AppTheme;
 import com.jlshell.ui.theme.ThemeService;
 import com.jlshell.ui.viewmodel.MainViewModel;
 import com.jlshell.ui.dialog.AboutDialog;
+import com.jlshell.ui.dialog.AccountDialog;
 import com.jlshell.ui.dialog.PreferencesDialog;
 import javafx.beans.binding.Bindings;
 import javafx.geometry.Insets;
@@ -124,6 +127,8 @@ public class MainWindow {
     private final CapabilityBus capabilityBus;
     private final VaultService vaultService;
     private final MemoryReclaimService memoryReclaimService;
+    private final UpdateService updateService;
+    private final AccountService accountService;
     private final ConnectionShareService connectionShareService = new ConnectionShareService();
     private final TabPane workspaceTabs = new TabPane();
     private final List<com.jlshell.terminal.service.TerminalViewHandle> localShellHandles = new ArrayList<>();
@@ -196,7 +201,9 @@ public class MainWindow {
             ApiServer apiServer,
             CapabilityBus capabilityBus,
             java.util.function.Function<String, com.jlshell.plugin.api.storage.PluginStorage> storageFactory,
-            MemoryReclaimService memoryReclaimService
+            MemoryReclaimService memoryReclaimService,
+            UpdateService updateService,
+            AccountService accountService
     ) {
         this.viewModel = viewModel;
         this.connectionProfileService = connectionProfileService;
@@ -217,6 +224,8 @@ public class MainWindow {
         this.capabilityBus = capabilityBus;
         this.storageFactory = storageFactory;
         this.memoryReclaimService = memoryReclaimService;
+        this.updateService = updateService;
+        this.accountService = accountService;
 
         // Restore saved active project
         String savedProject = appSettingsService.get("ui.activeProject", "");
@@ -344,7 +353,26 @@ public class MainWindow {
 
         loadConnections();
         updateWindowTitle();
+        scheduleAutomaticUpdateCheck(stage);
         return scene;
+    }
+
+    private void scheduleAutomaticUpdateCheck(Stage stage) {
+        if (updateService == null || !updateService.autoCheckEnabled()) {
+            return;
+        }
+        javafx.animation.PauseTransition delay = new javafx.animation.PauseTransition(javafx.util.Duration.seconds(6));
+        delay.setOnFinished(event -> updateService.checkLatest(PreferencesDialog.getVersion())
+                .whenComplete((response, error) -> javafx.application.Platform.runLater(() -> {
+                    if (error != null) {
+                        log.debug("Automatic update check failed", error);
+                        return;
+                    }
+                    if (response != null && response.updateAvailable() && !updateService.isIgnored(response)) {
+                        showUpdateAvailable(stage, response);
+                    }
+                })));
+        delay.play();
     }
 
     private void installWindowsRoundedWindowClip(Stage stage, Region root) {
@@ -403,6 +431,10 @@ public class MainWindow {
         connectionMenu.setOnShowing(event -> rebuildOpenConnectionsMenu(connectionMenu));
         rebuildOpenConnectionsMenu(connectionMenu);
 
+        Menu accountMenu = new Menu(i18nService.get("menu.account"));
+        accountMenu.setOnShowing(event -> rebuildAccountMenu(accountMenu, stage));
+        rebuildAccountMenu(accountMenu, stage);
+
         // View 菜单
         Menu viewMenu = new Menu(i18nService.get("menu.view"));
         MenuItem toggleSidebarItem = new MenuItem(i18nService.get("sidebar.toggle"));
@@ -439,18 +471,22 @@ public class MainWindow {
             fileMenu.getItems().add(4, preferences);
             // Help → About: JavaFX automatically moves "About" to the macOS app menu
             Menu helpMenu = new Menu(i18nService.get("menu.help"));
+            MenuItem checkUpdatesItem = new MenuItem(i18nService.get("menu.help.checkUpdates"));
+            checkUpdatesItem.setOnAction(event -> checkForUpdates(stage));
             MenuItem aboutItem = new MenuItem(i18nService.get("menu.help.about"));
-            aboutItem.setOnAction(event -> AboutDialog.show(stage, i18nService, themeService));
-            helpMenu.getItems().add(aboutItem);
-            menuBar.getMenus().addAll(fileMenu, connectionMenu, viewMenu, helpMenu);
+            aboutItem.setOnAction(event -> AboutDialog.show(stage, i18nService, themeService, () -> checkForUpdates(stage)));
+            helpMenu.getItems().addAll(checkUpdatesItem, aboutItem);
+            menuBar.getMenus().addAll(fileMenu, connectionMenu, accountMenu, viewMenu, helpMenu);
         } else {
             Menu settingsMenu = new Menu(i18nService.get("menu.settings"));
             settingsMenu.getItems().add(preferences);
             Menu helpMenu = new Menu(i18nService.get("menu.help"));
+            MenuItem checkUpdatesItem = new MenuItem(i18nService.get("menu.help.checkUpdates"));
+            checkUpdatesItem.setOnAction(event -> checkForUpdates(stage));
             MenuItem aboutItem = new MenuItem(i18nService.get("menu.help.about"));
-            aboutItem.setOnAction(event -> AboutDialog.show(stage, i18nService, themeService));
-            helpMenu.getItems().add(aboutItem);
-            menuBar.getMenus().addAll(fileMenu, connectionMenu, viewMenu, settingsMenu, helpMenu);
+            aboutItem.setOnAction(event -> AboutDialog.show(stage, i18nService, themeService, () -> checkForUpdates(stage)));
+            helpMenu.getItems().addAll(checkUpdatesItem, aboutItem);
+            menuBar.getMenus().addAll(fileMenu, connectionMenu, accountMenu, viewMenu, settingsMenu, helpMenu);
         }
         installMenuCursorRecovery(menuBar);
         return menuBar;
@@ -477,6 +513,41 @@ public class MainWindow {
             MenuItem empty = new MenuItem(i18nService.get("menu.connections.empty"));
             empty.setDisable(true);
             connectionMenu.getItems().add(empty);
+        }
+    }
+
+    private void rebuildAccountMenu(Menu accountMenu, Stage stage) {
+        accountMenu.getItems().clear();
+        if (accountService != null && accountService.isSignedIn()) {
+            AccountService.AccountSession session = accountService.currentSession().orElseThrow();
+            String name = session.displayName().isBlank() ? session.email() : session.displayName();
+            MenuItem signedIn = new MenuItem(i18nService.get("account.signedInAs", name));
+            signedIn.setDisable(true);
+            MenuItem settings = new MenuItem(i18nService.get("account.settings"));
+            settings.setOnAction(event -> openPreferences(stage, 1));
+            MenuItem logout = new MenuItem(i18nService.get("account.logout"));
+            logout.setOnAction(event -> {
+                accountService.logout();
+                statusLabel.setText(i18nService.get("account.logout.success"));
+                rebuildAccountMenu(accountMenu, stage);
+            });
+            accountMenu.getItems().addAll(signedIn, settings, new SeparatorMenuItem(), logout);
+        } else {
+            MenuItem login = new MenuItem(i18nService.get("account.login.action"));
+            login.setDisable(accountService == null);
+            login.setOnAction(event -> {
+                AccountDialog.showLogin(stage, i18nService, themeService, accountService);
+                rebuildAccountMenu(accountMenu, stage);
+            });
+            MenuItem register = new MenuItem(i18nService.get("account.register.action"));
+            register.setDisable(accountService == null);
+            register.setOnAction(event -> {
+                AccountDialog.showRegister(stage, i18nService, themeService, accountService);
+                rebuildAccountMenu(accountMenu, stage);
+            });
+            MenuItem settings = new MenuItem(i18nService.get("account.settings"));
+            settings.setOnAction(event -> openPreferences(stage, 1));
+            accountMenu.getItems().addAll(login, register, new SeparatorMenuItem(), settings);
         }
     }
 
@@ -661,14 +732,102 @@ public class MainWindow {
 
 
     public void openPreferences(Stage stage) {
+        openPreferences(stage, 0);
+    }
+
+    private void openPreferences(Stage stage, int initialTabIndex) {
         String selectedSessionId = selectedApiSessionId();
         PreferencesDialog.show(stage, fontProfileService, appSettingsService, i18nService, themeService,
                 connectionProfileService, activeProjectId, apiServer, capabilityBus, programPluginManager,
-                pluginManager, selectedSessionId, memoryReclaimService, 0);
+                pluginManager, selectedSessionId, memoryReclaimService, accountService, initialTabIndex);
         // 导入后刷新侧边栏
         loadConnections();
         // 应用可能变更的 UI 字体设置
         applyUiFontSettings();
+    }
+
+    public void checkForUpdates(Stage stage) {
+        Alert checking = new Alert(Alert.AlertType.INFORMATION, i18nService.get("updates.checking"), ButtonType.CANCEL);
+        checking.setTitle(i18nService.get("updates.title"));
+        checking.setHeaderText(null);
+        checking.initOwner(stage);
+        updateService.checkLatest(PreferencesDialog.getVersion())
+                .whenComplete((response, error) -> javafx.application.Platform.runLater(() -> {
+                    checking.close();
+                    if (error != null) {
+                        showUpdateError(stage, error);
+                        return;
+                    }
+                    if (response == null || !response.updateAvailable() || updateService.isIgnored(response)) {
+                        showUpdateMessage(stage, i18nService.get("updates.upToDate"));
+                        return;
+                    }
+                    showUpdateAvailable(stage, response);
+                }));
+        checking.show();
+    }
+
+    private void showUpdateAvailable(Stage stage, UpdateService.UpdateResponse response) {
+        String message = i18nService.get("updates.available", response.latestVersion());
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION, message,
+                new ButtonType(i18nService.get("updates.download")),
+                new ButtonType(i18nService.get("updates.ignore")),
+                ButtonType.CANCEL);
+        alert.setTitle(i18nService.get("updates.title"));
+        alert.setHeaderText("JLShell " + response.latestVersion());
+        alert.initOwner(stage);
+        alert.showAndWait().ifPresent(button -> {
+            String text = button.getText();
+            if (i18nService.get("updates.download").equals(text)) {
+                downloadUpdate(stage, response);
+            } else if (i18nService.get("updates.ignore").equals(text)) {
+                updateService.ignoreVersion(response.latestVersion());
+            }
+        });
+    }
+
+    private void downloadUpdate(Stage stage, UpdateService.UpdateResponse response) {
+        Alert downloading = new Alert(Alert.AlertType.INFORMATION, i18nService.get("updates.downloading"), ButtonType.CANCEL);
+        downloading.setTitle(i18nService.get("updates.title"));
+        downloading.setHeaderText(null);
+        downloading.initOwner(stage);
+        updateService.downloadAndStage(response)
+                .whenComplete((result, error) -> javafx.application.Platform.runLater(() -> {
+                    downloading.close();
+                    if (error != null) {
+                        showUpdateError(stage, error);
+                        return;
+                    }
+                    String key = result.restartRequired() ? "updates.downloadedRestart" : "updates.downloadedInstaller";
+                    showUpdateMessage(stage, i18nService.get(key, result.file().toString()));
+                }));
+        downloading.show();
+    }
+
+    private void showUpdateMessage(Stage stage, String message) {
+        Alert alert = new Alert(Alert.AlertType.INFORMATION, message, ButtonType.OK);
+        alert.setTitle(i18nService.get("updates.title"));
+        alert.setHeaderText(null);
+        alert.initOwner(stage);
+        alert.showAndWait();
+    }
+
+    private void showUpdateError(Stage stage, Throwable error) {
+        Alert alert = new Alert(Alert.AlertType.ERROR,
+                i18nService.get("updates.failed", rootMessage(error)),
+                ButtonType.OK);
+        alert.setTitle(i18nService.get("updates.title"));
+        alert.setHeaderText(null);
+        alert.initOwner(stage);
+        alert.showAndWait();
+    }
+
+    private static String rootMessage(Throwable error) {
+        Throwable current = error;
+        while (current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
     }
 
     private String selectedApiSessionId() {
