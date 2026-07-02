@@ -505,6 +505,7 @@ public class PreferencesDialog {
         Button loginButton = new Button(i18n.get("account.login.action"));
         Button registerButton = new Button(i18n.get("account.register.action"));
         Button logoutButton = new Button(i18n.get("account.logout"));
+        Button changePasswordButton = new Button(i18n.get("account.changePassword"));
 
         Runnable refreshAccountState = () -> {
             if (accountService == null || accountService.currentSession().isEmpty()) {
@@ -518,6 +519,8 @@ public class PreferencesDialog {
                 registerButton.setManaged(true);
                 logoutButton.setVisible(false);
                 logoutButton.setManaged(false);
+                changePasswordButton.setVisible(false);
+                changePasswordButton.setManaged(false);
                 return;
             }
             AccountService.AccountSession session = accountService.currentSession().orElseThrow();
@@ -531,6 +534,8 @@ public class PreferencesDialog {
             registerButton.setManaged(false);
             logoutButton.setVisible(true);
             logoutButton.setManaged(true);
+            changePasswordButton.setVisible(true);
+            changePasswordButton.setManaged(true);
         };
 
         loginButton.setDisable(accountService == null);
@@ -555,6 +560,11 @@ public class PreferencesDialog {
                 alert.showAndWait();
             }));
         });
+        changePasswordButton.setDisable(accountService == null);
+        changePasswordButton.setOnAction(event -> {
+            showChangePasswordDialog(owner, i18n, accountService);
+            refreshAccountState.run();
+        });
 
         GridPane grid = new GridPane();
         grid.setHgap(12);
@@ -568,7 +578,7 @@ public class PreferencesDialog {
         grid.add(emailValue, 1, 2);
         grid.add(new Label(i18n.get("preferences.account.accountId")), 0, 3);
         grid.add(accountIdValue, 1, 3);
-        HBox actions = new HBox(8, loginButton, registerButton, logoutButton);
+        HBox actions = new HBox(8, loginButton, registerButton, logoutButton, changePasswordButton);
         actions.setAlignment(Pos.CENTER_LEFT);
         grid.add(actions, 1, 4);
         grid.add(new Label(i18n.get("preferences.account.baseUrl")), 0, 5);
@@ -581,6 +591,94 @@ public class PreferencesDialog {
         VBox pane = new VBox(grid);
         pane.setPadding(new Insets(8));
         return pane;
+    }
+
+    /** 修改密码对话框。 */
+    private static void showChangePasswordDialog(Stage owner, I18nService i18n,
+                                                  AccountService accountService) {
+        Dialog<Void> dialog = new Dialog<>();
+        dialog.setTitle(i18n.get("account.changePassword.title"));
+        dialog.setHeaderText(null);
+        if (owner != null) dialog.initOwner(owner);
+
+        PasswordField oldPassword = new PasswordField();
+        PasswordField newPassword = new PasswordField();
+        PasswordField confirmPassword = new PasswordField();
+
+        GridPane grid = new GridPane();
+        grid.setHgap(10);
+        grid.setVgap(10);
+        grid.setPadding(new Insets(18, 20, 8, 20));
+        grid.add(new Label(i18n.get("account.changePassword.oldPassword")), 0, 0);
+        grid.add(oldPassword, 1, 0);
+        grid.add(new Label(i18n.get("account.changePassword.newPassword")), 0, 1);
+        grid.add(newPassword, 1, 1);
+        grid.add(new Label(i18n.get("account.changePassword.confirmPassword")), 0, 2);
+        grid.add(confirmPassword, 1, 2);
+        dialog.getDialogPane().setContent(grid);
+
+        ButtonType submitType = new ButtonType(i18n.get("account.changePassword"), ButtonBar.ButtonData.OK_DONE);
+        dialog.getDialogPane().getButtonTypes().addAll(submitType, ButtonType.CANCEL);
+
+        Button submit = (Button) dialog.getDialogPane().lookupButton(submitType);
+        submit.addEventFilter(javafx.event.ActionEvent.ACTION, event -> {
+            event.consume();
+            String oldPwd = oldPassword.getText();
+            String newPwd = newPassword.getText();
+            String confirmPwd = confirmPassword.getText();
+            if (oldPwd == null || oldPwd.isBlank() || newPwd == null || newPwd.isBlank()) {
+                Alert err = new Alert(Alert.AlertType.ERROR, i18n.get("account.error.missingFields"), ButtonType.OK);
+                err.setTitle(i18n.get("account.title"));
+                err.setHeaderText(null);
+                if (owner != null) err.initOwner(owner);
+                err.showAndWait();
+                return;
+            }
+            if (newPwd.length() < 8) {
+                Alert err = new Alert(Alert.AlertType.ERROR, i18n.get("account.changePassword.error.minLength"), ButtonType.OK);
+                err.setTitle(i18n.get("account.title"));
+                err.setHeaderText(null);
+                if (owner != null) err.initOwner(owner);
+                err.showAndWait();
+                return;
+            }
+            if (!newPwd.equals(confirmPwd)) {
+                Alert err = new Alert(Alert.AlertType.ERROR, i18n.get("account.changePassword.error.mismatch"), ButtonType.OK);
+                err.setTitle(i18n.get("account.title"));
+                err.setHeaderText(null);
+                if (owner != null) err.initOwner(owner);
+                err.showAndWait();
+                return;
+            }
+            submit.setDisable(true);
+            accountService.changePassword(oldPwd, newPwd).whenComplete((session, error) -> {
+                javafx.application.Platform.runLater(() -> {
+                    submit.setDisable(false);
+                    if (error != null) {
+                        String msg;
+                        if (error instanceof AccountService.AccountHttpException httpEx && httpEx.statusCode() == 401) {
+                            msg = i18n.get("account.changePassword.error.wrongOld");
+                        } else {
+                            msg = error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
+                        }
+                        Alert err = new Alert(Alert.AlertType.ERROR, msg, ButtonType.OK);
+                        err.setTitle(i18n.get("account.title"));
+                        err.setHeaderText(null);
+                        if (owner != null) err.initOwner(owner);
+                        err.showAndWait();
+                        return;
+                    }
+                    dialog.close();
+                    Alert ok = new Alert(Alert.AlertType.INFORMATION, i18n.get("account.changePassword.success"), ButtonType.OK);
+                    ok.setTitle(i18n.get("account.title"));
+                    ok.setHeaderText(null);
+                    if (owner != null) ok.initOwner(owner);
+                    ok.showAndWait();
+                });
+            });
+        });
+
+        dialog.showAndWait();
     }
 
     // ── General Tab ────────────────────────────────────────────────────────

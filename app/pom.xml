@@ -179,6 +179,7 @@
                                 <option>-Xms${jlshell.jvm.xms}</option>
                                 <option>-Xmx${jlshell.jvm.xmx}</option>
                                 <option>-Dapple.laf.useScreenMenuBar=true</option>
+                                <option>-Dapple.awt.application.appearance=system</option>
                                 <option>-Dapple.awt.application.name=JLShell</option>
                                 <option>-Dcom.apple.mrj.application.apple.menu.about.name=JLShell</option>
                                 <option>-Xdock:icon=${project.basedir}/src/main/resources/icons/app_icon.png</option>

@@ -11,6 +11,7 @@ public class Launcher {
     public static void main(String[] args) {
         // Must be set before any AWT/JavaFX class is loaded
         System.setProperty("apple.laf.useScreenMenuBar", "true");
+        System.setProperty("apple.awt.application.appearance", "system");
         System.setProperty("apple.awt.application.name", "JLShell");
         System.setProperty("com.apple.mrj.application.apple.menu.about.name", "JLShell");
 

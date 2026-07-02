@@ -23,7 +23,7 @@ import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 账号服务：登录、注册、会话验证、心跳续签、登出。
+ * 账号服务：登录、注册、会话验证、心跳续签、在线状态上报、修改密码、登出。
  * <p>
  * API 规范见 .docs/client-auth-api.md
  */
@@ -51,6 +51,7 @@ public class AccountService {
     private static final String DEFAULT_BASE_URL = JlshellDefaults.accountBaseUrl();
     private static final long HEARTBEAT_INTERVAL_MINUTES = 15;
     private static final long NEAR_EXPIRY_MINUTES = 30;
+    private static final long REPORT_STATS_INTERVAL_MINUTES = 5;
 
     private final AppSettingsService appSettings;
     private final ExecutorService executor;
@@ -59,6 +60,12 @@ public class AccountService {
 
     private final ScheduledThreadPoolExecutor heartbeatScheduler;
     private volatile ScheduledFuture<?> heartbeatTask;
+    private volatile ScheduledFuture<?> reportStatsTask;
+
+    /** 当前活跃连接数，由 MainWindow 维护。 */
+    private volatile int liveConnectionCount;
+    /** 当前活跃终端数，由 MainWindow 维护。 */
+    private volatile int liveTerminalCount;
 
     public AccountService(AppSettingsService appSettings, ExecutorService executor) {
         this.appSettings = Objects.requireNonNull(appSettings);
@@ -79,14 +86,48 @@ public class AccountService {
 
     // ── 公开 API ──────────────────────────────────────────────────────────
 
-    /** 登录。username 可以是用户名或邮箱。 */
+    /** 登录。username 可以是用户名或邮箱。首次登录不传 captcha。 */
     public CompletableFuture<AccountSession> login(String username, String password) {
-        return authenticate("/api/v1/account/login", new LoginRequest(username, password));
+        return login(username, password, null, null);
+    }
+
+    /** 登录（带验证码）。captchaToken/captchaAnswer 为 null 时不发送。 */
+    public CompletableFuture<AccountSession> login(String username, String password,
+                                                    String captchaToken, String captchaAnswer) {
+        LoginRequest body = new LoginRequest(username, password, captchaToken, captchaAnswer, "desktop");
+        return authenticate("/api/v1/account/login", body);
     }
 
     /** 注册。 */
     public CompletableFuture<AccountSession> register(String username, String email, String password) {
         return authenticate("/api/v1/account/register", new RegisterRequest(username, email, password));
+    }
+
+    /** 获取验证码挑战。登录失败后调用。 */
+    public CompletableFuture<CaptchaChallenge> fetchCaptcha(String username) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                HttpRequest request = HttpRequest.newBuilder(
+                        endpoint("/api/v1/account/captcha?username=" + URI.create(username).getRawSchemeSpecificPart()))
+                        .timeout(Duration.ofSeconds(10))
+                        .GET()
+                        .build();
+                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                    throw new AccountHttpException(response.statusCode(),
+                            "Captcha request returned HTTP " + response.statusCode());
+                }
+                CaptchaResponse cr = gson.fromJson(response.body(), CaptchaResponse.class);
+                if (cr == null) {
+                    return new CaptchaChallenge(false, null, null);
+                }
+                return new CaptchaChallenge(cr.required, cr.token, cr.question);
+            } catch (AccountHttpException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new AccountException("Captcha request failed", e);
+            }
+        }, executor);
     }
 
     /** 用已保存的 token 验证会话（启动时调用）。返回 null 表示 token 无效。 */
@@ -129,6 +170,7 @@ public class AccountService {
                 );
                 persist(session);
                 startHeartbeat();
+                startReportStats();
                 return session;
             } catch (AccountHttpException e) {
                 throw e;
@@ -157,6 +199,7 @@ public class AccountService {
                 if (response.statusCode() == 401 || response.statusCode() == 404) {
                     clearSession();
                     stopHeartbeat();
+                    stopReportStats();
                     return null;
                 }
                 if (response.statusCode() < 200 || response.statusCode() >= 300) {
@@ -191,9 +234,104 @@ public class AccountService {
         }, executor);
     }
 
+    /** 上报在线状态（连接数/终端数）。 */
+    public CompletableFuture<AccountSession> reportStats(int connectionCount, int terminalCount) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                String token = appSettings.get(SETTINGS_TOKEN, "");
+                if (token.isBlank()) {
+                    return null;
+                }
+                String body = gson.toJson(new ReportStatsRequest(
+                        Math.max(0, connectionCount), Math.max(0, terminalCount)));
+                HttpRequest request = HttpRequest.newBuilder(endpoint("/api/v1/account/report-stats"))
+                        .timeout(Duration.ofSeconds(10))
+                        .header("Authorization", "Bearer " + token)
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(body))
+                        .build();
+                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                if (response.statusCode() == 401 || response.statusCode() == 404) {
+                    clearSession();
+                    stopHeartbeat();
+                    stopReportStats();
+                    return null;
+                }
+                if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                    log.warn("Report-stats returned HTTP {}", response.statusCode());
+                    return null;
+                }
+                MeResponse me = gson.fromJson(response.body(), MeResponse.class);
+                if (me == null) return null;
+                AccountSession session = new AccountSession(
+                        defaultString(me.id()),
+                        defaultString(me.username()),
+                        defaultString(me.email()),
+                        defaultString(me.role()),
+                        token,
+                        appSettings.get(SETTINGS_EXPIRES_AT, ""),
+                        me.passwordChangeRequired(),
+                        me.connectionCount(),
+                        me.terminalCount()
+                );
+                persist(session);
+                return session;
+            } catch (Exception e) {
+                log.warn("Report-stats failed: {}", e.getMessage());
+                return null;
+            }
+        }, executor);
+    }
+
+    /** 修改密码。成功后更新本地缓存的 account 信息。 */
+    public CompletableFuture<AccountSession> changePassword(String oldPassword, String newPassword) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                String token = appSettings.get(SETTINGS_TOKEN, "");
+                if (token.isBlank()) {
+                    throw new AccountException("Not signed in", null);
+                }
+                String body = gson.toJson(new ChangePasswordRequest(oldPassword, newPassword));
+                HttpRequest request = HttpRequest.newBuilder(endpoint("/api/v1/account/password"))
+                        .timeout(Duration.ofSeconds(20))
+                        .header("Authorization", "Bearer " + token)
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(body))
+                        .build();
+                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                    throw new AccountHttpException(response.statusCode(),
+                            "Change password returned HTTP " + response.statusCode());
+                }
+                MeResponse me = gson.fromJson(response.body(), MeResponse.class);
+                if (me == null) {
+                    throw new IOException("Change password did not return account info");
+                }
+                AccountSession session = new AccountSession(
+                        defaultString(me.id()),
+                        defaultString(me.username()),
+                        defaultString(me.email()),
+                        defaultString(me.role()),
+                        token,
+                        appSettings.get(SETTINGS_EXPIRES_AT, ""),
+                        me.passwordChangeRequired(),
+                        me.connectionCount(),
+                        me.terminalCount()
+                );
+                persist(session);
+                return session;
+            } catch (AccountHttpException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new AccountException("Change password failed", e);
+            }
+        }, executor);
+    }
+
     /** 服务端登出 + 清除本地会话。无论网络是否成功，本地会话都会被清除。 */
     public CompletableFuture<Void> logout() {
         stopHeartbeat();
+        stopReportStats();
         return CompletableFuture.runAsync(() -> {
             try {
                 String token = appSettings.get(SETTINGS_TOKEN, "");
@@ -255,9 +393,19 @@ public class AccountService {
         return Boolean.parseBoolean(appSettings.get(SETTINGS_SYNC_ENABLED, "false"));
     }
 
-    /** 关闭心跳调度器。在 AppContext.close() 中调用。 */
+    /** 更新当前活跃连接/终端数，并立即上报。由 MainWindow 调用。 */
+    public void updateLiveStats(int connectionCount, int terminalCount) {
+        this.liveConnectionCount = connectionCount;
+        this.liveTerminalCount = terminalCount;
+        if (isSignedIn()) {
+            reportStats(connectionCount, terminalCount);
+        }
+    }
+
+    /** 关闭调度器。在 AppContext.close() 中调用。 */
     public void shutdown() {
         stopHeartbeat();
+        stopReportStats();
         heartbeatScheduler.shutdownNow();
     }
 
@@ -294,6 +442,7 @@ public class AccountService {
                 );
                 persist(session);
                 startHeartbeat();
+                startReportStats();
                 return session;
             } catch (AccountHttpException e) {
                 throw e;
@@ -355,6 +504,27 @@ public class AccountService {
         }
     }
 
+    private void startReportStats() {
+        stopReportStats();
+        reportStatsTask = heartbeatScheduler.scheduleAtFixedRate(() -> {
+            try {
+                if (isSignedIn()) {
+                    reportStats(liveConnectionCount, liveTerminalCount);
+                }
+            } catch (Exception e) {
+                log.warn("Report-stats scheduler error: {}", e.getMessage());
+            }
+        }, REPORT_STATS_INTERVAL_MINUTES, REPORT_STATS_INTERVAL_MINUTES, TimeUnit.MINUTES);
+    }
+
+    private void stopReportStats() {
+        ScheduledFuture<?> task = reportStatsTask;
+        if (task != null) {
+            task.cancel(false);
+            reportStatsTask = null;
+        }
+    }
+
     private boolean tokenNearExpiry() {
         String expiresAt = appSettings.get(SETTINGS_EXPIRES_AT, "");
         if (expiresAt.isBlank()) return false;
@@ -384,7 +554,15 @@ public class AccountService {
 
     // ── 内部数据模型 ──────────────────────────────────────────────────────
 
-    private record LoginRequest(String username, String password) {}
+    private record LoginRequest(String username, String password,
+                                String captchaToken, String captchaAnswer, String clientType) {
+        /** Gson 序列化时忽略 null 的 captcha 字段。 */
+        LoginRequest {
+            if (captchaToken == null && captchaAnswer == null) {
+                // Gson 会跳过 null 字段，这正是我们想要的
+            }
+        }
+    }
 
     private record RegisterRequest(String username, String email, String password) {}
 
@@ -396,6 +574,12 @@ public class AccountService {
     private record MeResponse(String id, String username, String email, String role,
                               boolean passwordChangeRequired, int connectionCount, int terminalCount) {}
 
+    private record CaptchaResponse(boolean required, String token, String question) {}
+
+    private record ReportStatsRequest(int connectionCount, int terminalCount) {}
+
+    private record ChangePasswordRequest(String oldPassword, String newPassword) {}
+
     // ── 公开数据模型 ──────────────────────────────────────────────────────
 
     /** 已认证的会话。 */
@@ -404,6 +588,9 @@ public class AccountService {
             String token, String expiresAt,
             boolean passwordChangeRequired, int connectionCount, int terminalCount
     ) {}
+
+    /** 验证码挑战。 */
+    public record CaptchaChallenge(boolean required, String token, String question) {}
 
     /** 账号操作通用异常。 */
     public static class AccountException extends RuntimeException {

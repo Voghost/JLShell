@@ -125,12 +125,17 @@ jobs:
             --java-options "--add-opens java.base/java.lang=ALL-UNNAMED" \
             --java-options "--add-opens java.desktop/sun.awt=ALL-UNNAMED" \
             --java-options "-Dapple.laf.useScreenMenuBar=true" \
+            --java-options "-Dapple.awt.application.appearance=system" \
             --java-options "-Dapple.awt.application.name=JLShell" \
             --dest dist/mac-work
 
           # Localize the macOS application menu metadata used by AppKit.
           # JavaFX owns most menu wiring, but these bundle resources allow
           # system-generated app-menu labels to follow macOS language fallback.
+          /usr/libexec/PlistBuddy -c "Delete :NSRequiresAquaSystemAppearance" \
+            dist/mac-work/JLShell.app/Contents/Info.plist >/dev/null 2>&1 || true
+          /usr/libexec/PlistBuddy -c "Add :NSRequiresAquaSystemAppearance bool false" \
+            dist/mac-work/JLShell.app/Contents/Info.plist
           mkdir -p dist/mac-work/JLShell.app/Contents/Resources/zh-Hans.lproj
           cat > dist/mac-work/JLShell.app/Contents/Resources/zh-Hans.lproj/InfoPlist.strings <<'EOF'
           "CFBundleDisplayName" = "JLShell";

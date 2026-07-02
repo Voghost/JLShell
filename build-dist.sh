@@ -201,11 +201,18 @@ assemble_mac() {
         --java-options "--add-opens java.base/java.lang=ALL-UNNAMED" \
         --java-options "--add-opens java.desktop/sun.awt=ALL-UNNAMED" \
         --java-options "-Dapple.laf.useScreenMenuBar=true" \
+        --java-options "-Dapple.awt.application.appearance=system" \
         --java-options "-Dapple.awt.application.name=JLShell" \
         --dest "$work"
 
     local app_bundle="$work/$APP_NAME.app"
     [[ -d "$app_bundle" ]] || err "jpackage did not produce $APP_NAME.app"
+    if command -v /usr/libexec/PlistBuddy >/dev/null 2>&1; then
+        /usr/libexec/PlistBuddy -c "Delete :NSRequiresAquaSystemAppearance" \
+            "$app_bundle/Contents/Info.plist" >/dev/null 2>&1 || true
+        /usr/libexec/PlistBuddy -c "Add :NSRequiresAquaSystemAppearance bool false" \
+            "$app_bundle/Contents/Info.plist"
+    fi
     mkdir -p "$app_bundle/Contents/Resources/zh-Hans.lproj"
     cat > "$app_bundle/Contents/Resources/zh-Hans.lproj/InfoPlist.strings" <<'EOF'
 "CFBundleDisplayName" = "JLShell";
