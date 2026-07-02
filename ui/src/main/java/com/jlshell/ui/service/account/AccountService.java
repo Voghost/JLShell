@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -16,6 +17,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -43,6 +45,8 @@ public class AccountService {
     private static final String SETTINGS_PWD_CHANGE_REQ = "account.passwordChangeRequired";
     private static final String SETTINGS_CONN_COUNT = "account.connectionCount";
     private static final String SETTINGS_TERM_COUNT = "account.terminalCount";
+    private static final String SETTINGS_HIST_DEVICE_COUNT = "account.historicalDeviceCount";
+    private static final String SETTINGS_DEVICE_ID = "device.id";
 
     // 旧版设置键，升级时清理
     private static final String LEGACY_SETTINGS_USER_ID = "account.userId";
@@ -64,8 +68,6 @@ public class AccountService {
 
     /** 当前活跃连接数，由 MainWindow 维护。 */
     private volatile int liveConnectionCount;
-    /** 当前活跃终端数，由 MainWindow 维护。 */
-    private volatile int liveTerminalCount;
 
     public AccountService(AppSettingsService appSettings, ExecutorService executor) {
         this.appSettings = Objects.requireNonNull(appSettings);
@@ -94,7 +96,9 @@ public class AccountService {
     /** 登录（带验证码）。captchaToken/captchaAnswer 为 null 时不发送。 */
     public CompletableFuture<AccountSession> login(String username, String password,
                                                     String captchaToken, String captchaAnswer) {
-        LoginRequest body = new LoginRequest(username, password, captchaToken, captchaAnswer, "desktop");
+        LoginRequest body = new LoginRequest(username, password,
+                captchaToken, captchaAnswer, "desktop",
+                ensureDeviceId(), getDeviceName());
         return authenticate("/api/v1/account/login", body);
     }
 
@@ -157,17 +161,7 @@ public class AccountService {
                     clearSession();
                     return null;
                 }
-                AccountSession session = new AccountSession(
-                        defaultString(me.id()),
-                        defaultString(me.username()),
-                        defaultString(me.email()),
-                        defaultString(me.role()),
-                        token,
-                        appSettings.get(SETTINGS_EXPIRES_AT, ""),
-                        me.passwordChangeRequired(),
-                        me.connectionCount(),
-                        me.terminalCount()
-                );
+                AccountSession session = buildSessionFromMe(me, token);
                 persist(session);
                 startHeartbeat();
                 startReportStats();
@@ -210,18 +204,7 @@ public class AccountService {
                 if (authResponse == null || blank(authResponse.token()) || authResponse.account() == null) {
                     return null;
                 }
-                AccountInfo info = authResponse.account();
-                AccountSession session = new AccountSession(
-                        defaultString(info.id()),
-                        defaultString(info.username()),
-                        defaultString(info.email()),
-                        defaultString(info.role()),
-                        authResponse.token(),
-                        defaultString(authResponse.expiresAt()),
-                        info.passwordChangeRequired(),
-                        info.connectionCount(),
-                        info.terminalCount()
-                );
+                AccountSession session = buildSessionFromAuth(authResponse);
                 persist(session);
                 return session;
             } catch (AccountHttpException e) {
@@ -234,8 +217,8 @@ public class AccountService {
         }, executor);
     }
 
-    /** 上报在线状态（连接数/终端数）。 */
-    public CompletableFuture<AccountSession> reportStats(int connectionCount, int terminalCount) {
+    /** 上报在线状态（连接数 + 设备 ID）。 */
+    public CompletableFuture<AccountSession> reportStats(int connectionCount) {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 String token = appSettings.get(SETTINGS_TOKEN, "");
@@ -243,7 +226,7 @@ public class AccountService {
                     return null;
                 }
                 String body = gson.toJson(new ReportStatsRequest(
-                        Math.max(0, connectionCount), Math.max(0, terminalCount)));
+                        Math.max(0, connectionCount), ensureDeviceId()));
                 HttpRequest request = HttpRequest.newBuilder(endpoint("/api/v1/account/report-stats"))
                         .timeout(Duration.ofSeconds(10))
                         .header("Authorization", "Bearer " + token)
@@ -263,17 +246,7 @@ public class AccountService {
                 }
                 MeResponse me = gson.fromJson(response.body(), MeResponse.class);
                 if (me == null) return null;
-                AccountSession session = new AccountSession(
-                        defaultString(me.id()),
-                        defaultString(me.username()),
-                        defaultString(me.email()),
-                        defaultString(me.role()),
-                        token,
-                        appSettings.get(SETTINGS_EXPIRES_AT, ""),
-                        me.passwordChangeRequired(),
-                        me.connectionCount(),
-                        me.terminalCount()
-                );
+                AccountSession session = buildSessionFromMe(me, token);
                 persist(session);
                 return session;
             } catch (Exception e) {
@@ -307,17 +280,7 @@ public class AccountService {
                 if (me == null) {
                     throw new IOException("Change password did not return account info");
                 }
-                AccountSession session = new AccountSession(
-                        defaultString(me.id()),
-                        defaultString(me.username()),
-                        defaultString(me.email()),
-                        defaultString(me.role()),
-                        token,
-                        appSettings.get(SETTINGS_EXPIRES_AT, ""),
-                        me.passwordChangeRequired(),
-                        me.connectionCount(),
-                        me.terminalCount()
-                );
+                AccountSession session = buildSessionFromMe(me, token);
                 persist(session);
                 return session;
             } catch (AccountHttpException e) {
@@ -344,7 +307,6 @@ public class AccountService {
                     try {
                         httpClient.send(request, HttpResponse.BodyHandlers.ofString());
                     } catch (Exception e) {
-                        // 网络故障：仍然清除本地 token
                         log.debug("Logout network call failed (clearing local state anyway)", e);
                     }
                 }
@@ -370,7 +332,8 @@ public class AccountService {
                 appSettings.get(SETTINGS_EXPIRES_AT, ""),
                 Boolean.parseBoolean(appSettings.get(SETTINGS_PWD_CHANGE_REQ, "false")),
                 Integer.parseInt(appSettings.get(SETTINGS_CONN_COUNT, "0")),
-                Integer.parseInt(appSettings.get(SETTINGS_TERM_COUNT, "0"))
+                Integer.parseInt(appSettings.get(SETTINGS_TERM_COUNT, "0")),
+                Integer.parseInt(appSettings.get(SETTINGS_HIST_DEVICE_COUNT, "0"))
         ));
     }
 
@@ -393,12 +356,11 @@ public class AccountService {
         return Boolean.parseBoolean(appSettings.get(SETTINGS_SYNC_ENABLED, "false"));
     }
 
-    /** 更新当前活跃连接/终端数，并立即上报。由 MainWindow 调用。 */
-    public void updateLiveStats(int connectionCount, int terminalCount) {
+    /** 更新当前活跃连接数，并立即上报。由 MainWindow 调用。 */
+    public void updateLiveStats(int connectionCount) {
         this.liveConnectionCount = connectionCount;
-        this.liveTerminalCount = terminalCount;
         if (isSignedIn()) {
-            reportStats(connectionCount, terminalCount);
+            reportStats(connectionCount);
         }
     }
 
@@ -409,7 +371,60 @@ public class AccountService {
         heartbeatScheduler.shutdownNow();
     }
 
+    // ── 设备 ID ──────────────────────────────────────────────────────────
+
+    /** 获取或生成设备 ID。首次启动时生成 UUID 并持久化，之后永不改变。 */
+    private String ensureDeviceId() {
+        String existing = appSettings.get(SETTINGS_DEVICE_ID, "");
+        if (!existing.isBlank()) {
+            return existing;
+        }
+        String newId = UUID.randomUUID().toString();
+        appSettings.set(SETTINGS_DEVICE_ID, newId);
+        return newId;
+    }
+
+    /** 获取设备名（主机名）。 */
+    private static String getDeviceName() {
+        try {
+            return InetAddress.getLocalHost().getHostName();
+        } catch (Exception e) {
+            return "Unknown";
+        }
+    }
+
     // ── 内部方法 ──────────────────────────────────────────────────────────
+
+    private AccountSession buildSessionFromAuth(AuthResponse authResponse) {
+        AccountInfo info = authResponse.account();
+        return new AccountSession(
+                defaultString(info.id()),
+                defaultString(info.username()),
+                defaultString(info.email()),
+                defaultString(info.role()),
+                authResponse.token(),
+                defaultString(authResponse.expiresAt()),
+                info.passwordChangeRequired(),
+                info.connectionCount(),
+                info.terminalCount(),
+                info.historicalDeviceCount()
+        );
+    }
+
+    private AccountSession buildSessionFromMe(MeResponse me, String token) {
+        return new AccountSession(
+                defaultString(me.id()),
+                defaultString(me.username()),
+                defaultString(me.email()),
+                defaultString(me.role()),
+                token,
+                appSettings.get(SETTINGS_EXPIRES_AT, ""),
+                me.passwordChangeRequired(),
+                me.connectionCount(),
+                me.terminalCount(),
+                me.historicalDeviceCount()
+        );
+    }
 
     private CompletableFuture<AccountSession> authenticate(String path, Object requestBody) {
         return CompletableFuture.supplyAsync(() -> {
@@ -428,18 +443,7 @@ public class AccountService {
                 if (authResponse == null || blank(authResponse.token()) || authResponse.account() == null) {
                     throw new IOException("Account API did not return a valid auth response");
                 }
-                AccountInfo info = authResponse.account();
-                AccountSession session = new AccountSession(
-                        defaultString(info.id()),
-                        defaultString(info.username()),
-                        defaultString(info.email()),
-                        defaultString(info.role()),
-                        authResponse.token(),
-                        defaultString(authResponse.expiresAt()),
-                        info.passwordChangeRequired(),
-                        info.connectionCount(),
-                        info.terminalCount()
-                );
+                AccountSession session = buildSessionFromAuth(authResponse);
                 persist(session);
                 startHeartbeat();
                 startReportStats();
@@ -462,6 +466,7 @@ public class AccountService {
         appSettings.set(SETTINGS_PWD_CHANGE_REQ, String.valueOf(session.passwordChangeRequired()));
         appSettings.set(SETTINGS_CONN_COUNT, String.valueOf(session.connectionCount()));
         appSettings.set(SETTINGS_TERM_COUNT, String.valueOf(session.terminalCount()));
+        appSettings.set(SETTINGS_HIST_DEVICE_COUNT, String.valueOf(session.historicalDeviceCount()));
     }
 
     private void clearSession() {
@@ -474,9 +479,11 @@ public class AccountService {
         appSettings.remove(SETTINGS_PWD_CHANGE_REQ);
         appSettings.remove(SETTINGS_CONN_COUNT);
         appSettings.remove(SETTINGS_TERM_COUNT);
+        appSettings.remove(SETTINGS_HIST_DEVICE_COUNT);
         // 清理旧版键
         appSettings.remove(LEGACY_SETTINGS_USER_ID);
         appSettings.remove(LEGACY_SETTINGS_DISPLAY_NAME);
+        // 注意：不清除 SETTINGS_DEVICE_ID，设备 ID 应跨登录会话持久保留
     }
 
     private void startHeartbeat() {
@@ -509,7 +516,7 @@ public class AccountService {
         reportStatsTask = heartbeatScheduler.scheduleAtFixedRate(() -> {
             try {
                 if (isSignedIn()) {
-                    reportStats(liveConnectionCount, liveTerminalCount);
+                    reportStats(liveConnectionCount);
                 }
             } catch (Exception e) {
                 log.warn("Report-stats scheduler error: {}", e.getMessage());
@@ -555,28 +562,26 @@ public class AccountService {
     // ── 内部数据模型 ──────────────────────────────────────────────────────
 
     private record LoginRequest(String username, String password,
-                                String captchaToken, String captchaAnswer, String clientType) {
-        /** Gson 序列化时忽略 null 的 captcha 字段。 */
-        LoginRequest {
-            if (captchaToken == null && captchaAnswer == null) {
-                // Gson 会跳过 null 字段，这正是我们想要的
-            }
-        }
-    }
+                                String captchaToken, String captchaAnswer,
+                                String clientType, String deviceId, String deviceName) {}
 
     private record RegisterRequest(String username, String email, String password) {}
 
     private record AuthResponse(String token, String expiresAt, AccountInfo account) {}
 
     private record AccountInfo(String id, String username, String email, String role,
-                               boolean passwordChangeRequired, int connectionCount, int terminalCount) {}
+                               boolean passwordChangeRequired,
+                               int connectionCount, int terminalCount,
+                               int historicalDeviceCount) {}
 
     private record MeResponse(String id, String username, String email, String role,
-                              boolean passwordChangeRequired, int connectionCount, int terminalCount) {}
+                              boolean passwordChangeRequired,
+                              int connectionCount, int terminalCount,
+                              int historicalDeviceCount) {}
 
     private record CaptchaResponse(boolean required, String token, String question) {}
 
-    private record ReportStatsRequest(int connectionCount, int terminalCount) {}
+    private record ReportStatsRequest(int connectionCount, String deviceId) {}
 
     private record ChangePasswordRequest(String oldPassword, String newPassword) {}
 
@@ -586,7 +591,9 @@ public class AccountService {
     public record AccountSession(
             String id, String username, String email, String role,
             String token, String expiresAt,
-            boolean passwordChangeRequired, int connectionCount, int terminalCount
+            boolean passwordChangeRequired,
+            int connectionCount, int terminalCount,
+            int historicalDeviceCount
     ) {}
 
     /** 验证码挑战。 */

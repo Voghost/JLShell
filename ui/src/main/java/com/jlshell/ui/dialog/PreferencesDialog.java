@@ -483,6 +483,7 @@ public class PreferencesDialog {
         Label usernameValue = new Label();
         Label emailValue = new Label();
         Label accountIdValue = new Label();
+        Label deviceCountValue = new Label();
 
         TextField baseUrl = new TextField(pendingAccountBaseUrl[0]);
         baseUrl.setPrefWidth(280);
@@ -513,6 +514,7 @@ public class PreferencesDialog {
                 usernameValue.setText("-");
                 emailValue.setText("-");
                 accountIdValue.setText("-");
+                deviceCountValue.setText("-");
                 loginButton.setVisible(true);
                 loginButton.setManaged(true);
                 registerButton.setVisible(true);
@@ -528,6 +530,7 @@ public class PreferencesDialog {
             usernameValue.setText(session.username().isBlank() ? "-" : session.username());
             emailValue.setText(session.email().isBlank() ? "-" : session.email());
             accountIdValue.setText(session.id().isBlank() ? "-" : session.id());
+            deviceCountValue.setText(String.valueOf(session.historicalDeviceCount()));
             loginButton.setVisible(false);
             loginButton.setManaged(false);
             registerButton.setVisible(false);
@@ -578,13 +581,15 @@ public class PreferencesDialog {
         grid.add(emailValue, 1, 2);
         grid.add(new Label(i18n.get("preferences.account.accountId")), 0, 3);
         grid.add(accountIdValue, 1, 3);
+        grid.add(new Label(i18n.get("preferences.account.deviceCount")), 0, 4);
+        grid.add(deviceCountValue, 1, 4);
         HBox actions = new HBox(8, loginButton, registerButton, logoutButton, changePasswordButton);
         actions.setAlignment(Pos.CENTER_LEFT);
-        grid.add(actions, 1, 4);
-        grid.add(new Label(i18n.get("preferences.account.baseUrl")), 0, 5);
-        grid.add(baseUrl, 1, 5);
-        grid.add(syncEnabled, 1, 6);
-        grid.add(syncHint, 1, 7);
+        grid.add(actions, 1, 5);
+        grid.add(new Label(i18n.get("preferences.account.baseUrl")), 0, 6);
+        grid.add(baseUrl, 1, 6);
+        grid.add(syncEnabled, 1, 7);
+        grid.add(syncHint, 1, 8);
 
         refreshAccountState.run();
 

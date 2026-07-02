@@ -34,7 +34,9 @@ Request:
   "password": "user password",
   "captchaToken": "optional-captcha-token",
   "captchaAnswer": "12",
-  "clientType": "desktop"
+  "clientType": "desktop",
+  "deviceId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "deviceName": "Alice-PC"
 }
 ```
 
@@ -44,6 +46,12 @@ requiring captcha for this username.
 `clientType` is optional and must be `"desktop"` or `"web"`. Defaults to `"web"`
 if omitted. The desktop client **should** pass `"desktop"` so the server can
 track client type in login history and online session data.
+`deviceId` is a client-generated UUID that uniquely identifies this device.
+Generate it on first launch and persist it locally — it should never change
+for the same installation. The server uses it to track unique devices over time
+(for device limit enforcement and historical statistics).
+`deviceName` is an optional human-readable device name (e.g. hostname).
+The server stores it for display in the account console.
 
 Response `200`:
 
@@ -58,7 +66,8 @@ Response `200`:
     "role": "user",
     "passwordChangeRequired": false,
     "connectionCount": 0,
-    "terminalCount": 0
+    "terminalCount": 0,
+    "historicalDeviceCount": 1
   }
 }
 ```
@@ -218,7 +227,8 @@ Response is the same shape as login and contains a fresh token:
     "role": "user",
     "passwordChangeRequired": false,
     "connectionCount": 0,
-    "terminalCount": 0
+    "terminalCount": 0,
+    "historicalDeviceCount": 1
   }
 }
 ```
@@ -249,7 +259,7 @@ Request:
 ```json
 {
   "connectionCount": 3,
-  "terminalCount": 2
+  "deviceId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 }
 ```
 
@@ -267,18 +277,28 @@ Response `200`:
 }
 ```
 
-The desktop client should call this endpoint to report its current connection
-and terminal counts. Recommended strategy:
+The desktop client should call this endpoint to report its current SSH
+connection count. `deviceId` is optional but recommended — it allows the
+server to update the device's last-known IP address.
+
+The `terminalCount` (online device count) is calculated automatically by
+the server from active sessions. The `historicalDeviceCount` is the total
+number of unique devices ever seen for this account.
+
+Recommended strategy:
 
 - Call after login once the app has established its connections.
-- Call whenever the connection or terminal count changes (new tab opened,
+- Call whenever the connection count changes (new tab opened,
   connection added/removed).
 - Call periodically (e.g. every 5 minutes) as a keep-alive for the online
   session data in addition to heartbeat.
-- Both `connectionCount` and `terminalCount` must be ≥ 0.
+- `connectionCount` must be ≥ 0.
 
-This endpoint updates the `connectionCount` and `terminalCount` shown on the
-user's profile page, as well as the online session data in Redis.
+This endpoint updates the `connectionCount` shown on the user's profile
+page, as well as the online session data in Redis. The `terminalCount`
+field in the response reflects the number of active login sessions for
+this user (across all devices), which can be used for device limit
+enforcement.
 
 ## Logout
 
