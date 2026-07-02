@@ -372,6 +372,9 @@ public class SshjSftpService implements SftpService {
     private SFTPClient newSftpClient(SshSession sshSession) throws IOException {
         SSHClient sshClient = sshSession.unwrap(SSHClient.class)
                 .orElseThrow(() -> new SftpOperationException("SFTP requires an SSHJ-backed session"));
+        if (!sshClient.isConnected() || !sshClient.getTransport().isRunning()) {
+            throw new SftpOperationException("SFTP session is not connected: " + sshSession.sessionId());
+        }
         return sshClient.newSFTPClient();
     }
 

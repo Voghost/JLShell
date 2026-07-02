@@ -250,6 +250,10 @@ public class SessionWorkspaceTab extends Tab {
      */
     private void reconnect() {
         log.info("[Reconnect] Starting reconnect for '{}' ({})", connectionProfile.displayName(), connectionProfile.summary());
+        terminalWorkspaceView.stopPlugins();
+        if (pluginsTabView != null) {
+            pluginsTabView.stopPlugins();
+        }
 
         // 1. 关闭旧终端
         terminalWorkspaceView.closeAsync()
@@ -301,17 +305,37 @@ public class SessionWorkspaceTab extends Tab {
                     } else {
                         log.info("[Reconnect] Successfully reconnected '{}'", connectionProfile.displayName());
                         terminalWorkspaceView.markReconnected();
-                        // 重置 SFTP 面板，下次激活时重新创建
-                        filePaneInitialized = false;
-                        if (sftpPane != null) {
-                            innerTabPane.getTabs().stream()
-                                    .filter(t -> t.getText().equals(i18nService.get("workspace.files")))
-                                    .findFirst()
-                                    .ifPresent(t -> t.setContent(new StackPane(new Label(
-                                            i18nService.get("status.connecting", connectionProfile.summary())))));
-                            sftpPane = null;
-                        }
+                        resetFilePaneAfterReconnect();
+                        resetPluginPaneAfterReconnect();
                     }
                 }));
+    }
+
+    private void resetFilePaneAfterReconnect() {
+        filePaneInitialized = false;
+        if (sftpPane != null) {
+            sftpPane.dispose();
+            sftpPane = null;
+        }
+        innerTabPane.getTabs().stream()
+                .filter(t -> t.getText().equals(i18nService.get("workspace.files")))
+                .findFirst()
+                .ifPresent(t -> t.setContent(new StackPane(new Label(
+                        i18nService.get("status.connecting", connectionProfile.summary())))));
+    }
+
+    private void resetPluginPaneAfterReconnect() {
+        if (pluginManager == null || pluginsTab == null) {
+            return;
+        }
+        if (pluginsTabView != null) {
+            pluginsTabView.dispose();
+        }
+        innerTabPane.getTabs().removeIf(tab -> tab != pluginsTab && tab.getProperties().get("pluginId") != null);
+        String newSessionId = sshSession.sessionId().toString();
+        pluginsTabView = new PluginsTabView(
+                pluginManager, newSessionId, sshSession, innerTabPane, i18nService, themeService,
+                sftpService, capabilityBus, storageFactory);
+        pluginsTab.setContent(pluginsTabView);
     }
 }

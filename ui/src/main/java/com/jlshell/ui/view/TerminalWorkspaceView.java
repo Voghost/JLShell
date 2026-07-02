@@ -84,6 +84,7 @@ public class TerminalWorkspaceView extends BorderPane {
     private final CapabilityBus capabilityBus;
     private final SftpService sftpService;
     private final java.util.function.Function<String, PluginStorage> storageFactory;
+    private final java.util.function.Consumer<String> sessionDisconnectListener;
     /** 本工作区 Tab 对应的会话 id（SSH 会话或合成的 local-uuid），用于 per-session registry 路由 */
     private final String sessionId;
     private final StackPane terminalHost = new StackPane();
@@ -158,6 +159,9 @@ public class TerminalWorkspaceView extends BorderPane {
         this.capabilityBus = capabilityBus;
         this.sftpService = sftpService;
         this.storageFactory = storageFactory;
+        this.sessionDisconnectListener = reason ->
+                FxThread.run(() -> onTerminalDisconnected(ShellTtyConnector.DisconnectReason.IO_ERROR));
+        this.sshSession.addDisconnectListener(sessionDisconnectListener);
 
         getStyleClass().add("workspace-panel");
         setTop(buildToolbar());
@@ -229,6 +233,7 @@ public class TerminalWorkspaceView extends BorderPane {
 
     public CompletableFuture<Void> closeAsync() {
         hideFloatingCard();
+        sshSession.removeDisconnectListener(sessionDisconnectListener);
         detachPrimarySwingNode();
         for (int i = 0; i < handles.size(); i++) {
             TerminalViewHandle handle = handles.get(i);

@@ -121,6 +121,7 @@ public class JlShellDesktopApplication extends Application {
         });
 
         stage.show();
+        UpdateActivationMarker.markStartupConfirmed();
         splash.hide();
         installSystemTray(stage, awtIcon);
     }

@@ -3,6 +3,7 @@ package com.jlshell.core.session;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 
 import com.jlshell.core.model.CommandRequest;
 import com.jlshell.core.model.CommandResult;
@@ -41,6 +42,16 @@ public interface SshSession extends AutoCloseable {
     CompletableFuture<ShellChannel> openShell(ShellRequest request);
 
     CompletableFuture<Void> disconnect();
+
+    /**
+     * 订阅底层传输断开事件。默认实现为空，具体 SSH 实现可在网络异常、
+     * keepalive 失败、远端重置连接时主动通知 UI 和插件层尽快失效。
+     */
+    default void addDisconnectListener(Consumer<String> listener) {
+    }
+
+    default void removeDisconnectListener(Consumer<String> listener) {
+    }
 
     default SessionDescriptor descriptor() {
         return new SessionDescriptor(sessionId(), displayName(), target(), state(), connectedAt());

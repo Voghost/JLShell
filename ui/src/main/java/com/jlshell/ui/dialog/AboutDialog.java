@@ -21,18 +21,22 @@ public class AboutDialog {
     private AboutDialog() {}
 
     public static void show(Stage owner, I18nService i18n, ThemeService themeService) {
+        show(owner, i18n, themeService, null);
+    }
+
+    public static void show(Stage owner, I18nService i18n, ThemeService themeService, Runnable checkUpdatesAction) {
         Dialog<Void> dialog = new Dialog<>();
         dialog.setTitle(i18n.get("menu.help.about"));
         dialog.setHeaderText(null);
         if (owner != null) dialog.initOwner(owner);
         themeService.applyToDialog(dialog);
 
-        dialog.getDialogPane().setContent(buildAboutContent(i18n));
+        dialog.getDialogPane().setContent(buildAboutContent(i18n, checkUpdatesAction));
         dialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
         dialog.showAndWait();
     }
 
-    private static VBox buildAboutContent(I18nService i18n) {
+    private static VBox buildAboutContent(I18nService i18n, Runnable checkUpdatesAction) {
         // 复用 PreferencesDialog 中相同的版本读取方式
         String version = PreferencesDialog.getVersion();
 
@@ -76,6 +80,15 @@ public class AboutDialog {
 
         authorBox.getChildren().addAll(authorTitle, authorName, github);
 
+        javafx.scene.control.Button checkUpdates = new javafx.scene.control.Button(i18n.get("menu.help.checkUpdates"));
+        checkUpdates.setDisable(checkUpdatesAction == null);
+        checkUpdates.setOnAction(event -> {
+            if (checkUpdates.getScene() != null && checkUpdates.getScene().getWindow() != null) {
+                checkUpdates.getScene().getWindow().hide();
+            }
+            if (checkUpdatesAction != null) checkUpdatesAction.run();
+        });
+
         Region sep2 = new Region();
         sep2.setStyle("-fx-pref-height:1px;-fx-background-color:derive(-fx-text-fill, 50%);-fx-max-width:300;");
         sep2.setPrefWidth(300);
@@ -91,7 +104,7 @@ public class AboutDialog {
         techDetail.setAlignment(Pos.CENTER);
         techDetail.setTextAlignment(TextAlignment.CENTER);
 
-        pane.getChildren().addAll(appName, versionLabel, desc, sep, authorBox, sep2, techTitle, techDetail);
+        pane.getChildren().addAll(appName, versionLabel, desc, checkUpdates, sep, authorBox, sep2, techTitle, techDetail);
         return pane;
     }
 }

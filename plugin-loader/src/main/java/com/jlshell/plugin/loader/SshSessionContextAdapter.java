@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 import com.jlshell.core.model.CommandRequest;
 import com.jlshell.core.model.ShellRequest;
@@ -78,10 +79,12 @@ public class SshSessionContextAdapter implements SshSessionContext {
 
             @Override
             public CompletableFuture<CommandOutput> execute(String command, Duration timeout) {
-                CommandRequest req = new CommandRequest(command, timeout, false, null);
-                return session.execute(req).thenApply(result ->
-                        new CommandOutput(result.stdout(), result.stderr(),
-                                result.exitCode() == null ? -1 : result.exitCode()));
+                return guardedFuture(() -> {
+                    CommandRequest req = new CommandRequest(command, timeout, false, null);
+                    return session.execute(req).thenApply(result ->
+                            new CommandOutput(result.stdout(), result.stderr(),
+                                    result.exitCode() == null ? -1 : result.exitCode()));
+                });
             }
         };
     }
@@ -91,8 +94,8 @@ public class SshSessionContextAdapter implements SshSessionContext {
         return new InteractiveCommandExecutor() {
             @Override
             public CompletableFuture<InteractiveSession> start(String command) {
-                return session.openShell(new ShellRequest("xterm-256color", null, null))
-                        .thenApply(shellChannel -> new ShellChannelSessionAdapter(shellChannel, command));
+                return guardedFuture(() -> session.openShell(new ShellRequest("xterm-256color", null, null))
+                        .thenApply(shellChannel -> new ShellChannelSessionAdapter(shellChannel, command)));
             }
         };
     }
@@ -102,7 +105,7 @@ public class SshSessionContextAdapter implements SshSessionContext {
         return new FileExplorer() {
             @Override
             public CompletableFuture<List<RemoteFile>> listDirectory(String path) {
-                return sftpService.listDirectory(session, path)
+                return guardedFuture(() -> sftpService.listDirectory(session, path)
                         .thenApply(listing -> listing.entries().stream()
                                 .map(e -> new RemoteFile(
                                         e.name(),
@@ -111,46 +114,50 @@ public class SshSessionContextAdapter implements SshSessionContext {
                                         e.isDirectory(),
                                         e.permissionString(),
                                         e.modifiedAt()))
-                                .toList());
+                                .toList()));
             }
 
             @Override
             public CompletableFuture<byte[]> readFile(String path) {
-                Path tmpFile = Path.of(System.getProperty("java.io.tmpdir"),
-                        "jlshell-download-" + session.sessionId() + "-" + Path.of(path).getFileName());
-                TransferRequest req = new TransferRequest(tmpFile, path, null, 0);
-                return sftpService.download(session, req, TransferProgressListener.NO_OP)
-                        .thenCompose(unused -> {
-                            try {
-                                return CompletableFuture.completedFuture(
-                                        java.nio.file.Files.readAllBytes(tmpFile));
-                            } catch (java.io.IOException e) {
-                                return CompletableFuture.failedFuture(e);
-                            } finally {
-                                try { java.nio.file.Files.deleteIfExists(tmpFile); } catch (Exception ignored) {}
-                            }
-                        });
+                return guardedFuture(() -> {
+                    Path tmpFile = Path.of(System.getProperty("java.io.tmpdir"),
+                            "jlshell-download-" + session.sessionId() + "-" + Path.of(path).getFileName());
+                    TransferRequest req = new TransferRequest(tmpFile, path, null, 0);
+                    return sftpService.download(session, req, TransferProgressListener.NO_OP)
+                            .thenCompose(unused -> {
+                                try {
+                                    return CompletableFuture.completedFuture(
+                                            java.nio.file.Files.readAllBytes(tmpFile));
+                                } catch (java.io.IOException e) {
+                                    return CompletableFuture.failedFuture(e);
+                                } finally {
+                                    try { java.nio.file.Files.deleteIfExists(tmpFile); } catch (Exception ignored) {}
+                                }
+                            });
+                });
             }
 
             @Override
             public CompletableFuture<Void> writeFile(String path, byte[] content) {
-                Path tmpFile = Path.of(System.getProperty("java.io.tmpdir"),
-                        "jlshell-upload-" + session.sessionId() + "-" + Path.of(path).getFileName());
-                try {
-                    java.nio.file.Files.write(tmpFile, content);
-                } catch (java.io.IOException e) {
-                    return CompletableFuture.failedFuture(e);
-                }
-                TransferRequest req = new TransferRequest(tmpFile, path, null, 0);
-                return sftpService.upload(session, req, TransferProgressListener.NO_OP)
-                        .whenComplete((unused, ex) -> {
-                            try { java.nio.file.Files.deleteIfExists(tmpFile); } catch (Exception ignored) {}
-                        });
+                return guardedFuture(() -> {
+                    Path tmpFile = Path.of(System.getProperty("java.io.tmpdir"),
+                            "jlshell-upload-" + session.sessionId() + "-" + Path.of(path).getFileName());
+                    try {
+                        java.nio.file.Files.write(tmpFile, content);
+                    } catch (java.io.IOException e) {
+                        return CompletableFuture.failedFuture(e);
+                    }
+                    TransferRequest req = new TransferRequest(tmpFile, path, null, 0);
+                    return sftpService.upload(session, req, TransferProgressListener.NO_OP)
+                            .whenComplete((unused, ex) -> {
+                                try { java.nio.file.Files.deleteIfExists(tmpFile); } catch (Exception ignored) {}
+                            });
+                });
             }
 
             @Override
             public CompletableFuture<Void> deleteFile(String path) {
-                return sftpService.delete(session, path, false);
+                return guardedFuture(() -> sftpService.delete(session, path, false));
             }
         };
     }
@@ -297,6 +304,14 @@ public class SshSessionContextAdapter implements SshSessionContext {
             }
             try { channel.close(); } catch (Exception ignored) {}
             readerThread.interrupt();
+        }
+    }
+
+    private static <T> CompletableFuture<T> guardedFuture(Supplier<CompletableFuture<T>> supplier) {
+        try {
+            return supplier.get();
+        } catch (Exception e) {
+            return CompletableFuture.failedFuture(e);
         }
     }
 }
