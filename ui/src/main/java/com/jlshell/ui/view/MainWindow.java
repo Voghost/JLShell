@@ -395,7 +395,7 @@ public class MainWindow {
             return;
         }
         int tabCount = workspaceTabs.getTabs().size();
-        accountService.updateLiveStats(tabCount, tabCount);
+        accountService.updateLiveStats(tabCount);
     }
 
     private void installWindowsRoundedWindowClip(Stage stage, Region root) {
