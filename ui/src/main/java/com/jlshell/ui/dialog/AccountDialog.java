@@ -14,6 +14,7 @@ import javafx.scene.control.Label;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.GridPane;
+import javafx.scene.layout.HBox;
 import javafx.stage.Stage;
 
 public final class AccountDialog {
@@ -45,6 +46,17 @@ public final class AccountDialog {
         PasswordField password = new PasswordField();
         PasswordField confirmPassword = new PasswordField();
 
+        // 验证码控件（默认隐藏）
+        Label captchaLabel = new Label();
+        TextField captchaAnswer = new TextField();
+        captchaAnswer.setPromptText(i18n.get("account.captcha.prompt"));
+        HBox captchaRow = new HBox(8, captchaLabel, captchaAnswer);
+        captchaRow.setVisible(false);
+        captchaRow.setManaged(false);
+
+        // 验证码状态：token 在登录失败后由服务端返回
+        String[] captchaToken = {null};
+
         GridPane grid = new GridPane();
         grid.setHgap(10);
         grid.setVgap(10);
@@ -60,8 +72,9 @@ public final class AccountDialog {
         grid.add(password, 1, row++);
         if (register) {
             grid.add(new Label(i18n.get("account.confirmPassword")), 0, row);
-            grid.add(confirmPassword, 1, row);
+            grid.add(confirmPassword, 1, row++);
         }
+        grid.add(captchaRow, 0, row, 2, 1);
         dialog.getDialogPane().setContent(grid);
 
         ButtonType submitType = new ButtonType(
@@ -75,38 +88,74 @@ public final class AccountDialog {
             String usernameValue = username.getText() == null ? "" : username.getText().strip();
             String passwordValue = password.getText();
             if (usernameValue.isBlank() || passwordValue == null || passwordValue.isBlank()) {
-                showError(owner, i18n, themeService, i18n.get("account.error.missingFields"));
+                showError(owner, i18n, i18n.get("account.error.missingFields"));
                 return;
             }
             if (register) {
                 String emailValue = email.getText() == null ? "" : email.getText().strip();
                 if (emailValue.isBlank()) {
-                    showError(owner, i18n, themeService, i18n.get("account.error.missingFields"));
+                    showError(owner, i18n, i18n.get("account.error.missingFields"));
                     return;
                 }
                 if (!passwordValue.equals(confirmPassword.getText())) {
-                    showError(owner, i18n, themeService, i18n.get("account.error.passwordMismatch"));
+                    showError(owner, i18n, i18n.get("account.error.passwordMismatch"));
                     return;
                 }
             }
             submit.setDisable(true);
             String emailValue = register ? (email.getText() == null ? "" : email.getText().strip()) : "";
+            String cToken = captchaToken[0];
+            String cAnswer = captchaAnswer.getText() == null ? "" : captchaAnswer.getText().strip();
+
             var future = register
                     ? accountService.register(usernameValue, emailValue, passwordValue)
-                    : accountService.login(usernameValue, passwordValue);
+                    : accountService.login(usernameValue, passwordValue, cToken, cAnswer);
             password.clear();
             confirmPassword.clear();
+            captchaAnswer.clear();
             future.whenComplete((session, error) -> Platform.runLater(() -> {
                 submit.setDisable(false);
                 if (error != null) {
-                    showError(owner, i18n, themeService, resolveErrorMessage(error, i18n));
+                    // 登录失败后检查是否需要验证码
+                    if (!register) {
+                        fetchAndShowCaptcha(owner, i18n, accountService, usernameValue,
+                                captchaLabel, captchaAnswer, captchaRow, captchaToken);
+                    }
+                    showError(owner, i18n, resolveErrorMessage(error, i18n));
                     return;
                 }
                 dialog.close();
+                Alert ok = new Alert(Alert.AlertType.INFORMATION, i18n.get("account.login.success"), ButtonType.OK);
+                ok.setTitle(i18n.get("account.title"));
+                ok.setHeaderText(null);
+                if (owner != null) ok.initOwner(owner);
+                ok.showAndWait();
             }));
         });
 
         dialog.showAndWait();
+    }
+
+    /** 登录失败后获取验证码，若服务端要求则显示验证码行。 */
+    private static void fetchAndShowCaptcha(Stage owner, I18nService i18n,
+                                            AccountService accountService, String username,
+                                            Label captchaLabel, TextField captchaAnswer,
+                                            HBox captchaRow, String[] captchaToken) {
+        accountService.fetchCaptcha(username).whenComplete((challenge, error) -> {
+            Platform.runLater(() -> {
+                if (error != null || challenge == null || !challenge.required()) {
+                    captchaRow.setVisible(false);
+                    captchaRow.setManaged(false);
+                    captchaToken[0] = null;
+                    return;
+                }
+                captchaLabel.setText(challenge.question());
+                captchaToken[0] = challenge.token();
+                captchaRow.setVisible(true);
+                captchaRow.setManaged(true);
+                captchaAnswer.requestFocus();
+            });
+        });
     }
 
     private static String resolveErrorMessage(Throwable error, I18nService i18n) {
@@ -125,12 +174,11 @@ public final class AccountDialog {
         return rootMessage(error);
     }
 
-    private static void showError(Stage owner, I18nService i18n, ThemeService themeService, String message) {
+    private static void showError(Stage owner, I18nService i18n, String message) {
         Alert alert = new Alert(Alert.AlertType.ERROR, message, ButtonType.OK);
         alert.setTitle(i18n.get("account.title"));
         alert.setHeaderText(null);
         if (owner != null) alert.initOwner(owner);
-        themeService.applyToDialog(alert);
         alert.showAndWait();
     }
 

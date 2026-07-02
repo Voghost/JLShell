@@ -388,6 +388,15 @@ public class MainWindow {
         });
     }
 
+    /** 上报当前连接/终端数到账号服务。 */
+    private void reportAccountStats() {
+        if (accountService == null || !accountService.isSignedIn()) {
+            return;
+        }
+        int tabCount = workspaceTabs.getTabs().size();
+        accountService.updateLiveStats(tabCount, tabCount);
+    }
+
     private void installWindowsRoundedWindowClip(Stage stage, Region root) {
         Rectangle clip = new Rectangle();
         clip.widthProperty().bind(root.widthProperty());
@@ -901,7 +910,10 @@ public class MainWindow {
         workspaceTabs.getStyleClass().add("workspace-tabs");
         installTabDragReorder(workspaceTabs);
         workspaceTabs.getSelectionModel().selectedItemProperty().addListener((obs, oldTab, newTab) -> updateWindowTitle());
-        workspaceTabs.getTabs().addListener((javafx.collections.ListChangeListener<javafx.scene.control.Tab>) change -> updateWindowTitle());
+        workspaceTabs.getTabs().addListener((javafx.collections.ListChangeListener<javafx.scene.control.Tab>) change -> {
+            updateWindowTitle();
+            reportAccountStats();
+        });
 
         welcomePane = new WelcomePane(i18nService, connectionProfileService, executor,
                 () -> createConnection(stage),
