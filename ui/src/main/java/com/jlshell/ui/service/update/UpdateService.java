@@ -6,6 +6,8 @@ import com.jlshell.core.service.AppSettingsService;
 import com.jlshell.ui.config.JlshellDefaults;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -23,6 +25,7 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
+import java.util.function.DoubleConsumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -101,6 +104,11 @@ public class UpdateService {
     }
 
     public CompletableFuture<DownloadResult> downloadAndStage(UpdateResponse update) {
+        return downloadAndStage(update, null);
+    }
+
+    /** 下载更新。progressCallback 在后台线程调用，值为 0.0~1.0。 */
+    public CompletableFuture<DownloadResult> downloadAndStage(UpdateResponse update, DoubleConsumer progressCallback) {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 if (update == null || !update.updateAvailable()) {
@@ -108,7 +116,7 @@ public class UpdateService {
                 }
                 if (canUseJarUpdate(update) && downloadable(update.asset())) {
                     try {
-                        return downloadAndStageJar(update, update.asset());
+                        return downloadAndStageJar(update, update.asset(), progressCallback);
                     } catch (Exception jarError) {
                         if (!downloadable(update.fallbackInstaller())) {
                             throw jarError;
@@ -117,7 +125,7 @@ public class UpdateService {
                                 update.latestVersion(), update.asset().fileName(), jarError);
                     }
                 }
-                return downloadInstaller(update.fallbackInstaller());
+                return downloadInstaller(update.fallbackInstaller(), progressCallback);
             } catch (UpdateException e) {
                 throw e;
             } catch (Exception e) {
@@ -181,10 +189,10 @@ public class UpdateService {
         return URI.create(baseUrl + "/api/v1/updates/latest?" + query);
     }
 
-    private DownloadResult downloadAndStageJar(UpdateResponse update, UpdateAsset asset) throws Exception {
+    private DownloadResult downloadAndStageJar(UpdateResponse update, UpdateAsset asset, DoubleConsumer progressCallback) throws Exception {
         log.info("Downloading JLShell jar update: version={}, fileName={}, url={}, size={}",
                 update.latestVersion(), asset.fileName(), asset.url(), asset.size());
-        Path downloaded = downloadVerified(asset);
+        Path downloaded = downloadVerified(asset, progressCallback);
         Path versionDir = updatesDir.resolve("versions").resolve(update.latestVersion());
         Files.createDirectories(versionDir);
         Path stagedJar = versionDir.resolve(asset.fileName());
@@ -194,7 +202,7 @@ public class UpdateService {
         return new DownloadResult(true, true, stagedJar);
     }
 
-    private DownloadResult downloadInstaller(UpdateAsset asset) throws Exception {
+    private DownloadResult downloadInstaller(UpdateAsset asset, DoubleConsumer progressCallback) throws Exception {
         if (!downloadable(asset)) {
             log.warn("JLShell update API did not provide a downloadable asset");
             throw new UpdateException(
@@ -205,31 +213,32 @@ public class UpdateService {
         }
         log.info("Downloading JLShell full installer: fileName={}, url={}, size={}",
                 asset.fileName(), asset.url(), asset.size());
-        Path file = downloadVerified(asset);
+        Path file = downloadVerified(asset, progressCallback);
         log.info("Downloaded JLShell full installer: path={}", file);
         return new DownloadResult(true, false, file);
     }
 
-    private Path downloadVerified(UpdateAsset asset) throws Exception {
+    private Path downloadVerified(UpdateAsset asset, DoubleConsumer progressCallback) throws Exception {
         Path downloads = updatesDir.resolve("downloads");
         Files.createDirectories(downloads);
         Path tempFile = downloads.resolve(asset.fileName() + ".part");
         Path finalFile = downloads.resolve(asset.fileName());
         Files.deleteIfExists(tempFile);
-        download(asset.url(), tempFile);
+        download(asset.url(), tempFile, asset.size(), progressCallback);
         verifySize(tempFile, asset.size());
         verifySha256(tempFile, asset.sha256());
         Files.move(tempFile, finalFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
         return finalFile;
     }
 
-    private void download(String url, Path destination) throws Exception {
+    private void download(String url, Path destination, long knownSize, DoubleConsumer progressCallback) throws Exception {
         HttpRequest request = HttpRequest.newBuilder(URI.create(url))
                 .timeout(Duration.ofMinutes(10))
                 .header("User-Agent", "JLShell-Updater")
                 .GET()
                 .build();
-        HttpResponse<Path> response = httpClient.send(request, HttpResponse.BodyHandlers.ofFile(destination));
+        // 使用 InputStream 模式以支持进度回调
+        HttpResponse<InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
             Files.deleteIfExists(destination);
             log.warn("JLShell update asset download failed: status={}, url={}", response.statusCode(), url);
@@ -238,6 +247,37 @@ public class UpdateService {
                     new UpdateHttpException(response.statusCode(), URI.create(url), ""),
                     httpUserMessageKey(response.statusCode(), true)
             );
+        }
+        // 从 Content-Length 或已知大小获取总大小
+        long totalSize = knownSize;
+        if (totalSize <= 0) {
+            String contentLength = response.headers().firstValue("Content-Length").orElse("");
+            if (!contentLength.isBlank()) {
+                try { totalSize = Long.parseLong(contentLength); } catch (NumberFormatException ignored) {}
+            }
+        }
+        long total = totalSize;
+        try (InputStream in = response.body();
+             OutputStream out = Files.newOutputStream(destination)) {
+            byte[] buffer = new byte[8192];
+            long downloaded = 0;
+            int read;
+            long lastReport = 0;
+            while ((read = in.read(buffer)) != -1) {
+                out.write(buffer, 0, read);
+                downloaded += read;
+                if (progressCallback != null && total > 0) {
+                    long now = System.currentTimeMillis();
+                    // 限制回调频率：最多每 100ms 一次
+                    if (now - lastReport >= 100 || downloaded >= total) {
+                        lastReport = now;
+                        progressCallback.accept(Math.min(1.0, (double) downloaded / total));
+                    }
+                }
+            }
+        }
+        if (progressCallback != null) {
+            progressCallback.accept(1.0);
         }
     }
 

@@ -61,6 +61,7 @@ import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
 import javafx.scene.control.OverrunStyle;
 import javafx.scene.control.PasswordField;
+import javafx.scene.control.ProgressBar;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.control.ContextMenu;
@@ -810,21 +811,51 @@ public class MainWindow {
     }
 
     private void downloadUpdate(Stage stage, UpdateService.UpdateResponse response) {
-        Alert downloading = new Alert(Alert.AlertType.INFORMATION, i18nService.get("updates.downloading"), ButtonType.CANCEL);
-        downloading.setTitle(i18nService.get("updates.title"));
-        downloading.setHeaderText(null);
-        downloading.initOwner(stage);
-        updateService.downloadAndStage(response)
-                .whenComplete((result, error) -> javafx.application.Platform.runLater(() -> {
-                    downloading.close();
-                    if (error != null) {
-                        showUpdateError(stage, error);
-                        return;
-                    }
-                    String key = result.restartRequired() ? "updates.downloadedRestart" : "updates.downloadedInstaller";
-                    showUpdateMessage(stage, i18nService.get(key, result.file().toString()));
-                }));
-        downloading.show();
+        // 构建带进度条的自定义下载对话框
+        Dialog<Void> downloadDialog = new Dialog<>();
+        downloadDialog.setTitle(i18nService.get("updates.title"));
+        downloadDialog.setHeaderText(null);
+        downloadDialog.initOwner(stage);
+        themeService.applyToDialog(downloadDialog);
+
+        Label statusLabel = new Label(i18nService.get("updates.downloading"));
+        ProgressBar progressBar = new ProgressBar(0);
+        progressBar.setPrefWidth(360);
+        progressBar.setPrefHeight(22);
+        // 主题色匹配：使用 accent color
+        String accentColor = themeService.accentColor().color();
+        progressBar.setStyle("-fx-accent: " + accentColor + ";");
+
+        Label percentLabel = new Label("0%");
+        percentLabel.setPrefWidth(45);
+        percentLabel.setAlignment(Pos.CENTER_RIGHT);
+
+        HBox progressRow = new HBox(8, progressBar, percentLabel);
+        progressRow.setAlignment(Pos.CENTER_LEFT);
+        VBox content = new VBox(10, statusLabel, progressRow);
+        content.setPadding(new Insets(18, 20, 8, 20));
+        downloadDialog.getDialogPane().setContent(content);
+
+        ButtonType cancelType = ButtonType.CANCEL;
+        downloadDialog.getDialogPane().getButtonTypes().add(cancelType);
+
+        // 进度回调：从后台线程更新 UI
+        updateService.downloadAndStage(response, progress -> javafx.application.Platform.runLater(() -> {
+            int pct = (int) (progress * 100);
+            progressBar.setProgress(progress);
+            percentLabel.setText(pct + "%");
+            statusLabel.setText(i18nService.get("updates.downloading") + " " + pct + "%");
+        })).whenComplete((result, error) -> javafx.application.Platform.runLater(() -> {
+            downloadDialog.close();
+            if (error != null) {
+                showUpdateError(stage, error);
+                return;
+            }
+            String key = result.restartRequired() ? "updates.downloadedRestart" : "updates.downloadedInstaller";
+            showUpdateMessage(stage, i18nService.get(key, result.file().toString()));
+        }));
+
+        downloadDialog.show();
     }
 
     private void showUpdateMessage(Stage stage, String message) {
