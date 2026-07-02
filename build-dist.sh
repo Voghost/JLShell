@@ -57,6 +57,24 @@ err()  { echo "✗ $*" >&2; exit 1; }
 
 require_cmd() { command -v "$1" &>/dev/null || err "Required command not found: $1"; }
 
+sign_mac_bundle() {
+    local app_bundle="$1"
+    if ! command -v codesign &>/dev/null; then
+        log "WARN: codesign not found; macOS may report the app as damaged after download"
+        return
+    fi
+
+    local identity="${JLSHELL_MAC_SIGN_IDENTITY:--}"
+    if [[ "$identity" == "-" ]]; then
+        log "Ad-hoc signing macOS app bundle for local distribution"
+        codesign --force --deep --sign - "$app_bundle"
+    else
+        log "Signing macOS app bundle with identity: $identity"
+        codesign --force --deep --options runtime --timestamp --sign "$identity" "$app_bundle"
+    fi
+    codesign --verify --deep --strict --verbose=2 "$app_bundle"
+}
+
 # Detect current OS
 current_os() {
     case "$(uname -s)" in
@@ -196,10 +214,12 @@ assemble_mac() {
 EOF
     ok "macOS .app bundle created"
 
+    sign_mac_bundle "$app_bundle"
+
     # Package as .zip (user can drag .app to Applications)
     local out="$DIST_DIR/${APP_NAME}-${APP_VERSION}-mac.zip"
     rm -f "$out"
-    (cd "$work" && zip -qr "$out" "$APP_NAME.app")
+    (cd "$work" && ditto -c -k --keepParent "$APP_NAME.app" "$out")
     ok "macOS package: $out ($(du -sh "$out" | cut -f1))"
     rm -rf "$work"
 }
