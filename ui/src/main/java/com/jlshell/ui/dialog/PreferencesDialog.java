@@ -205,7 +205,7 @@ public class PreferencesDialog {
                 String.valueOf(TerminalRuntimeSettings.DEFAULT_SCROLLBACK_LINES)) };
         String[] pendingUpdateAutoCheck = { appSettings.get(UpdateService.SETTINGS_AUTO_CHECK, "true") };
         String[] pendingUpdateChannel = { appSettings.get(UpdateService.SETTINGS_CHANNEL, "stable") };
-        String[] pendingUpdateBaseUrl = { appSettings.get(UpdateService.SETTINGS_BASE_URL, "https://jlshell.com") };
+        String[] pendingUpdateBaseUrl = { appSettings.get(UpdateService.SETTINGS_BASE_URL, UpdateService.DEFAULT_BASE_URL) };
         String[] pendingAccountSyncEnabled = { appSettings.get(AccountService.SETTINGS_SYNC_ENABLED, "false") };
         String[] pendingAccountBaseUrl = { appSettings.get(AccountService.SETTINGS_BASE_URL, pendingUpdateBaseUrl[0]) };
         Runnable[] updateApplyState = new Runnable[1];
@@ -650,7 +650,7 @@ public class PreferencesDialog {
         TextField updateBaseUrl = new TextField(pendingUpdateBaseUrl[0]);
         updateBaseUrl.setPrefWidth(260);
         updateBaseUrl.textProperty().addListener((o, ov, nv) -> {
-            pendingUpdateBaseUrl[0] = nv == null || nv.isBlank() ? "https://jlshell.com" : nv.strip();
+            pendingUpdateBaseUrl[0] = nv == null || nv.isBlank() ? UpdateService.DEFAULT_BASE_URL : nv.strip();
             preferenceChanged.run();
         });
 

@@ -47,7 +47,10 @@ public final class BootstrapLauncher {
     }
 
     private static Path selectApplicationJar() throws Exception {
-        Path updatesDir = updatesDir();
+        return selectApplicationJar(updatesDir(), bundledApplicationJar());
+    }
+
+    static Path selectApplicationJar(Path updatesDir, Path bundled) throws Exception {
         Path current = updatesDir.resolve("current.json");
         Path pending = updatesDir.resolve("pending.json");
         Path previous = updatesDir.resolve("previous.json");
@@ -69,7 +72,6 @@ public final class BootstrapLauncher {
             return currentEntry.get().jarPath();
         }
 
-        Path bundled = bundledApplicationJar();
         if (!Files.isRegularFile(bundled)) {
             throw new IOException("Bundled application jar not found: " + bundled);
         }
