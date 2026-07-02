@@ -23,7 +23,7 @@ public class AccountService {
     private static final String SETTINGS_USER_ID = "account.userId";
     private static final String SETTINGS_EMAIL = "account.email";
     private static final String SETTINGS_DISPLAY_NAME = "account.displayName";
-    private static final String DEFAULT_BASE_URL = "https://jlshell.com";
+    private static final String DEFAULT_BASE_URL = UpdateService.DEFAULT_BASE_URL;
 
     private final AppSettingsService appSettings;
     private final ExecutorService executor;
@@ -149,4 +149,3 @@ public class AccountService {
         }
     }
 }
-
