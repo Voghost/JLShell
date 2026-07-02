@@ -71,6 +71,15 @@ import java.util.stream.Collectors;
  */
 public class PreferencesDialog {
 
+    public static final int TAB_GENERAL = 0;
+    public static final int TAB_ACCOUNT = 1;
+    public static final int TAB_CONNECTION = 2;
+    public static final int TAB_TERMINAL = 3;
+    public static final int TAB_IMPORT = 4;
+    public static final int TAB_API = 5;
+    public static final int TAB_PLUGINS = 6;
+    public static final int TAB_ABOUT = 7;
+
     private static final List<String> PREFERRED_MONO = List.of(
             "JetBrains Mono", "Cascadia Code", "Cascadia Mono", "Fira Code",
             "Source Code Pro", "Hack", "Inconsolata", "Menlo", "Monaco",
@@ -205,7 +214,7 @@ public class PreferencesDialog {
                 String.valueOf(TerminalRuntimeSettings.DEFAULT_SCROLLBACK_LINES)) };
         String[] pendingUpdateAutoCheck = { appSettings.get(UpdateService.SETTINGS_AUTO_CHECK, "true") };
         String[] pendingUpdateChannel = { appSettings.get(UpdateService.SETTINGS_CHANNEL, "stable") };
-        String[] pendingUpdateBaseUrl = { appSettings.get(UpdateService.SETTINGS_BASE_URL, UpdateService.DEFAULT_BASE_URL) };
+        String[] pendingUpdateBaseUrl = { UpdateService.configuredBaseUrl(appSettings) };
         String[] pendingAccountSyncEnabled = { appSettings.get(AccountService.SETTINGS_SYNC_ENABLED, "false") };
         String[] pendingAccountBaseUrl = { appSettings.get(AccountService.SETTINGS_BASE_URL, pendingUpdateBaseUrl[0]) };
         Runnable[] updateApplyState = new Runnable[1];
@@ -471,8 +480,9 @@ public class PreferencesDialog {
                                          String[] pendingAccountBaseUrl,
                                          Runnable preferenceChanged) {
         Label statusValue = new Label();
+        Label usernameValue = new Label();
         Label emailValue = new Label();
-        Label userIdValue = new Label();
+        Label accountIdValue = new Label();
 
         TextField baseUrl = new TextField(pendingAccountBaseUrl[0]);
         baseUrl.setPrefWidth(280);
@@ -499,8 +509,9 @@ public class PreferencesDialog {
         Runnable refreshAccountState = () -> {
             if (accountService == null || accountService.currentSession().isEmpty()) {
                 statusValue.setText(i18n.get("preferences.account.signedOut"));
+                usernameValue.setText("-");
                 emailValue.setText("-");
-                userIdValue.setText("-");
+                accountIdValue.setText("-");
                 loginButton.setVisible(true);
                 loginButton.setManaged(true);
                 registerButton.setVisible(true);
@@ -511,8 +522,9 @@ public class PreferencesDialog {
             }
             AccountService.AccountSession session = accountService.currentSession().orElseThrow();
             statusValue.setText(i18n.get("preferences.account.signedIn"));
-            emailValue.setText(session.email().isBlank() ? session.displayName() : session.email());
-            userIdValue.setText(session.userId().isBlank() ? "-" : session.userId());
+            usernameValue.setText(session.username().isBlank() ? "-" : session.username());
+            emailValue.setText(session.email().isBlank() ? "-" : session.email());
+            accountIdValue.setText(session.id().isBlank() ? "-" : session.id());
             loginButton.setVisible(false);
             loginButton.setManaged(false);
             registerButton.setVisible(false);
@@ -533,13 +545,15 @@ public class PreferencesDialog {
             refreshAccountState.run();
         });
         logoutButton.setOnAction(event -> {
-            accountService.logout();
-            refreshAccountState.run();
-            Alert alert = new Alert(Alert.AlertType.INFORMATION, i18n.get("account.logout.success"), ButtonType.OK);
-            alert.setTitle(i18n.get("account.title"));
-            alert.setHeaderText(null);
-            if (owner != null) alert.initOwner(owner);
-            alert.showAndWait();
+            logoutButton.setDisable(true);
+            accountService.logout().whenComplete((v, error) -> javafx.application.Platform.runLater(() -> {
+                refreshAccountState.run();
+                Alert alert = new Alert(Alert.AlertType.INFORMATION, i18n.get("account.logout.success"), ButtonType.OK);
+                alert.setTitle(i18n.get("account.title"));
+                alert.setHeaderText(null);
+                if (owner != null) alert.initOwner(owner);
+                alert.showAndWait();
+            }));
         });
 
         GridPane grid = new GridPane();
@@ -548,17 +562,19 @@ public class PreferencesDialog {
         grid.setPadding(new Insets(16, 20, 8, 20));
         grid.add(new Label(i18n.get("preferences.account.status")), 0, 0);
         grid.add(statusValue, 1, 0);
-        grid.add(new Label(i18n.get("account.email")), 0, 1);
-        grid.add(emailValue, 1, 1);
-        grid.add(new Label(i18n.get("preferences.account.userId")), 0, 2);
-        grid.add(userIdValue, 1, 2);
+        grid.add(new Label(i18n.get("account.username")), 0, 1);
+        grid.add(usernameValue, 1, 1);
+        grid.add(new Label(i18n.get("account.email")), 0, 2);
+        grid.add(emailValue, 1, 2);
+        grid.add(new Label(i18n.get("preferences.account.accountId")), 0, 3);
+        grid.add(accountIdValue, 1, 3);
         HBox actions = new HBox(8, loginButton, registerButton, logoutButton);
         actions.setAlignment(Pos.CENTER_LEFT);
-        grid.add(actions, 1, 3);
-        grid.add(new Label(i18n.get("preferences.account.baseUrl")), 0, 4);
-        grid.add(baseUrl, 1, 4);
-        grid.add(syncEnabled, 1, 5);
-        grid.add(syncHint, 1, 6);
+        grid.add(actions, 1, 4);
+        grid.add(new Label(i18n.get("preferences.account.baseUrl")), 0, 5);
+        grid.add(baseUrl, 1, 5);
+        grid.add(syncEnabled, 1, 6);
+        grid.add(syncHint, 1, 7);
 
         refreshAccountState.run();
 

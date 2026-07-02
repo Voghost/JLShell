@@ -38,8 +38,8 @@ public final class AccountDialog {
         if (owner != null) dialog.initOwner(owner);
         themeService.applyToDialog(dialog);
 
-        TextField displayName = new TextField();
-        displayName.setPromptText(i18n.get("account.displayName"));
+        TextField username = new TextField();
+        username.setPromptText(i18n.get("account.username.prompt"));
         TextField email = new TextField();
         email.setPromptText("name@example.com");
         PasswordField password = new PasswordField();
@@ -50,12 +50,12 @@ public final class AccountDialog {
         grid.setVgap(10);
         grid.setPadding(new Insets(18, 20, 8, 20));
         int row = 0;
+        grid.add(new Label(i18n.get("account.username")), 0, row);
+        grid.add(username, 1, row++);
         if (register) {
-            grid.add(new Label(i18n.get("account.displayName")), 0, row);
-            grid.add(displayName, 1, row++);
+            grid.add(new Label(i18n.get("account.email")), 0, row);
+            grid.add(email, 1, row++);
         }
-        grid.add(new Label(i18n.get("account.email")), 0, row);
-        grid.add(email, 1, row++);
         grid.add(new Label(i18n.get("account.password")), 0, row);
         grid.add(password, 1, row++);
         if (register) {
@@ -72,26 +72,34 @@ public final class AccountDialog {
         Button submit = (Button) dialog.getDialogPane().lookupButton(submitType);
         submit.addEventFilter(javafx.event.ActionEvent.ACTION, event -> {
             event.consume();
-            String emailValue = email.getText() == null ? "" : email.getText().strip();
+            String usernameValue = username.getText() == null ? "" : username.getText().strip();
             String passwordValue = password.getText();
-            if (emailValue.isBlank() || passwordValue == null || passwordValue.isBlank()) {
+            if (usernameValue.isBlank() || passwordValue == null || passwordValue.isBlank()) {
                 showError(owner, i18n, i18n.get("account.error.missingFields"));
                 return;
             }
-            if (register && !passwordValue.equals(confirmPassword.getText())) {
-                showError(owner, i18n, i18n.get("account.error.passwordMismatch"));
-                return;
+            if (register) {
+                String emailValue = email.getText() == null ? "" : email.getText().strip();
+                if (emailValue.isBlank()) {
+                    showError(owner, i18n, i18n.get("account.error.missingFields"));
+                    return;
+                }
+                if (!passwordValue.equals(confirmPassword.getText())) {
+                    showError(owner, i18n, i18n.get("account.error.passwordMismatch"));
+                    return;
+                }
             }
             submit.setDisable(true);
+            String emailValue = register ? (email.getText() == null ? "" : email.getText().strip()) : "";
             var future = register
-                    ? accountService.register(emailValue, passwordValue, displayName.getText())
-                    : accountService.login(emailValue, passwordValue);
+                    ? accountService.register(usernameValue, emailValue, passwordValue)
+                    : accountService.login(usernameValue, passwordValue);
             password.clear();
             confirmPassword.clear();
             future.whenComplete((session, error) -> Platform.runLater(() -> {
                 submit.setDisable(false);
                 if (error != null) {
-                    showError(owner, i18n, rootMessage(error));
+                    showError(owner, i18n, resolveErrorMessage(error, i18n));
                     return;
                 }
                 dialog.close();
@@ -104,6 +112,22 @@ public final class AccountDialog {
         });
 
         dialog.showAndWait();
+    }
+
+    private static String resolveErrorMessage(Throwable error, I18nService i18n) {
+        Throwable current = error;
+        while (current != null) {
+            if (current instanceof AccountService.AccountHttpException httpEx) {
+                return switch (httpEx.statusCode()) {
+                    case 401 -> i18n.get("account.error.unauthorized");
+                    case 403 -> i18n.get("account.error.forbidden");
+                    case 409 -> i18n.get("account.error.conflict");
+                    default -> i18n.get("account.error.httpError", String.valueOf(httpEx.statusCode()));
+                };
+            }
+            current = current.getCause();
+        }
+        return rootMessage(error);
     }
 
     private static void showError(Stage owner, I18nService i18n, String message) {
@@ -122,4 +146,3 @@ public final class AccountDialog {
         return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
     }
 }
-

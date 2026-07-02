@@ -881,9 +881,9 @@ public class TerminalWorkspaceView extends BorderPane {
         Stage stage = owner instanceof Stage ? (Stage) owner : null;
         // 从终端 Tab 打开偏好设置时没有 ConnectionProfileService 上下文，
         // 传 null 让导入 Tab 显示提示信息（用户可从主菜单打开完整偏好设置）
-        // initialTabIndex=2 → 直接选中"终端"Tab（0=通用, 1=连接, 2=终端）
+        // 直接选中"终端"Tab。索引由 PreferencesDialog 统一维护，避免新增 Tab 后错位。
         PreferencesDialog.show(stage, fontProfileService, appSettingsService, i18nService, themeService,
-                null, null, null, 2);
+                null, null, null, PreferencesDialog.TAB_TERMINAL);
         FontProfile profile = fontProfileService.activeProfile();
         handles.forEach(h -> h.updateFontProfile(profile));
     }

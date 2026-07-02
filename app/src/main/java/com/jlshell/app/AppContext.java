@@ -65,6 +65,7 @@ public class AppContext implements AutoCloseable {
     private final com.jlshell.api.server.ApiServer apiServer;
     private final ProgramPluginManager programPluginManager;
     private final MemoryReclaimService memoryReclaimService;
+    private final AccountService accountService;
 
     public AppContext() {
         String userHome = System.getProperty("user.home");
@@ -161,7 +162,7 @@ public class AppContext implements AutoCloseable {
                 fontProfileService, executor, i18nService, BundledFontLoader::ensureAwtRegistered);
         memoryReclaimService = new MemoryReclaimService();
         UpdateService updateService = new UpdateService(appSettingsService, executor);
-        AccountService accountService = new AccountService(appSettingsService, executor);
+        this.accountService = new AccountService(appSettingsService, executor);
 
         // 7b. Host methods + API server
         com.jlshell.program.api.ProgramHostMethods hostMethods =
@@ -237,6 +238,7 @@ public class AppContext implements AutoCloseable {
         log.info("AppContext shutting down");
         if (apiServer != null) apiServer.stop();
         if (programPluginManager != null) programPluginManager.deactivateAll();
+        if (accountService != null) accountService.shutdown();
         if (memoryReclaimService != null) memoryReclaimService.close();
         executor.shutdownNow();
         dataSource.close();

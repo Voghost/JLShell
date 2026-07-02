@@ -3,6 +3,7 @@ package com.jlshell.ui.service.update;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.jlshell.core.service.AppSettingsService;
+import com.jlshell.ui.config.JlshellDefaults;
 
 import java.io.IOException;
 import java.net.URI;
@@ -20,9 +21,14 @@ import java.util.HexFormat;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class UpdateService {
+
+    private static final Logger log = LoggerFactory.getLogger(UpdateService.class);
 
     public static final String SETTINGS_BASE_URL = "updates.baseUrl";
     public static final String SETTINGS_CHANNEL = "updates.channel";
@@ -30,7 +36,8 @@ public class UpdateService {
     public static final String SETTINGS_IGNORED_VERSION = "updates.ignoredVersion";
     public static final String SETTINGS_LAST_CHECK_AT = "updates.lastCheckAt";
 
-    public static final String DEFAULT_BASE_URL = "https://jlshell.oomn.net";
+    public static final String DEFAULT_BASE_URL = JlshellDefaults.updateBaseUrl();
+    private static final String LEGACY_PLACEHOLDER_BASE_URL = "https://jlshell.com";
     private static final String DEFAULT_CHANNEL = "stable";
 
     private final AppSettingsService appSettings;
@@ -56,8 +63,10 @@ public class UpdateService {
 
     public CompletableFuture<UpdateResponse> checkLatest(String currentVersion) {
         return CompletableFuture.supplyAsync(() -> {
+            URI uri = null;
             try {
-                URI uri = latestUri(currentVersion);
+                uri = latestUri(currentVersion);
+                log.info("Checking JLShell updates: uri={}", uri);
                 HttpRequest request = HttpRequest.newBuilder(uri)
                         .timeout(Duration.ofSeconds(20))
                         .header("Accept", "application/json")
@@ -66,12 +75,27 @@ public class UpdateService {
                         .build();
                 HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
                 if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                    throw new IOException("Update API returned HTTP " + response.statusCode());
+                    log.warn("JLShell update API request failed: status={}, uri={}, response={}",
+                            response.statusCode(), uri, abbreviate(response.body()));
+                    throw new UpdateException(
+                            "Update API request failed",
+                            new UpdateHttpException(response.statusCode(), uri, response.body()),
+                            httpUserMessageKey(response.statusCode(), false)
+                    );
                 }
                 appSettings.set(SETTINGS_LAST_CHECK_AT, Instant.now().toString());
-                return gson.fromJson(response.body(), UpdateResponse.class);
+                UpdateResponse updateResponse = gson.fromJson(response.body(), UpdateResponse.class);
+                log.info("JLShell update API response received: available={}, latestVersion={}, channel={}, type={}",
+                        updateResponse != null && updateResponse.updateAvailable(),
+                        updateResponse == null ? "" : updateResponse.latestVersion(),
+                        updateResponse == null ? "" : updateResponse.channel(),
+                        updateResponse == null ? "" : updateResponse.updateType());
+                return updateResponse;
+            } catch (UpdateException e) {
+                throw e;
             } catch (Exception e) {
-                throw new UpdateException("Failed to check for updates", e);
+                log.warn("JLShell update check failed: uri={}", uri, e);
+                throw new UpdateException("Failed to check for updates", e, "updates.error.network");
             }
         }, executor);
     }
@@ -89,17 +113,44 @@ public class UpdateService {
                         if (!downloadable(update.fallbackInstaller())) {
                             throw jarError;
                         }
+                        log.warn("JLShell jar update failed; falling back to full installer: version={}, asset={}",
+                                update.latestVersion(), update.asset().fileName(), jarError);
                     }
                 }
                 return downloadInstaller(update.fallbackInstaller());
+            } catch (UpdateException e) {
+                throw e;
             } catch (Exception e) {
-                throw new UpdateException("Failed to download update", e);
+                log.warn("JLShell update download flow failed: version={}, type={}",
+                        update == null ? "" : update.latestVersion(),
+                        update == null ? "" : update.updateType(),
+                        e);
+                throw new UpdateException("Failed to download update", e, classifyUserMessageKey(e));
             }
         }, executor);
     }
 
     public String configuredChannel() {
         return appSettings.get(SETTINGS_CHANNEL, DEFAULT_CHANNEL);
+    }
+
+    public String configuredBaseUrl() {
+        return configuredBaseUrl(appSettings);
+    }
+
+    public static String configuredBaseUrl(AppSettingsService appSettings) {
+        return normalizeBaseUrl(appSettings.get(SETTINGS_BASE_URL, ""), DEFAULT_BASE_URL);
+    }
+
+    public static String normalizeBaseUrl(String configured, String defaultValue) {
+        if (blank(configured)) {
+            return defaultValue;
+        }
+        String value = configured.strip();
+        if (LEGACY_PLACEHOLDER_BASE_URL.equalsIgnoreCase(trimTrailingSlash(value))) {
+            return defaultValue;
+        }
+        return value;
     }
 
     public boolean autoCheckEnabled() {
@@ -119,7 +170,7 @@ public class UpdateService {
     }
 
     private URI latestUri(String currentVersion) {
-        String baseUrl = appSettings.get(SETTINGS_BASE_URL, DEFAULT_BASE_URL).strip();
+        String baseUrl = configuredBaseUrl();
         if (baseUrl.endsWith("/")) {
             baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
         }
@@ -131,20 +182,31 @@ public class UpdateService {
     }
 
     private DownloadResult downloadAndStageJar(UpdateResponse update, UpdateAsset asset) throws Exception {
+        log.info("Downloading JLShell jar update: version={}, fileName={}, url={}, size={}",
+                update.latestVersion(), asset.fileName(), asset.url(), asset.size());
         Path downloaded = downloadVerified(asset);
         Path versionDir = updatesDir.resolve("versions").resolve(update.latestVersion());
         Files.createDirectories(versionDir);
         Path stagedJar = versionDir.resolve(asset.fileName());
         Files.move(downloaded, stagedJar, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
         writePending(update.latestVersion(), stagedJar, asset.sha256());
+        log.info("Staged JLShell jar update: version={}, path={}", update.latestVersion(), stagedJar);
         return new DownloadResult(true, true, stagedJar);
     }
 
     private DownloadResult downloadInstaller(UpdateAsset asset) throws Exception {
         if (!downloadable(asset)) {
-            throw new IOException("No downloadable update asset returned by API");
+            log.warn("JLShell update API did not provide a downloadable asset");
+            throw new UpdateException(
+                    "No downloadable update asset returned by API",
+                    null,
+                    "updates.error.noPackage"
+            );
         }
+        log.info("Downloading JLShell full installer: fileName={}, url={}, size={}",
+                asset.fileName(), asset.url(), asset.size());
         Path file = downloadVerified(asset);
+        log.info("Downloaded JLShell full installer: path={}", file);
         return new DownloadResult(true, false, file);
     }
 
@@ -170,7 +232,12 @@ public class UpdateService {
         HttpResponse<Path> response = httpClient.send(request, HttpResponse.BodyHandlers.ofFile(destination));
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
             Files.deleteIfExists(destination);
-            throw new IOException("Download returned HTTP " + response.statusCode());
+            log.warn("JLShell update asset download failed: status={}, url={}", response.statusCode(), url);
+            throw new UpdateException(
+                    "Update asset download failed",
+                    new UpdateHttpException(response.statusCode(), URI.create(url), ""),
+                    httpUserMessageKey(response.statusCode(), true)
+            );
         }
     }
 
@@ -179,19 +246,34 @@ public class UpdateService {
             long actual = Files.size(file);
             if (actual != expectedSize) {
                 Files.deleteIfExists(file);
-                throw new IOException("Update size mismatch");
+                log.warn("JLShell update asset size mismatch: file={}, expected={}, actual={}", file, expectedSize, actual);
+                throw new UpdateException(
+                        "Update size mismatch",
+                        new IOException("Update size mismatch"),
+                        "updates.error.verifyFailed"
+                );
             }
         }
     }
 
     private void verifySha256(Path file, String expected) throws Exception {
         if (blank(expected)) {
-            throw new IOException("Missing sha256 for update asset");
+            log.warn("JLShell update asset is missing sha256: file={}", file);
+            throw new UpdateException(
+                    "Missing sha256 for update asset",
+                    new IOException("Missing sha256 for update asset"),
+                    "updates.error.verifyFailed"
+            );
         }
         String actual = sha256(file);
         if (!actual.equalsIgnoreCase(expected)) {
             Files.deleteIfExists(file);
-            throw new IOException("Update checksum mismatch");
+            log.warn("JLShell update asset checksum mismatch: file={}, expected={}, actual={}", file, expected, actual);
+            throw new UpdateException(
+                    "Update checksum mismatch",
+                    new IOException("Update checksum mismatch"),
+                    "updates.error.verifyFailed"
+            );
         }
     }
 
@@ -282,6 +364,69 @@ public class UpdateService {
         return value == null || value.isBlank();
     }
 
+    public static String userMessageKey(Throwable error) {
+        Throwable current = unwrap(error);
+        while (current != null) {
+            if (current instanceof UpdateException updateException && !blank(updateException.userMessageKey())) {
+                return updateException.userMessageKey();
+            }
+            current = current.getCause();
+        }
+        return "updates.error.generic";
+    }
+
+    private static String classifyUserMessageKey(Throwable error) {
+        Throwable current = unwrap(error);
+        while (current != null) {
+            if (current instanceof UpdateHttpException httpException) {
+                return httpUserMessageKey(httpException.statusCode(), true);
+            }
+            String message = current.getMessage();
+            if (message != null && message.toLowerCase(Locale.ROOT).contains("checksum")) {
+                return "updates.error.verifyFailed";
+            }
+            current = current.getCause();
+        }
+        return "updates.error.network";
+    }
+
+    private static String httpUserMessageKey(int statusCode, boolean download) {
+        if (statusCode == 404) {
+            return download ? "updates.error.assetUnavailable" : "updates.error.serviceUnavailable";
+        }
+        if (statusCode == 401 || statusCode == 403) {
+            return "updates.error.serviceUnavailable";
+        }
+        if (statusCode >= 500) {
+            return "updates.error.serviceUnavailable";
+        }
+        return "updates.error.network";
+    }
+
+    private static Throwable unwrap(Throwable error) {
+        Throwable current = error;
+        while (current instanceof CompletionException && current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current;
+    }
+
+    private static String abbreviate(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        String compact = value.replaceAll("\\s+", " ").strip();
+        return compact.length() <= 512 ? compact : compact.substring(0, 512) + "...";
+    }
+
+    private static String trimTrailingSlash(String value) {
+        String result = value;
+        while (result.endsWith("/") && result.length() > 1) {
+            result = result.substring(0, result.length() - 1);
+        }
+        return result;
+    }
+
     public record UpdateResponse(
             boolean updateAvailable,
             String latestVersion,
@@ -306,8 +451,44 @@ public class UpdateService {
     private record PendingUpdate(String version, String jarPath, String sha256, boolean startupConfirmed) {}
 
     public static class UpdateException extends RuntimeException {
+        private final String userMessageKey;
+
         public UpdateException(String message, Throwable cause) {
+            this(message, cause, "updates.error.generic");
+        }
+
+        public UpdateException(String message, Throwable cause, String userMessageKey) {
             super(message, cause);
+            this.userMessageKey = userMessageKey;
+        }
+
+        public String userMessageKey() {
+            return userMessageKey;
+        }
+    }
+
+    public static class UpdateHttpException extends IOException {
+        private final int statusCode;
+        private final URI uri;
+        private final String responseBody;
+
+        public UpdateHttpException(int statusCode, URI uri, String responseBody) {
+            super("HTTP " + statusCode);
+            this.statusCode = statusCode;
+            this.uri = uri;
+            this.responseBody = responseBody;
+        }
+
+        public int statusCode() {
+            return statusCode;
+        }
+
+        public URI uri() {
+            return uri;
+        }
+
+        public String responseBody() {
+            return responseBody;
         }
     }
 }
