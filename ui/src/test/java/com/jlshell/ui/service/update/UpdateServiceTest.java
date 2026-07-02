@@ -2,6 +2,7 @@ package com.jlshell.ui.service.update;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.jlshell.core.service.AppSettingsService;
@@ -19,6 +20,7 @@ import java.util.HexFormat;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.AfterEach;
@@ -86,6 +88,25 @@ class UpdateServiceTest {
         assertTrue(captured.query.contains("os="));
         assertTrue(captured.query.contains("arch="));
         assertFalse(captured.query.contains("package=jar"));
+    }
+
+    @Test
+    void legacyPlaceholderBaseUrlFallsBackToPackagedDefault() {
+        settings.set(UpdateService.SETTINGS_BASE_URL, "https://jlshell.com");
+
+        assertEquals(UpdateService.DEFAULT_BASE_URL, service().configuredBaseUrl());
+    }
+
+    @Test
+    void updateApiNotFoundMapsToFriendlyUserMessageKey() throws Exception {
+        startServer(exchange -> respond(exchange, 404, "not found"));
+        settings.set(UpdateService.SETTINGS_BASE_URL, baseUrl());
+
+        CompletionException error = assertThrows(CompletionException.class,
+                () -> service().checkLatest("0.1.41").join());
+
+        assertEquals("updates.error.serviceUnavailable", UpdateService.userMessageKey(error));
+        assertFalse(UpdateService.userMessageKey(error).contains("404"));
     }
 
     @Test

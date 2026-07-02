@@ -354,6 +354,7 @@ public class MainWindow {
         loadConnections();
         updateWindowTitle();
         scheduleAutomaticUpdateCheck(stage);
+        validateAccountSession(stage);
         return scene;
     }
 
@@ -373,6 +374,18 @@ public class MainWindow {
                     }
                 })));
         delay.play();
+    }
+
+    /** 启动时验证已保存的账号 token，无效则清除。 */
+    private void validateAccountSession(Stage stage) {
+        if (accountService == null || !accountService.isSignedIn()) {
+            return;
+        }
+        accountService.validateSession().whenComplete((session, error) -> {
+            if (session == null || error != null) {
+                log.info("Account session validation failed or expired");
+            }
+        });
     }
 
     private void installWindowsRoundedWindowClip(Stage stage, Region root) {
@@ -520,16 +533,17 @@ public class MainWindow {
         accountMenu.getItems().clear();
         if (accountService != null && accountService.isSignedIn()) {
             AccountService.AccountSession session = accountService.currentSession().orElseThrow();
-            String name = session.displayName().isBlank() ? session.email() : session.displayName();
+            String name = session.username().isBlank() ? session.email() : session.username();
             MenuItem signedIn = new MenuItem(i18nService.get("account.signedInAs", name));
             signedIn.setDisable(true);
             MenuItem settings = new MenuItem(i18nService.get("account.settings"));
-            settings.setOnAction(event -> openPreferences(stage, 1));
+            settings.setOnAction(event -> openPreferences(stage, PreferencesDialog.TAB_ACCOUNT));
             MenuItem logout = new MenuItem(i18nService.get("account.logout"));
             logout.setOnAction(event -> {
-                accountService.logout();
-                statusLabel.setText(i18nService.get("account.logout.success"));
-                rebuildAccountMenu(accountMenu, stage);
+                accountService.logout().whenComplete((v, error) -> FxThread.run(() -> {
+                    statusLabel.setText(i18nService.get("account.logout.success"));
+                    rebuildAccountMenu(accountMenu, stage);
+                }));
             });
             accountMenu.getItems().addAll(signedIn, settings, new SeparatorMenuItem(), logout);
         } else {
@@ -546,7 +560,7 @@ public class MainWindow {
                 rebuildAccountMenu(accountMenu, stage);
             });
             MenuItem settings = new MenuItem(i18nService.get("account.settings"));
-            settings.setOnAction(event -> openPreferences(stage, 1));
+            settings.setOnAction(event -> openPreferences(stage, PreferencesDialog.TAB_ACCOUNT));
             accountMenu.getItems().addAll(login, register, new SeparatorMenuItem(), settings);
         }
     }
@@ -732,7 +746,7 @@ public class MainWindow {
 
 
     public void openPreferences(Stage stage) {
-        openPreferences(stage, 0);
+        openPreferences(stage, PreferencesDialog.TAB_GENERAL);
     }
 
     private void openPreferences(Stage stage, int initialTabIndex) {
@@ -813,8 +827,10 @@ public class MainWindow {
     }
 
     private void showUpdateError(Stage stage, Throwable error) {
+        log.warn("JLShell update UI flow failed", error);
+        String message = i18nService.get(UpdateService.userMessageKey(error));
         Alert alert = new Alert(Alert.AlertType.ERROR,
-                i18nService.get("updates.failed", rootMessage(error)),
+                i18nService.get("updates.failed", message),
                 ButtonType.OK);
         alert.setTitle(i18nService.get("updates.title"));
         alert.setHeaderText(null);
