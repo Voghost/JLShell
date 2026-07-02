@@ -75,17 +75,17 @@ public final class AccountDialog {
             String usernameValue = username.getText() == null ? "" : username.getText().strip();
             String passwordValue = password.getText();
             if (usernameValue.isBlank() || passwordValue == null || passwordValue.isBlank()) {
-                showError(owner, i18n, i18n.get("account.error.missingFields"));
+                showError(owner, i18n, themeService, i18n.get("account.error.missingFields"));
                 return;
             }
             if (register) {
                 String emailValue = email.getText() == null ? "" : email.getText().strip();
                 if (emailValue.isBlank()) {
-                    showError(owner, i18n, i18n.get("account.error.missingFields"));
+                    showError(owner, i18n, themeService, i18n.get("account.error.missingFields"));
                     return;
                 }
                 if (!passwordValue.equals(confirmPassword.getText())) {
-                    showError(owner, i18n, i18n.get("account.error.passwordMismatch"));
+                    showError(owner, i18n, themeService, i18n.get("account.error.passwordMismatch"));
                     return;
                 }
             }
@@ -99,15 +99,10 @@ public final class AccountDialog {
             future.whenComplete((session, error) -> Platform.runLater(() -> {
                 submit.setDisable(false);
                 if (error != null) {
-                    showError(owner, i18n, resolveErrorMessage(error, i18n));
+                    showError(owner, i18n, themeService, resolveErrorMessage(error, i18n));
                     return;
                 }
                 dialog.close();
-                Alert ok = new Alert(Alert.AlertType.INFORMATION, i18n.get("account.login.success"), ButtonType.OK);
-                ok.setTitle(i18n.get("account.title"));
-                ok.setHeaderText(null);
-                if (owner != null) ok.initOwner(owner);
-                ok.showAndWait();
             }));
         });
 
@@ -130,11 +125,12 @@ public final class AccountDialog {
         return rootMessage(error);
     }
 
-    private static void showError(Stage owner, I18nService i18n, String message) {
+    private static void showError(Stage owner, I18nService i18n, ThemeService themeService, String message) {
         Alert alert = new Alert(Alert.AlertType.ERROR, message, ButtonType.OK);
         alert.setTitle(i18n.get("account.title"));
         alert.setHeaderText(null);
         if (owner != null) alert.initOwner(owner);
+        themeService.applyToDialog(alert);
         alert.showAndWait();
     }
 

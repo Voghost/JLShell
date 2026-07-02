@@ -202,6 +202,7 @@ public final class BootstrapLauncher {
 
     private static void configureMacApplicationName() {
         System.setProperty("apple.laf.useScreenMenuBar", "true");
+        System.setProperty("apple.awt.application.appearance", "system");
         System.setProperty("apple.awt.application.name", "JLShell");
         System.setProperty("com.apple.mrj.application.apple.menu.about.name", "JLShell");
     }
