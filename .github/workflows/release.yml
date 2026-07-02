@@ -62,6 +62,12 @@ jobs:
         run: mvn versions:set -DnewVersion=${VERSION} -q
 
       - name: Build
+        env:
+          MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_NOTARIZATION_APPLE_ID: ${{ secrets.MACOS_NOTARIZATION_APPLE_ID }}
+          MACOS_NOTARIZATION_PASSWORD: ${{ secrets.MACOS_NOTARIZATION_PASSWORD }}
+          MACOS_NOTARIZATION_TEAM_ID: ${{ secrets.MACOS_NOTARIZATION_TEAM_ID }}
         run: |
           mvn package -DskipTests -pl launcher,app -am -q
 
@@ -132,7 +138,58 @@ jobs:
           "NSHumanReadableCopyright" = "版权所有";
           EOF
 
-          cd dist/mac-work && zip -qr ../JLShell-${VERSION}-mac.zip JLShell.app
+          APP_BUNDLE="dist/mac-work/JLShell.app"
+          SIGN_IDENTITY="-"
+          SIGNING_KEYCHAIN=""
+
+          if [[ -n "${MACOS_CERTIFICATE_BASE64:-}" ]]; then
+            echo "Importing Developer ID certificate for macOS signing..."
+            CERT_PATH="$RUNNER_TEMP/jlshell-macos-certificate.p12"
+            SIGNING_KEYCHAIN="$RUNNER_TEMP/jlshell-signing.keychain-db"
+            KEYCHAIN_PASSWORD="$(uuidgen)"
+            printf '%s' "$MACOS_CERTIFICATE_BASE64" | base64 --decode -o "$CERT_PATH"
+            security create-keychain -p "$KEYCHAIN_PASSWORD" "$SIGNING_KEYCHAIN"
+            security set-keychain-settings -lut 21600 "$SIGNING_KEYCHAIN"
+            security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$SIGNING_KEYCHAIN"
+            security import "$CERT_PATH" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$SIGNING_KEYCHAIN"
+            security list-keychain -d user -s "$SIGNING_KEYCHAIN" $(security list-keychains -d user | sed 's/[ "]//g')
+            security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$SIGNING_KEYCHAIN"
+            SIGN_IDENTITY="$(security find-identity -v -p codesigning "$SIGNING_KEYCHAIN" \
+              | sed -n 's/.*"\(Developer ID Application:.*\)".*/\1/p' \
+              | head -1)"
+            if [[ -z "$SIGN_IDENTITY" ]]; then
+              echo "Developer ID Application identity was not found in imported certificate." >&2
+              exit 1
+            fi
+            echo "Signing with identity: $SIGN_IDENTITY"
+            codesign --force --deep --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP_BUNDLE"
+          else
+            echo "No Developer ID certificate configured; applying ad-hoc signature for bundle integrity."
+            codesign --force --deep --sign - "$APP_BUNDLE"
+          fi
+
+          codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
+
+          if [[ "$SIGN_IDENTITY" != "-" ]]; then
+            if [[ -n "${MACOS_NOTARIZATION_APPLE_ID:-}" && -n "${MACOS_NOTARIZATION_PASSWORD:-}" && -n "${MACOS_NOTARIZATION_TEAM_ID:-}" ]]; then
+              echo "Submitting macOS app for notarization..."
+              ditto -c -k --keepParent "$APP_BUNDLE" dist/JLShell-${VERSION}-mac-notary.zip
+              xcrun notarytool submit dist/JLShell-${VERSION}-mac-notary.zip \
+                --apple-id "$MACOS_NOTARIZATION_APPLE_ID" \
+                --password "$MACOS_NOTARIZATION_PASSWORD" \
+                --team-id "$MACOS_NOTARIZATION_TEAM_ID" \
+                --wait
+              xcrun stapler staple "$APP_BUNDLE"
+              xcrun stapler validate "$APP_BUNDLE"
+              rm -f dist/JLShell-${VERSION}-mac-notary.zip
+            else
+              echo "::warning::Developer ID signing is enabled, but notarization secrets are incomplete. Gatekeeper may still block first launch."
+            fi
+          else
+            echo "::warning::macOS app is ad-hoc signed only. Users may need to remove quarantine or use Open Anyway until Developer ID notarization is configured."
+          fi
+
+          ditto -c -k --keepParent "$APP_BUNDLE" dist/JLShell-${VERSION}-mac.zip
 
       - uses: actions/upload-artifact@v4
         with:
