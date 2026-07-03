@@ -95,7 +95,7 @@
   <String Id="WixUIVerifyReadyRepair" Overridable="yes">修复(&amp;R)</String>
   <String Id="WixUIVerifyReadyCancel" Overridable="yes">取消</String>
 
-  <!-- Product name override (optional — jpackage defaults to --name) -->
+  <!-- Product name override (optional, jpackage defaults to name arg) -->
   <String Id="ProductName" Overridable="yes">JLShell</String>
   <String Id="Manufacturer" Overridable="yes">JLShell</String>
   <String Id="ProductLanguage" Overridable="yes">2052</String>
