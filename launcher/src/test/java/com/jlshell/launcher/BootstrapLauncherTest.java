@@ -18,9 +18,27 @@ class BootstrapLauncherTest {
     Path tempDir;
 
     @Test
-    void promotesVerifiedPendingUpdateBeforeLaunch() throws Exception {
+    void copiesVerifiedPendingUpdateToBundledJarWhenInstallDirIsWritable() throws Exception {
         Path updates = Files.createDirectories(tempDir.resolve("updates"));
         Path bundled = writeFile(tempDir.resolve("bundled.jar"), "bundled");
+        Path jar = writeFile(tempDir.resolve("jlshell-app-0.1.42.jar"), "app-0.1.42");
+        writeEntry(updates.resolve("pending.json"), "0.1.42", jar, sha256(jar), true);
+
+        Path selected = BootstrapLauncher.selectApplicationJar(updates, bundled);
+
+        assertEquals(bundled, selected);
+        assertEquals("app-0.1.42", Files.readString(bundled, StandardCharsets.UTF_8));
+        assertFalse(Files.exists(updates.resolve("pending.json")));
+        String current = Files.readString(updates.resolve("current.json"), StandardCharsets.UTF_8);
+        assertTrue(current.contains("\"version\": \"0.1.42\""));
+        assertTrue(current.contains(bundled.toAbsolutePath().toString().replace("\\", "\\\\")));
+        assertTrue(current.contains("\"startupConfirmed\": false"));
+    }
+
+    @Test
+    void loadsPendingUpdateFromStagingWhenInstallDirCopyFails() throws Exception {
+        Path updates = Files.createDirectories(tempDir.resolve("updates"));
+        Path bundled = tempDir.resolve("missing-dir").resolve("bundled.jar");
         Path jar = writeFile(tempDir.resolve("jlshell-app-0.1.42.jar"), "app-0.1.42");
         writeEntry(updates.resolve("pending.json"), "0.1.42", jar, sha256(jar), true);
 
@@ -29,7 +47,7 @@ class BootstrapLauncherTest {
         assertEquals(jar, selected);
         assertFalse(Files.exists(updates.resolve("pending.json")));
         String current = Files.readString(updates.resolve("current.json"), StandardCharsets.UTF_8);
-        assertTrue(current.contains("\"version\": \"0.1.42\""));
+        assertTrue(current.contains(jar.toAbsolutePath().toString().replace("\\", "\\\\")));
         assertTrue(current.contains("\"startupConfirmed\": false"));
     }
 
