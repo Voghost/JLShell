@@ -5,6 +5,7 @@ import com.jlshell.ui.service.account.AccountService;
 import com.jlshell.ui.theme.ThemeService;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
+import javafx.geometry.Pos;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonBar;
@@ -15,6 +16,7 @@ import javafx.scene.control.PasswordField;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 
 public final class AccountDialog {
@@ -125,12 +127,7 @@ public final class AccountDialog {
                     return;
                 }
                 dialog.close();
-                Alert ok = new Alert(Alert.AlertType.INFORMATION, i18n.get("account.login.success"), ButtonType.OK);
-                ok.setTitle(i18n.get("account.title"));
-                ok.setHeaderText(null);
-                if (owner != null) ok.initOwner(owner);
-                themeService.applyToDialog(ok);
-                ok.showAndWait();
+                showInfo(owner, i18n, themeService, i18n.get("account.login.success"));
             }));
         });
 
@@ -182,6 +179,26 @@ public final class AccountDialog {
         if (owner != null) alert.initOwner(owner);
         themeService.applyToDialog(alert);
         alert.showAndWait();
+    }
+
+    private static void showInfo(Stage owner, I18nService i18n, ThemeService themeService, String message) {
+        Dialog<Void> dialog = new Dialog<>();
+        dialog.setTitle(i18n.get("account.title"));
+        dialog.setHeaderText(null);
+        if (owner != null) dialog.initOwner(owner);
+        themeService.applyToDialog(dialog);
+
+        Label messageLabel = new Label(message);
+        messageLabel.setWrapText(true);
+        messageLabel.setMinWidth(260);
+        messageLabel.setMaxWidth(360);
+
+        VBox content = new VBox(messageLabel);
+        content.setAlignment(Pos.CENTER_LEFT);
+        content.setPadding(new Insets(18, 20, 8, 20));
+        dialog.getDialogPane().setContent(content);
+        dialog.getDialogPane().getButtonTypes().add(ButtonType.OK);
+        dialog.showAndWait();
     }
 
     private static String rootMessage(Throwable error) {

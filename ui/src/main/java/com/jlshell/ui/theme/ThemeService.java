@@ -11,6 +11,7 @@ import javafx.beans.property.ObjectProperty;
 import javafx.beans.property.SimpleObjectProperty;
 import javafx.scene.Scene;
 import javafx.scene.control.Dialog;
+import javafx.scene.control.DialogEvent;
 import javafx.scene.control.DialogPane;
 import javafx.scene.Parent;
 
@@ -107,12 +108,16 @@ public class ThemeService {
     }
 
     public void applyToDialog(DialogPane pane) {
-        pane.getStylesheets().add(getClass().getResource(currentTheme().stylesheet()).toExternalForm());
+        String stylesheet = getClass().getResource(currentTheme().stylesheet()).toExternalForm();
+        if (!pane.getStylesheets().contains(stylesheet)) {
+            pane.getStylesheets().add(stylesheet);
+        }
         applyAccent(pane);
     }
 
     public void applyToDialog(Dialog<?> dialog) {
         applyToDialog(dialog.getDialogPane());
+        dialog.addEventHandler(DialogEvent.DIALOG_SHOWN, event -> applyToDialog(dialog.getDialogPane()));
     }
 
     public ColorSchemeRegistry registry() {
