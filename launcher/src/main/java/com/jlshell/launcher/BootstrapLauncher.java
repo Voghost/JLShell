@@ -62,8 +62,15 @@ public final class BootstrapLauncher {
         if (Files.isRegularFile(pending)) {
             Optional<UpdateEntry> pendingEntry = readEntry(pending);
             if (pendingEntry.isPresent() && verifyEntry(pendingEntry.get())) {
-                promotePending(pending, current, previous, pendingEntry.get());
-                return pendingEntry.get().jarPath();
+                // Try to copy the staged jar into the installation directory,
+                // replacing the bundled jar. This keeps the install dir as the
+                // single source of truth. If the install dir is read-only
+                // (e.g. Program Files without elevation), fall back to loading
+                // the jar from the staging area via URLClassLoader.
+                boolean promoted = promotePendingByCopy(pendingEntry.get(), bundled);
+                promotePending(pending, current, previous, pendingEntry.get(),
+                        promoted ? bundled : pendingEntry.get().jarPath());
+                return promoted ? bundled : pendingEntry.get().jarPath();
             }
         }
 
@@ -78,13 +85,61 @@ public final class BootstrapLauncher {
         return bundled;
     }
 
-    private static void promotePending(Path pending, Path current, Path previous, UpdateEntry entry) throws IOException {
+    private static void promotePending(Path pending, Path current, Path previous, UpdateEntry entry, Path resolvedJarPath) throws IOException {
         Files.createDirectories(current.getParent());
         if (Files.isRegularFile(current)) {
             Files.copy(current, previous, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
         }
-        writeEntry(current, entry, false);
+        // Write current.json pointing to the resolved jar path (may be the
+        // bundled jar after an in-place copy, or the staging-area jar).
+        UpdateEntry resolved = new UpdateEntry(entry.version(), resolvedJarPath, entry.sha256());
+        writeEntry(current, resolved, false);
         Files.deleteIfExists(pending);
+    }
+
+    /**
+     * Try to copy the staged update jar into the installation directory,
+     * replacing the bundled application jar. Returns true on success.
+     * Returns false (and logs a warning) if the copy fails, e.g. when
+     * the install dir is read-only (Program Files without elevation).
+     */
+    private static boolean promotePendingByCopy(UpdateEntry entry, Path bundled) {
+        if (!Files.isRegularFile(entry.jarPath())) {
+            return false;
+        }
+        try {
+            // Backup the old bundled jar before overwriting
+            Path backup = bundled.resolveSibling(bundled.getFileName() + ".previous");
+            if (Files.isRegularFile(bundled)) {
+                Files.copy(bundled, backup, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+            Files.copy(entry.jarPath(), bundled, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            // Verify the copy by checking file size matches
+            if (Files.size(bundled) != Files.size(entry.jarPath())) {
+                // Size mismatch — restore backup
+                if (Files.isRegularFile(backup)) {
+                    Files.copy(backup, bundled, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                }
+                return false;
+            }
+            // Clean up backup on success
+            Files.deleteIfExists(backup);
+            return true;
+        } catch (Exception e) {
+            // Install dir is likely read-only (e.g. Program Files). This is
+            // expected for MSI installs without elevation. Fall back to
+            // loading the jar from the staging area.
+            System.err.println("JLShell: cannot copy update to install dir (likely read-only): " + e.getMessage());
+            // Try to restore backup if copy partially succeeded
+            Path backup = bundled.resolveSibling(bundled.getFileName() + ".previous");
+            try {
+                if (Files.isRegularFile(backup)) {
+                    Files.copy(backup, bundled, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    Files.deleteIfExists(backup);
+                }
+            } catch (Exception ignored) {}
+            return false;
+        }
     }
 
     private static void rollbackUnconfirmedCurrent(Path current, Path previous) throws IOException {

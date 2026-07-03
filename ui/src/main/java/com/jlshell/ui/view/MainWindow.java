@@ -851,8 +851,11 @@ public class MainWindow {
                 showUpdateError(stage, error);
                 return;
             }
-            String key = result.restartRequired() ? "updates.downloadedRestart" : "updates.downloadedInstaller";
-            showUpdateMessage(stage, i18nService.get(key, result.file().toString()));
+            if (result.restartRequired()) {
+                showRestartRequiredDialog(stage, result.file().toString());
+            } else {
+                showUpdateMessage(stage, i18nService.get("updates.downloadedInstaller", result.file().toString()));
+            }
         }));
 
         downloadDialog.show();
@@ -864,6 +867,25 @@ public class MainWindow {
         alert.setHeaderText(null);
         alert.initOwner(stage);
         alert.showAndWait();
+    }
+
+    /**
+     * Show a dialog after a jar update has been downloaded, offering the user
+     * a "Restart Now" button that automatically relaunches the application.
+     */
+    private void showRestartRequiredDialog(Stage stage, String filePath) {
+        String message = i18nService.get("updates.downloadedRestart", filePath);
+        ButtonType restartBtn = new ButtonType(i18nService.get("updates.restartNow"));
+        Alert alert = new Alert(Alert.AlertType.INFORMATION, message, restartBtn, ButtonType.CANCEL);
+        alert.setTitle(i18nService.get("updates.restartTitle"));
+        alert.setHeaderText(null);
+        alert.initOwner(stage);
+        themeService.applyToDialog(alert);
+        alert.showAndWait().ifPresent(btn -> {
+            if (btn == restartBtn) {
+                com.jlshell.app.RestartHelper.scheduleRestart(null);
+            }
+        });
     }
 
     private void showUpdateError(Stage stage, Throwable error) {
