@@ -1,6 +1,4 @@
-package com.jlshell.app;
-
-import javafx.application.Platform;
+package com.jlshell.ui.support;
 
 import java.io.File;
 import java.nio.file.Path;
@@ -9,58 +7,46 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Centralised restart / shutdown helper.
+ * Centralised restart helper.
  *
  * <p>Provides two operations:
  * <ul>
- *   <li>{@link #scheduleShutdown(AppContext)} — clean shutdown, no relaunch</li>
- *   <li>{@link #scheduleRestart(AppContext)} — clean shutdown + automatic relaunch</li>
+ *   <li>{@link #scheduleRestart()} — launch a new process then exit the current one</li>
+ *   <li>{@link #scheduleRestartAndThen(Runnable)} — same, but runs a callback before exit</li>
  * </ul>
  *
- * <p>Callers should use these methods instead of {@code System.exit()},
- * {@code Platform.exit()}, or {@code Runtime.halt()} directly.
+ * <p>The actual app shutdown (closing AppContext, removing tray icon, etc.)
+ * is the caller's responsibility. This class only handles process relaunch
+ * and JVM termination.</p>
  */
 public final class RestartHelper {
 
     private RestartHelper() {}
 
     /**
-     * Perform a clean shutdown without restarting the application.
-     *
-     * <p>Removes the system tray icon, closes the {@link AppContext},
-     * then terminates the JVM.</p>
+     * Launch a new JLShell process, then terminate the current JVM.
+     * Used when the caller has already performed its own cleanup.
      */
-    public static void scheduleShutdown(AppContext appContext) {
-        Platform.runLater(() -> {
-            if (appContext != null && appContext.getMainWindow() != null) {
-                // Let any UI cleanup run first
-            }
-        });
-        Thread shutdownThread = new Thread(() -> {
-            try {
-                if (appContext != null) {
-                    appContext.close();
-                }
-            } finally {
-                Platform.exit();
-                Runtime.getRuntime().halt(0);
-            }
-        }, "jlshell-shutdown");
-        shutdownThread.setDaemon(true);
-        shutdownThread.start();
+    public static void scheduleRestart() {
+        scheduleRestartAndThen(() -> {});
     }
 
     /**
-     * Perform a clean shutdown and then automatically relaunch the application.
+     * Launch a new JLShell process, run the given cleanup callback,
+     * then terminate the current JVM.
      *
-     * <p>Detects the current process command via {@link ProcessHandle} and
-     * re-launches it with the same arguments. Falls back to constructing a
-     * command from system properties if {@code ProcessHandle} info is
-     * unavailable.</p>
+     * @param cleanup runs after the new process is started but before
+     *                the current JVM halts (e.g. close AppContext,
+     *                remove tray icon)
      */
-    public static void scheduleRestart(AppContext appContext) {
+    public static void scheduleRestartAndThen(Runnable cleanup) {
         launchNewProcess();
-        scheduleShutdown(appContext);
+        try {
+            cleanup.run();
+        } finally {
+            javafx.application.Platform.exit();
+            Runtime.getRuntime().halt(0);
+        }
     }
 
     /**
