@@ -102,7 +102,7 @@
 
   <!-- jpackage-specific strings (referenced in main.wxs) -->
   <String Id="MainFeatureTitle" Overridable="yes">JLShell</String>
-  <String Id="DisallowUpgradeErrorMessage" Overridable="yes">已安装此产品的更高版本。无法继续安装。</String>
-  <String Id="DowngradeErrorMessage" Overridable="yes">已安装此产品的更低版本。无法继续安装。</String>
+  <String Id="DisallowUpgradeErrorMessage" Overridable="yes">已安装更新版本的 JLShell，无需降级安装。如需重新安装，请先卸载当前版本。</String>
+  <String Id="DowngradeErrorMessage" Overridable="yes">已安装更新版本的 JLShell，无需降级安装。如需重新安装，请先卸载当前版本。</String>
 
 </WixLocalization>
