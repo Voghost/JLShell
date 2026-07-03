@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WixLocalization Culture="zh-CN" Codepage="936" xmlns="http://schemas.microsoft.com/wix/2006/localization">
+  <String Id="WixUIBack" Overridable="yes">上一步(&amp;B)</String>
+  <String Id="WixUINext" Overridable="yes">下一步(&amp;N)</String>
+  <String Id="WixUICancel" Overridable="yes">取消</String>
+  <String Id="WixUIFinish" Overridable="yes">完成(&amp;F)</String>
+  <String Id="WixUIInstall" Overridable="yes">安装(&amp;I)</String>
+  <String Id="WixUIRemove" Overridable="yes">移除(&amp;R)</String>
+  <String Id="WixUIRepair" Overridable="yes">修复(&amp;P)</String>
+  <String Id="WixUIChange" Overridable="yes">更改(&amp;C)</String>
+  <String Id="WixUIOK" Overridable="yes">确定</String>
+
+  <String Id="WelcomeDlgTitle" Overridable="yes">{\WixUI_Font_Bigger}欢迎使用 [ProductName] 安装向导</String>
+  <String Id="WelcomeDlgDescription" Overridable="yes">安装向导将在您的计算机上安装 [ProductName]。单击“下一步”继续，或单击“取消”退出安装向导。</String>
+
+  <String Id="InstallDirDlgTitle" Overridable="yes">{\WixUI_Font_Title}目标文件夹</String>
+  <String Id="InstallDirDlgDescription" Overridable="yes">单击“下一步”安装到默认文件夹，或单击“更改”选择其他文件夹。</String>
+  <String Id="InstallDirDlgFolderLabel" Overridable="yes">将 [ProductName] 安装到:</String>
+  <String Id="InstallDirDlgChange" Overridable="yes">更改(&amp;C)...</String>
+
+  <String Id="VerifyReadyDlgTitle" Overridable="yes">{\WixUI_Font_Title}准备安装</String>
+  <String Id="VerifyReadyDlgInstallTitle" Overridable="yes">{\WixUI_Font_Title}准备安装</String>
+  <String Id="VerifyReadyDlgInstallText" Overridable="yes">单击“安装”开始安装。如果要检查或更改安装设置，请单击“上一步”。单击“取消”退出安装向导。</String>
+  <String Id="VerifyReadyDlgChangeTitle" Overridable="yes">{\WixUI_Font_Title}准备更改</String>
+  <String Id="VerifyReadyDlgChangeText" Overridable="yes">单击“更改”开始更改安装。如果要检查或更改安装设置，请单击“上一步”。单击“取消”退出安装向导。</String>
+  <String Id="VerifyReadyDlgRepairTitle" Overridable="yes">{\WixUI_Font_Title}准备修复</String>
+  <String Id="VerifyReadyDlgRepairText" Overridable="yes">单击“修复”开始修复安装。单击“取消”退出安装向导。</String>
+  <String Id="VerifyReadyDlgRemoveTitle" Overridable="yes">{\WixUI_Font_Title}准备移除</String>
+  <String Id="VerifyReadyDlgRemoveText" Overridable="yes">单击“移除”开始移除 [ProductName]。单击“取消”退出安装向导。</String>
+
+  <String Id="ProgressDlgTitleInstalling" Overridable="yes">{\WixUI_Font_Title}正在安装 [ProductName]</String>
+  <String Id="ProgressDlgTitleChanging" Overridable="yes">{\WixUI_Font_Title}正在更改 [ProductName]</String>
+  <String Id="ProgressDlgTitleRepairing" Overridable="yes">{\WixUI_Font_Title}正在修复 [ProductName]</String>
+  <String Id="ProgressDlgTitleRemoving" Overridable="yes">{\WixUI_Font_Title}正在移除 [ProductName]</String>
+  <String Id="ProgressDlgTextInstalling" Overridable="yes">请等待安装向导安装 [ProductName]。</String>
+  <String Id="ProgressDlgTextChanging" Overridable="yes">请等待安装向导更改 [ProductName]。</String>
+  <String Id="ProgressDlgTextRepairing" Overridable="yes">请等待安装向导修复 [ProductName]。</String>
+  <String Id="ProgressDlgTextRemoving" Overridable="yes">请等待安装向导移除 [ProductName]。</String>
+
+  <String Id="ExitDialogTitle" Overridable="yes">{\WixUI_Font_Bigger}安装向导已完成</String>
+  <String Id="ExitDialogDescription" Overridable="yes">单击“完成”退出安装向导。</String>
+  <String Id="FatalErrorTitle" Overridable="yes">{\WixUI_Font_Bigger}安装向导过早结束</String>
+  <String Id="FatalErrorDescription1" Overridable="yes">由于出现错误，安装向导过早结束。您的系统未被修改。若要稍后安装此程序，请重新运行安装包。</String>
+  <String Id="FatalErrorDescription2" Overridable="yes">单击“完成”退出安装向导。</String>
+  <String Id="UserExitTitle" Overridable="yes">{\WixUI_Font_Bigger}安装向导已取消</String>
+  <String Id="UserExitDescription1" Overridable="yes">安装向导已被取消。您的系统未被修改。若要稍后安装此程序，请重新运行安装包。</String>
+  <String Id="UserExitDescription2" Overridable="yes">单击“完成”退出安装向导。</String>
+
+  <String Id="MaintenanceWelcomeDlgTitle" Overridable="yes">{\WixUI_Font_Bigger}欢迎使用 [ProductName] 维护向导</String>
+  <String Id="MaintenanceWelcomeDlgDescription" Overridable="yes">安装向导可以更改、修复或移除 [ProductName]。单击“下一步”继续，或单击“取消”退出安装向导。</String>
+  <String Id="MaintenanceTypeDlgTitle" Overridable="yes">{\WixUI_Font_Title}更改、修复或移除安装</String>
+  <String Id="MaintenanceTypeDlgDescription" Overridable="yes">选择要执行的维护操作。</String>
+  <String Id="MaintenanceTypeDlgChangeButton" Overridable="yes">更改(&amp;C)</String>
+  <String Id="MaintenanceTypeDlgRepairButton" Overridable="yes">修复(&amp;R)</String>
+  <String Id="MaintenanceTypeDlgRemoveButton" Overridable="yes">移除(&amp;M)</String>
+  <String Id="MaintenanceTypeDlgChangeText" Overridable="yes">更改已安装的功能。</String>
+  <String Id="MaintenanceTypeDlgRepairText" Overridable="yes">修复安装中的错误。</String>
+  <String Id="MaintenanceTypeDlgRemoveText" Overridable="yes">从计算机中移除 [ProductName]。</String>
+</WixLocalization>
