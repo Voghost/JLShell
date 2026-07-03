@@ -291,7 +291,7 @@ public class PreferencesDialog {
         alert.setHeaderText(null);
         if (owner != null) alert.initOwner(owner);
         alert.showAndWait();
-        com.jlshell.app.RestartHelper.scheduleRestart(null);
+        com.jlshell.ui.support.RestartHelper.scheduleRestart();
     }
 
     private static boolean applyPendingSettings(FontProfileService fontProfileService, AppSettingsService appSettings,

@@ -13,6 +13,7 @@ import javax.imageio.ImageIO;
 
 import com.jlshell.ui.view.MainWindow;
 import com.jlshell.ui.support.BundledFontLoader;
+import com.jlshell.ui.support.RestartHelper;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.stage.Stage;
@@ -127,7 +128,23 @@ public class JlShellDesktopApplication extends Application {
     }
 
     private void scheduleShutdown() {
-        RestartHelper.scheduleShutdown(appContext);
+        Platform.runLater(() -> {
+            if (trayIcon != null && SystemTray.isSupported()) {
+                SystemTray.getSystemTray().remove(trayIcon);
+            }
+        });
+        Thread shutdownThread = new Thread(() -> {
+            try {
+                if (appContext != null) {
+                    appContext.close();
+                }
+            } finally {
+                Platform.exit();
+                Runtime.getRuntime().halt(0);
+            }
+        }, "jlshell-shutdown");
+        shutdownThread.setDaemon(true);
+        shutdownThread.start();
     }
 
     /**
@@ -135,7 +152,11 @@ public class JlShellDesktopApplication extends Application {
      * Used after updates or when settings require a restart to take effect.
      */
     public void scheduleRestart() {
-        RestartHelper.scheduleRestart(appContext);
+        com.jlshell.ui.support.RestartHelper.scheduleRestartAndThen(() -> {
+            if (appContext != null) {
+                appContext.close();
+            }
+        });
     }
 
     @Override

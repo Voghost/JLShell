@@ -883,7 +883,7 @@ public class MainWindow {
         themeService.applyToDialog(alert);
         alert.showAndWait().ifPresent(btn -> {
             if (btn == restartBtn) {
-                com.jlshell.app.RestartHelper.scheduleRestart(null);
+                com.jlshell.ui.support.RestartHelper.scheduleRestart();
             }
         });
     }
