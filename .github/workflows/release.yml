@@ -521,7 +521,7 @@ jobs:
           PKG_VERSION="${VERSION#0.}"
           PKG_VERSION="1.${PKG_VERSION}"
 
-          rm -rf dist/win-input dist/win-image dist/win-installer
+          rm -rf dist/win-input dist/win-image dist/win-installer dist/win-jpackage-temp
           mkdir -p dist/win-input
           mkdir -p dist/win-input/app
           cp "$LAUNCHER_JAR" dist/win-input/jlshell-launcher.jar
@@ -576,6 +576,8 @@ jobs:
             --win-shortcut \
             --win-upgrade-uuid "e3c8f9a2-7b41-4d6e-a5f0-9c2e8d1b3f47" \
             --resource-dir app/src/main/resources/msi \
+            --temp dist/win-jpackage-temp \
+            --verbose \
             --dest dist/win-installer
 
           cp dist/win-installer/*.msi "dist/JLShell-${VERSION}-win-x64.msi"
