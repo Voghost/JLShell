@@ -574,6 +574,9 @@ jobs:
             --win-menu \
             --win-menu-group JLShell \
             --win-shortcut \
+            --win-upgrade-uuid "e3c8f9a2-7b41-4d6e-a5f0-9c2e8d1b3f47" \
+            --resource-dir app/src/main/resources/msi \
+            --locale zh-CN \
             --dest dist/win-installer
 
           cp dist/win-installer/*.msi "dist/JLShell-${VERSION}-win-x64.msi"

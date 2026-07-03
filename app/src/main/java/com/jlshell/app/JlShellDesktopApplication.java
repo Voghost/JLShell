@@ -127,23 +127,15 @@ public class JlShellDesktopApplication extends Application {
     }
 
     private void scheduleShutdown() {
-        Platform.runLater(() -> {
-            if (trayIcon != null && SystemTray.isSupported()) {
-                SystemTray.getSystemTray().remove(trayIcon);
-            }
-        });
-        Thread shutdownThread = new Thread(() -> {
-            try {
-                if (appContext != null) {
-                    appContext.close();
-                }
-            } finally {
-                Platform.exit();
-                Runtime.getRuntime().halt(0);
-            }
-        }, "jlshell-shutdown");
-        shutdownThread.setDaemon(true);
-        shutdownThread.start();
+        RestartHelper.scheduleShutdown(appContext);
+    }
+
+    /**
+     * Schedule a restart: shuts down cleanly, then re-launches the application.
+     * Used after updates or when settings require a restart to take effect.
+     */
+    public void scheduleRestart() {
+        RestartHelper.scheduleRestart(appContext);
     }
 
     @Override

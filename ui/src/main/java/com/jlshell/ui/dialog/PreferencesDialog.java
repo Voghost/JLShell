@@ -291,7 +291,7 @@ public class PreferencesDialog {
         alert.setHeaderText(null);
         if (owner != null) alert.initOwner(owner);
         alert.showAndWait();
-        System.exit(0);
+        com.jlshell.app.RestartHelper.scheduleRestart(null);
     }
 
     private static boolean applyPendingSettings(FontProfileService fontProfileService, AppSettingsService appSettings,
@@ -556,16 +556,12 @@ public class PreferencesDialog {
             logoutButton.setDisable(true);
             accountService.logout().whenComplete((v, error) -> javafx.application.Platform.runLater(() -> {
                 refreshAccountState.run();
-                Alert alert = new Alert(Alert.AlertType.INFORMATION, i18n.get("account.logout.success"), ButtonType.OK);
-                alert.setTitle(i18n.get("account.title"));
-                alert.setHeaderText(null);
-                if (owner != null) alert.initOwner(owner);
-                alert.showAndWait();
+                themedAlert(Alert.AlertType.INFORMATION, i18n.get("account.logout.success"), owner, i18n, themeService);
             }));
         });
         changePasswordButton.setDisable(accountService == null);
         changePasswordButton.setOnAction(event -> {
-            showChangePasswordDialog(owner, i18n, accountService);
+            showChangePasswordDialog(owner, i18n, themeService, accountService);
             refreshAccountState.run();
         });
 
@@ -600,11 +596,13 @@ public class PreferencesDialog {
 
     /** 修改密码对话框。 */
     private static void showChangePasswordDialog(Stage owner, I18nService i18n,
+                                                  ThemeService themeService,
                                                   AccountService accountService) {
         Dialog<Void> dialog = new Dialog<>();
         dialog.setTitle(i18n.get("account.changePassword.title"));
         dialog.setHeaderText(null);
         if (owner != null) dialog.initOwner(owner);
+        themeService.applyToDialog(dialog);
 
         PasswordField oldPassword = new PasswordField();
         PasswordField newPassword = new PasswordField();
@@ -632,27 +630,15 @@ public class PreferencesDialog {
             String newPwd = newPassword.getText();
             String confirmPwd = confirmPassword.getText();
             if (oldPwd == null || oldPwd.isBlank() || newPwd == null || newPwd.isBlank()) {
-                Alert err = new Alert(Alert.AlertType.ERROR, i18n.get("account.error.missingFields"), ButtonType.OK);
-                err.setTitle(i18n.get("account.title"));
-                err.setHeaderText(null);
-                if (owner != null) err.initOwner(owner);
-                err.showAndWait();
+                themedAlert(Alert.AlertType.ERROR, i18n.get("account.error.missingFields"), owner, i18n, themeService);
                 return;
             }
             if (newPwd.length() < 8) {
-                Alert err = new Alert(Alert.AlertType.ERROR, i18n.get("account.changePassword.error.minLength"), ButtonType.OK);
-                err.setTitle(i18n.get("account.title"));
-                err.setHeaderText(null);
-                if (owner != null) err.initOwner(owner);
-                err.showAndWait();
+                themedAlert(Alert.AlertType.ERROR, i18n.get("account.changePassword.error.minLength"), owner, i18n, themeService);
                 return;
             }
             if (!newPwd.equals(confirmPwd)) {
-                Alert err = new Alert(Alert.AlertType.ERROR, i18n.get("account.changePassword.error.mismatch"), ButtonType.OK);
-                err.setTitle(i18n.get("account.title"));
-                err.setHeaderText(null);
-                if (owner != null) err.initOwner(owner);
-                err.showAndWait();
+                themedAlert(Alert.AlertType.ERROR, i18n.get("account.changePassword.error.mismatch"), owner, i18n, themeService);
                 return;
             }
             submit.setDisable(true);
@@ -666,24 +652,27 @@ public class PreferencesDialog {
                         } else {
                             msg = error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
                         }
-                        Alert err = new Alert(Alert.AlertType.ERROR, msg, ButtonType.OK);
-                        err.setTitle(i18n.get("account.title"));
-                        err.setHeaderText(null);
-                        if (owner != null) err.initOwner(owner);
-                        err.showAndWait();
+                        themedAlert(Alert.AlertType.ERROR, msg, owner, i18n, themeService);
                         return;
                     }
                     dialog.close();
-                    Alert ok = new Alert(Alert.AlertType.INFORMATION, i18n.get("account.changePassword.success"), ButtonType.OK);
-                    ok.setTitle(i18n.get("account.title"));
-                    ok.setHeaderText(null);
-                    if (owner != null) ok.initOwner(owner);
-                    ok.showAndWait();
+                    themedAlert(Alert.AlertType.INFORMATION, i18n.get("account.changePassword.success"), owner, i18n, themeService);
                 });
             });
         });
 
         dialog.showAndWait();
+    }
+
+    /** 创建带主题的 Alert 并 showAndWait。 */
+    private static void themedAlert(Alert.AlertType type, String message, Stage owner,
+                                    I18nService i18n, ThemeService themeService) {
+        Alert alert = new Alert(type, message, ButtonType.OK);
+        alert.setTitle(i18n.get("account.title"));
+        alert.setHeaderText(null);
+        if (owner != null) alert.initOwner(owner);
+        themeService.applyToDialog(alert);
+        alert.showAndWait();
     }
 
     // ── General Tab ────────────────────────────────────────────────────────
