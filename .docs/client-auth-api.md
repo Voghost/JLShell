@@ -74,9 +74,9 @@ Response `200`:
 
 Failure:
 
-- `401`: wrong username/password.
-- `401`: captcha is required or invalid.
-- `403`: request was authenticated but not allowed for that resource.
+- `401` with `error: "invalid_credentials"`: wrong username/password.
+- `401` with `error: "captcha_required"`: captcha is required but missing or invalid.
+- `403` with `error: "forbidden"`: request was authenticated but not allowed for that resource.
 
 Client behavior:
 
@@ -92,13 +92,24 @@ Client behavior:
 GET /api/v1/account/captcha?username=alice
 ```
 
+Optional `purpose` parameter:
+
+```http
+GET /api/v1/account/captcha?username=__register__&purpose=register
+```
+
+When `purpose=register`, the server always generates a captcha challenge
+regardless of login failure count. Use this before calling
+`POST /api/v1/account/send-verification` for registration.
+
 Response when captcha is not required:
 
 ```json
 {
   "required": false,
   "token": null,
-  "question": null
+  "question": null,
+  "imageBase64": null
 }
 ```
 
@@ -108,19 +119,82 @@ Response when captcha is required:
 {
   "required": true,
   "token": "f600a0f4-9aa5-4f6d-a887-98dd5d3402a0",
-  "question": "7 + 8 = ?"
+  "question": null,
+  "imageBase64": "data:image/png;base64,iVBORw0KGgo..."
 }
 ```
+
+The captcha is now rendered as a PNG image with visual noise and character
+distortion. The `imageBase64` field contains a data URI that can be displayed
+directly in an `<img>` tag or equivalent image view. The `question` field is
+`null` when `imageBase64` is present; for backward compatibility, if
+`imageBase64` is absent, fall back to displaying `question` as text.
 
 Recommended client behavior:
 
 - Do not show captcha on the first login attempt.
 - After any login failure, call this endpoint.
-- When `required=true`, render the question and include `captchaToken` and
-  `captchaAnswer` in the next login request.
+- When `required=true`, display the `imageBase64` image and include
+  `captchaToken` and `captchaAnswer` in the next login request.
 - Refresh the captcha after another login failure.
+- Add a "refresh captcha" button so users can get a new image if it is
+  unreadable.
 
 ## Register
+
+```http
+POST /api/v1/account/register
+Content-Type: application/json
+```
+
+Registration now requires email verification. The flow is:
+
+1. Call `GET /api/v1/account/captcha?username=__register__&purpose=register`
+   to get a captcha challenge.
+2. Call `POST /api/v1/account/send-verification` to send a 6-digit code to
+   the user's email.
+3. Call `POST /api/v1/account/register` with the verification code.
+
+### Send Verification Code
+
+```http
+POST /api/v1/account/send-verification
+Content-Type: application/json
+```
+
+Request:
+
+```json
+{
+  "email": "alice@example.com",
+  "captchaToken": "captcha-token-from-step-1",
+  "captchaAnswer": "15"
+}
+```
+
+Response `200`: verification code sent successfully (empty body).
+
+Failure:
+
+- `400` with `error: "captcha_required"`: captcha verification failed.
+- `429` with `error: "verification_rate_limited"`: too many requests from this IP (max 3 per minute).
+- `429` with `error: "verification_cooldown"`: a code was recently sent to this email (wait 60 seconds).
+- `503` with `error: "email_send_failed"`: email delivery failed, try again later.
+
+Rate limits:
+
+- **IP rate limit**: max 3 verification emails per IP per minute.
+- **Email cooldown**: 60 seconds between sending codes to the same email address.
+- **Code expiry**: 5 minutes. The code is single-use — any verification attempt
+  (correct or not) invalidates it.
+
+Client behavior:
+
+- After sending, start a 60-second countdown before allowing resend.
+- On resend, fetch a new captcha first (the previous one was consumed).
+- Display the 6-digit input field only after a code has been sent.
+
+### Complete Registration
 
 ```http
 POST /api/v1/account/register
@@ -133,15 +207,20 @@ Request:
 {
   "username": "alice",
   "email": "alice@example.com",
-  "password": "user password"
+  "password": "user password",
+  "verificationCode": "123456"
 }
 ```
+
+`verificationCode` is **required** — the 6-digit code received via email.
 
 Response is the same shape as login.
 
 Failure:
 
-- `409`: username or email already exists.
+- `400` with `error: "verification_invalid"`: verification code is wrong, expired, or not sent.
+- `409` with `error: "username_exists"`: username already taken.
+- `409` with `error: "email_exists"`: email already registered.
 
 ## Current Account
 
@@ -160,7 +239,8 @@ Response `200`:
   "role": "user",
   "passwordChangeRequired": false,
   "connectionCount": 0,
-  "terminalCount": 0
+  "terminalCount": 0,
+  "historicalDeviceCount": 1
 }
 ```
 
@@ -196,7 +276,8 @@ Response `200`:
   "role": "admin",
   "passwordChangeRequired": false,
   "connectionCount": 0,
-  "terminalCount": 0
+  "terminalCount": 0,
+  "historicalDeviceCount": 1
 }
 ```
 
@@ -273,7 +354,8 @@ Response `200`:
   "role": "user",
   "passwordChangeRequired": false,
   "connectionCount": 3,
-  "terminalCount": 2
+  "terminalCount": 2,
+  "historicalDeviceCount": 3
 }
 ```
 
@@ -321,20 +403,45 @@ Client behavior:
 
 ## Error Handling
 
-Authentication errors use JSON:
+All error responses use a consistent JSON format:
 
 ```json
 {
-  "error": "unauthorized",
-  "message": "Authentication required or token invalid"
+  "error": "error_code",
+  "message": "Human-readable description"
 }
 ```
 
+The `error` field is a machine-readable code. The `message` field is a
+human-readable description (in English). Client implementations should
+map `error` codes to localized user-facing messages.
+
+### Error Codes
+
+| Code | HTTP Status | Meaning |
+|------|-------------|---------|
+| `invalid_credentials` | 401 | Wrong username or password |
+| `captcha_required` | 400/401 | Captcha verification failed or is required |
+| `verification_invalid` | 400 | Email verification code is wrong or expired |
+| `verification_rate_limited` | 429 | Too many verification requests from this IP |
+| `verification_cooldown` | 429 | Verification code was recently sent to this email |
+| `email_send_failed` | 503 | Email delivery failed |
+| `username_exists` | 409 | Username is already registered |
+| `email_exists` | 409 | Email is already registered |
+| `validation` | 400 | Request validation failed (check field constraints) |
+| `unauthorized` | 401 | Token missing, expired, revoked, or invalid |
+| `forbidden` | 403 | Account lacks the required role |
+| `account_not_found` | 404 | Account no longer exists |
+| `internal` | 500 | Server internal error |
+
 Client handling:
 
-- `401`: token missing, expired, revoked, or invalid. Clear token and request login.
+- `401` with `unauthorized` or `invalid_credentials`: clear token and request login.
+- `401` with `captcha_required`: fetch a new captcha and show it.
 - `403`: token is valid but the account lacks permission. Keep token, show an access denied message.
 - `404` on `/me` or `/heartbeat`: account no longer exists. Clear token and request login.
+- `429`: rate limited. Show a message and suggest waiting.
+- `503`: service temporarily unavailable. Suggest retrying later.
 
 ## Minimal Client Flow
 
@@ -356,5 +463,25 @@ flowchart TD
   K -- "200" --> L["Update cached account"]
   J -- "No" --> E
   I --> E
+  L --> E
+```
+
+### Registration Flow
+
+```mermaid
+flowchart TD
+  A["User chooses Register"] --> B["GET /api/v1/account/captcha?username=__register__&purpose=register"]
+  B --> C["Display captcha image"]
+  C --> D["User enters email + captcha answer"]
+  D --> E["POST /api/v1/account/send-verification"]
+  E -- "200" --> F["Show 6-digit code input\nStart 60s cooldown"]
+  E -- "429 rate_limited" --> G["Show rate limit message"]
+  E -- "429 cooldown" --> H["Show cooldown message"]
+  E -- "400 captcha_required" --> B
+  F --> I["User enters code + username + password"]
+  I --> J["POST /api/v1/account/register"]
+  J -- "200" --> K["Store token, enter app"]
+  J -- "400 verification_invalid" --> L["Show error, allow resend"]
+  J -- "409 exists" --> M["Show username/email taken"]
   L --> E
 ```
