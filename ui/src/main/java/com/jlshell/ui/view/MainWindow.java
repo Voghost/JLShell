@@ -40,6 +40,9 @@ import com.jlshell.ui.support.FxThread;
 import com.jlshell.ui.theme.AppTheme;
 import com.jlshell.ui.theme.ThemeService;
 import com.jlshell.ui.viewmodel.MainViewModel;
+import com.jlshell.core.shortcut.ShortcutConverter;
+import com.jlshell.core.shortcut.ShortcutRegistry;
+import com.jlshell.ui.shortcut.FxShortcutConverter;
 import com.jlshell.ui.dialog.AboutDialog;
 import com.jlshell.ui.dialog.AccountDialog;
 import com.jlshell.ui.dialog.PreferencesDialog;
@@ -74,6 +77,7 @@ import javafx.scene.control.SplitPane;
 import javafx.scene.control.TabPane;
 import javafx.scene.control.ToggleGroup;
 import javafx.scene.control.ToolBar;
+import javafx.event.EventHandler;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyCodeCombination;
 import javafx.scene.input.KeyCombination;
@@ -130,6 +134,7 @@ public class MainWindow {
     private final MemoryReclaimService memoryReclaimService;
     private final UpdateService updateService;
     private final AccountService accountService;
+    private final ShortcutRegistry shortcutRegistry;
     private final ConnectionShareService connectionShareService = new ConnectionShareService();
     private final TabPane workspaceTabs = new TabPane();
     private final List<com.jlshell.terminal.service.TerminalViewHandle> localShellHandles = new ArrayList<>();
@@ -204,7 +209,8 @@ public class MainWindow {
             java.util.function.Function<String, com.jlshell.plugin.api.storage.PluginStorage> storageFactory,
             MemoryReclaimService memoryReclaimService,
             UpdateService updateService,
-            AccountService accountService
+            AccountService accountService,
+            ShortcutRegistry shortcutRegistry
     ) {
         this.viewModel = viewModel;
         this.connectionProfileService = connectionProfileService;
@@ -227,6 +233,7 @@ public class MainWindow {
         this.memoryReclaimService = memoryReclaimService;
         this.updateService = updateService;
         this.accountService = accountService;
+        this.shortcutRegistry = shortcutRegistry;
 
         // Restore saved active project
         String savedProject = appSettingsService.get("ui.activeProject", "");
@@ -615,39 +622,44 @@ public class MainWindow {
         return false;
     }
 
+    /** 已安装的快捷键事件过滤器列表，用于 refreshShortcuts() 时移除。 */
+    private final List<EventHandler<KeyEvent>> installedShortcutFilters = new ArrayList<>();
+
     private void installApplicationShortcuts(Scene scene, Stage stage) {
-        installApplicationShortcut(scene, KeyCode.N, () -> createConnection(stage));
-        installApplicationShortcut(scene, KeyCode.R, this::loadConnections);
-        installApplicationShortcut(scene, KeyCode.Q, stage::close);
-        installApplicationShortcut(scene, KeyCode.B, this::toggleSidebar);
-        installApplicationShortcut(scene, KeyCode.T, this::toggleTopBarCollapse);
-        installApplicationShortcut(scene, KeyCode.F, this::toggleFocusMode, KeyCombination.SHIFT_DOWN);
-        installApplicationShortcut(scene, KeyCode.COMMA, () -> openPreferences(stage));
+        installShortcutFromRegistry(scene, "app.newConnection", () -> createConnection(stage));
+        installShortcutFromRegistry(scene, "app.refreshConnections", this::loadConnections);
+        installShortcutFromRegistry(scene, "app.quit", stage::close);
+        installShortcutFromRegistry(scene, "app.toggleSidebar", this::toggleSidebar);
+        installShortcutFromRegistry(scene, "app.toggleTopBar", this::toggleTopBarCollapse);
+        installShortcutFromRegistry(scene, "app.focusMode", this::toggleFocusMode);
+        installShortcutFromRegistry(scene, "app.preferences", () -> openPreferences(stage));
     }
 
-    private void installApplicationShortcut(Scene scene, KeyCode keyCode, Runnable action) {
-        installApplicationShortcut(scene, keyCode, action, new KeyCombination.Modifier[0]);
-    }
-
-    private void installApplicationShortcut(Scene scene, KeyCode keyCode, Runnable action,
-                                            KeyCombination.Modifier... modifiers) {
-        KeyCombination.Modifier[] allModifiers = new KeyCombination.Modifier[modifiers.length + 1];
-        allModifiers[0] = KeyCombination.SHORTCUT_DOWN;
-        System.arraycopy(modifiers, 0, allModifiers, 1, modifiers.length);
-        KeyCodeCombination shortcut = new KeyCodeCombination(keyCode, allModifiers);
-        scene.addEventFilter(KeyEvent.KEY_PRESSED, event -> {
-            if (event.isConsumed() || !shortcut.match(event)) {
-                return;
-            }
-            // Let shell/readline programs receive Ctrl+B/N/Q/R/T and similar chords
-            // when focus is inside the embedded terminal. Cmd shortcuts on macOS
-            // remain application shortcuts because Meta is not terminal input here.
-            if (isTerminalFocusOwner(scene) && event.isControlDown() && !event.isMetaDown()) {
-                return;
-            }
+    private void installShortcutFromRegistry(Scene scene, String shortcutId, Runnable action) {
+        String spec = shortcutRegistry.getEffectivePrimary(shortcutId);
+        if (spec == null || spec.isBlank()) return;
+        KeyCodeCombination combo = FxShortcutConverter.toKeyCodeCombination(spec);
+        if (combo == null) return;
+        EventHandler<KeyEvent> filter = event -> {
+            if (event.isConsumed() || !combo.match(event)) return;
+            // 当终端获得焦点时，Ctrl+字母快捷键交给终端处理
+            if (isTerminalFocusOwner(scene) && event.isControlDown() && !event.isMetaDown()) return;
             action.run();
             event.consume();
-        });
+        };
+        scene.addEventFilter(KeyEvent.KEY_PRESSED, filter);
+        installedShortcutFilters.add(filter);
+    }
+
+    /** 重新安装所有程序级快捷键（快捷键设置变更后调用）。 */
+    public void refreshShortcuts(Scene scene, Stage stage) {
+        // 移除旧的过滤器
+        for (EventHandler<KeyEvent> filter : installedShortcutFilters) {
+            scene.removeEventFilter(KeyEvent.KEY_PRESSED, filter);
+        }
+        installedShortcutFilters.clear();
+        // 重新安装
+        installApplicationShortcuts(scene, stage);
     }
 
     private boolean isTerminalFocusOwner(Scene scene) {
@@ -763,11 +775,13 @@ public class MainWindow {
         String selectedSessionId = selectedApiSessionId();
         PreferencesDialog.show(stage, fontProfileService, appSettingsService, i18nService, themeService,
                 connectionProfileService, activeProjectId, apiServer, capabilityBus, programPluginManager,
-                pluginManager, selectedSessionId, memoryReclaimService, accountService, null, initialTabIndex);
+                pluginManager, selectedSessionId, memoryReclaimService, accountService, shortcutRegistry, initialTabIndex);
         // 导入后刷新侧边栏
         loadConnections();
         // 应用可能变更的 UI 字体设置
         applyUiFontSettings();
+        // 快捷键设置可能变更，重新安装快捷键
+        refreshShortcuts(stage.getScene(), stage);
     }
 
     public void checkForUpdates(Stage stage) {

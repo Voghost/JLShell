@@ -14,6 +14,7 @@ import com.jlshell.core.service.SessionRegistry;
 import com.jlshell.core.service.impl.DefaultSessionManager;
 import com.jlshell.core.service.impl.InMemorySessionRegistry;
 import com.jlshell.core.service.impl.PersistentFontProfileService;
+import com.jlshell.core.shortcut.ShortcutRegistry;
 import com.jlshell.core.support.NamedThreadFactory;
 import com.jlshell.data.config.CredentialEncryptionProperties;
 import com.jlshell.data.config.DatabaseFactory;
@@ -163,6 +164,7 @@ public class AppContext implements AutoCloseable {
         memoryReclaimService = new MemoryReclaimService();
         UpdateService updateService = new UpdateService(appSettingsService, executor);
         this.accountService = new AccountService(appSettingsService, executor);
+        ShortcutRegistry shortcutRegistry = new ShortcutRegistry(appSettingsService);
 
         // 7b. Host methods + API server
         com.jlshell.program.api.ProgramHostMethods hostMethods =
@@ -220,7 +222,8 @@ public class AppContext implements AutoCloseable {
                 storageFactory,
                 memoryReclaimService,
                 updateService,
-                accountService
+                accountService,
+                shortcutRegistry
         );
 
         this.apiServer = apiServer;
