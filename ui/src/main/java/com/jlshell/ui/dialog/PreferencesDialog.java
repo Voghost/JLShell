@@ -2507,7 +2507,7 @@ public class PreferencesDialog {
 
                     event.consume();
 
-                    // Check for conflicts
+                    // Check for conflicts — 禁止冲突，不保存
                     List<ShortcutDefinition> conflicts = registry.findConflicts(def.id(), spec);
                     if (!conflicts.isEmpty()) {
                         // Show conflict indicator
@@ -2516,17 +2516,10 @@ public class PreferencesDialog {
                         Tooltip conflictTooltip = new Tooltip(i18n.get("shortcut.conflict", conflictName));
                         keyButton.setTooltip(conflictTooltip);
 
-                        // Save the shortcut even with conflict (user can decide)
-                        if (isPrimary) {
-                            registry.setUserPrimary(def.id(), spec);
-                        } else {
-                            registry.setUserSecondary(def.id(), spec);
-                        }
-                        keyButton.setText(ShortcutConverter.toDisplayText(spec));
-
                         // Restore border after 1.5s
                         PauseTransition pause = new PauseTransition(Duration.seconds(1.5));
                         pause.setOnFinished(pt -> {
+                            keyButton.setText(originalText);
                             keyButton.setStyle("");
                             keyButton.setTooltip(null);
                         });
