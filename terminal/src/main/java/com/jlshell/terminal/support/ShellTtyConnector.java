@@ -224,20 +224,43 @@ public class ShellTtyConnector implements TtyConnector {
 
     @Override
     public void close() {
+        closeInternal(true);
+    }
+
+    public void closeAfterDisconnect() {
+        closeInternal(false);
+    }
+
+    private void closeInternal(boolean userInitiated) {
         if (!closeStarted.compareAndSet(false, true)) {
             return;
         }
 
-        connected.set(false);
-        log.info("[TtyConnector] '{}' close() called (user-initiated)", name);
-        shellChannel.closeAsync()
-                .whenCompleteAsync((unused, throwable) -> {
-                    if (throwable != null) {
-                        closeFuture.completeExceptionally(throwable);
-                    } else {
-                        closeFuture.complete(null);
-                    }
-                }, executorService);
+        boolean wasConnected = connected.getAndSet(false);
+        if (userInitiated && wasConnected) {
+            log.info("[TtyConnector] '{}' close() called (user-initiated)", name);
+        } else {
+            log.info("[TtyConnector] '{}' close() called (disconnect cleanup), userInitiated={}, wasConnected={}",
+                    name, userInitiated, wasConnected);
+        }
+        CompletableFuture<Void> channelClose = shellChannel.closeAsync();
+        if (!userInitiated) {
+            closeFuture.complete(null);
+            channelClose.whenCompleteAsync((unused, throwable) -> {
+                if (throwable != null) {
+                    log.debug("[TtyConnector] '{}' disconnect cleanup close failed: {}",
+                            name, throwable.getMessage());
+                }
+            }, executorService);
+            return;
+        }
+        channelClose.whenCompleteAsync((unused, throwable) -> {
+            if (throwable != null) {
+                closeFuture.completeExceptionally(throwable);
+            } else {
+                closeFuture.complete(null);
+            }
+        }, executorService);
     }
 
     public CompletableFuture<Void> closeFuture() {
@@ -253,12 +276,13 @@ public class ShellTtyConnector implements TtyConnector {
         if (!connected.compareAndSet(true, false)) {
             return; // 已经断开，不重复触发
         }
-        log.info("[TtyConnector] '{}' marked disconnected, reason={}", name, reason);
+        Consumer<DisconnectReason> cb = onDisconnected;
+        log.info("[TtyConnector] '{}' marked disconnected, reason={}, callbackRegistered={}, closeStarted={}",
+                name, reason, cb != null, closeStarted.get());
         if (!closeStarted.get()) {
             closeFuture.complete(null);
         }
         // 通知 UI 层
-        Consumer<DisconnectReason> cb = onDisconnected;
         if (cb != null && reason != DisconnectReason.USER_CLOSE) {
             Platform.runLater(() -> cb.accept(reason));
         }
