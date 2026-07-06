@@ -9,6 +9,7 @@ import java.util.function.Function;
 import com.jlshell.core.model.FontProfile;
 import com.jlshell.core.model.SessionId;
 import com.jlshell.core.service.FontProfileService;
+import com.jlshell.core.shortcut.ShortcutRegistry;
 import com.jlshell.terminal.model.TerminalColorScheme;
 import com.jlshell.terminal.model.TerminalViewRequest;
 import com.jlshell.terminal.service.TerminalViewHandle;
@@ -34,13 +35,14 @@ public class LocalShellLauncher {
     private final ExecutorService executorService;
     private final Function<String, String> i18n;
     private final Runnable awtFontReadyHook;
+    private final ShortcutRegistry shortcutRegistry;
 
     public LocalShellLauncher(
             FontProfileService fontProfileService,
             ExecutorService executorService,
             I18nService i18nService
     ) {
-        this(fontProfileService, executorService, i18nService, () -> {});
+        this(fontProfileService, executorService, i18nService, () -> {}, null);
     }
 
     public LocalShellLauncher(
@@ -49,10 +51,21 @@ public class LocalShellLauncher {
             I18nService i18nService,
             Runnable awtFontReadyHook
     ) {
+        this(fontProfileService, executorService, i18nService, awtFontReadyHook, null);
+    }
+
+    public LocalShellLauncher(
+            FontProfileService fontProfileService,
+            ExecutorService executorService,
+            I18nService i18nService,
+            Runnable awtFontReadyHook,
+            ShortcutRegistry shortcutRegistry
+    ) {
         this.fontProfileService = fontProfileService;
         this.executorService = executorService;
         this.i18n = i18nService::get;
         this.awtFontReadyHook = awtFontReadyHook != null ? awtFontReadyHook : () -> {};
+        this.shortcutRegistry = shortcutRegistry;
     }
 
     public CompletableFuture<TerminalViewHandle> launch(String displayName, TerminalViewRequest request) {
@@ -92,7 +105,7 @@ public class LocalShellLauncher {
                 int rows = request.shellRequest().terminalSize().rows();
                 JlshellSettingsProvider settingsProvider =
                         new JlshellSettingsProvider(
-                                request.fontProfile(), request.colorScheme(), request.runtimeSettings());
+                                request.fontProfile(), request.colorScheme(), request.runtimeSettings(), shortcutRegistry);
                 LocalShellTtyConnector ttyConnector =
                         new LocalShellTtyConnector(displayName, command, cols, rows, executorService, charset);
                 JlshellJediTermWidget widget = JlshellJediTermWidget.create(

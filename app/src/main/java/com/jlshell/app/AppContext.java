@@ -154,17 +154,20 @@ public class AppContext implements AutoCloseable {
         // 7. UI services
         MainViewModel viewModel = new MainViewModel();
 
+        ShortcutRegistry shortcutRegistry = new ShortcutRegistry(appSettingsService);
+
         JediTermTerminalViewFactory terminalViewFactory = new JediTermTerminalViewFactory(
-                fontProfileService, executor, i18nService::get, BundledFontLoader::ensureAwtRegistered);
+                fontProfileService, executor, i18nService::get, BundledFontLoader::ensureAwtRegistered,
+                shortcutRegistry);
 
         ConnectionProfileService connectionProfileService = new ConnectionProfileService(
                 jdbi, credentialCipher, appSettingsService, vaultService);
         LocalShellLauncher localShellLauncher = new LocalShellLauncher(
-                fontProfileService, executor, i18nService, BundledFontLoader::ensureAwtRegistered);
+                fontProfileService, executor, i18nService, BundledFontLoader::ensureAwtRegistered,
+                shortcutRegistry);
         memoryReclaimService = new MemoryReclaimService();
         UpdateService updateService = new UpdateService(appSettingsService, executor);
         this.accountService = new AccountService(appSettingsService, executor);
-        ShortcutRegistry shortcutRegistry = new ShortcutRegistry(appSettingsService);
 
         // 7b. Host methods + API server
         com.jlshell.program.api.ProgramHostMethods hostMethods =
