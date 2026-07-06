@@ -763,7 +763,7 @@ public class MainWindow {
         String selectedSessionId = selectedApiSessionId();
         PreferencesDialog.show(stage, fontProfileService, appSettingsService, i18nService, themeService,
                 connectionProfileService, activeProjectId, apiServer, capabilityBus, programPluginManager,
-                pluginManager, selectedSessionId, memoryReclaimService, accountService, initialTabIndex);
+                pluginManager, selectedSessionId, memoryReclaimService, accountService, null, initialTabIndex);
         // 导入后刷新侧边栏
         loadConnections();
         // 应用可能变更的 UI 字体设置
