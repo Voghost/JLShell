@@ -159,8 +159,11 @@ public class TerminalWorkspaceView extends BorderPane {
         this.capabilityBus = capabilityBus;
         this.sftpService = sftpService;
         this.storageFactory = storageFactory;
-        this.sessionDisconnectListener = reason ->
-                FxThread.run(() -> onTerminalDisconnected(ShellTtyConnector.DisconnectReason.IO_ERROR));
+        this.sessionDisconnectListener = reason -> {
+            log.warn("[Terminal] SSH disconnect listener fired for session {}, message={}",
+                    sshSession.sessionId(), reason);
+            FxThread.run(() -> onTerminalDisconnected(ShellTtyConnector.DisconnectReason.IO_ERROR));
+        };
         this.sshSession.addDisconnectListener(sessionDisconnectListener);
 
         getStyleClass().add("workspace-panel");
@@ -293,23 +296,35 @@ public class TerminalWorkspaceView extends BorderPane {
      * 在终端上方覆盖显示断连原因和重连按钮。
      */
     private void onTerminalDisconnected(ShellTtyConnector.DisconnectReason reason) {
-        if (disconnected) return;
-        disconnected = true;
-        log.warn("[Terminal] Session {} disconnected, reason={}", sshSession.sessionId(), reason);
-
         String reasonText = switch (reason) {
             case REMOTE_CLOSED -> i18nService.get("terminal.disconnected.remoteClosed");
             case IO_ERROR -> i18nService.get("terminal.disconnected.ioError");
             case USER_CLOSE -> null; // 用户主动关闭不显示提示
         };
-        if (reasonText == null) return;
+        if (reasonText == null) {
+            log.debug("[Terminal] Ignoring user-initiated disconnect for session {}", sshSession.sessionId());
+            return;
+        }
+        if (disconnected) {
+            log.debug("[Terminal] Duplicate disconnect ignored for session {}, reason={}",
+                    sshSession.sessionId(), reason);
+            return;
+        }
+
+        long startedAt = System.nanoTime();
+        disconnected = true;
+        log.warn("[Terminal] Session {} disconnected, reason={}, handles={}, primaryNode={}",
+                sshSession.sessionId(), reason, handles.size(),
+                primaryNode == null ? "null" : primaryNode.getClass().getSimpleName());
 
         // SwingNode 直接渲染到窗口 native 层，普通 JavaFX 节点无法覆盖它。
-        // 断连时隐藏 SwingNode，让覆盖层可以正常显示。
+        // 断连时从场景里移除并释放 Swing 内容，让覆盖层立刻可见。
         if (primaryNode != null) {
             primaryNode.setVisible(false);
             primaryNode.setManaged(false);
         }
+        detachPrimarySwingNode();
+        closeTerminalHandlesAfterDisconnect(reason);
 
         // 创建断连提示覆盖层
         disconnectLabel = new Label(reasonText);
@@ -333,7 +348,31 @@ public class TerminalWorkspaceView extends BorderPane {
         disconnectOverlay.getStyleClass().add("disconnect-overlay");
         StackPane.setAlignment(disconnectOverlay, Pos.CENTER);
 
-        terminalHost.getChildren().add(disconnectOverlay);
+        terminalHost.getChildren().setAll(disconnectOverlay);
+        terminalHost.requestLayout();
+        Platform.requestNextPulse();
+        log.info("[Terminal] Disconnect overlay displayed for session {} in {} ms",
+                sshSession.sessionId(), (System.nanoTime() - startedAt) / 1_000_000);
+    }
+
+    private void closeTerminalHandlesAfterDisconnect(ShellTtyConnector.DisconnectReason reason) {
+        List<TerminalViewHandle> snapshot = new ArrayList<>(handles);
+        log.info("[Terminal] Closing {} terminal handle(s) after disconnect for session {}, reason={}",
+                snapshot.size(), sshSession.sessionId(), reason);
+        for (TerminalViewHandle handle : snapshot) {
+            CompletableFuture<Void> closeFuture;
+            if (handle instanceof DefaultTerminalViewHandle defaultHandle) {
+                closeFuture = defaultHandle.closeAfterDisconnectAsync();
+            } else {
+                closeFuture = handle.closeAsync();
+            }
+            closeFuture.whenComplete((unused, throwable) -> {
+                if (throwable != null) {
+                    log.warn("[Terminal] Terminal handle cleanup failed for session {}: {}",
+                            sshSession.sessionId(), throwable.getMessage());
+                }
+            });
+        }
     }
 
     /** 隐藏断连提示覆盖层（重连时调用） */

@@ -2,6 +2,7 @@ package com.jlshell.terminal.support;
 
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 import javax.swing.JComponent;
@@ -22,6 +23,8 @@ public class DefaultTerminalViewHandle implements TerminalViewHandle {
     private final JlshellJediTermWidget widget;
     private final JlshellSettingsProvider settingsProvider;
     private final ShellTtyConnector ttyConnector;
+    private final AtomicBoolean closeStarted = new AtomicBoolean(false);
+    private final CompletableFuture<Void> closeFuture = new CompletableFuture<>();
 
     public DefaultTerminalViewHandle(
             SessionId sessionId,
@@ -80,11 +83,35 @@ public class DefaultTerminalViewHandle implements TerminalViewHandle {
 
     @Override
     public CompletableFuture<Void> closeAsync() {
-        ttyConnector.close();
-        return SwingExecutors.runOnEdtAsync(() -> {
+        return closeInternal(true);
+    }
+
+    public CompletableFuture<Void> closeAfterDisconnectAsync() {
+        return closeInternal(false);
+    }
+
+    private CompletableFuture<Void> closeInternal(boolean userInitiated) {
+        if (!closeStarted.compareAndSet(false, true)) {
+            return closeFuture;
+        }
+
+        if (userInitiated) {
+            ttyConnector.close();
+        } else {
+            ttyConnector.closeAfterDisconnect();
+        }
+        SwingExecutors.runOnEdtAsync(() -> {
             widget.stop();
             widget.close();
-        }).thenCompose(unused -> ttyConnector.closeFuture());
+        }).thenCompose(unused -> ttyConnector.closeFuture())
+                .whenComplete((unused, throwable) -> {
+                    if (throwable != null) {
+                        closeFuture.completeExceptionally(throwable);
+                    } else {
+                        closeFuture.complete(null);
+                    }
+                });
+        return closeFuture;
     }
 
     @Override

@@ -1,5 +1,8 @@
 package com.jlshell.ui.dialog;
 
+import com.jlshell.core.shortcut.ShortcutConverter;
+import com.jlshell.core.shortcut.ShortcutDefinition;
+import com.jlshell.core.shortcut.ShortcutRegistry;
 import com.jlshell.core.model.FontProfile;
 import com.jlshell.core.service.AppSettingsService;
 import com.jlshell.core.service.FontProfileService;
@@ -17,6 +20,7 @@ import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.service.MemoryReclaimService;
 import com.jlshell.ui.service.account.AccountService;
 import com.jlshell.ui.service.update.UpdateService;
+import com.jlshell.ui.shortcut.FxShortcutConverter;
 import com.jlshell.ui.theme.AccentColor;
 import com.jlshell.ui.theme.AppTheme;
 import com.jlshell.ui.theme.ThemeService;
@@ -37,12 +41,14 @@ import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
 import javafx.scene.control.PasswordField;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.Slider;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
+import javafx.scene.control.Tooltip;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -52,6 +58,8 @@ import javafx.scene.text.Font;
 import javafx.scene.text.Text;
 import javafx.scene.text.TextAlignment;
 import javafx.stage.Stage;
+import javafx.animation.PauseTransition;
+import javafx.util.Duration;
 
 import java.awt.Canvas;
 import java.awt.FontMetrics;
@@ -78,7 +86,8 @@ public class PreferencesDialog {
     public static final int TAB_IMPORT = 4;
     public static final int TAB_API = 5;
     public static final int TAB_PLUGINS = 6;
-    public static final int TAB_ABOUT = 7;
+    public static final int TAB_SHORTCUTS = 7;
+    public static final int TAB_ABOUT = 8;
 
     private static final List<String> PREFERRED_MONO = List.of(
             "JetBrains Mono", "Cascadia Code", "Cascadia Mono", "Fira Code",
@@ -136,7 +145,7 @@ public class PreferencesDialog {
                             String activeProjectId,
                             com.jlshell.api.server.ApiServer apiServer) {
         show(owner, fontProfileService, appSettings, i18n, themeService,
-                connectionProfileService, activeProjectId, apiServer, null, null, null, null, null, 0);
+                connectionProfileService, activeProjectId, apiServer, 0);
     }
 
     /** 打开偏好设置对话框，可指定初始选中的 Tab 索引。 */
@@ -147,7 +156,7 @@ public class PreferencesDialog {
                             com.jlshell.api.server.ApiServer apiServer,
                             int initialTabIndex) {
         show(owner, fontProfileService, appSettings, i18n, themeService,
-                connectionProfileService, activeProjectId, apiServer, null, null, null, null, null, initialTabIndex);
+                connectionProfileService, activeProjectId, apiServer, null, initialTabIndex);
     }
 
     /** 打开偏好设置对话框，可指定初始选中的 Tab 索引。 */
@@ -159,7 +168,8 @@ public class PreferencesDialog {
                             CapabilityBus capabilityBus,
                             int initialTabIndex) {
         show(owner, fontProfileService, appSettings, i18n, themeService,
-                connectionProfileService, activeProjectId, apiServer, capabilityBus, null, null, null, null, initialTabIndex);
+                connectionProfileService, activeProjectId, apiServer, capabilityBus,
+                null, null, null, null, initialTabIndex);
     }
 
     /** 打开偏好设置对话框，可指定初始选中的 Tab 索引。 */
@@ -176,7 +186,7 @@ public class PreferencesDialog {
                             int initialTabIndex) {
         show(owner, fontProfileService, appSettings, i18n, themeService,
                 connectionProfileService, activeProjectId, apiServer, capabilityBus, programPluginManager,
-                pluginManager, selectedSessionId, memoryReclaimService, null, initialTabIndex);
+                pluginManager, selectedSessionId, memoryReclaimService, null, null, initialTabIndex);
     }
 
     /** 打开偏好设置对话框，可指定初始选中的 Tab 索引。 */
@@ -191,6 +201,7 @@ public class PreferencesDialog {
                             String selectedSessionId,
                             MemoryReclaimService memoryReclaimService,
                             AccountService accountService,
+                            ShortcutRegistry shortcutRegistry,
                             int initialTabIndex) {
         Dialog<Void> dialog = new Dialog<>();
         dialog.setTitle(i18n.get("preferences.title"));
@@ -230,7 +241,7 @@ public class PreferencesDialog {
                 pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines,
                 pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl,
                 pendingAccountSyncEnabled, pendingAccountBaseUrl,
-                accountService, owner,
+                accountService, shortcutRegistry, owner,
                 memoryReclaimService, preferenceChanged);
         // 选中指定的初始 Tab（如从终端字体按钮打开时选中"终端"Tab）
         if (initialTabIndex >= 0 && initialTabIndex < tabs.getTabs().size()) {
@@ -424,7 +435,7 @@ public class PreferencesDialog {
                                          String[] pendingUpdateAutoCheck, String[] pendingUpdateChannel,
                                          String[] pendingUpdateBaseUrl,
                                          String[] pendingAccountSyncEnabled, String[] pendingAccountBaseUrl,
-                                         AccountService accountService, Stage owner,
+                                         AccountService accountService, ShortcutRegistry shortcutRegistry, Stage owner,
                                          MemoryReclaimService memoryReclaimService,
                                          Runnable preferenceChanged) {
         TabPane tabPane = new TabPane();
@@ -464,6 +475,10 @@ public class PreferencesDialog {
         Tab pluginsTab = new Tab(i18n.get("preferences.tab.plugins"));
         pluginsTab.setContent(buildPluginsPane(i18n, programPluginManager, pluginManager));
         tabPane.getTabs().add(pluginsTab);
+
+        Tab shortcutsTab = new Tab(i18n.get("preferences.tab.shortcuts"));
+        shortcutsTab.setContent(buildShortcutsPane(shortcutRegistry, i18n, themeService, owner));
+        tabPane.getTabs().add(shortcutsTab);
 
         Tab aboutTab = new Tab(i18n.get("preferences.tab.about"));
         aboutTab.setContent(buildAboutPane(i18n));
@@ -2298,6 +2313,264 @@ public class PreferencesDialog {
         public void setPasswordVisible(boolean v) { this.passwordVisible = v; }
         public boolean passphraseVisible() { return passphraseVisible; }
         public void setPassphraseVisible(boolean v) { this.passphraseVisible = v; }
+    }
+
+    // ── Shortcuts Tab ──────────────────────────────────────────────────────
+
+    private static VBox buildShortcutsPane(ShortcutRegistry shortcutRegistry, I18nService i18n,
+                                            ThemeService themeService, Stage owner) {
+        VBox pane = new VBox(10);
+        pane.setPadding(new Insets(16, 20, 12, 20));
+
+        // Search field
+        TextField searchField = new TextField();
+        searchField.setPromptText(i18n.get("shortcut.search.prompt"));
+        searchField.setPrefWidth(Double.MAX_VALUE);
+
+        // Scrollable content area for shortcut rows
+        VBox shortcutsList = new VBox(6);
+        ScrollPane scrollPane = new ScrollPane(shortcutsList);
+        scrollPane.setFitToWidth(true);
+        scrollPane.setFitToHeight(true);
+        scrollPane.setPrefHeight(400);
+        scrollPane.setStyle("-fx-background: transparent; -fx-background-color: transparent;");
+        VBox.setVgrow(scrollPane, Priority.ALWAYS);
+
+        // Build shortcut rows grouped by category
+        Runnable rebuildList = new Runnable() {
+            @Override
+            public void run() {
+                shortcutsList.getChildren().clear();
+                if (shortcutRegistry == null) return;
+
+                // Group definitions by category, preserving insertion order
+                Map<String, List<ShortcutDefinition>> byCategory = new LinkedHashMap<>();
+                for (ShortcutDefinition def : shortcutRegistry.definitions()) {
+                    byCategory.computeIfAbsent(def.category(), k -> new ArrayList<>()).add(def);
+                }
+
+                for (Map.Entry<String, List<ShortcutDefinition>> entry : byCategory.entrySet()) {
+                    String category = entry.getKey();
+                    List<ShortcutDefinition> defs = entry.getValue();
+
+                    // Category header
+                    Label categoryLabel = new Label(i18n.get("shortcut.category." + category));
+                    categoryLabel.setStyle("-fx-font-weight: bold; -fx-font-size: 1.05em; -fx-padding: 6 0 2 0;");
+                    categoryLabel.setUserData("category:" + category);
+                    shortcutsList.getChildren().add(categoryLabel);
+
+                    // Shortcut rows
+                    for (ShortcutDefinition def : defs) {
+                        VBox row = buildShortcutRow(def, shortcutRegistry, i18n, themeService, owner, this);
+                        shortcutsList.getChildren().add(row);
+                    }
+                }
+            }
+        };
+        rebuildList.run();
+
+        // Search filtering
+        searchField.textProperty().addListener((obs, oldVal, newVal) -> {
+            String query = newVal == null ? "" : newVal.trim().toLowerCase();
+            for (javafx.scene.Node node : shortcutsList.getChildren()) {
+                if (node.getUserData() instanceof String s && s.startsWith("category:")) {
+                    // Category headers: visibility depends on whether any child row is visible
+                    continue;
+                }
+                if (node.getUserData() instanceof ShortcutDefinition def) {
+                    boolean match = query.isBlank()
+                            || i18n.get(def.nameKey()).toLowerCase().contains(query)
+                            || ShortcutConverter.toDisplayText(shortcutRegistry.getEffectivePrimary(def.id())).toLowerCase().contains(query)
+                            || ShortcutConverter.toDisplayText(shortcutRegistry.getEffectiveSecondary(def.id())).toLowerCase().contains(query);
+                    node.setVisible(match);
+                    node.setManaged(match);
+                }
+            }
+            // Hide category headers when all their rows are filtered out
+            for (int i = 0; i < shortcutsList.getChildren().size(); i++) {
+                javafx.scene.Node node = shortcutsList.getChildren().get(i);
+                if (node.getUserData() instanceof String s && s.startsWith("category:")) {
+                    String cat = s.substring("category:".length());
+                    boolean anyVisible = false;
+                    for (int j = i + 1; j < shortcutsList.getChildren().size(); j++) {
+                        javafx.scene.Node next = shortcutsList.getChildren().get(j);
+                        if (next.getUserData() instanceof String ns && ns.startsWith("category:")) {
+                            break; // reached next category
+                        }
+                        if (next.isVisible()) {
+                            anyVisible = true;
+                            break;
+                        }
+                    }
+                    node.setVisible(anyVisible);
+                    node.setManaged(anyVisible);
+                }
+            }
+        });
+
+        // Reset to Defaults button
+        Button resetBtn = new Button(i18n.get("shortcut.resetDefaults"));
+        resetBtn.setDisable(shortcutRegistry == null);
+        resetBtn.setOnAction(e -> {
+            Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
+                    i18n.get("shortcut.resetDefaults.confirm"),
+                    ButtonType.YES, ButtonType.NO);
+            confirm.setTitle(i18n.get("preferences.tab.shortcuts"));
+            confirm.setHeaderText(null);
+            if (owner != null) confirm.initOwner(owner);
+            themeService.applyToDialog(confirm);
+            if (confirm.showAndWait().orElse(ButtonType.NO) == ButtonType.YES) {
+                shortcutRegistry.resetAll();
+                rebuildList.run();
+            }
+        });
+
+        pane.getChildren().addAll(searchField, scrollPane, resetBtn);
+        return pane;
+    }
+
+    private static VBox buildShortcutRow(ShortcutDefinition def, ShortcutRegistry registry,
+                                          I18nService i18n, ThemeService themeService, Stage owner,
+                                          Runnable rebuildList) {
+        VBox rowBox = new VBox();
+        rowBox.setUserData(def);
+
+        Label nameLabel = new Label(i18n.get(def.nameKey()));
+        nameLabel.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(nameLabel, Priority.ALWAYS);
+
+        // Primary shortcut button
+        String primarySpec = registry.getEffectivePrimary(def.id());
+        Button primaryBtn = new Button(primarySpec != null ? ShortcutConverter.toDisplayText(primarySpec) : i18n.get("shortcut.unassigned"));
+        primaryBtn.getStyleClass().add("shortcut-key-button");
+        primaryBtn.setMinWidth(100);
+
+        // Secondary shortcut button
+        String secondarySpec = registry.getEffectiveSecondary(def.id());
+        Button secondaryBtn = new Button(secondarySpec != null ? ShortcutConverter.toDisplayText(secondarySpec) : i18n.get("shortcut.unassigned"));
+        secondaryBtn.getStyleClass().add("shortcut-key-button");
+        secondaryBtn.setMinWidth(100);
+
+        // Per-key clear buttons (只清除单个快捷键)
+        Button clearPrimaryBtn = new Button("×");
+        clearPrimaryBtn.getStyleClass().add("shortcut-clear-button");
+        clearPrimaryBtn.setOnAction(e -> {
+            registry.setUserPrimary(def.id(), null);
+            primaryBtn.setText(i18n.get("shortcut.unassigned"));
+        });
+
+        Button clearSecondaryBtn = new Button("×");
+        clearSecondaryBtn.getStyleClass().add("shortcut-clear-button");
+        clearSecondaryBtn.setOnAction(e -> {
+            registry.setUserSecondary(def.id(), null);
+            secondaryBtn.setText(i18n.get("shortcut.unassigned"));
+        });
+
+        // Setup key recording for primary and secondary
+        setupKeyRecording(primaryBtn, def, registry, i18n, themeService, owner, true, secondaryBtn);
+        setupKeyRecording(secondaryBtn, def, registry, i18n, themeService, owner, false, primaryBtn);
+
+        HBox hbox = new HBox(8, nameLabel, primaryBtn, clearPrimaryBtn, secondaryBtn, clearSecondaryBtn);
+        hbox.setAlignment(Pos.CENTER_LEFT);
+        hbox.setPadding(new Insets(4, 0, 4, 8));
+        rowBox.getChildren().add(hbox);
+        return rowBox;
+    }
+
+    private static void setupKeyRecording(Button keyButton, ShortcutDefinition def, ShortcutRegistry registry,
+                                           I18nService i18n, ThemeService themeService, Stage owner,
+                                           boolean isPrimary, Button otherButton) {
+        keyButton.setOnAction(e -> {
+            if (registry == null) return;
+
+            // Store original text for restore on cancel
+            String originalText = keyButton.getText();
+            String recordingText = i18n.get("shortcut.pressKey");
+            keyButton.setText(recordingText);
+            keyButton.setStyle("-fx-border-color: -jl-accent; -fx-border-width: 2;");
+
+            // 录制状态标志：true = 正在录制，focus-lost 才恢复；false = 已完成，忽略 focus-lost
+            boolean[] recording = {true};
+
+            // Event filter for key recording
+            javafx.event.EventHandler<javafx.scene.input.KeyEvent> keyHandler = new javafx.event.EventHandler<>() {
+                @Override
+                public void handle(javafx.scene.input.KeyEvent event) {
+                    // Escape → cancel
+                    if (event.getCode() == javafx.scene.input.KeyCode.ESCAPE) {
+                        keyButton.setText(originalText);
+                        keyButton.setStyle("");
+                        recording[0] = false;
+                        keyButton.getScene().removeEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, this);
+                        event.consume();
+                        return;
+                    }
+
+                    // Try to convert the key event
+                    String spec = FxShortcutConverter.fromKeyEvent(event);
+                    if (spec == null) {
+                        // Modifier only — ignore
+                        event.consume();
+                        return;
+                    }
+
+                    event.consume();
+
+                    // Check for conflicts — 禁止冲突，不保存
+                    List<ShortcutDefinition> conflicts = registry.findConflicts(def.id(), spec);
+                    if (!conflicts.isEmpty()) {
+                        // Show conflict indicator
+                        String conflictName = i18n.get(conflicts.get(0).nameKey());
+                        keyButton.setStyle("-fx-border-color: #ef4444; -fx-border-width: 2;");
+                        Tooltip conflictTooltip = new Tooltip(i18n.get("shortcut.conflict", conflictName));
+                        keyButton.setTooltip(conflictTooltip);
+
+                        // Restore border after 1.5s
+                        PauseTransition pause = new PauseTransition(Duration.seconds(1.5));
+                        pause.setOnFinished(pt -> {
+                            keyButton.setText(originalText);
+                            keyButton.setStyle("");
+                            keyButton.setTooltip(null);
+                            recording[0] = false;
+                        });
+                        pause.play();
+                    } else {
+                        // No conflict — save and update
+                        if (isPrimary) {
+                            registry.setUserPrimary(def.id(), spec);
+                        } else {
+                            registry.setUserSecondary(def.id(), spec);
+                        }
+                        keyButton.setText(ShortcutConverter.toDisplayText(spec));
+                        keyButton.setStyle("");
+                        recording[0] = false;
+                    }
+
+                    keyButton.getScene().removeEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, this);
+                }
+            };
+
+            // Focus lost → 仅在录制中时取消录制
+            javafx.beans.value.ChangeListener<Boolean> focusLostListener = new javafx.beans.value.ChangeListener<>() {
+                @Override
+                public void changed(javafx.beans.value.ObservableValue<? extends Boolean> obs, Boolean oldVal, Boolean newVal) {
+                    if (!newVal) { // lost focus
+                        if (recording[0]) {
+                            // 还在录制中，取消并恢复原文本
+                            keyButton.setText(originalText);
+                            keyButton.setStyle("");
+                            if (keyButton.getScene() != null) {
+                                keyButton.getScene().removeEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, keyHandler);
+                            }
+                        }
+                        keyButton.focusedProperty().removeListener(this);
+                    }
+                }
+            };
+
+            keyButton.focusedProperty().addListener(focusLostListener);
+            keyButton.getScene().addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, keyHandler);
+        });
     }
 
     // ── About Tab ──────────────────────────────────────────────────────────

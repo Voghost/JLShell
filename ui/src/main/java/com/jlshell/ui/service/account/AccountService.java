@@ -102,30 +102,64 @@ public class AccountService {
         return authenticate("/api/v1/account/login", body);
     }
 
-    /** 注册。 */
-    public CompletableFuture<AccountSession> register(String username, String email, String password) {
-        return authenticate("/api/v1/account/register", new RegisterRequest(username, email, password));
+    /** 注册（带邮箱验证码）。 */
+    public CompletableFuture<AccountSession> register(String username, String email,
+                                                      String password, String verificationCode) {
+        return authenticate("/api/v1/account/register",
+                new RegisterRequest(username, email, password, verificationCode));
     }
 
-    /** 获取验证码挑战。登录失败后调用。 */
+    /** 发送邮箱验证码。captchaToken/captchaAnswer 来自注册前的 captcha 挑战。 */
+    public CompletableFuture<Void> sendVerification(String email,
+                                                     String captchaToken, String captchaAnswer) {
+        return CompletableFuture.runAsync(() -> {
+            try {
+                String body = gson.toJson(new SendVerificationRequest(email, captchaToken, captchaAnswer));
+                HttpRequest request = HttpRequest.newBuilder(endpoint("/api/v1/account/send-verification"))
+                        .timeout(Duration.ofSeconds(20))
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(body))
+                        .build();
+                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                    throw parseError(response.statusCode(), response.body());
+                }
+            } catch (AccountHttpException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new AccountException("Send verification failed", e);
+            }
+        }, executor);
+    }
+
+    /** 获取验证码挑战（登录失败后调用）。 */
     public CompletableFuture<CaptchaChallenge> fetchCaptcha(String username) {
+        return fetchCaptcha(username, null);
+    }
+
+    /** 获取验证码挑战。purpose="register" 时始终生成验证码。 */
+    public CompletableFuture<CaptchaChallenge> fetchCaptcha(String username, String purpose) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                HttpRequest request = HttpRequest.newBuilder(
-                        endpoint("/api/v1/account/captcha?username=" + URI.create(username).getRawSchemeSpecificPart()))
+                StringBuilder url = new StringBuilder("/api/v1/account/captcha?username=");
+                url.append(URI.create(username).getRawSchemeSpecificPart());
+                if (purpose != null && !purpose.isBlank()) {
+                    url.append("&purpose=").append(URI.create(purpose).getRawSchemeSpecificPart());
+                }
+                HttpRequest request = HttpRequest.newBuilder(endpoint(url.toString()))
                         .timeout(Duration.ofSeconds(10))
                         .GET()
                         .build();
                 HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
                 if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                    throw new AccountHttpException(response.statusCode(),
+                    throw new AccountHttpException(response.statusCode(), null,
                             "Captcha request returned HTTP " + response.statusCode());
                 }
                 CaptchaResponse cr = gson.fromJson(response.body(), CaptchaResponse.class);
                 if (cr == null) {
-                    return new CaptchaChallenge(false, null, null);
+                    return new CaptchaChallenge(false, null, null, null);
                 }
-                return new CaptchaChallenge(cr.required, cr.token, cr.question);
+                return new CaptchaChallenge(cr.required, cr.token, cr.question, cr.imageBase64);
             } catch (AccountHttpException e) {
                 throw e;
             } catch (Exception e) {
@@ -153,8 +187,7 @@ public class AccountService {
                     return null;
                 }
                 if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                    throw new AccountHttpException(response.statusCode(),
-                            "Account validation returned HTTP " + response.statusCode());
+                    throw parseError(response.statusCode(), response.body());
                 }
                 MeResponse me = gson.fromJson(response.body(), MeResponse.class);
                 if (me == null) {
@@ -197,8 +230,7 @@ public class AccountService {
                     return null;
                 }
                 if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                    throw new AccountHttpException(response.statusCode(),
-                            "Heartbeat returned HTTP " + response.statusCode());
+                    throw parseError(response.statusCode(), response.body());
                 }
                 AuthResponse authResponse = gson.fromJson(response.body(), AuthResponse.class);
                 if (authResponse == null || blank(authResponse.token()) || authResponse.account() == null) {
@@ -273,8 +305,7 @@ public class AccountService {
                         .build();
                 HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
                 if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                    throw new AccountHttpException(response.statusCode(),
-                            "Change password returned HTTP " + response.statusCode());
+                    throw parseError(response.statusCode(), response.body());
                 }
                 MeResponse me = gson.fromJson(response.body(), MeResponse.class);
                 if (me == null) {
@@ -436,8 +467,7 @@ public class AccountService {
                         .build();
                 HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
                 if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                    throw new AccountHttpException(response.statusCode(),
-                            "Account API returned HTTP " + response.statusCode());
+                    throw parseError(response.statusCode(), response.body());
                 }
                 AuthResponse authResponse = gson.fromJson(response.body(), AuthResponse.class);
                 if (authResponse == null || blank(authResponse.token()) || authResponse.account() == null) {
@@ -559,13 +589,35 @@ public class AccountService {
         return value == null ? "" : value;
     }
 
+    /** 从 HTTP 响应体解析错误 JSON，提取 error code 和 message。 */
+    private static AccountHttpException parseError(int statusCode, String body) {
+        String errorCode = null;
+        String message = "HTTP " + statusCode;
+        if (body != null && !body.isBlank()) {
+            try {
+                ErrorResponse err = new Gson().fromJson(body, ErrorResponse.class);
+                if (err != null) {
+                    if (err.error != null && !err.error.isBlank()) errorCode = err.error;
+                    if (err.message != null && !err.message.isBlank()) message = err.message;
+                }
+            } catch (Exception ignored) {}
+        }
+        return new AccountHttpException(statusCode, errorCode, message);
+    }
+
+    private record ErrorResponse(String error, String message) {}
+
     // ── 内部数据模型 ──────────────────────────────────────────────────────
 
     private record LoginRequest(String username, String password,
                                 String captchaToken, String captchaAnswer,
                                 String clientType, String deviceId, String deviceName) {}
 
-    private record RegisterRequest(String username, String email, String password) {}
+    private record RegisterRequest(String username, String email, String password,
+                                   String verificationCode) {}
+
+    private record SendVerificationRequest(String email, String captchaToken,
+                                           String captchaAnswer) {}
 
     private record AuthResponse(String token, String expiresAt, AccountInfo account) {}
 
@@ -579,7 +631,8 @@ public class AccountService {
                               int connectionCount, int terminalCount,
                               int historicalDeviceCount) {}
 
-    private record CaptchaResponse(boolean required, String token, String question) {}
+    private record CaptchaResponse(boolean required, String token, String question,
+                                   String imageBase64) {}
 
     private record ReportStatsRequest(int connectionCount, String deviceId) {}
 
@@ -596,8 +649,9 @@ public class AccountService {
             int historicalDeviceCount
     ) {}
 
-    /** 验证码挑战。 */
-    public record CaptchaChallenge(boolean required, String token, String question) {}
+    /** 验证码挑战。imageBase64 为 data URI（如 "data:image/png;base64,..."），question 为文本验证码（两者互斥）。 */
+    public record CaptchaChallenge(boolean required, String token, String question,
+                                   String imageBase64) {}
 
     /** 账号操作通用异常。 */
     public static class AccountException extends RuntimeException {
@@ -606,13 +660,16 @@ public class AccountService {
         }
     }
 
-    /** HTTP 错误响应，携带状态码以便 UI 区分 401/403/409 等。 */
+    /** HTTP 错误响应，携带状态码和 error code 以便 UI 区分不同错误。 */
     public static class AccountHttpException extends AccountException {
         private final int statusCode;
-        public AccountHttpException(int statusCode, String message) {
+        private final String errorCode;
+        public AccountHttpException(int statusCode, String errorCode, String message) {
             super(message, null);
             this.statusCode = statusCode;
+            this.errorCode = errorCode;
         }
         public int statusCode() { return statusCode; }
+        public String errorCode() { return errorCode; }
     }
 }

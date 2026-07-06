@@ -10,6 +10,7 @@ import com.jlshell.core.model.FontProfile;
 import com.jlshell.core.service.FontProfileService;
 import com.jlshell.core.session.ShellChannel;
 import com.jlshell.core.session.SshSession;
+import com.jlshell.core.shortcut.ShortcutRegistry;
 import com.jlshell.terminal.model.TerminalViewRequest;
 import com.jlshell.terminal.service.TerminalViewFactory;
 import com.jlshell.terminal.service.TerminalViewHandle;
@@ -27,18 +28,26 @@ public class JediTermTerminalViewFactory implements TerminalViewFactory {
     private final ExecutorService executorService;
     private final Function<String, String> i18n;
     private final Runnable awtFontReadyHook;
+    private final ShortcutRegistry shortcutRegistry;
 
     public JediTermTerminalViewFactory(FontProfileService fontProfileService, ExecutorService executorService,
                                        Function<String, String> i18n) {
-        this(fontProfileService, executorService, i18n, () -> {});
+        this(fontProfileService, executorService, i18n, () -> {}, null);
     }
 
     public JediTermTerminalViewFactory(FontProfileService fontProfileService, ExecutorService executorService,
                                        Function<String, String> i18n, Runnable awtFontReadyHook) {
+        this(fontProfileService, executorService, i18n, awtFontReadyHook, null);
+    }
+
+    public JediTermTerminalViewFactory(FontProfileService fontProfileService, ExecutorService executorService,
+                                       Function<String, String> i18n, Runnable awtFontReadyHook,
+                                       ShortcutRegistry shortcutRegistry) {
         this.fontProfileService = fontProfileService;
         this.executorService = executorService;
         this.i18n = i18n != null ? i18n : key -> key;
         this.awtFontReadyHook = awtFontReadyHook != null ? awtFontReadyHook : () -> {};
+        this.shortcutRegistry = shortcutRegistry;
     }
 
     @Override
@@ -73,7 +82,7 @@ public class JediTermTerminalViewFactory implements TerminalViewFactory {
                 awtFontReadyHook.run();
                 JlshellSettingsProvider settingsProvider =
                         new JlshellSettingsProvider(
-                                request.fontProfile(), request.colorScheme(), request.runtimeSettings());
+                                request.fontProfile(), request.colorScheme(), request.runtimeSettings(), shortcutRegistry);
                 ShellTtyConnector ttyConnector =
                         new ShellTtyConnector(sshSession.displayName(), shellChannel, executorService);
                 JlshellJediTermWidget widget = JlshellJediTermWidget.create(

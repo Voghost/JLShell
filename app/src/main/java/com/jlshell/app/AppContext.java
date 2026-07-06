@@ -14,6 +14,7 @@ import com.jlshell.core.service.SessionRegistry;
 import com.jlshell.core.service.impl.DefaultSessionManager;
 import com.jlshell.core.service.impl.InMemorySessionRegistry;
 import com.jlshell.core.service.impl.PersistentFontProfileService;
+import com.jlshell.core.shortcut.ShortcutRegistry;
 import com.jlshell.core.support.NamedThreadFactory;
 import com.jlshell.data.config.CredentialEncryptionProperties;
 import com.jlshell.data.config.DatabaseFactory;
@@ -153,13 +154,17 @@ public class AppContext implements AutoCloseable {
         // 7. UI services
         MainViewModel viewModel = new MainViewModel();
 
+        ShortcutRegistry shortcutRegistry = new ShortcutRegistry(appSettingsService);
+
         JediTermTerminalViewFactory terminalViewFactory = new JediTermTerminalViewFactory(
-                fontProfileService, executor, i18nService::get, BundledFontLoader::ensureAwtRegistered);
+                fontProfileService, executor, i18nService::get, BundledFontLoader::ensureAwtRegistered,
+                shortcutRegistry);
 
         ConnectionProfileService connectionProfileService = new ConnectionProfileService(
                 jdbi, credentialCipher, appSettingsService, vaultService);
         LocalShellLauncher localShellLauncher = new LocalShellLauncher(
-                fontProfileService, executor, i18nService, BundledFontLoader::ensureAwtRegistered);
+                fontProfileService, executor, i18nService, BundledFontLoader::ensureAwtRegistered,
+                shortcutRegistry);
         memoryReclaimService = new MemoryReclaimService();
         UpdateService updateService = new UpdateService(appSettingsService, executor);
         this.accountService = new AccountService(appSettingsService, executor);
@@ -220,7 +225,8 @@ public class AppContext implements AutoCloseable {
                 storageFactory,
                 memoryReclaimService,
                 updateService,
-                accountService
+                accountService,
+                shortcutRegistry
         );
 
         this.apiServer = apiServer;
