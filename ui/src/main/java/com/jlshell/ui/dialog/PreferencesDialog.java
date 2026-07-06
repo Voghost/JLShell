@@ -2451,13 +2451,18 @@ public class PreferencesDialog {
         secondaryBtn.getStyleClass().add("shortcut-key-button");
         secondaryBtn.setMinWidth(100);
 
-        // Clear button
-        Button clearBtn = new Button("×"); // ×
-        clearBtn.getStyleClass().add("shortcut-clear-button");
-        clearBtn.setOnAction(e -> {
+        // Per-key clear buttons (只清除单个快捷键)
+        Button clearPrimaryBtn = new Button("×");
+        clearPrimaryBtn.getStyleClass().add("shortcut-clear-button");
+        clearPrimaryBtn.setOnAction(e -> {
             registry.setUserPrimary(def.id(), null);
-            registry.setUserSecondary(def.id(), null);
             primaryBtn.setText(i18n.get("shortcut.unassigned"));
+        });
+
+        Button clearSecondaryBtn = new Button("×");
+        clearSecondaryBtn.getStyleClass().add("shortcut-clear-button");
+        clearSecondaryBtn.setOnAction(e -> {
+            registry.setUserSecondary(def.id(), null);
             secondaryBtn.setText(i18n.get("shortcut.unassigned"));
         });
 
@@ -2465,7 +2470,7 @@ public class PreferencesDialog {
         setupKeyRecording(primaryBtn, def, registry, i18n, themeService, owner, true, secondaryBtn);
         setupKeyRecording(secondaryBtn, def, registry, i18n, themeService, owner, false, primaryBtn);
 
-        HBox hbox = new HBox(8, nameLabel, primaryBtn, secondaryBtn, clearBtn);
+        HBox hbox = new HBox(8, nameLabel, primaryBtn, clearPrimaryBtn, secondaryBtn, clearSecondaryBtn);
         hbox.setAlignment(Pos.CENTER_LEFT);
         hbox.setPadding(new Insets(4, 0, 4, 8));
         rowBox.getChildren().add(hbox);
@@ -2484,6 +2489,9 @@ public class PreferencesDialog {
             keyButton.setText(recordingText);
             keyButton.setStyle("-fx-border-color: -jl-accent; -fx-border-width: 2;");
 
+            // 录制状态标志：true = 正在录制，focus-lost 才恢复；false = 已完成，忽略 focus-lost
+            boolean[] recording = {true};
+
             // Event filter for key recording
             javafx.event.EventHandler<javafx.scene.input.KeyEvent> keyHandler = new javafx.event.EventHandler<>() {
                 @Override
@@ -2492,6 +2500,7 @@ public class PreferencesDialog {
                     if (event.getCode() == javafx.scene.input.KeyCode.ESCAPE) {
                         keyButton.setText(originalText);
                         keyButton.setStyle("");
+                        recording[0] = false;
                         keyButton.getScene().removeEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, this);
                         event.consume();
                         return;
@@ -2522,6 +2531,7 @@ public class PreferencesDialog {
                             keyButton.setText(originalText);
                             keyButton.setStyle("");
                             keyButton.setTooltip(null);
+                            recording[0] = false;
                         });
                         pause.play();
                     } else {
@@ -2533,21 +2543,25 @@ public class PreferencesDialog {
                         }
                         keyButton.setText(ShortcutConverter.toDisplayText(spec));
                         keyButton.setStyle("");
+                        recording[0] = false;
                     }
 
                     keyButton.getScene().removeEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, this);
                 }
             };
 
-            // Focus lost → cancel recording
+            // Focus lost → 仅在录制中时取消录制
             javafx.beans.value.ChangeListener<Boolean> focusLostListener = new javafx.beans.value.ChangeListener<>() {
                 @Override
                 public void changed(javafx.beans.value.ObservableValue<? extends Boolean> obs, Boolean oldVal, Boolean newVal) {
                     if (!newVal) { // lost focus
-                        keyButton.setText(originalText);
-                        keyButton.setStyle("");
-                        if (keyButton.getScene() != null) {
-                            keyButton.getScene().removeEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, keyHandler);
+                        if (recording[0]) {
+                            // 还在录制中，取消并恢复原文本
+                            keyButton.setText(originalText);
+                            keyButton.setStyle("");
+                            if (keyButton.getScene() != null) {
+                                keyButton.getScene().removeEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, keyHandler);
+                            }
                         }
                         keyButton.focusedProperty().removeListener(this);
                     }
