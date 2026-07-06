@@ -14,6 +14,7 @@ import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.TextField;
+import javafx.scene.control.Tooltip;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.GridPane;
@@ -57,14 +58,18 @@ public final class AccountDialog {
         // ── 验证码控件（默认隐藏） ──
         Label captchaLabel = new Label();
         ImageView captchaImage = new ImageView();
-        captchaImage.setFitWidth(160);
-        captchaImage.setFitHeight(50);
+        captchaImage.setFitWidth(150);
+        captchaImage.setFitHeight(46);
         captchaImage.setPreserveRatio(true);
-        Button captchaRefreshBtn = new Button(i18n.get("account.captcha.refresh"));
+        Button captchaRefreshBtn = new Button(i18n.get("action.refresh"));
+        captchaRefreshBtn.setTooltip(new Tooltip(i18n.get("account.captcha.refresh")));
+        captchaRefreshBtn.setMinWidth(72);
+        captchaRefreshBtn.setPrefWidth(72);
         VBox captchaVisual = new VBox(4, captchaLabel, new HBox(8, captchaImage, captchaRefreshBtn));
         captchaVisual.setAlignment(Pos.CENTER_LEFT);
         TextField captchaAnswer = new TextField();
         captchaAnswer.setPromptText(i18n.get("account.captcha.prompt"));
+        captchaAnswer.setMinWidth(210);
         VBox captchaRow = new VBox(6, captchaVisual, captchaAnswer);
         captchaRow.setVisible(false);
         captchaRow.setManaged(false);
@@ -247,6 +252,7 @@ public final class AccountDialog {
                     captchaRow.setVisible(false);
                     captchaRow.setManaged(false);
                     captchaToken[0] = null;
+                    resizeDialogToContent(captchaRow);
                     return;
                 }
                 captchaToken[0] = challenge.token();
@@ -289,9 +295,16 @@ public final class AccountDialog {
                 }
                 captchaRow.setVisible(true);
                 captchaRow.setManaged(true);
+                resizeDialogToContent(captchaRow);
                 captchaAnswer.requestFocus();
             });
         });
+    }
+
+    private static void resizeDialogToContent(javafx.scene.Node node) {
+        if (node.getScene() != null && node.getScene().getWindow() != null) {
+            node.getScene().getWindow().sizeToScene();
+        }
     }
 
     /** 发送验证码后的 60 秒倒计时。 */
