@@ -18,7 +18,10 @@ final class UpdateActivationMarker {
             return;
         }
 
-        Path current = Path.of(System.getProperty("user.home"), ".jlshell", "updates", "current.json");
+        Path current = Path.of(System.getProperty(
+                "jlshell.update.dir",
+                Path.of(System.getProperty("user.home"), ".jlshell", "updates").toString()
+        )).resolve("current.json");
         if (!Files.isRegularFile(current)) {
             return;
         }
@@ -32,8 +35,18 @@ final class UpdateActivationMarker {
             if (!updated.equals(json)) {
                 Files.writeString(current, updated, StandardCharsets.UTF_8);
             }
+            deleteBundledBackupAfterConfirmedStartup();
         } catch (IOException ignored) {
             // Startup confirmation is best-effort; failure must not block the app.
         }
+    }
+
+    private static void deleteBundledBackupAfterConfirmedStartup() throws IOException {
+        String bundledJar = System.getProperty("jlshell.bundled.jar", "");
+        if (bundledJar.isBlank()) {
+            return;
+        }
+        Path bundled = Path.of(bundledJar);
+        Files.deleteIfExists(bundled.resolveSibling(bundled.getFileName() + ".previous"));
     }
 }

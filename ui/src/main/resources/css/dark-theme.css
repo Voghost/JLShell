@@ -29,6 +29,7 @@
 /* ---------- Windows UNDECORATED window chrome ---------- */
 .app-root.win-undecorated {
     -fx-background-color: #181a1f;
+    -fx-background-insets: 0;
     -fx-background-radius: 10;
     -fx-border-color: #43454a;
     -fx-border-width: 1;
@@ -739,6 +740,14 @@
     -fx-pref-height: 22px;
     -fx-background-radius: 0;
     -fx-border-radius: 0;
+}
+
+.win-undecorated > .status-bar {
+    -fx-background-radius: 0 0 9 9;
+}
+
+.win-undecorated.win-maximized > .status-bar {
+    -fx-background-radius: 0;
 }
 
 .status-label {

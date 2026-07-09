@@ -37,6 +37,10 @@ public final class BootstrapLauncher {
         try {
             Path selectedJar = selectApplicationJar();
             System.setProperty("jlshell.launcher.version", launcherVersion());
+            System.setProperty("jlshell.launcher.jar", launcherJar().toAbsolutePath().toString());
+            System.setProperty("jlshell.bundled.jar", bundledApplicationJar().toAbsolutePath().toString());
+            System.setProperty("jlshell.update.dir", updatesDir().toAbsolutePath().toString());
+            System.setProperty("jlshell.updates.dir", updatesDir().toAbsolutePath().toString());
             System.setProperty("jlshell.active.jar", selectedJar.toAbsolutePath().toString());
             invokeApplication(selectedJar, args);
         } catch (Throwable error) {
@@ -56,17 +60,15 @@ public final class BootstrapLauncher {
         Path previous = updatesDir.resolve("previous.json");
 
         if (Files.isRegularFile(current) && isUnconfirmed(current)) {
-            rollbackUnconfirmedCurrent(current, previous);
+            rollbackUnconfirmedCurrent(current, previous, bundled);
         }
 
         if (Files.isRegularFile(pending)) {
             Optional<UpdateEntry> pendingEntry = readEntry(pending);
             if (pendingEntry.isPresent() && verifyEntry(pendingEntry.get())) {
-                // Try to copy the staged jar into the installation directory,
-                // replacing the bundled jar. This keeps the install dir as the
-                // single source of truth. If the install dir is read-only
-                // (e.g. Program Files without elevation), fall back to loading
-                // the jar from the staging area via URLClassLoader.
+                // Prefer promoting the app jar into the installation directory.
+                // If the install dir is read-only, fall back to loading the
+                // staged jar from the per-user updates directory.
                 boolean promoted = promotePendingByCopy(pendingEntry.get(), bundled);
                 promotePending(pending, current, previous, pendingEntry.get(),
                         promoted ? bundled : pendingEntry.get().jarPath());
@@ -100,49 +102,43 @@ public final class BootstrapLauncher {
     /**
      * Try to copy the staged update jar into the installation directory,
      * replacing the bundled application jar. Returns true on success.
-     * Returns false (and logs a warning) if the copy fails, e.g. when
-     * the install dir is read-only (Program Files without elevation).
      */
     private static boolean promotePendingByCopy(UpdateEntry entry, Path bundled) {
         if (!Files.isRegularFile(entry.jarPath())) {
             return false;
         }
+        Path backup = bundled.resolveSibling(bundled.getFileName() + ".previous");
         try {
-            // Backup the old bundled jar before overwriting
-            Path backup = bundled.resolveSibling(bundled.getFileName() + ".previous");
             if (Files.isRegularFile(bundled)) {
                 Files.copy(bundled, backup, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             }
             Files.copy(entry.jarPath(), bundled, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-            // Verify the copy by checking file size matches
-            if (Files.size(bundled) != Files.size(entry.jarPath())) {
-                // Size mismatch — restore backup
-                if (Files.isRegularFile(backup)) {
-                    Files.copy(backup, bundled, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                }
+            if (Files.size(bundled) != Files.size(entry.jarPath())
+                    || !sha256(bundled).equalsIgnoreCase(entry.sha256())) {
+                restoreBundledBackup(backup, bundled);
                 return false;
             }
-            // Clean up backup on success
-            Files.deleteIfExists(backup);
             return true;
         } catch (Exception e) {
-            // Install dir is likely read-only (e.g. Program Files). This is
-            // expected for MSI installs without elevation. Fall back to
-            // loading the jar from the staging area.
-            System.err.println("JLShell: cannot copy update to install dir (likely read-only): " + e.getMessage());
-            // Try to restore backup if copy partially succeeded
-            Path backup = bundled.resolveSibling(bundled.getFileName() + ".previous");
-            try {
-                if (Files.isRegularFile(backup)) {
-                    Files.copy(backup, bundled, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                    Files.deleteIfExists(backup);
-                }
-            } catch (Exception ignored) {}
+            System.err.println("JLShell: cannot copy update to install dir (falling back to user updates): " + e.getMessage());
+            restoreBundledBackup(backup, bundled);
             return false;
         }
     }
 
-    private static void rollbackUnconfirmedCurrent(Path current, Path previous) throws IOException {
+    private static void restoreBundledBackup(Path backup, Path bundled) {
+        try {
+            if (Files.isRegularFile(backup)) {
+                Files.copy(backup, bundled, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                Files.deleteIfExists(backup);
+            }
+        } catch (Exception e) {
+            System.err.println("JLShell: cannot restore bundled jar backup: " + e.getMessage());
+        }
+    }
+
+    private static void rollbackUnconfirmedCurrent(Path current, Path previous, Path bundled) throws IOException {
+        restoreBundledBackup(bundled.resolveSibling(bundled.getFileName() + ".previous"), bundled);
         if (Files.isRegularFile(previous)) {
             Files.copy(previous, current, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             Files.deleteIfExists(previous);
@@ -240,10 +236,19 @@ public final class BootstrapLauncher {
     }
 
     private static Path bundledApplicationJar() throws Exception {
+        Path baseDir = launcherBaseDir();
+        return baseDir.resolve(BUNDLED_APP_JAR).normalize();
+    }
+
+    private static Path launcherJar() throws Exception {
+        return Path.of(BootstrapLauncher.class.getProtectionDomain()
+                .getCodeSource().getLocation().toURI()).normalize();
+    }
+
+    private static Path launcherBaseDir() throws Exception {
         Path codeSource = Path.of(BootstrapLauncher.class.getProtectionDomain()
                 .getCodeSource().getLocation().toURI());
-        Path baseDir = Files.isDirectory(codeSource) ? codeSource : codeSource.getParent();
-        return baseDir.resolve(BUNDLED_APP_JAR).normalize();
+        return Files.isDirectory(codeSource) ? codeSource : codeSource.getParent();
     }
 
     private static Path updatesDir() {

@@ -407,8 +407,11 @@ public class MainWindow {
 
     private void installWindowsRoundedWindowClip(Stage stage, Region root) {
         Rectangle clip = new Rectangle();
-        clip.widthProperty().bind(root.widthProperty());
-        clip.heightProperty().bind(root.heightProperty());
+        // 外扩一点点，避免透明 Stage + CSS 1px 边框在圆角处抗锯齿错位露出缺口。
+        clip.setX(-0.75);
+        clip.setY(-0.75);
+        clip.widthProperty().bind(root.widthProperty().add(1.5));
+        clip.heightProperty().bind(root.heightProperty().add(1.5));
         root.setClip(clip);
 
         Runnable updateClipArc = () -> {
