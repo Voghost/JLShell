@@ -129,6 +129,30 @@ class UpdateServiceTest {
     }
 
     @Test
+    void keepsOnlyLatestTwoStagedJarVersions() throws Exception {
+        Files.createDirectories(tempDir.resolve("versions/0.1.39"));
+        Files.createDirectories(tempDir.resolve("versions/0.1.40"));
+        Files.createDirectories(tempDir.resolve("versions/0.1.41"));
+        Files.writeString(tempDir.resolve("versions/0.1.39/old.jar"), "old-39", StandardCharsets.UTF_8);
+        Files.writeString(tempDir.resolve("versions/0.1.40/old.jar"), "old-40", StandardCharsets.UTF_8);
+        Files.writeString(tempDir.resolve("versions/0.1.41/old.jar"), "old-41", StandardCharsets.UTF_8);
+        byte[] jarBytes = "app-0.1.42".getBytes(StandardCharsets.UTF_8);
+        startServer(exchange -> respond(exchange, 200, jarBytes));
+        System.setProperty("jlshell.launcher.version", "0.1.0");
+        UpdateService.UpdateResponse response = updateResponse(
+                new UpdateService.UpdateAsset("jlshell-app-0.1.42.jar", baseUrl() + "/jar", jarBytes.length, sha256(jarBytes)),
+                null);
+
+        UpdateService.DownloadResult result = service().downloadAndStage(response).join();
+
+        assertEquals(tempDir.resolve("versions/0.1.42/jlshell-app-0.1.42.jar"), result.file());
+        assertFalse(Files.exists(tempDir.resolve("versions/0.1.39")));
+        assertFalse(Files.exists(tempDir.resolve("versions/0.1.40")));
+        assertTrue(Files.exists(tempDir.resolve("versions/0.1.41")));
+        assertTrue(Files.exists(tempDir.resolve("versions/0.1.42")));
+    }
+
+    @Test
     void fallsBackToInstallerWhenJarVerificationFails() throws Exception {
         byte[] installerBytes = "installer-0.1.42".getBytes(StandardCharsets.UTF_8);
         startServer(exchange -> {

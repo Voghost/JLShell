@@ -19,13 +19,19 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HexFormat;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.function.DoubleConsumer;
+import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,6 +48,7 @@ public class UpdateService {
     public static final String DEFAULT_BASE_URL = JlshellDefaults.updateBaseUrl();
     private static final String LEGACY_PLACEHOLDER_BASE_URL = "https://jlshell.com";
     private static final String DEFAULT_CHANNEL = "stable";
+    private static final int MAX_STAGED_JAR_VERSIONS = 2;
 
     private final AppSettingsService appSettings;
     private final ExecutorService executor;
@@ -198,6 +205,7 @@ public class UpdateService {
         Path stagedJar = versionDir.resolve(asset.fileName());
         Files.move(downloaded, stagedJar, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
         writePending(update.latestVersion(), stagedJar, asset.sha256());
+        pruneStagedJarVersions();
         log.info("Staged JLShell jar update: version={}, path={}", update.latestVersion(), stagedJar);
         return new DownloadResult(true, true, stagedJar);
     }
@@ -321,6 +329,79 @@ public class UpdateService {
         Files.createDirectories(updatesDir);
         PendingUpdate pending = new PendingUpdate(version, jarPath.toAbsolutePath().toString(), sha256, false);
         Files.writeString(updatesDir.resolve("pending.json"), gson.toJson(pending), StandardCharsets.UTF_8);
+    }
+
+    private void pruneStagedJarVersions() {
+        Path versionsRoot = updatesDir.resolve("versions");
+        if (!Files.isDirectory(versionsRoot)) {
+            return;
+        }
+        try {
+            Set<String> keep = preferredRetainedVersions();
+            List<Path> versionDirs = new ArrayList<>();
+            try (Stream<Path> stream = Files.list(versionsRoot)) {
+                stream.filter(Files::isDirectory).forEach(versionDirs::add);
+            }
+            versionDirs.sort((left, right) -> compareVersions(
+                    right.getFileName().toString(),
+                    left.getFileName().toString()));
+            for (Path dir : versionDirs) {
+                if (keep.size() >= MAX_STAGED_JAR_VERSIONS) {
+                    break;
+                }
+                keep.add(dir.getFileName().toString());
+            }
+            for (Path dir : versionDirs) {
+                String version = dir.getFileName().toString();
+                if (!keep.contains(version)) {
+                    deleteRecursively(dir);
+                    log.info("Pruned old JLShell jar update: version={}, path={}", version, dir);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to prune old JLShell jar updates: dir={}", versionsRoot, e);
+        }
+    }
+
+    private Set<String> preferredRetainedVersions() {
+        Set<String> versions = new LinkedHashSet<>();
+        addEntryVersion(versions, updatesDir.resolve("pending.json"));
+        addEntryVersion(versions, updatesDir.resolve("current.json"));
+        addEntryVersion(versions, updatesDir.resolve("previous.json"));
+        if (versions.size() <= MAX_STAGED_JAR_VERSIONS) {
+            return versions;
+        }
+        Set<String> limited = new LinkedHashSet<>();
+        for (String version : versions) {
+            limited.add(version);
+            if (limited.size() >= MAX_STAGED_JAR_VERSIONS) {
+                break;
+            }
+        }
+        return limited;
+    }
+
+    private void addEntryVersion(Set<String> versions, Path entryFile) {
+        if (versions.size() >= MAX_STAGED_JAR_VERSIONS || !Files.isRegularFile(entryFile)) {
+            return;
+        }
+        try {
+            PendingUpdate entry = gson.fromJson(Files.readString(entryFile, StandardCharsets.UTF_8), PendingUpdate.class);
+            if (entry != null && !blank(entry.version())) {
+                versions.add(entry.version());
+            }
+        } catch (Exception ignored) {
+            // Invalid update metadata should not block cleanup.
+        }
+    }
+
+    private static void deleteRecursively(Path path) throws IOException {
+        try (Stream<Path> walk = Files.walk(path)) {
+            List<Path> paths = walk.sorted(Comparator.reverseOrder()).toList();
+            for (Path item : paths) {
+                Files.deleteIfExists(item);
+            }
+        }
     }
 
     private static String sha256(Path file) throws Exception {

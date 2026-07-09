@@ -28,6 +28,7 @@ class BootstrapLauncherTest {
 
         assertEquals(bundled, selected);
         assertEquals("app-0.1.42", Files.readString(bundled, StandardCharsets.UTF_8));
+        assertEquals("bundled", Files.readString(tempDir.resolve("bundled.jar.previous"), StandardCharsets.UTF_8));
         assertFalse(Files.exists(updates.resolve("pending.json")));
         String current = Files.readString(updates.resolve("current.json"), StandardCharsets.UTF_8);
         assertTrue(current.contains("\"version\": \"0.1.42\""));
@@ -36,7 +37,7 @@ class BootstrapLauncherTest {
     }
 
     @Test
-    void loadsPendingUpdateFromStagingWhenInstallDirCopyFails() throws Exception {
+    void loadsPendingUpdateEvenWhenInstallDirIsMissing() throws Exception {
         Path updates = Files.createDirectories(tempDir.resolve("updates"));
         Path bundled = tempDir.resolve("missing-dir").resolve("bundled.jar");
         Path jar = writeFile(tempDir.resolve("jlshell-app-0.1.42.jar"), "app-0.1.42");
@@ -52,9 +53,23 @@ class BootstrapLauncherTest {
     }
 
     @Test
+    void keepsBundledJarWhenNoVerifiedUpdateExists() throws Exception {
+        Path updates = Files.createDirectories(tempDir.resolve("updates"));
+        Path bundled = writeFile(tempDir.resolve("bundled.jar"), "bundled");
+        Path backup = writeFile(tempDir.resolve("bundled.jar.previous"), "previous");
+
+        Path selected = BootstrapLauncher.selectApplicationJar(updates, bundled);
+
+        assertEquals(bundled, selected);
+        assertEquals("bundled", Files.readString(bundled, StandardCharsets.UTF_8));
+        assertEquals("previous", Files.readString(backup, StandardCharsets.UTF_8));
+    }
+
+    @Test
     void rollsBackUnconfirmedCurrentToPrevious() throws Exception {
         Path updates = Files.createDirectories(tempDir.resolve("updates"));
         Path bundled = writeFile(tempDir.resolve("bundled.jar"), "bundled");
+        writeFile(tempDir.resolve("bundled.jar.previous"), "bundled-previous");
         Path broken = writeFile(tempDir.resolve("broken.jar"), "broken");
         Path previous = writeFile(tempDir.resolve("jlshell-app-0.1.41.jar"), "app-0.1.41");
         writeEntry(updates.resolve("current.json"), "0.1.42", broken, sha256(broken), false);
@@ -63,6 +78,8 @@ class BootstrapLauncherTest {
         Path selected = BootstrapLauncher.selectApplicationJar(updates, bundled);
 
         assertEquals(previous, selected);
+        assertEquals("bundled-previous", Files.readString(bundled, StandardCharsets.UTF_8));
+        assertFalse(Files.exists(tempDir.resolve("bundled.jar.previous")));
         assertFalse(Files.exists(updates.resolve("previous.json")));
         String current = Files.readString(updates.resolve("current.json"), StandardCharsets.UTF_8);
         assertTrue(current.contains("\"version\": \"0.1.41\""));

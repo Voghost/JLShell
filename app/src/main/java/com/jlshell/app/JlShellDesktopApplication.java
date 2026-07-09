@@ -45,6 +45,7 @@ public class JlShellDesktopApplication extends Application {
             LoggerFactory.getLogger(JlShellDesktopApplication.class)
                     .error("Uncaught exception in thread [{}]", thread.getName(), throwable);
         });
+        StartupDiagnostics.logBeforeJavaFxLaunch();
         launch(args);
     }
 
@@ -83,12 +84,13 @@ public class JlShellDesktopApplication extends Application {
         // based on Screen.getPrimary().getVisualBounds(), so the app scales
         // properly on HiDPI / small screens (e.g. 1920×1080 @ 150 %).
 
-        // JavaFX window icon (taskbar + title bar on Windows/Linux)
-        try (InputStream is = getClass().getResourceAsStream("/icons/app_icon.png")) {
-            if (is != null) {
-                stage.getIcons().add(new javafx.scene.image.Image(is));
-            }
-        } catch (Exception ignored) {}
+        // JavaFX window icons (taskbar + Alt-Tab on Windows/Linux). Supplying
+        // multiple sizes avoids Windows scaling a tiny icon on high-DPI setups.
+        addStageIcon(stage, "/icons/app_icon_16.png");
+        addStageIcon(stage, "/icons/app_icon_32.png");
+        addStageIcon(stage, "/icons/app_icon_48.png");
+        addStageIcon(stage, "/icons/app_icon_256.png");
+        addStageIcon(stage, "/icons/app_icon.png");
 
         java.awt.Image awtIcon = loadAwtIcon();
 
@@ -183,6 +185,14 @@ public class JlShellDesktopApplication extends Application {
     private static String getAppVersion() {
         String v = JlShellDesktopApplication.class.getPackage().getImplementationVersion();
         return v != null ? v : "0.1.13";
+    }
+
+    private void addStageIcon(Stage stage, String resourcePath) {
+        try (InputStream is = getClass().getResourceAsStream(resourcePath)) {
+            if (is != null) {
+                stage.getIcons().add(new javafx.scene.image.Image(is));
+            }
+        } catch (Exception ignored) {}
     }
 
     private void showAboutDialog(Stage stage) {

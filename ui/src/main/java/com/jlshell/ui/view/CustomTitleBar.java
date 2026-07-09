@@ -15,8 +15,10 @@ import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
+import javafx.stage.Screen;
 import javafx.stage.Stage;
 import javafx.stage.WindowEvent;
+import javafx.geometry.Rectangle2D;
 
 /**
  * Custom title bar for Windows — replaces the OS chrome with an in-app bar
@@ -30,6 +32,13 @@ public class CustomTitleBar extends HBox {
     private final Label titleLabel;
     private double dragOffsetX;
     private double dragOffsetY;
+    private double pressScreenX;
+    private double pressScreenY;
+    private boolean dragActive;
+    private boolean dragged;
+
+    private static final double SNAP_THRESHOLD = 10;
+    private static final double DRAG_THRESHOLD = 3;
 
     public CustomTitleBar(Stage stage, MenuBar menuBar, I18nService i18n) {
         this.stage = stage;
@@ -72,25 +81,108 @@ public class CustomTitleBar extends HBox {
         );
 
         // Drag-to-move
-        setOnMousePressed(e -> {
-            if (e.getButton() == MouseButton.PRIMARY) {
-                dragOffsetX = e.getSceneX();
-                dragOffsetY = e.getSceneY();
-            }
-        });
+        setOnMousePressed(e -> beginWindowDrag(e));
         setOnMouseDragged(e -> {
-            if (e.getButton() == MouseButton.PRIMARY) {
-                stage.setX(e.getScreenX() - dragOffsetX);
-                stage.setY(e.getScreenY() - dragOffsetY);
+            if (!dragActive || !e.isPrimaryButtonDown()) {
+                return;
             }
+            if (Math.abs(e.getScreenX() - pressScreenX) > DRAG_THRESHOLD
+                    || Math.abs(e.getScreenY() - pressScreenY) > DRAG_THRESHOLD) {
+                dragged = true;
+            }
+            if (stage.isMaximized()) {
+                restoreMaximizedWindowForDrag(e);
+            }
+            stage.setX(e.getScreenX() - dragOffsetX);
+            stage.setY(e.getScreenY() - dragOffsetY);
+            e.consume();
+        });
+        setOnMouseReleased(e -> {
+            if (dragActive && dragged) {
+                applyWindowsSnap(e);
+                e.consume();
+            }
+            dragActive = false;
+            dragged = false;
         });
 
         // Double-click to maximize/restore
         setOnMouseClicked(e -> {
+            if (dragActive || isInteractiveTarget(e.getTarget())) {
+                return;
+            }
             if (e.getButton() == MouseButton.PRIMARY && e.getClickCount() == 2) {
                 stage.setMaximized(!stage.isMaximized());
             }
         });
+    }
+
+    private void beginWindowDrag(MouseEvent e) {
+        dragActive = false;
+        dragged = false;
+        if (e.getButton() != MouseButton.PRIMARY || isInteractiveTarget(e.getTarget())) {
+            return;
+        }
+        dragActive = true;
+        pressScreenX = e.getScreenX();
+        pressScreenY = e.getScreenY();
+        dragOffsetX = e.getSceneX();
+        dragOffsetY = e.getSceneY();
+    }
+
+    private boolean isInteractiveTarget(Object target) {
+        if (!(target instanceof Node node)) {
+            return false;
+        }
+        while (node != null && node != this) {
+            if (node instanceof Button || node instanceof MenuBar
+                    || node.getStyleClass().contains("window-btn")
+                    || node.getStyleClass().contains("embedded-menu-bar")) {
+                return true;
+            }
+            node = node.getParent();
+        }
+        return false;
+    }
+
+    private void restoreMaximizedWindowForDrag(MouseEvent e) {
+        double maximizedWidth = Math.max(1, stage.getWidth());
+        double pointerRatio = Math.max(0.15, Math.min(0.85, e.getSceneX() / maximizedWidth));
+        stage.setMaximized(false);
+        dragOffsetX = stage.getWidth() * pointerRatio;
+        dragOffsetY = Math.min(18, Math.max(8, e.getSceneY()));
+    }
+
+    private void applyWindowsSnap(MouseEvent e) {
+        Rectangle2D bounds = screenBoundsAt(e.getScreenX(), e.getScreenY());
+        double x = e.getScreenX();
+        double y = e.getScreenY();
+        if (y <= bounds.getMinY() + SNAP_THRESHOLD) {
+            stage.setMaximized(true);
+            return;
+        }
+        if (x <= bounds.getMinX() + SNAP_THRESHOLD) {
+            snapToHalf(bounds, true);
+            return;
+        }
+        if (x >= bounds.getMaxX() - SNAP_THRESHOLD) {
+            snapToHalf(bounds, false);
+        }
+    }
+
+    private void snapToHalf(Rectangle2D bounds, boolean left) {
+        stage.setMaximized(false);
+        stage.setX(left ? bounds.getMinX() : bounds.getMinX() + bounds.getWidth() / 2);
+        stage.setY(bounds.getMinY());
+        stage.setWidth(bounds.getWidth() / 2);
+        stage.setHeight(bounds.getHeight());
+    }
+
+    private Rectangle2D screenBoundsAt(double screenX, double screenY) {
+        return Screen.getScreensForRectangle(screenX, screenY, 1, 1).stream()
+                .findFirst()
+                .orElse(Screen.getPrimary())
+                .getVisualBounds();
     }
 
     private Node loadAppIcon() {
