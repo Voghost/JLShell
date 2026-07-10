@@ -1,7 +1,7 @@
 package com.jlshell.ssh.support;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import net.schmizz.sshj.SSHClient;
 import org.junit.jupiter.api.Test;
@@ -9,13 +9,13 @@ import org.junit.jupiter.api.Test;
 class SshjConnectionManagerTest {
 
     @Test
-    void enablesTransportKeepAliveBeforeConnecting() {
+    void configuresSocketTimeoutWithoutStartingKeepAliveBeforeConnecting() {
         SSHClient client = new SSHClient();
 
-        SshjConnectionManager.configureTransportKeepAlive(client);
+        SshjConnectionManager.configureSocketTimeout(client);
 
-        assertTrue(client.getConnection().getKeepAlive().isEnabled());
-        assertEquals(30, client.getConnection().getKeepAlive().getKeepAliveInterval());
+        assertFalse(client.getConnection().getKeepAlive().isEnabled());
+        assertEquals(Thread.State.NEW, client.getConnection().getKeepAlive().getState());
         assertEquals(90_000, client.getTimeout());
     }
 }

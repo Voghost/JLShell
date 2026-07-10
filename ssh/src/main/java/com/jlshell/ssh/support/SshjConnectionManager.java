@@ -61,9 +61,10 @@ public class SshjConnectionManager implements ConnectionManager {
         try {
             configureHostKeyVerification(client, request.hostKeyVerificationMode());
             client.setConnectTimeout(Math.toIntExact(request.target().connectTimeout().toMillis()));
-            configureTransportKeepAlive(client);
+            configureSocketTimeout(client);
             client.connect(request.target().host(), request.target().port());
             authenticate(client, request);
+            startTransportKeepAlive(client);
 
             // 认证完成后调大窗口以提升 SFTP 传输吞吐
             // 注：windowSize 默认已是 2MB，显式设置确保一致；
@@ -89,16 +90,27 @@ public class SshjConnectionManager implements ConnectionManager {
     }
 
     /**
-     * Configure transport liveness before {@link SSHClient#connect(String, int)}.
-     * SSHJ only starts its keepalive thread during connect when the interval is
-     * already positive; setting it after connect leaves the thread disabled.
+     * Socket timeout 必须在 {@link SSHClient#connect(String, int)} 前设置，SSHJ 只会在创建
+     * socket 时把该值应用到 {@code SO_TIMEOUT}。
      */
-    static void configureTransportKeepAlive(SSHClient client) {
-        client.getConnection().getKeepAlive().setKeepAliveInterval(KEEP_ALIVE_INTERVAL_SECONDS);
+    static void configureSocketTimeout(SSHClient client) {
         int socketTimeoutMillis = KEEP_ALIVE_INTERVAL_SECONDS * SOCKET_TIMEOUT_MULTIPLIER * 1000;
         client.setTimeout(socketTimeoutMillis);
-        log.info("SSH keepalive configured before connect: interval={}s, socket timeout={}s",
-                KEEP_ALIVE_INTERVAL_SECONDS, socketTimeoutMillis / 1000);
+        log.info("SSH socket timeout configured before connect: {}s", socketTimeoutMillis / 1000);
+    }
+
+    /**
+     * SSHJ 会在 {@code connect()} 内立即启动已启用的保活线程。严格 KEX 服务器（例如
+     * OpenSSH 9.2）要求 KEXINIT 是握手中的首个 SSH 包，因此不能在 connect 前启用保活。
+     * 认证成功后 transport 的活动 service 已是 ssh-connection，此时再启动线程才安全。
+     */
+    static void startTransportKeepAlive(SSHClient client) {
+        var keepAlive = client.getConnection().getKeepAlive();
+        keepAlive.setKeepAliveInterval(KEEP_ALIVE_INTERVAL_SECONDS);
+        if (keepAlive.getState() == Thread.State.NEW) {
+            keepAlive.start();
+        }
+        log.info("SSH keepalive started after authentication: interval={}s", KEEP_ALIVE_INTERVAL_SECONDS);
     }
 
     private void configureHostKeyVerification(SSHClient client, HostKeyVerificationMode mode) throws IOException {
