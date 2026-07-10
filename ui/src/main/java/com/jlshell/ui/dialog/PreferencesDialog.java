@@ -259,13 +259,13 @@ public class PreferencesDialog {
                 pendingConnTimeout, pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort,
                 pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines,
                 pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl,
-                pendingAccountSyncEnabled, pendingAccountBaseUrl) };
+                pendingAccountSyncEnabled, pendingAccountBaseUrl, shortcutRegistry) };
         updateApplyState[0] = () -> applyButton.setDisable(!hasPendingSettingsChanges(lastApplied[0],
                 snapshotOf(pending, pendingLang, pendingTheme, pendingAccent, pendingConnTimeout,
                         pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort,
                         pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines,
                         pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl,
-                        pendingAccountSyncEnabled, pendingAccountBaseUrl)));
+                        pendingAccountSyncEnabled, pendingAccountBaseUrl, shortcutRegistry)));
         updateApplyState[0].run();
         applyButton.addEventFilter(javafx.event.ActionEvent.ACTION, e -> {
             e.consume(); // 阻止 Dialog 默认的关闭逻辑
@@ -274,7 +274,7 @@ public class PreferencesDialog {
                     pendingConnTimeout, pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort,
                     pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines,
                     pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl,
-                    pendingAccountSyncEnabled, pendingAccountBaseUrl);
+                    pendingAccountSyncEnabled, pendingAccountBaseUrl, shortcutRegistry);
             updateApplyState[0].run();
             if (needRestart) showRestartPrompt(owner, i18n);
         });
@@ -374,7 +374,8 @@ public class PreferencesDialog {
             String updateChannel,
             String updateBaseUrl,
             String accountSyncEnabled,
-            String accountBaseUrl
+            String accountBaseUrl,
+            Map<String, String> shortcutBindings
     ) {}
 
     private static PreferencesSnapshot snapshotOf(FontProfile[] pending, String[] pendingLang,
@@ -386,7 +387,8 @@ public class PreferencesDialog {
                                                   String[] pendingScrollbackLines,
                                                   String[] pendingUpdateAutoCheck, String[] pendingUpdateChannel,
                                                   String[] pendingUpdateBaseUrl,
-                                                  String[] pendingAccountSyncEnabled, String[] pendingAccountBaseUrl) {
+                                                  String[] pendingAccountSyncEnabled, String[] pendingAccountBaseUrl,
+                                                  ShortcutRegistry shortcutRegistry) {
         return new PreferencesSnapshot(
                 pending[0],
                 pendingLang[0],
@@ -404,7 +406,8 @@ public class PreferencesDialog {
                 pendingUpdateChannel[0],
                 pendingUpdateBaseUrl[0],
                 pendingAccountSyncEnabled[0],
-                pendingAccountBaseUrl[0]
+                pendingAccountBaseUrl[0],
+                shortcutBindingsOf(shortcutRegistry)
         );
     }
 
@@ -414,6 +417,24 @@ public class PreferencesDialog {
 
     private static String normalizeNullableBlank(String value) {
         return value == null || value.isBlank() ? null : value;
+    }
+
+    private static Map<String, String> shortcutBindingsOf(ShortcutRegistry shortcutRegistry) {
+        if (shortcutRegistry == null) {
+            return Map.of();
+        }
+        Map<String, String> bindings = new LinkedHashMap<>();
+        for (ShortcutDefinition definition : shortcutRegistry.definitions()) {
+            bindings.put(definition.id() + ".primary",
+                    normalizeShortcutBinding(shortcutRegistry.getEffectivePrimary(definition.id())));
+            bindings.put(definition.id() + ".secondary",
+                    normalizeShortcutBinding(shortcutRegistry.getEffectiveSecondary(definition.id())));
+        }
+        return Map.copyOf(bindings);
+    }
+
+    private static String normalizeShortcutBinding(String binding) {
+        return binding == null ? "" : binding.strip();
     }
 
     private static TabPane buildTabPane(FontProfileService fontProfileService, AppSettingsService appSettings,
@@ -477,7 +498,7 @@ public class PreferencesDialog {
         tabPane.getTabs().add(pluginsTab);
 
         Tab shortcutsTab = new Tab(i18n.get("preferences.tab.shortcuts"));
-        shortcutsTab.setContent(buildShortcutsPane(shortcutRegistry, i18n, themeService, owner));
+        shortcutsTab.setContent(buildShortcutsPane(shortcutRegistry, i18n, themeService, owner, preferenceChanged));
         tabPane.getTabs().add(shortcutsTab);
 
         Tab aboutTab = new Tab(i18n.get("preferences.tab.about"));
@@ -2318,7 +2339,8 @@ public class PreferencesDialog {
     // ── Shortcuts Tab ──────────────────────────────────────────────────────
 
     private static VBox buildShortcutsPane(ShortcutRegistry shortcutRegistry, I18nService i18n,
-                                            ThemeService themeService, Stage owner) {
+                                            ThemeService themeService, Stage owner,
+                                            Runnable preferenceChanged) {
         VBox pane = new VBox(10);
         pane.setPadding(new Insets(16, 20, 12, 20));
 
@@ -2361,7 +2383,8 @@ public class PreferencesDialog {
 
                     // Shortcut rows
                     for (ShortcutDefinition def : defs) {
-                        VBox row = buildShortcutRow(def, shortcutRegistry, i18n, themeService, owner, this);
+                        VBox row = buildShortcutRow(def, shortcutRegistry, i18n, themeService, owner, this,
+                                preferenceChanged);
                         shortcutsList.getChildren().add(row);
                     }
                 }
@@ -2422,6 +2445,7 @@ public class PreferencesDialog {
             if (confirm.showAndWait().orElse(ButtonType.NO) == ButtonType.YES) {
                 shortcutRegistry.resetAll();
                 rebuildList.run();
+                preferenceChanged.run();
             }
         });
 
@@ -2431,7 +2455,7 @@ public class PreferencesDialog {
 
     private static VBox buildShortcutRow(ShortcutDefinition def, ShortcutRegistry registry,
                                           I18nService i18n, ThemeService themeService, Stage owner,
-                                          Runnable rebuildList) {
+                                          Runnable rebuildList, Runnable preferenceChanged) {
         VBox rowBox = new VBox();
         rowBox.setUserData(def);
 
@@ -2457,6 +2481,7 @@ public class PreferencesDialog {
         clearPrimaryBtn.setOnAction(e -> {
             registry.setUserPrimary(def.id(), null);
             primaryBtn.setText(i18n.get("shortcut.unassigned"));
+            preferenceChanged.run();
         });
 
         Button clearSecondaryBtn = new Button("×");
@@ -2464,11 +2489,12 @@ public class PreferencesDialog {
         clearSecondaryBtn.setOnAction(e -> {
             registry.setUserSecondary(def.id(), null);
             secondaryBtn.setText(i18n.get("shortcut.unassigned"));
+            preferenceChanged.run();
         });
 
         // Setup key recording for primary and secondary
-        setupKeyRecording(primaryBtn, def, registry, i18n, themeService, owner, true, secondaryBtn);
-        setupKeyRecording(secondaryBtn, def, registry, i18n, themeService, owner, false, primaryBtn);
+        setupKeyRecording(primaryBtn, def, registry, i18n, themeService, owner, true, secondaryBtn, preferenceChanged);
+        setupKeyRecording(secondaryBtn, def, registry, i18n, themeService, owner, false, primaryBtn, preferenceChanged);
 
         HBox hbox = new HBox(8, nameLabel, primaryBtn, clearPrimaryBtn, secondaryBtn, clearSecondaryBtn);
         hbox.setAlignment(Pos.CENTER_LEFT);
@@ -2479,7 +2505,7 @@ public class PreferencesDialog {
 
     private static void setupKeyRecording(Button keyButton, ShortcutDefinition def, ShortcutRegistry registry,
                                            I18nService i18n, ThemeService themeService, Stage owner,
-                                           boolean isPrimary, Button otherButton) {
+                                           boolean isPrimary, Button otherButton, Runnable preferenceChanged) {
         keyButton.setOnAction(e -> {
             if (registry == null) return;
 
@@ -2544,6 +2570,7 @@ public class PreferencesDialog {
                         keyButton.setText(ShortcutConverter.toDisplayText(spec));
                         keyButton.setStyle("");
                         recording[0] = false;
+                        preferenceChanged.run();
                     }
 
                     keyButton.getScene().removeEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, this);

@@ -18,8 +18,8 @@ import java.util.regex.Pattern;
  * Stable bootstrap entry point used by packaged distributions.
  *
  * <p>The launcher is intentionally dependency-free. It chooses a verified
- * update jar from the user update directory when available, otherwise falls
- * back to the bundled application jar shipped inside the installer.</p>
+ * update jar from the user update directory only when it is newer than the
+ * bundled application shipped inside the installer.</p>
  */
 public final class BootstrapLauncher {
 
@@ -28,6 +28,8 @@ public final class BootstrapLauncher {
     private static final Pattern JSON_STRING_PATTERN_TEMPLATE = Pattern.compile("\"%s\"\\s*:\\s*\"([^\"]*)\"");
     private static final Pattern STARTUP_CONFIRMED_PATTERN =
             Pattern.compile("\"startupConfirmed\"\\s*:\\s*(true|false)");
+    private static final Pattern RELEASE_VERSION_PATTERN = Pattern.compile(
+            "^v?(\\d+)\\.(\\d+)\\.(\\d+)(?:-([0-9A-Za-z.-]+))?(?:\\+[0-9A-Za-z.-]+)?$");
 
     private BootstrapLauncher() {}
 
@@ -51,20 +53,30 @@ public final class BootstrapLauncher {
     }
 
     private static Path selectApplicationJar() throws Exception {
-        return selectApplicationJar(updatesDir(), bundledApplicationJar());
+        return selectApplicationJar(updatesDir(), bundledApplicationJar(), launcherVersion());
     }
 
     static Path selectApplicationJar(Path updatesDir, Path bundled) throws Exception {
+        return selectApplicationJar(updatesDir, bundled, "0.0.0");
+    }
+
+    static Path selectApplicationJar(Path updatesDir, Path bundled, String installedVersion) throws Exception {
         Path current = updatesDir.resolve("current.json");
         Path pending = updatesDir.resolve("pending.json");
         Path previous = updatesDir.resolve("previous.json");
 
-        if (Files.isRegularFile(current) && isUnconfirmed(current)) {
+        Optional<UpdateEntry> currentEntry = discardCachedEntryIfNotNewer(
+                current, readEntry(current), installedVersion, bundled, true);
+        if (currentEntry.isPresent() && isUnconfirmed(current)) {
             rollbackUnconfirmedCurrent(current, previous, bundled);
+            currentEntry = discardCachedEntryIfNotNewer(
+                    current, readEntry(current), installedVersion, bundled, true);
         }
 
         if (Files.isRegularFile(pending)) {
             Optional<UpdateEntry> pendingEntry = readEntry(pending);
+            pendingEntry = discardCachedEntryIfNotNewer(
+                    pending, pendingEntry, installedVersion, bundled, false);
             if (pendingEntry.isPresent() && verifyEntry(pendingEntry.get())) {
                 // Prefer promoting the app jar into the installation directory.
                 // If the install dir is read-only, fall back to loading the
@@ -76,7 +88,6 @@ public final class BootstrapLauncher {
             }
         }
 
-        Optional<UpdateEntry> currentEntry = readEntry(current);
         if (currentEntry.isPresent() && verifyEntry(currentEntry.get())) {
             return currentEntry.get().jarPath();
         }
@@ -85,6 +96,88 @@ public final class BootstrapLauncher {
             throw new IOException("Bundled application jar not found: " + bundled);
         }
         return bundled;
+    }
+
+    /**
+     * MSI-installed application files are authoritative unless a cached update
+     * is strictly newer. This prevents an older per-user update cache from
+     * overriding an application that was upgraded through its installer.
+     */
+    private static Optional<UpdateEntry> discardCachedEntryIfNotNewer(
+            Path entryFile,
+            Optional<UpdateEntry> entry,
+            String installedVersion,
+            Path bundled,
+            boolean discardBundledBackup
+    ) throws IOException {
+        if (entry.isEmpty() || isStrictlyNewer(entry.get().version(), installedVersion)) {
+            return entry;
+        }
+
+        System.err.println("JLShell: ignoring cached update " + entry.get().version()
+                + " because installed version " + installedVersion + " is newer or equal.");
+        Files.deleteIfExists(entryFile);
+        if (discardBundledBackup) {
+            Files.deleteIfExists(bundled.resolveSibling(bundled.getFileName() + ".previous"));
+        }
+        return Optional.empty();
+    }
+
+    private static boolean isStrictlyNewer(String cachedVersion, String installedVersion) {
+        Matcher cached = RELEASE_VERSION_PATTERN.matcher(cachedVersion == null ? "" : cachedVersion.strip());
+        Matcher installed = RELEASE_VERSION_PATTERN.matcher(installedVersion == null ? "" : installedVersion.strip());
+        if (!cached.matches()) {
+            return false;
+        }
+        if (!installed.matches()) {
+            return true;
+        }
+        return compareReleaseVersions(cached, installed) > 0;
+    }
+
+    private static int compareReleaseVersions(Matcher left, Matcher right) {
+        for (int group = 1; group <= 3; group++) {
+            int comparison = Integer.compare(
+                    Integer.parseInt(left.group(group)),
+                    Integer.parseInt(right.group(group))
+            );
+            if (comparison != 0) {
+                return comparison;
+            }
+        }
+        return comparePreRelease(left.group(4), right.group(4));
+    }
+
+    private static int comparePreRelease(String left, String right) {
+        if (left == null || left.isBlank()) {
+            return right == null || right.isBlank() ? 0 : 1;
+        }
+        if (right == null || right.isBlank()) {
+            return -1;
+        }
+
+        String[] leftParts = left.split("\\.");
+        String[] rightParts = right.split("\\.");
+        for (int index = 0; index < Math.min(leftParts.length, rightParts.length); index++) {
+            String leftPart = leftParts[index];
+            String rightPart = rightParts[index];
+            boolean leftNumeric = leftPart.chars().allMatch(Character::isDigit);
+            boolean rightNumeric = rightPart.chars().allMatch(Character::isDigit);
+            int comparison;
+            if (leftNumeric && rightNumeric) {
+                comparison = Integer.compare(Integer.parseInt(leftPart), Integer.parseInt(rightPart));
+            } else if (leftNumeric) {
+                comparison = -1;
+            } else if (rightNumeric) {
+                comparison = 1;
+            } else {
+                comparison = leftPart.compareTo(rightPart);
+            }
+            if (comparison != 0) {
+                return comparison;
+            }
+        }
+        return Integer.compare(leftParts.length, rightParts.length);
     }
 
     private static void promotePending(Path pending, Path current, Path previous, UpdateEntry entry, Path resolvedJarPath) throws IOException {

@@ -87,6 +87,8 @@ JDK21_WIN=/path/to/win-jdk21 \
 
 ## 插件开发
 
+面向开发者与 Agent 的最新统一说明（会话插件、程序插件、能力路由和本机 JSON-RPC API）请参阅：[插件与外部 API 开放指南](docs/plugin-and-external-api-guide.md)。
+
 ### 快速开始
 
 实现 `plugin-api` 模块中的 `JlShellPlugin` 接口：

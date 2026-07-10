@@ -98,6 +98,50 @@ class BootstrapLauncherTest {
         assertEquals(bundled, selected);
     }
 
+    @Test
+    void keepsNewerInstalledJarWhenCachedCurrentUpdateIsOlder() throws Exception {
+        Path updates = Files.createDirectories(tempDir.resolve("updates"));
+        Path bundled = writeFile(tempDir.resolve("bundled.jar"), "bundled-0.1.54");
+        writeFile(tempDir.resolve("bundled.jar.previous"), "bundled-0.1.52");
+        Path cachedJar = writeFile(tempDir.resolve("jlshell-app-0.1.53.jar"), "cached-0.1.53");
+        Path previousJar = writeFile(tempDir.resolve("jlshell-app-0.1.52.jar"), "previous-0.1.52");
+        writeEntry(updates.resolve("current.json"), "0.1.53", cachedJar, sha256(cachedJar), false);
+        writeEntry(updates.resolve("previous.json"), "0.1.52", previousJar, sha256(previousJar), true);
+
+        Path selected = BootstrapLauncher.selectApplicationJar(updates, bundled, "0.1.54");
+
+        assertEquals(bundled, selected);
+        assertEquals("bundled-0.1.54", Files.readString(bundled, StandardCharsets.UTF_8));
+        assertFalse(Files.exists(updates.resolve("current.json")));
+        assertFalse(Files.exists(tempDir.resolve("bundled.jar.previous")));
+    }
+
+    @Test
+    void doesNotPromoteCachedUpdateWhenItIsNotNewerThanInstalledJar() throws Exception {
+        Path updates = Files.createDirectories(tempDir.resolve("updates"));
+        Path bundled = writeFile(tempDir.resolve("bundled.jar"), "bundled-0.1.54");
+        Path cachedJar = writeFile(tempDir.resolve("jlshell-app-0.1.54.jar"), "cached-0.1.54");
+        writeEntry(updates.resolve("pending.json"), "0.1.54", cachedJar, sha256(cachedJar), false);
+
+        Path selected = BootstrapLauncher.selectApplicationJar(updates, bundled, "0.1.54");
+
+        assertEquals(bundled, selected);
+        assertEquals("bundled-0.1.54", Files.readString(bundled, StandardCharsets.UTF_8));
+        assertFalse(Files.exists(updates.resolve("pending.json")));
+    }
+
+    @Test
+    void usesCachedUpdateWhenItIsNewerThanInstalledJar() throws Exception {
+        Path updates = Files.createDirectories(tempDir.resolve("updates"));
+        Path bundled = writeFile(tempDir.resolve("bundled.jar"), "bundled-0.1.54");
+        Path cachedJar = writeFile(tempDir.resolve("jlshell-app-0.1.55.jar"), "cached-0.1.55");
+        writeEntry(updates.resolve("current.json"), "0.1.55", cachedJar, sha256(cachedJar), true);
+
+        Path selected = BootstrapLauncher.selectApplicationJar(updates, bundled, "0.1.54");
+
+        assertEquals(cachedJar, selected);
+    }
+
     private static Path writeFile(Path path, String content) throws Exception {
         Files.writeString(path, content, StandardCharsets.UTF_8);
         return path;
