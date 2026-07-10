@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<WixLocalization Culture="zh-cn" Codepage="936" xmlns="http://schemas.microsoft.com/wix/2006/localization">
+<!--
+  jpackage 21 invokes WiX with -cultures:en-us and does not expose a locale
+  option. Keep this resource under the en name so it overrides the selected
+  jpackage resource; the MSI Product language remains Simplified Chinese via
+  overrides.wxi.
+-->
+<WixLocalization Culture="en-us" Codepage="936" xmlns="http://schemas.microsoft.com/wix/2006/localization">
   <String Id="message.install.dir.exist">文件夹 [INSTALLDIR] 已存在。是否仍要安装到该文件夹？</String>
   <String Id="MainFeatureTitle">主要功能</String>
   <String Id="DowngradeErrorMessage">已安装更新版本的 [ProductName]，无需降级安装。如需重新安装，请先卸载当前版本。</String>

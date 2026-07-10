@@ -554,6 +554,9 @@ jobs:
 
           cd dist/win-image && 7z a -tzip "../JLShell-${VERSION}-win-x64.zip" JLShell && cd ../..
 
+          # jpackage 21 always invokes WiX with the en-us culture. The
+          # resource directory intentionally provides its Chinese strings
+          # as MsiInstallerStrings_en.wxl so that culture is overridden.
           "$JDK/bin/jpackage" \
             --type msi \
             --name JLShell \
@@ -673,6 +676,7 @@ jobs:
           import json
           import mimetypes
           import os
+          import re
           from pathlib import Path
           from urllib.parse import urlparse
 
@@ -704,6 +708,69 @@ jobs:
 
           auth = oss2.Auth(access_key_id, access_key_secret)
           bucket = oss2.Bucket(auth, endpoint, bucket_name)
+
+          # Release artifacts are stored as <prefix>/<semantic-version>/<file>.
+          # Limit this namespace to the newest three versions without touching
+          # unrelated objects that may share the bucket or prefix.
+          semver_pattern = re.compile(
+              r"^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)"
+              r"(?:-(?P<prerelease>[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?"
+              r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
+          )
+
+          def release_version_key(release_version):
+              match = semver_pattern.fullmatch(release_version)
+              if match is None:
+                  return None
+              prerelease = match.group("prerelease")
+              prerelease_key = (1,) if prerelease is None else (
+                  0,
+                  tuple(
+                      (0, int(part)) if part.isdigit() else (1, part)
+                      for part in prerelease.split(".")
+                  ),
+              )
+              return (
+                  int(match.group("major")),
+                  int(match.group("minor")),
+                  int(match.group("patch")),
+                  prerelease_key,
+              )
+
+          def prune_old_release_assets():
+              release_prefix = f"{prefix}/"
+              objects_by_version = {}
+              for obj in oss2.ObjectIterator(bucket, prefix=release_prefix):
+                  relative_key = obj.key.removeprefix(release_prefix)
+                  release_version, separator, _ = relative_key.partition("/")
+                  if not separator or release_version_key(release_version) is None:
+                      continue
+                  objects_by_version.setdefault(release_version, []).append(obj.key)
+
+              retained_versions = sorted(
+                  objects_by_version,
+                  key=release_version_key,
+                  reverse=True,
+              )[:3]
+              retained_set = set(retained_versions)
+              expired_versions = sorted(
+                  (item for item in objects_by_version if item not in retained_set),
+                  key=release_version_key,
+              )
+
+              deleted_object_count = 0
+              for expired_version in expired_versions:
+                  object_keys = objects_by_version[expired_version]
+                  bucket.batch_delete_objects(object_keys)
+                  deleted_object_count += len(object_keys)
+                  print(f"Deleted {len(object_keys)} OSS objects for expired release {expired_version}.")
+
+              print(
+                  "OSS retention complete: "
+                  f"kept {', '.join(retained_versions) or 'no release versions'}; "
+                  f"deleted {deleted_object_count} objects from {len(expired_versions)} old releases."
+              )
+              return retained_versions, expired_versions, deleted_object_count
 
           def asset(file_name, os_name, arch, package_type):
               path = artifacts / file_name
@@ -769,6 +836,8 @@ jobs:
                   "visible": os.environ.get("RELEASE_ASSET_VISIBLE", "false").lower() == "true",
               })
 
+          retained_versions, deleted_versions, deleted_object_count = prune_old_release_assets()
+
           payload = {
               "version": version,
               "channel": os.environ.get("RELEASE_CHANNEL") or "stable",
@@ -787,7 +856,16 @@ jobs:
               encoding="utf-8",
           )
           Path("oss-upload-manifest.json").write_text(
-              json.dumps({"version": version, "objects": uploaded}, ensure_ascii=False, indent=2),
+              json.dumps({
+                  "version": version,
+                  "objects": uploaded,
+                  "retention": {
+                      "maxVersions": 3,
+                      "keptVersions": retained_versions,
+                      "deletedVersions": deleted_versions,
+                      "deletedObjectCount": deleted_object_count,
+                  },
+              }, ensure_ascii=False, indent=2),
               encoding="utf-8",
           )
           print(f"Uploaded {len(uploaded)} files to OSS and prepared {len(payload_assets)} website assets.")
