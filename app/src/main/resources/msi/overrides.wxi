@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Include>
+  <!-- jpackage 21 defaults this value to 1033. -->
   <?undef JpProductLanguage?>
   <?define JpProductLanguage=2052?>
 </Include>

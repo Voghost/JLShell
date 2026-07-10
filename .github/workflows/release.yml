@@ -554,6 +554,9 @@ jobs:
 
           cd dist/win-image && 7z a -tzip "../JLShell-${VERSION}-win-x64.zip" JLShell && cd ../..
 
+          # jpackage 21 always invokes WiX with the en-us culture. The
+          # resource directory intentionally provides its Chinese strings
+          # as MsiInstallerStrings_en.wxl so that culture is overridden.
           "$JDK/bin/jpackage" \
             --type msi \
             --name JLShell \
