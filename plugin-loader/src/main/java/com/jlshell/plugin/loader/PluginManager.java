@@ -182,6 +182,12 @@ public class PluginManager {
 
     public CapabilityRegistryImpl globalRegistry() { return registryFor(null); }
 
+    /** 判断指定插件是否已在某个 session（null 为全局）激活。 */
+    public boolean isPluginActive(String sessionId, String pluginId) {
+        SessionPluginSet set = activeBySession.get((sessionId == null) ? GLOBAL_KEY : sessionId);
+        return set != null && set.plugins.containsKey(pluginId);
+    }
+
     /** 供 CapabilityBus 构造 CapabilityContext 时取插件的 PluginContext。 */
     public PluginContext contextFor(String sessionId, String pluginId) {
         SessionPluginSet set = activeBySession.get((sessionId == null) ? GLOBAL_KEY : sessionId);
@@ -233,6 +239,23 @@ public class PluginManager {
                 activeBySession.remove(key, set);
             }
         });
+    }
+
+    /** 停用并清理一个 session 中的所有插件（包括 API 静默激活的插件）。 */
+    public void deactivateSession(String sessionId) {
+        String key = (sessionId == null) ? GLOBAL_KEY : sessionId;
+        SessionPluginSet set = activeBySession.remove(key);
+        if (set == null) return;
+        set.plugins.values().forEach(plugin -> {
+            disposeContext(set.contexts.get(plugin.id()));
+            PluginView view = plugin.view();
+            if (view != null) view.onSessionClosed();
+            plugin.deactivate();
+        });
+        set.plugins.clear();
+        set.contexts.clear();
+        set.registry.clear();
+        log.debug("Deactivated all plugins in session {}", sessionId);
     }
 
     public void deactivateAll() {

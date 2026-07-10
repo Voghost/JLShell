@@ -7,6 +7,7 @@ import com.jlshell.api.server.dispatch.CapabilityInvokeMethod;
 import com.jlshell.api.server.dispatch.CapabilityListMethod;
 import com.jlshell.api.server.dispatch.HostMethods;
 import com.jlshell.api.server.dispatch.MethodDispatcher;
+import com.jlshell.plugin.api.rpc.SessionPluginActivator;
 import com.jlshell.api.server.jsonrpc.RpcHandler;
 import com.jlshell.plugin.api.rpc.CapabilityBus;
 import org.slf4j.Logger;
@@ -26,19 +27,33 @@ public final class ApiServer {
     private int actualPort = -1;
 
     public ApiServer(ApiServerConfig config, CapabilityBus bus, HostMethods hostMethods) {
+        this(config, bus, hostMethods, SessionPluginActivator.noop());
+    }
+
+    public ApiServer(ApiServerConfig config, CapabilityBus bus, HostMethods hostMethods,
+                     SessionPluginActivator sessionPluginActivator) {
         this.config = config;
         this.dispatcher = new MethodDispatcher();
         // 透传插件能力
-        dispatcher.register("capability.invoke", new CapabilityInvokeMethod(bus));
+        dispatcher.register("capability.invoke", new CapabilityInvokeMethod(bus, sessionPluginActivator));
         dispatcher.register("capability.list", new CapabilityListMethod(bus));
         // 内置 host method
         dispatcher.register("session.connect", hostMethods::sessionConnect);
-        dispatcher.register("session.disconnect", hostMethods::sessionDisconnect);
+        dispatcher.register("session.disconnect", params -> hostMethods.sessionDisconnect(params)
+                .thenCompose(result -> sessionPluginActivator.deactivate(sessionId(params))
+                        .thenApply(ignored -> result)));
         dispatcher.register("session.list", hostMethods::sessionList);
         dispatcher.register("session.info", hostMethods::sessionInfo);
         dispatcher.register("command.run", hostMethods::commandRun);
         dispatcher.register("api.token", hostMethods::apiToken);
         dispatcher.register("api.methods", hostMethods::apiMethods);
+    }
+
+    private static String sessionId(com.google.gson.JsonElement params) {
+        if (params == null || !params.isJsonObject()) return null;
+        com.google.gson.JsonObject object = params.getAsJsonObject();
+        if (!object.has("sessionId") || object.get("sessionId").isJsonNull()) return null;
+        return object.get("sessionId").getAsString();
     }
 
     public void start() throws IOException {

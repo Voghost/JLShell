@@ -5,6 +5,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
@@ -15,6 +17,8 @@ import com.jlshell.plugin.api.rpc.CapabilityBus;
 import com.jlshell.plugin.api.rpc.CapabilitySpec;
 import com.jlshell.plugin.api.rpc.RpcRequest;
 import com.jlshell.plugin.api.rpc.RpcResponse;
+import com.jlshell.plugin.api.rpc.RpcError;
+import com.jlshell.plugin.api.rpc.SessionPluginActivator;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -114,5 +118,38 @@ class ApiServerTest {
         body.add("params", params);
         HttpResponse<String> r = post("secret-token", body.toString());
         assertThat(r.body()).contains("\"result\":\"echoed\"");
+    }
+
+    @Test
+    void capabilityInvokeHeadlesslyActivatesMissingSessionPluginThenRetries() throws Exception {
+        AtomicBoolean activated = new AtomicBoolean();
+        AtomicInteger activationCalls = new AtomicInteger();
+        CapabilityBus bus = new CapabilityBus() {
+            @Override public CompletableFuture<RpcResponse> invoke(RpcRequest request) {
+                if (!activated.get()) {
+                    return CompletableFuture.completedFuture(RpcResponse.error(
+                            RpcError.of(-32601, "capability not found")));
+                }
+                return CompletableFuture.completedFuture(RpcResponse.ok(new JsonPrimitive("after-activation")));
+            }
+            @Override public java.util.List<CapabilitySpec> listCapabilities(String sid) { return java.util.List.of(); }
+        };
+        SessionPluginActivator activator = new SessionPluginActivator() {
+            @Override public CompletableFuture<Void> activate(String sessionId, String pluginId) {
+                activationCalls.incrementAndGet();
+                activated.set(true);
+                return CompletableFuture.completedFuture(null);
+            }
+        };
+        server = new ApiServer(new ApiServerConfig(0, "secret-token", true), bus, stubHost(), activator);
+        server.start();
+
+        HttpResponse<String> response = post("secret-token", """
+                {"jsonrpc":"2.0","id":4,"method":"capability.invoke",
+                 "params":{"sessionId":"s1","pluginId":"com.a","capability":"echo"}}
+                """);
+
+        assertThat(response.body()).contains("\"result\":\"after-activation\"");
+        assertThat(activationCalls).hasValue(1);
     }
 }

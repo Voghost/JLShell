@@ -133,6 +133,8 @@ public class AppContext implements AutoCloseable {
 
         // 6b. RPC 内核 + 外部 API
         CapabilityBusImpl capabilityBus = new CapabilityBusImpl(pluginManager);
+        java.util.function.Function<String, com.jlshell.plugin.api.storage.PluginStorage> storageFactory =
+                pluginId -> new JdbiPluginStorage(jdbi, pluginId);
         boolean apiEnabled = "true".equalsIgnoreCase(appSettingsService.get("api.enabled", "false"));
         int apiPort = parsePortOrDefault(appSettingsService.get("api.port", "0"), 0);
         String apiToken;
@@ -173,8 +175,11 @@ public class AppContext implements AutoCloseable {
         com.jlshell.program.api.ProgramHostMethods hostMethods =
                 new com.jlshell.program.api.ProgramHostMethods(
                         connectionProfileService::toConnectionRequest, sessionManager, executor, apiToken);
+        com.jlshell.plugin.loader.HeadlessSessionPluginActivator sessionPluginActivator =
+                new com.jlshell.plugin.loader.HeadlessSessionPluginActivator(
+                        pluginManager, sessionManager, sftpService, capabilityBus, storageFactory);
         com.jlshell.api.server.ApiServer apiServer =
-                new com.jlshell.api.server.ApiServer(apiCfg, capabilityBus, hostMethods);
+                new com.jlshell.api.server.ApiServer(apiCfg, capabilityBus, hostMethods, sessionPluginActivator);
         if (apiEnabled) {
             try {
                 apiServer.start();
@@ -185,9 +190,6 @@ public class AppContext implements AutoCloseable {
         }
 
         // 7. Main window
-        java.util.function.Function<String, com.jlshell.plugin.api.storage.PluginStorage> storageFactory =
-                pluginId -> new JdbiPluginStorage(jdbi, pluginId);
-
         ProgramPluginManager programPluginManager = new ProgramPluginManager(
                 userHome + "/.jlshell/program-plugins",
                 hostVersion,
