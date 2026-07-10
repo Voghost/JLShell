@@ -167,6 +167,9 @@ public class SessionWorkspaceTab extends Tab {
 
     public CompletableFuture<Void> closeWorkspace() {
         i18nService.localeProperty().removeListener(localeListener);
+        if (pluginManager != null) {
+            pluginManager.deactivateSession(sshSession.sessionId().toString());
+        }
         terminalWorkspaceView.stopPlugins();
         if (pluginsTabView != null) {
             pluginsTabView.dispose();
@@ -250,6 +253,9 @@ public class SessionWorkspaceTab extends Tab {
      */
     private void reconnect() {
         log.info("[Reconnect] Starting reconnect for '{}' ({})", connectionProfile.displayName(), connectionProfile.summary());
+        if (pluginManager != null) {
+            pluginManager.deactivateSession(sshSession.sessionId().toString());
+        }
         terminalWorkspaceView.stopPlugins();
         if (pluginsTabView != null) {
             pluginsTabView.stopPlugins();

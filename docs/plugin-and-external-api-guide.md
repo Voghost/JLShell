@@ -115,7 +115,7 @@ public void activate(PluginContext context) {
 
 可选的 `inputSchema(JsonObject)` 只用于展示和轻量自省，宿主**不会**执行完整 JSON Schema 校验。能力处理器必须自行验证参数、超时和权限，并将失败以异常 future 返回。
 
-会话能力只能在插件已针对目标会话激活时被调用。会话关闭或插件停用后，能力自动消失。
+会话关闭或插件停用后，能力自动消失。通过界面或插件总线调用时，目标插件需要已在目标会话激活；通过外部 API 的 `capability.invoke` 调用时，若首次找不到会话能力，宿主会在后台无界面激活目标会话插件并自动重试，无需用户手动打开插件标签页。
 
 ## 4. 程序插件
 
@@ -254,11 +254,11 @@ curl --fail-with-body \
 | `session.info` | `sessionId` | `{sessionId, displayName, host, port, user}` |
 | `command.run` | `sessionId`、`command`、可选 `timeoutSec`（默认 30） | `{stdout, stderr, exitCode}` |
 | `capability.list` | 可选 `sessionId` | 当前作用域的能力规格数组 |
-| `capability.invoke` | `pluginId`、`capability`、可选 `sessionId`、`args`、`requestId` | 插件返回的 JSON 值 |
+| `capability.invoke` | `pluginId`、`capability`、可选 `sessionId`、`args`、`requestId` | 插件返回的 JSON 值；会话能力首次调用会后台无界面激活目标插件后重试 |
 | `api.methods` | 无 | 内置方法名称数组 |
 | `api.token` | 无 | 当前 Token（不建议用于自动化） |
 
-典型 Agent 流程：先 `session.connect`（使用应用中已保存的 `connectionId`），取得 `sessionId`；再调用 `command.run` 或已激活会话插件的 `capability.invoke`；最后 `session.disconnect`。不要在请求中传递密码、私钥或未保存连接参数——当前 API 不支持，也不应绕过 JLShell 的凭据保护。
+典型 Agent 流程：先 `session.connect`（使用应用中已保存的 `connectionId`），取得 `sessionId`；再调用 `command.run` 或 `capability.invoke`。对已安装的会话插件，首次 `capability.invoke` 会无界面激活插件并重试该请求；最后调用 `session.disconnect`，它会同步清理该会话的插件。不要在请求中传递密码、私钥或未保存连接参数——当前 API 不支持，也不应绕过 JLShell 的凭据保护。
 
 调用程序插件的全局能力：
 
@@ -326,4 +326,3 @@ mvn -f plugins/pom.xml clean package
 3. 已安装插件的稳定 `pluginId`、能力名、参数 schema、需要的 `sessionId` 类型。
 4. 操作完成后是否必须断开会话；默认建议断开由 Agent 新建的会话。
 5. 任何远程写入、删除或执行高风险命令，都必须在 Agent 策略中明确授权，不能因 API 可调用而自动视为已获授权。
-

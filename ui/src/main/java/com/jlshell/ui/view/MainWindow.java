@@ -2589,7 +2589,10 @@ public class MainWindow {
             }
         });
 
-        scene.setOnMouseMoved(e -> {
+        // 必须使用捕获阶段的 filter，而非 setOnMouseMoved（冒泡阶段）。Windows 上鼠标从
+        // 无边框窗口边缘慢慢进入 SwingNode/菜单等子控件时，子控件可能截获移动事件，
+        // 导致 Scene 保留上一次的 E_RESIZE/W_RESIZE 光标。
+        javafx.event.EventHandler<javafx.scene.input.MouseEvent> updateResizeCursor = e -> {
             if (resizing[0]) {
                 return;
             }
@@ -2616,7 +2619,11 @@ public class MainWindow {
             else if (onBottom) cursor = javafx.scene.Cursor.S_RESIZE;
             scene.setCursor(cursor);
             activeCursor[0] = resizeDirections.containsKey(cursor) ? cursor : null;
-        });
+        };
+        scene.addEventFilter(javafx.scene.input.MouseEvent.MOUSE_MOVED, updateResizeCursor);
+        // 跨入嵌入式 Swing/菜单等新的命中节点时再刷新一次，覆盖 Windows 未向 Scene
+        // 冒泡 MOUSE_MOVED 的路径。
+        scene.addEventFilter(javafx.scene.input.MouseEvent.MOUSE_ENTERED_TARGET, updateResizeCursor);
 
         scene.setOnMousePressed(e -> {
             if (isEventFromMenuBar(e)) {
