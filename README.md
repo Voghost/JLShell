@@ -87,6 +87,8 @@ Output is in `dist/`.
 
 ## Plugin Development
 
+For the current, agent-oriented guide to session plugins, program plugins, capability routing, and the local JSON-RPC API, see [Plugin and External API Guide](docs/plugin-and-external-api-guide.md).
+
 ### Quick Start
 
 Implement `JlShellPlugin` from the `plugin-api` module:
