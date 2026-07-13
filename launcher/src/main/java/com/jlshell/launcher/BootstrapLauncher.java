@@ -9,8 +9,14 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HexFormat;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Stream;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -25,6 +31,7 @@ public final class BootstrapLauncher {
 
     private static final String APP_MAIN_CLASS = "com.jlshell.app.Launcher";
     private static final String BUNDLED_APP_JAR = "app/jlshell-app-bundled.jar";
+    private static final String ISOLATED_RUNTIME_PROPERTY = "jlshell.runtime.isolated";
     private static final Pattern JSON_STRING_PATTERN_TEMPLATE = Pattern.compile("\"%s\"\\s*:\\s*\"([^\"]*)\"");
     private static final Pattern STARTUP_CONFIRMED_PATTERN =
             Pattern.compile("\"startupConfirmed\"\\s*:\\s*(true|false)");
@@ -37,6 +44,9 @@ public final class BootstrapLauncher {
         configureMacApplicationName();
 
         try {
+            if (relaunchWithIsolatedWindowsRuntime(args)) {
+                return;
+            }
             Path selectedJar = selectApplicationJar();
             System.setProperty("jlshell.launcher.version", launcherVersion());
             System.setProperty("jlshell.launcher.jar", launcherJar().toAbsolutePath().toString());
@@ -50,6 +60,125 @@ public final class BootstrapLauncher {
             error.printStackTrace(System.err);
             System.exit(1);
         }
+    }
+
+    /**
+     * Relaunch on Windows with a deterministic DLL search path before JavaFX is
+     * initialized. The jpackage launcher already selects the bundled JVM, but
+     * Windows can still resolve glass.dll from an old Java installation on the
+     * user's PATH. A fresh javaw process is required because changing
+     * java.library.path after JVM startup does not reliably change native DLL
+     * resolution.
+     */
+    private static boolean relaunchWithIsolatedWindowsRuntime(String[] args) throws Exception {
+        if (!isWindows() || Boolean.getBoolean(ISOLATED_RUNTIME_PROPERTY)) {
+            return false;
+        }
+
+        Path javaHome = Path.of(System.getProperty("java.home")).toAbsolutePath().normalize();
+        Path javaExecutable = javaHome.resolve("bin/javaw.exe");
+        if (!Files.isRegularFile(javaExecutable)) {
+            javaExecutable = javaHome.resolve("bin/java.exe");
+        }
+        if (!Files.isRegularFile(javaExecutable)) {
+            throw new IOException("Bundled Java executable not found under " + javaHome);
+        }
+
+        Path launcher = launcherJar().toAbsolutePath().normalize();
+        List<String> command = windowsRelaunchCommand(javaExecutable, launcher, args);
+        ProcessBuilder processBuilder = new ProcessBuilder(command);
+        processBuilder.directory(launcherBaseDir().toFile());
+        sanitizeWindowsEnvironment(processBuilder.environment(), javaHome);
+        processBuilder.start();
+        return true;
+    }
+
+    static List<String> windowsRelaunchCommand(Path javaExecutable, Path launcher, String[] args) {
+        List<String> command = new ArrayList<>();
+        command.add(javaExecutable.toString());
+        command.add("-Xms64m");
+        command.add("-Xmx512m");
+        command.add("-XX:+ExplicitGCInvokesConcurrent");
+        command.add("--add-opens=java.base/java.lang=ALL-UNNAMED");
+        command.add("--add-opens=java.desktop/sun.awt=ALL-UNNAMED");
+        command.add("-D" + ISOLATED_RUNTIME_PROPERTY + "=true");
+        command.add("-jar");
+        command.add(launcher.toString());
+        command.addAll(Arrays.asList(args));
+        return List.copyOf(command);
+    }
+
+    static void sanitizeWindowsEnvironment(Map<String, String> environment, Path javaHome) {
+        String systemRoot = environment.entrySet().stream()
+                .filter(entry -> entry.getKey().equalsIgnoreCase("SystemRoot"))
+                .map(Map.Entry::getValue)
+                .filter(value -> value != null && !value.isBlank())
+                .findFirst()
+                .orElse("C:\\Windows");
+        String inheritedPath = environment.entrySet().stream()
+                .filter(entry -> entry.getKey().equalsIgnoreCase("PATH"))
+                .map(Map.Entry::getValue)
+                .filter(value -> value != null && !value.isBlank())
+                .findFirst()
+                .orElse("");
+
+        removeEnvironmentVariable(environment, "PATH");
+        removeEnvironmentVariable(environment, "JAVA_HOME");
+        removeEnvironmentVariable(environment, "JAVAFX_HOME");
+        removeEnvironmentVariable(environment, "JAVA_TOOL_OPTIONS");
+        removeEnvironmentVariable(environment, "_JAVA_OPTIONS");
+        removeEnvironmentVariable(environment, "JDK_JAVA_OPTIONS");
+
+        Path runtimeBin = javaHome.resolve("bin");
+        List<String> safeInheritedEntries = Stream.of(inheritedPath.split(";"))
+                .map(String::strip)
+                .filter(entry -> !entry.isBlank())
+                .filter(entry -> !isExternalJavaPath(entry, runtimeBin))
+                .toList();
+        List<String> safePath = new ArrayList<>();
+        safePath.add(runtimeBin.toString());
+        safePath.add(windowsPath(systemRoot, "System32"));
+        safePath.add(systemRoot);
+        safePath.addAll(safeInheritedEntries);
+        environment.put("PATH", safePath.stream().distinct().reduce(
+                (left, right) -> left + ";" + right).orElse(runtimeBin.toString()));
+        environment.put("JAVA_HOME", javaHome.toString());
+    }
+
+    private static boolean isExternalJavaPath(String entry, Path runtimeBin) {
+        try {
+            Path candidate = Path.of(entry).toAbsolutePath().normalize();
+            if (candidate.equals(runtimeBin.toAbsolutePath().normalize())) {
+                return true;
+            }
+            if (Files.isRegularFile(candidate.resolve("glass.dll"))
+                    || Files.isRegularFile(candidate.resolve("java.exe"))
+                    || Files.isRegularFile(candidate.resolve("javaw.exe"))) {
+                return true;
+            }
+        } catch (Exception ignored) {
+            // Keep validating with path-name heuristics below.
+        }
+        String normalized = entry.toLowerCase(Locale.ROOT).replace('/', '\\');
+        return normalized.contains("\\javapath")
+                || normalized.contains("\\jdk")
+                || normalized.contains("\\jre")
+                || normalized.contains("\\openjfx")
+                || normalized.contains("\\liberica")
+                || normalized.contains("\\java\\bin");
+    }
+
+    private static String windowsPath(String parent, String child) {
+        String normalizedParent = parent.replaceAll("[\\\\/]+$", "");
+        return normalizedParent + "\\" + child;
+    }
+
+    private static void removeEnvironmentVariable(Map<String, String> environment, String name) {
+        environment.keySet().removeIf(key -> key.equalsIgnoreCase(name));
+    }
+
+    private static boolean isWindows() {
+        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
     }
 
     private static Path selectApplicationJar() throws Exception {

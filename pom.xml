@@ -32,7 +32,7 @@
         <maven.compiler.release>${java.version}</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-        <javafx.version>21.0.5</javafx.version>
+        <javafx.version>21.0.11</javafx.version>
         <sshj.version>0.38.0</sshj.version>
         <sqlite-jdbc.version>3.46.1.3</sqlite-jdbc.version>
         <jediterm.version>3.61</jediterm.version>
