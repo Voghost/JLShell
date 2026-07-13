@@ -45,12 +45,13 @@ final class StartupDiagnostics {
                     moduleVersion("javafx.graphics"),
                     classResource("com.sun.glass.ui.Screen"),
                     classResource("com.sun.glass.utils.NativeLibLoader"));
-            log.info("Startup diagnostics: env JAVA_HOME={}, JAVAFX_HOME={}, JAVA_TOOL_OPTIONS={}, _JAVA_OPTIONS={}, java.library.path.relevant={}",
+            log.info("Startup diagnostics: env JAVA_HOME={}, JAVAFX_HOME={}, JAVA_TOOL_OPTIONS={}, _JAVA_OPTIONS={}, java.library.path.relevant={}, sun.boot.library.path={}",
                     envValue("JAVA_HOME"),
                     envValue("JAVAFX_HOME"),
                     sensitiveEnvValue("JAVA_TOOL_OPTIONS"),
                     sensitiveEnvValue("_JAVA_OPTIONS"),
-                    relevantLibraryPath());
+                    relevantLibraryPath(),
+                    abbreviate(property("sun.boot.library.path"), 800));
             logWindowsNativeCandidates();
         } catch (Exception e) {
             log.warn("Startup diagnostics failed", e);
@@ -61,7 +62,7 @@ final class StartupDiagnostics {
         if (!property("os.name").toLowerCase(Locale.ROOT).contains("win")) {
             return;
         }
-        Path javafxBin = Path.of(property("java.home"), "bin", "javafx");
+        Path javafxBin = Path.of(property("java.home"), "bin");
         for (String dll : WINDOWS_JAVAFX_DLLS) {
             log.info("Startup diagnostics: nativeCandidate {}", describeFile(javafxBin.resolve(dll)));
         }
