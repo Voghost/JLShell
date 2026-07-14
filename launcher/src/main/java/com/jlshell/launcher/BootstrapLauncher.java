@@ -48,6 +48,7 @@ public final class BootstrapLauncher {
                 return;
             }
             Path selectedJar = selectApplicationJar();
+            System.setProperty("jlshell.app.dir", applicationRootDir().toString());
             System.setProperty("jlshell.launcher.version", launcherVersion());
             System.setProperty("jlshell.launcher.jar", launcherJar().toAbsolutePath().toString());
             System.setProperty("jlshell.bundled.jar", bundledApplicationJar().toAbsolutePath().toString());
@@ -87,7 +88,7 @@ public final class BootstrapLauncher {
         Path launcher = launcherJar().toAbsolutePath().normalize();
         List<String> command = windowsRelaunchCommand(javaExecutable, launcher, args);
         ProcessBuilder processBuilder = new ProcessBuilder(command);
-        processBuilder.directory(launcherBaseDir().toFile());
+        processBuilder.directory(applicationRootDir().toFile());
         sanitizeWindowsEnvironment(processBuilder.environment(), javaHome);
         processBuilder.start();
         return true;
@@ -460,6 +461,20 @@ public final class BootstrapLauncher {
     private static Path bundledApplicationJar() throws Exception {
         Path baseDir = launcherBaseDir();
         return baseDir.resolve(BUNDLED_APP_JAR).normalize();
+    }
+
+    private static Path applicationRootDir() throws Exception {
+        return applicationRootDir(launcherBaseDir());
+    }
+
+    static Path applicationRootDir(Path launcherDirectory) {
+        Path normalized = launcherDirectory.toAbsolutePath().normalize();
+        Path name = normalized.getFileName();
+        Path parent = normalized.getParent();
+        if (name != null && parent != null && "app".equalsIgnoreCase(name.toString())) {
+            return parent;
+        }
+        return normalized;
     }
 
     private static Path launcherJar() throws Exception {

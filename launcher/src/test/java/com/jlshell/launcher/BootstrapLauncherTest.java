@@ -36,6 +36,16 @@ class BootstrapLauncherTest {
     }
 
     @Test
+    void resolvesJpackageApplicationRootFromAppDirectory() {
+        Path root = tempDir.resolve("JLShell");
+
+        assertEquals(root.toAbsolutePath().normalize(),
+                BootstrapLauncher.applicationRootDir(root.resolve("app")));
+        assertEquals(root.toAbsolutePath().normalize(),
+                BootstrapLauncher.applicationRootDir(root));
+    }
+
+    @Test
     void sanitizesExternalJavaEnvironmentForWindowsChild() {
         Map<String, String> environment = new LinkedHashMap<>();
         environment.put("Path", "C:\\Program Files\\Java\\jdk1.8.0_131\\jre\\bin;C:\\tools");
