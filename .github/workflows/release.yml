@@ -7,6 +7,10 @@ on:
         description: 'Release version (e.g. 1.0.0)'
         required: true
         default: '0.1.0'
+      previous_tag:
+        description: 'Optional change-audit baseline tag (e.g. v0.1.56; default: latest reachable release tag)'
+        required: false
+        default: ''
       channel:
         description: 'Release channel for website update API'
         required: true
@@ -44,9 +48,43 @@ env:
   MODULES: "java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.management.rmi,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.transaction.xa,java.xml,java.xml.crypto,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.httpserver,jdk.jfr,jdk.localedata,jdk.management,jdk.naming.dns,jdk.net,jdk.unsupported,jdk.unsupported.desktop,jdk.zipfs,javafx.base,javafx.controls,javafx.fxml,javafx.graphics,javafx.swing"
 
 jobs:
+  validate-release-notes:
+    name: Validate notes and audit changes
+    runs-on: ubuntu-latest
+    outputs:
+      previous_tag: ${{ steps.prepare.outputs.previous_tag }}
+      commit_range: ${{ steps.prepare.outputs.commit_range }}
+      commit_count: ${{ steps.prepare.outputs.commit_count }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The audit compares this release with the latest reachable release tag.
+          fetch-depth: 0
+
+      - name: Validate and prepare release metadata
+        id: prepare
+        shell: bash
+        env:
+          RELEASE_OUTPUT_DIR: ${{ runner.temp }}/release-metadata
+          PREVIOUS_RELEASE_TAG: ${{ github.event.inputs.previous_tag }}
+        run: |
+          python .github/scripts/prepare_release_metadata.py
+          cat "$RELEASE_OUTPUT_DIR/release-change-summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-metadata
+          path: |
+            ${{ runner.temp }}/release-metadata/release-metadata.json
+            ${{ runner.temp }}/release-metadata/release-notes.md
+            ${{ runner.temp }}/release-metadata/github-release-body.md
+            ${{ runner.temp }}/release-metadata/release-change-summary.md
+          if-no-files-found: error
+
   # ── macOS ───────────────────────────────────────────────────────────────────
   build-mac:
     name: Build macOS (arm64 + x64)
+    needs: [validate-release-notes]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -204,6 +242,7 @@ jobs:
   # ── Linux ───────────────────────────────────────────────────────────────────
   build-linux:
     name: Build Linux (tar.gz + deb + AppImage)
+    needs: [validate-release-notes]
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -461,6 +500,7 @@ jobs:
   # ── Windows ─────────────────────────────────────────────────────────────────
   build-windows:
     name: Build Windows (zip + msi)
+    needs: [validate-release-notes]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -614,7 +654,7 @@ jobs:
           name: JLShell v${{ env.VERSION }}
           draft: false
           prerelease: false
-          generate_release_notes: true
+          body_path: artifacts/github-release-body.md
           files: |
             artifacts/JLShell-${{ env.VERSION }}-mac.zip
             artifacts/JLShell-${{ env.VERSION }}-linux-x64.tar.gz
@@ -623,22 +663,6 @@ jobs:
             artifacts/JLShell-${{ env.VERSION }}-win-x64.zip
             artifacts/JLShell-${{ env.VERSION }}-win-x64.msi
             artifacts/jlshell-app-${{ env.VERSION }}.jar
-          body: |
-            ## JLShell v${{ env.VERSION }}
-
-            ### 下载
-
-            | 平台 | 文件 | 说明 |
-            |------|------|------|
-            | macOS | `JLShell-${{ env.VERSION }}-mac.zip` | 解压后双击 `JLShell.app` |
-            | Linux | `JLShell-${{ env.VERSION }}-linux-x64.tar.gz` | 解压后运行 `./JLShell.sh` |
-            | Linux | `JLShell-${{ env.VERSION }}-linux-x64.deb` | `sudo dpkg -i` 安装，命令行 `jlshell` |
-            | Linux | `JLShell-${{ env.VERSION }}-linux-x86_64.AppImage` | `chmod +x` 后直接运行 |
-            | Windows | `JLShell-${{ env.VERSION }}-win-x64.zip` | 解压后双击 `JLShell.exe` |
-            | Windows | `JLShell-${{ env.VERSION }}-win-x64.msi` | 安装后可从开始菜单搜索 `JLShell` |
-            | Incremental | `jlshell-app-${{ env.VERSION }}.jar` | 官网更新 API 使用的 jar 增量包 |
-
-            > 所有包均内置精简 JRE，无需安装 JDK。
 
   # ── Upload assets to OSS and notify website ────────────────────────────────
   publish-oss:
@@ -686,6 +710,7 @@ jobs:
 
           version = os.environ["VERSION"]
           artifacts = Path("artifacts")
+          release_metadata = json.loads((artifacts / "release-metadata.json").read_text(encoding="utf-8"))
           endpoint = os.environ.get("JLSHELL_OSS_ENDPOINT") or "https://oss-cn-hangzhou.aliyuncs.com"
           bucket_name = os.environ.get("JLSHELL_OSS_BUCKET")
           access_key_id = os.environ.get("OSS_ACCESS_KEY_ID")
@@ -844,9 +869,10 @@ jobs:
               "version": version,
               "channel": os.environ.get("RELEASE_CHANNEL") or "stable",
               "updateType": "jar",
-              "title": f"JLShell v{version}",
-              "summary": f"Release generated by GitHub Actions run {os.environ.get('GITHUB_RUN_ID', '')}".strip(),
-              "releaseNotes": f"https://github.com/{os.environ.get('GITHUB_REPOSITORY', '')}/releases/tag/v{version}",
+              "title": release_metadata["title"],
+              "summary": release_metadata["summary"],
+              "releaseNotes": release_metadata["releaseNotes"],
+              "releaseUrl": release_metadata["releaseUrl"],
               "mandatory": False,
               "requiresFullInstaller": False,
               "minLauncherVersion": "0.1.0",
