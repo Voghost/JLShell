@@ -87,7 +87,10 @@ Output is in `dist/`.
 
 ## Plugin Development
 
-For the current, agent-oriented guide to session plugins, program plugins, capability routing, and the local JSON-RPC API, see [Plugin and External API Guide](docs/plugin-and-external-api-guide.md).
+For the complete package contract, Maven configuration, validation checklist, and store publishing rules, see
+[Plugin Development and Publishing Specification](plugins/README.md). Capability routing and the local JSON-RPC API
+are documented in [Plugin and External API Guide](docs/plugin-and-external-api-guide.md), while the client-side store
+protocol is documented in [Client Plugin Store API](docs/client-plugin-store-api.md).
 
 ### Quick Start
 
@@ -99,6 +102,10 @@ public class MyPlugin implements JlShellPlugin, PluginView {
     @Override public String id()          { return "com.example.my-plugin"; }
     @Override public String displayName() { return "My Plugin"; }
     @Override public String version()     { return "1.0.0"; }
+    @Override public String author()      { return "Example Team"; }
+    @Override public String minHostVersionInclusive() { return "0.1.0"; }
+    @Override public String maxHostVersionInclusive() { return "0.1.999"; }
+    @Override public String description() { return "Utilities for an SSH session."; }
     @Override public boolean requiresSshSession() { return true; }
 
     @Override
@@ -121,9 +128,42 @@ public class MyPlugin implements JlShellPlugin, PluginView {
 }
 ```
 
-Register via `META-INF/services/com.jlshell.plugin.api.JlShellPlugin`, build a fat JAR, and drop it into `~/.jlshell/plugins/`. The plugin appears in the **Plugins** tab on next launch.
+Register via `META-INF/services/com.jlshell.plugin.api.JlShellPlugin`, build a fat JAR, and drop it into
+`~/.jlshell/plugins/`. Program-level plugins implement `JlShellProgramPlugin`, use its corresponding ServiceLoader
+file, and install under `~/.jlshell/program-plugins/`.
 
-See `plugins/plugin-demo/` for a complete working example.
+Every store-distributed JAR must contain these main manifest attributes:
+
+```text
+JLShell-Plugin-Id: com.example.my-plugin
+JLShell-Plugin-Version: 1.0.0
+JLShell-Plugin-Scope: SESSION
+```
+
+It must also contain a UTF-8 package descriptor at `META-INF/jlshell-plugin.json`:
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "com.example.my-plugin",
+  "version": "1.0.0",
+  "scope": "SESSION",
+  "entrypoint": "com.example.MyPlugin",
+  "displayName": "My Plugin",
+  "description": "Plugin description.",
+  "author": "Example Team",
+  "minHostVersion": "0.1.0"
+}
+```
+
+The JSON descriptor, manifest ID/version/scope, runtime `id()`/`version()`, ServiceLoader implementation, and store
+`pluginId`/`version`/`scope`/`entrypoint`/compatibility range must agree exactly. The client verifies the final JAR
+size, lowercase SHA-256, approval status, descriptor, manifest, SPI declaration, and entrypoint class before installation.
+
+See `plugins/plugin-demo/` for a complete session example and `plugins/plugin-program-demo/` for a program-level
+example. Both inherit the standardized manifest and shade configuration from `plugins/pom.xml`. See
+[`plugins/README.md`](plugins/README.md) for the authoring guide and
+[`docs/plugin-package-spec.md`](docs/plugin-package-spec.md) for the complete package contract.
 
 ### Plugin Context API
 
@@ -322,6 +362,7 @@ Encrypt and manage credentials in the built-in vault:
 jlshell-parent
 ├── app            — Application entry point, AppContext (manual DI), packaging
 ├── api-server     — External JSON-RPC API server (JDK HttpServer)
+├── program-api    — Public SPI for host JSON-RPC methods (no core dependency)
 ├── core           — Shared domain models and interfaces
 ├── data           — JDBI DAOs, SQLite persistence, AES-256-GCM credential cipher
 ├── ssh            — SSHJ-based SSH session management
@@ -331,8 +372,10 @@ jlshell-parent
 ├── plugin-api     — Public SPI for plugin developers (standalone publishable JAR)
 ├── plugin-loader  — Plugin discovery, lifecycle, per-session capability bus
 └── plugins
-    ├── plugin-demo    — Script Snippets example (readConfig capability)
-    └── plugin-sysmon  — System Monitor with real-time charts + getMetrics capability
+    ├── plugin-program-demo — Program plugin, settings, global capabilities and JSON-RPC provider
+    ├── plugin-session-demo — Session plugin, SSH access, storage and session capability
+    ├── plugin-demo         — Script Snippets example (readConfig capability)
+    └── plugin-sysmon       — System Monitor with real-time charts + getMetrics capability
 ```
 
 ## Tech Stack

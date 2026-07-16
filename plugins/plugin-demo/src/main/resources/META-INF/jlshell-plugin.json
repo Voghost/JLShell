@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "com.jlshell.demo.script-snippets",
+  "version": "0.1.0",
+  "scope": "SESSION",
+  "entrypoint": "com.jlshell.demo.ScriptSnippetsPlugin",
+  "defaultLocale": "en",
+  "displayName": "Script Snippets",
+  "description": "Run common SSH diagnostic commands with one click.",
+  "translations": {
+    "zh-CN": {
+      "displayName": "脚本片段",
+      "description": "一键运行常用 SSH 诊断命令。"
+    }
+  },
+  "author": "JLShell",
+  "license": "Apache-2.0",
+  "repository": "https://github.com/Voghost/JLShell",
+  "minHostVersion": "0.1.0",
+  "maxHostVersion": "0.1.999"
+}

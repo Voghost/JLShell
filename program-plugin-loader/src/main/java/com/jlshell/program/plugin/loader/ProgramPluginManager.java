@@ -14,13 +14,18 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
 import com.jlshell.plugin.api.JlShellProgramPlugin;
+import com.jlshell.plugin.api.PluginScope;
 import com.jlshell.plugin.api.PluginCompatibility;
 import com.jlshell.plugin.api.rpc.CapabilityBus;
 import com.jlshell.plugin.api.storage.PluginStorage;
 import com.jlshell.plugin.loader.CapabilityRegistryImpl;
 import com.jlshell.plugin.loader.PluginCapabilityRegistryView;
+import com.jlshell.plugin.loader.PluginEnablementService;
 import com.jlshell.plugin.loader.PluginManager;
 import com.jlshell.plugin.loader.RuntimePluginDirectories;
+import com.jlshell.plugin.loader.store.PluginPackageValidator;
+import com.jlshell.program.api.ProgramApiContext;
+import com.jlshell.program.api.ProgramApiProvider;
 import javafx.beans.property.ObjectProperty;
 import javafx.beans.property.SimpleObjectProperty;
 import javafx.beans.property.SimpleStringProperty;
@@ -38,8 +43,10 @@ public class ProgramPluginManager {
     private final CapabilityRegistryImpl globalRegistry;
     private final CapabilityBus capabilityBus;
     private final PluginManager pluginManager;
+    private final PluginEnablementService enablementService;
     private final Function<String, PluginStorage> storageFactory;
     private final DefaultProgramPluginContext.Callbacks callbacks;
+    private final ProgramApiContext programApiContext;
     private final List<ProgramPluginDescriptor> plugins = new ArrayList<>();
     private final Map<String, JlShellProgramPlugin> active = new ConcurrentHashMap<>();
     private volatile boolean loaded;
@@ -53,13 +60,37 @@ public class ProgramPluginManager {
                                 CapabilityBus capabilityBus,
                                 Function<String, PluginStorage> storageFactory,
                                 DefaultProgramPluginContext.Callbacks callbacks) {
+        this(userPluginsDir, hostVersion, pluginManager, globalRegistry, capabilityBus, storageFactory, callbacks, null);
+    }
+
+    public ProgramPluginManager(String userPluginsDir, String hostVersion,
+                                PluginManager pluginManager,
+                                CapabilityRegistryImpl globalRegistry,
+                                CapabilityBus capabilityBus,
+                                Function<String, PluginStorage> storageFactory,
+                                DefaultProgramPluginContext.Callbacks callbacks,
+                                ProgramApiContext programApiContext) {
+        this(userPluginsDir, hostVersion, pluginManager, globalRegistry, capabilityBus, storageFactory,
+                callbacks, programApiContext, new PluginEnablementService());
+    }
+
+    public ProgramPluginManager(String userPluginsDir, String hostVersion,
+                                PluginManager pluginManager,
+                                CapabilityRegistryImpl globalRegistry,
+                                CapabilityBus capabilityBus,
+                                Function<String, PluginStorage> storageFactory,
+                                DefaultProgramPluginContext.Callbacks callbacks,
+                                ProgramApiContext programApiContext,
+                                PluginEnablementService enablementService) {
         this.userPluginsDir = userPluginsDir;
         this.hostVersion = hostVersion == null || hostVersion.isBlank() ? DEFAULT_HOST_VERSION : hostVersion;
         this.pluginManager = pluginManager;
+        this.enablementService = enablementService == null ? new PluginEnablementService() : enablementService;
         this.globalRegistry = globalRegistry;
         this.capabilityBus = capabilityBus;
         this.storageFactory = storageFactory;
         this.callbacks = callbacks;
+        this.programApiContext = programApiContext;
     }
 
     public void ensureLoaded() {
@@ -79,6 +110,13 @@ public class ProgramPluginManager {
         log.info("Loaded {} program plugin(s)", plugins.size());
     }
 
+    /** 商店安装 PROGRAM 插件后供下次启动前的管理页刷新使用。 */
+    public synchronized void reloadPlugins() {
+        deactivateAll();
+        loaded = false;
+        ensureLoaded();
+    }
+
     private void loadFromClassLoader(ClassLoader classLoader) {
         ServiceLoader.load(JlShellProgramPlugin.class, classLoader).forEach(plugin -> {
             plugins.add(toDescriptor(plugin));
@@ -94,10 +132,10 @@ public class ProgramPluginManager {
 
     private void loadFromDirectory(Path dir) {
         if (!Files.isDirectory(dir)) return;
-        File[] jars = dir.toFile().listFiles(f -> f.getName().endsWith(".jar"));
-        if (jars == null) return;
-        for (File jar : jars) {
+        for (Path jarPath : RuntimePluginDirectories.pluginJars(dir)) {
+            File jar = jarPath.toFile();
             try {
+                PluginPackageValidator.validateForLoading(jarPath, PluginScope.PROGRAM);
                 URL[] urls = {jar.toURI().toURL()};
                 URLClassLoader loader = new URLClassLoader(urls, Thread.currentThread().getContextClassLoader());
                 loadFromClassLoader(loader);
@@ -110,32 +148,65 @@ public class ProgramPluginManager {
 
     public List<ProgramPluginDescriptor> getAvailablePlugins() {
         ensureLoaded();
+        return plugins.stream().filter(descriptor -> isPluginEnabled(descriptor.id())).toList();
+    }
+
+    /** 包含已停用插件，供插件管理页展示。 */
+    public List<ProgramPluginDescriptor> getInstalledPlugins() {
+        ensureLoaded();
         return List.copyOf(plugins);
+    }
+
+    public boolean isPluginEnabled(String pluginId) {
+        return enablementService.isEnabled(pluginId, PluginScope.PROGRAM);
+    }
+
+    public synchronized void setPluginEnabled(String pluginId, boolean enabled) {
+        if (enabled == isPluginEnabled(pluginId)) return;
+        if (enabled) {
+            enablementService.setEnabled(pluginId, PluginScope.PROGRAM, true);
+            plugins.stream().filter(descriptor -> descriptor.id().equals(pluginId))
+                    .findFirst().ifPresent(this::activateDescriptor);
+        } else {
+            deactivatePlugin(pluginId);
+            enablementService.setEnabled(pluginId, PluginScope.PROGRAM, false);
+        }
     }
 
     public void activateAll() {
         for (ProgramPluginDescriptor descriptor : plugins) {
-            if (active.containsKey(descriptor.id())) {
-                continue;
+            if (isPluginEnabled(descriptor.id())) activateDescriptor(descriptor);
+        }
+    }
+
+    private void activateDescriptor(ProgramPluginDescriptor descriptor) {
+        if (active.containsKey(descriptor.id())) return;
+        try {
+            descriptor.instance().activate(descriptor.context());
+            active.put(descriptor.id(), descriptor.instance());
+            if (programApiContext != null && descriptor.instance() instanceof ProgramApiProvider provider) {
+                provider.activate(programApiContext);
             }
-            try {
-                descriptor.instance().activate(descriptor.context());
-                active.put(descriptor.id(), descriptor.instance());
-            } catch (Exception e) {
-                log.warn("Failed to activate program plugin {}", descriptor.id(), e);
-            }
+        } catch (Exception e) {
+            active.remove(descriptor.id());
+            globalRegistry.clearForPlugin(descriptor.id());
+            log.warn("Failed to activate program plugin {}", descriptor.id(), e);
+        }
+    }
+
+    private void deactivatePlugin(String pluginId) {
+        JlShellProgramPlugin plugin = active.remove(pluginId);
+        if (plugin == null) return;
+        try {
+            if (plugin instanceof ProgramApiProvider provider) provider.deactivate();
+            plugin.deactivate();
+        } finally {
+            globalRegistry.clearForPlugin(pluginId);
         }
     }
 
     public void deactivateAll() {
-        active.forEach((id, plugin) -> {
-            try {
-                plugin.deactivate();
-            } finally {
-                globalRegistry.clearForPlugin(id);
-            }
-        });
-        active.clear();
+        List.copyOf(active.keySet()).forEach(this::deactivatePlugin);
     }
 
     public StringProperty themeNameProperty() {

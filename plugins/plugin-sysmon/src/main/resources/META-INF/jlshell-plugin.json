@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "com.jlshell.sysmon",
+  "version": "0.1.0",
+  "scope": "SESSION",
+  "entrypoint": "com.jlshell.sysmon.SystemMonitorPlugin",
+  "defaultLocale": "en",
+  "displayName": "System Monitor",
+  "description": "Real-time CPU, memory, network, and disk monitoring with trend charts.",
+  "translations": {
+    "zh-CN": {
+      "displayName": "系统监控",
+      "description": "实时 CPU、内存、网络和磁盘监控，支持趋势图表。"
+    }
+  },
+  "author": "JLShell",
+  "license": "Apache-2.0",
+  "repository": "https://github.com/Voghost/JLShell",
+  "minHostVersion": "0.1.0",
+  "maxHostVersion": "0.1.999"
+}

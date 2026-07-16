@@ -12,6 +12,7 @@ import com.jediterm.terminal.ui.TerminalPanel;
 import com.jediterm.terminal.ui.settings.SettingsProvider;
 
 import java.awt.Color;
+import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.FontMetrics;
@@ -111,6 +112,9 @@ public class JlshellJediTermWidget extends JediTermWidget {
         scrollBar.setUI(new ThemedScrollBarUI());
         scrollBar.setOpaque(false);
         scrollBar.setBorder(BorderFactory.createEmptyBorder());
+        // TerminalPanel 使用文本选择光标；Swing 子组件未显式设置时会继承该光标。
+        // 滚动条需要覆盖为默认箭头，避免轨道和 thumb 上仍显示 I-beam。
+        scrollBar.setCursor(Cursor.getDefaultCursor());
         themedScrollBar = scrollBar;
         return scrollBar;
     }

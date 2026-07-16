@@ -13,6 +13,12 @@
     <artifactId>plugin-sysmon</artifactId>
     <name>JLShell Plugin — System Monitor</name>
 
+    <properties>
+        <jlshell.plugin.id>com.jlshell.sysmon</jlshell.plugin.id>
+        <jlshell.plugin.version>0.1.0</jlshell.plugin.version>
+        <jlshell.plugin.scope>SESSION</jlshell.plugin.scope>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>com.jlshell</groupId>

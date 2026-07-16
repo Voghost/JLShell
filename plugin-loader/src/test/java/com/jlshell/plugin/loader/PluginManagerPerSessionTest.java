@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Optional;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicInteger;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class PluginManagerPerSessionTest {
@@ -90,5 +91,53 @@ class PluginManagerPerSessionTest {
         ctx.writableLocaleProperty().set(Locale.CHINA);
         assertThat(ctx.themeName()).isEqualTo("light");
         assertThat(ctx.locale()).isEqualTo(Locale.CHINA);
+    }
+
+    @Test
+    void reloadingPluginsPublishesCatalogRevision() {
+        PluginManager mgr = new PluginManager("target/non-existent-plugin-directory");
+        long before = mgr.catalogRevisionProperty().get();
+
+        mgr.reloadPlugins();
+
+        assertThat(mgr.catalogRevisionProperty().get()).isGreaterThan(before);
+    }
+
+    @Test
+    void deactivatingPluginClosesItsOpenTab() {
+        PluginManager mgr = new PluginManager();
+        CapPlugin plugin = new CapPlugin("com.test.close-tab");
+        AtomicInteger closeCalls = new AtomicInteger();
+        String sessionId = "sess-A";
+        mgr.registryForSession(sessionId);
+        DefaultPluginContext ctx = new DefaultPluginContext(plugin.id(), sessionId,
+                mgr.registryFor(sessionId), Optional.empty(), new DefaultPluginContext.Callbacks() {
+            @Override public void openTab(String t, javafx.scene.Node n) {}
+            @Override public void closeTab() { closeCalls.incrementAndGet(); }
+            @Override public void updateTabTitle(String t) {}
+            @Override public String resolveI18n(String k, String f) { return f; }
+        });
+        mgr.adoptContext(sessionId, plugin.id(), ctx);
+        mgr.activateInstance(plugin, ctx);
+
+        mgr.deactivatePlugin(sessionId, plugin.id());
+
+        assertThat(closeCalls).hasValue(1);
+    }
+
+    @Test
+    void disablingPluginStopsActiveInstancesAndPublishesCatalogChange() {
+        PluginEnablementService enablement = new PluginEnablementService();
+        PluginManager mgr = new PluginManager("target/non-existent-plugin-directory", "1.0.0", enablement);
+        CapPlugin plugin = new CapPlugin("com.test.disabled");
+        DefaultPluginContext ctx = ctxFor(mgr, plugin.id(), "sess-A");
+        mgr.activateInstance(plugin, ctx);
+        long before = mgr.catalogRevisionProperty().get();
+
+        mgr.setPluginEnabled(plugin.id(), false);
+
+        assertThat(mgr.isPluginEnabled(plugin.id())).isFalse();
+        assertThat(mgr.isPluginActive("sess-A", plugin.id())).isFalse();
+        assertThat(mgr.catalogRevisionProperty().get()).isGreaterThan(before);
     }
 }

@@ -9,6 +9,8 @@ import com.jlshell.plugin.api.JlShellProgramPlugin;
 import com.jlshell.plugin.api.NotificationLevel;
 import com.jlshell.plugin.api.ProgramPluginContext;
 import com.jlshell.plugin.api.rpc.Capability;
+import com.jlshell.program.api.ProgramApiContext;
+import com.jlshell.program.api.ProgramApiProvider;
 import javafx.geometry.Insets;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
@@ -19,7 +21,7 @@ import javafx.scene.layout.VBox;
 /**
  * Program-level demo plugin. It has no SSH session and registers global capabilities.
  */
-public class HostToolsProgramPlugin implements JlShellProgramPlugin {
+public class HostToolsProgramPlugin implements JlShellProgramPlugin, ProgramApiProvider {
 
     private ProgramPluginContext context;
 
@@ -47,6 +49,17 @@ public class HostToolsProgramPlugin implements JlShellProgramPlugin {
                 .handler((args, capCtx) -> CompletableFuture.completedFuture(echo(args)))
                 .build());
         context.info("Program demo plugin activated");
+    }
+
+    /**
+     * 由 ProgramPluginManager 发现本插件后调用，使 demo 同时演示外部 JSON-RPC SPI。
+     */
+    @Override
+    public void activate(ProgramApiContext context) {
+        context.registry().register("demo.host.info",
+                params -> CompletableFuture.completedFuture(hostInfo()));
+        context.registry().register("demo.echo",
+                params -> CompletableFuture.completedFuture(echo(params)));
     }
 
     @Override

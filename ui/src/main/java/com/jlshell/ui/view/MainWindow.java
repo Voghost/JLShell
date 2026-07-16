@@ -34,6 +34,7 @@ import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.service.LocalShellLauncher;
 import com.jlshell.ui.service.MemoryReclaimService;
 import com.jlshell.ui.service.account.AccountService;
+import com.jlshell.ui.service.account.AccountConnectionCounter;
 import com.jlshell.ui.service.update.UpdateService;
 import com.jlshell.ui.service.VaultService;
 import com.jlshell.ui.support.FxThread;
@@ -386,9 +387,11 @@ public class MainWindow {
 
     /** 启动时验证已保存的账号 token，无效则清除。 */
     private void validateAccountSession(Stage stage) {
-        if (accountService == null || !accountService.isSignedIn()) {
+        if (accountService == null) {
             return;
         }
+        accountService.setLiveConnectionCount(AccountConnectionCounter.connectedSessions(sessionManager));
+        if (!accountService.isSignedIn()) return;
         accountService.validateSession().whenComplete((session, error) -> {
             if (session == null || error != null) {
                 log.info("Account session validation failed or expired");
@@ -396,13 +399,10 @@ public class MainWindow {
         });
     }
 
-    /** 上报当前连接/终端数到账号服务。 */
+    /** 仅按 SessionManager 中真实 CONNECTED SSH 会话数上报。 */
     private void reportAccountStats() {
-        if (accountService == null || !accountService.isSignedIn()) {
-            return;
-        }
-        int tabCount = workspaceTabs.getTabs().size();
-        accountService.updateLiveStats(tabCount);
+        if (accountService == null) return;
+        accountService.updateLiveStats(AccountConnectionCounter.connectedSessions(sessionManager));
     }
 
     private void installWindowsRoundedWindowClip(Stage stage, Region root) {
@@ -982,7 +982,6 @@ public class MainWindow {
         workspaceTabs.getSelectionModel().selectedItemProperty().addListener((obs, oldTab, newTab) -> updateWindowTitle());
         workspaceTabs.getTabs().addListener((javafx.collections.ListChangeListener<javafx.scene.control.Tab>) change -> {
             updateWindowTitle();
-            reportAccountStats();
         });
 
         welcomePane = new WelcomePane(i18nService, connectionProfileService, executor,
@@ -2262,6 +2261,7 @@ public class MainWindow {
                         });
                         return;
                     }
+                    reportAccountStats();
                     log.info("SSH connection future completed for session {}", sshSession.sessionId());
                     FxThread.run(() -> {
                         try {
@@ -2299,7 +2299,8 @@ public class MainWindow {
                     themeService,
                     pluginManager,
                     capabilityBus,
-                    storageFactory
+                    storageFactory,
+                    this::reportAccountStats
             );
             installWorkspaceTabHeader(tab, profile.displayName());
             tab.setContextMenu(buildTabContextMenu(tab));
@@ -2322,7 +2323,13 @@ public class MainWindow {
                     if (t != null) {
                         log.error("Workspace initialization failed for session {}", sshSession.sessionId(), t);
                         showError(i18nService.get("status.terminalOpenFailed", t.getMessage()));
-                        workspaceTabs.getTabs().remove(tab);
+                        tab.closeWorkspace().whenComplete((closed, closeError) -> FxThread.run(() -> {
+                            workspaceTabs.getTabs().remove(tab);
+                            reportAccountStats();
+                            if (closeError != null) {
+                                log.warn("Failed to close unusable SSH session {}", sshSession.sessionId(), closeError);
+                            }
+                        }));
                     } else {
                         log.info("Workspace initialization completed for session {}", sshSession.sessionId());
                         viewModel.statusMessageProperty().set(i18nService.get("status.connected", profile.summary()));

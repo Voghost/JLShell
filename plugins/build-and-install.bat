@@ -1,8 +1,6 @@
 @echo off
 setlocal enabledelayedexpansion
 
-set "JAVA_HOME=D:\Program Files\java\jdk-21.0.10_windows-x64_bin\jdk-21.0.10"
-
 set SCRIPT_DIR=%~dp0
 set PLUGINS_DIR=%USERPROFILE%\.jlshell\plugins
 set PROGRAM_PLUGINS_DIR=%USERPROFILE%\.jlshell\program-plugins
@@ -17,9 +15,9 @@ goto usage
 echo Usage: %~nx0 ^<command^>
 echo.
 echo Commands:
-echo   install    Build all plugins and install to ~/.jlshell/plugins/ and ~/.jlshell/program-plugins/
-echo   uninstall  Remove installed plugin demo JARs from both plugin directories
-echo   clean      Remove all installed plugins AND local build artifacts
+echo   install    Build demos under ^<plugin-id^> while preserving each JAR filename
+echo   uninstall  Remove the four installed demo plugin directories
+echo   clean      Uninstall demo plugins and remove local build artifacts
 goto end
 
 :do_install
@@ -30,54 +28,74 @@ call mvn clean package -q
 if not exist "%PLUGINS_DIR%" mkdir "%PLUGINS_DIR%"
 if not exist "%PROGRAM_PLUGINS_DIR%" mkdir "%PROGRAM_PLUGINS_DIR%"
 
-set INSTALLED=0
-for /d %%m in (*) do (
-    for %%f in ("%%m\target\*-fat.jar") do (
-        if exist "%%f" (
-            if /i "%%~nxm"=="plugin-program-demo" (
-                copy /y "%%f" "%PROGRAM_PLUGINS_DIR%\%%~nxf" >nul
-                echo Installed program plugin: %%~nxf
-            ) else (
-                copy /y "%%f" "%PLUGINS_DIR%\%%~nxf" >nul
-                echo Installed session plugin: %%~nxf
-            )
-            set /a INSTALLED+=1
-        )
-    )
-)
+del /q "%PROGRAM_PLUGINS_DIR%\plugin-program-demo-*-fat.jar" 2>nul
+del /q "%PLUGINS_DIR%\plugin-session-demo-*-fat.jar" 2>nul
+del /q "%PLUGINS_DIR%\plugin-demo-*-fat.jar" 2>nul
+del /q "%PLUGINS_DIR%\plugin-sysmon-*-fat.jar" 2>nul
 
-if !INSTALLED!==0 (
-    echo No plugin fat JARs found.
-) else (
-    echo Done. !INSTALLED! plugin(s^) installed.
-    echo Session plugins: %PLUGINS_DIR%
-    echo Program plugins: %PROGRAM_PLUGINS_DIR%
-)
+call :install_plugin plugin-program-demo com.jlshell.demo.program-host-tools "%PROGRAM_PLUGINS_DIR%"
+if errorlevel 1 goto end
+call :install_plugin plugin-session-demo com.jlshell.demo.session-tools "%PLUGINS_DIR%"
+if errorlevel 1 goto end
+call :install_plugin plugin-demo com.jlshell.demo.script-snippets "%PLUGINS_DIR%"
+if errorlevel 1 goto end
+call :install_plugin plugin-sysmon com.jlshell.sysmon "%PLUGINS_DIR%"
+if errorlevel 1 goto end
+echo Done. 4 demo plugins installed. Restart JLShell to reload plugin JARs.
 goto end
+
+:install_plugin
+set "MODULE=%~1"
+set "PLUGIN_ID=%~2"
+set "ROOT=%~3"
+set "FAT_JAR="
+for %%f in ("%MODULE%\target\*-fat.jar") do if exist "%%f" if not defined FAT_JAR set "FAT_JAR=%%f"
+if not defined FAT_JAR (
+    echo Missing fat JAR for %MODULE%
+    exit /b 1
+)
+set "PLUGIN_DIR=%ROOT%\%PLUGIN_ID%"
+for %%f in ("%FAT_JAR%") do set "JAR_NAME=%%~nxf"
+if not exist "%PLUGIN_DIR%" mkdir "%PLUGIN_DIR%"
+set "PREVIOUS_DIR=%PLUGIN_DIR%\.previous"
+if not exist "%PREVIOUS_DIR%" mkdir "%PREVIOUS_DIR%"
+del /q "%PREVIOUS_DIR%\*.jar" 2>nul
+for %%f in ("%PLUGIN_DIR%\*.jar") do if exist "%%f" if /i not "%%~nxf"=="previous-plugin.jar" (
+    set "BACKUP_NAME=%%~nxf"
+    if /i "!BACKUP_NAME!"=="plugin.jar" set "BACKUP_NAME=!JAR_NAME!"
+    copy /y "%%f" "%PREVIOUS_DIR%\!BACKUP_NAME!" >nul
+    del /q "%%f"
+)
+del /q "%PLUGIN_DIR%\previous-plugin.jar" 2>nul
+copy /y "%FAT_JAR%" "%PLUGIN_DIR%\%JAR_NAME%" >nul
+echo Installed %PLUGIN_ID%: %PLUGIN_DIR%\%JAR_NAME%
+exit /b 0
 
 :do_uninstall
 set REMOVED=0
-for %%f in ("%PLUGINS_DIR%\*-fat.jar") do (
-    if exist "%%f" (
-        del "%%f"
-        echo Removed: %%~nxf
-        set /a REMOVED+=1
-    )
-)
-for %%f in ("%PROGRAM_PLUGINS_DIR%\*-fat.jar") do (
-    if exist "%%f" (
-        del "%%f"
-        echo Removed: %%~nxf
-        set /a REMOVED+=1
-    )
-)
+call :remove_plugin "%PROGRAM_PLUGINS_DIR%\com.jlshell.demo.program-host-tools"
+call :remove_plugin "%PLUGINS_DIR%\com.jlshell.demo.session-tools"
+call :remove_plugin "%PLUGINS_DIR%\com.jlshell.demo.script-snippets"
+call :remove_plugin "%PLUGINS_DIR%\com.jlshell.sysmon"
+del /q "%PROGRAM_PLUGINS_DIR%\plugin-program-demo-*-fat.jar" 2>nul
+del /q "%PLUGINS_DIR%\plugin-session-demo-*-fat.jar" 2>nul
+del /q "%PLUGINS_DIR%\plugin-demo-*-fat.jar" 2>nul
+del /q "%PLUGINS_DIR%\plugin-sysmon-*-fat.jar" 2>nul
 
 if !REMOVED!==0 (
-    echo No plugins found in %PLUGINS_DIR% or %PROGRAM_PLUGINS_DIR%
+    echo No demo plugin directories found.
 ) else (
-    echo Done. !REMOVED! plugin(s^) removed.
+    echo Done. !REMOVED! demo plugin(s^) removed.
 )
 goto end
+
+:remove_plugin
+if exist "%~1" (
+    rmdir /s /q "%~1"
+    echo Removed: %~1
+    set /a REMOVED+=1
+)
+exit /b 0
 
 :do_clean
 call :do_uninstall

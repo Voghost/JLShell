@@ -1,6 +1,8 @@
 package com.jlshell.app;
 
 import java.util.Locale;
+import java.util.List;
+import java.util.ServiceLoader;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -16,6 +18,7 @@ import com.jlshell.core.service.impl.InMemorySessionRegistry;
 import com.jlshell.core.service.impl.PersistentFontProfileService;
 import com.jlshell.core.shortcut.ShortcutRegistry;
 import com.jlshell.core.support.NamedThreadFactory;
+import com.jlshell.app.api.CoreProgramSessionService;
 import com.jlshell.data.config.CredentialEncryptionProperties;
 import com.jlshell.data.config.DatabaseFactory;
 import com.jlshell.data.crypto.AesGcmCredentialCipher;
@@ -27,6 +30,11 @@ import com.jlshell.data.JdbiPluginStorage;
 import com.jlshell.plugin.loader.CapabilityBusImpl;
 import com.jlshell.plugin.loader.PluginManager;
 import com.jlshell.program.plugin.loader.ProgramPluginManager;
+import com.jlshell.program.api.DefaultProgramApiRegistry;
+import com.jlshell.program.api.ProgramApiContext;
+import com.jlshell.program.api.ProgramApiProvider;
+import com.jlshell.program.api.ProgramApiRegistry;
+import com.jlshell.program.api.ProgramSessionService;
 import com.jlshell.sftp.service.SftpService;
 import com.jlshell.sftp.support.SshjSftpService;
 import com.jlshell.ssh.support.EphemeralTrustHostKeyVerifier;
@@ -65,6 +73,7 @@ public class AppContext implements AutoCloseable {
     private final MainWindow mainWindow;
     private final com.jlshell.api.server.ApiServer apiServer;
     private final ProgramPluginManager programPluginManager;
+    private final List<ProgramApiProvider> programApiProviders;
     private final MemoryReclaimService memoryReclaimService;
     private final AccountService accountService;
 
@@ -129,7 +138,10 @@ public class AppContext implements AutoCloseable {
 
         // 6. Plugins — 延迟到首次 getAvailablePlugins()/activatePlugin() 才扫描 JAR
         String hostVersion = com.jlshell.ui.dialog.PreferencesDialog.getVersion();
-        PluginManager pluginManager = new PluginManager(userHome + "/.jlshell/plugins", hostVersion);
+        com.jlshell.plugin.loader.PluginEnablementService pluginEnablementService =
+                new com.jlshell.plugin.loader.PluginEnablementService(appSettingsService);
+        PluginManager pluginManager = new PluginManager(
+                userHome + "/.jlshell/plugins", hostVersion, pluginEnablementService);
 
         // 6b. RPC 内核 + 外部 API
         CapabilityBusImpl capabilityBus = new CapabilityBusImpl(pluginManager);
@@ -146,6 +158,7 @@ public class AppContext implements AutoCloseable {
         }
         com.jlshell.api.server.ApiServerConfig apiCfg =
                 new com.jlshell.api.server.ApiServerConfig(apiPort, apiToken, apiEnabled);
+        final String externalApiToken = apiToken;
 
         // 6.5. Vault service + migration
         VaultKeyService vaultKeyService = new VaultKeyService(appSettingsService);
@@ -171,25 +184,24 @@ public class AppContext implements AutoCloseable {
         UpdateService updateService = new UpdateService(appSettingsService, executor);
         this.accountService = new AccountService(appSettingsService, executor);
 
-        // 7b. Host methods + API server
-        com.jlshell.program.api.ProgramHostMethods hostMethods =
-                new com.jlshell.program.api.ProgramHostMethods(
-                        connectionProfileService::toConnectionRequest, sessionManager, executor, apiToken);
-        com.jlshell.plugin.loader.HeadlessSessionPluginActivator sessionPluginActivator =
-                new com.jlshell.plugin.loader.HeadlessSessionPluginActivator(
-                        pluginManager, sessionManager, sftpService, capabilityBus, storageFactory);
-        com.jlshell.api.server.ApiServer apiServer =
-                new com.jlshell.api.server.ApiServer(apiCfg, capabilityBus, hostMethods, sessionPluginActivator);
-        if (apiEnabled) {
-            try {
-                apiServer.start();
-                log.info("External API on 127.0.0.1:{} (token at ~/.jlshell/api.token)", apiServer.port());
-            } catch (java.io.IOException e) {
-                log.warn("API server failed to start (non-fatal): {}", e.getMessage());
-            }
+        // 7b. Program API SPI + API server
+        ProgramApiRegistry programApiRegistry = new DefaultProgramApiRegistry();
+        ProgramSessionService programSessionService = new CoreProgramSessionService(
+                connectionProfileService::toConnectionRequest, sessionManager, executor);
+        ProgramApiContext programApiContext = new ProgramApiContext() {
+            @Override public ProgramApiRegistry registry() { return programApiRegistry; }
+            @Override public ProgramSessionService sessions() { return programSessionService; }
+            @Override public String apiToken() { return externalApiToken; }
+            @Override public java.util.concurrent.Executor executor() { return executor; }
+        };
+        List<ProgramApiProvider> programApiProviders = ServiceLoader
+                .load(ProgramApiProvider.class, AppContext.class.getClassLoader()).stream()
+                .map(ServiceLoader.Provider::get)
+                .toList();
+        if (programApiProviders.isEmpty()) {
+            log.warn("No ProgramApiProvider was discovered; external host methods are unavailable");
         }
-
-        // 7. Main window
+        programApiProviders.forEach(provider -> provider.activate(programApiContext));
         ProgramPluginManager programPluginManager = new ProgramPluginManager(
                 userHome + "/.jlshell/program-plugins",
                 hostVersion,
@@ -200,12 +212,28 @@ public class AppContext implements AutoCloseable {
                 (key, fallback) -> {
                     String value = i18nService.get(key);
                     return value == null || value.isBlank() || value.equals(key) ? fallback : value;
-                }
+                },
+                programApiContext,
+                pluginEnablementService
         );
         programPluginManager.setThemeName(themeService.currentThemeProperty().get().name().toLowerCase());
         programPluginManager.setLocale(initialLocale);
         programPluginManager.ensureLoaded();
+        com.jlshell.plugin.loader.HeadlessSessionPluginActivator sessionPluginActivator =
+                new com.jlshell.plugin.loader.HeadlessSessionPluginActivator(
+                        pluginManager, sessionManager, sftpService, capabilityBus, storageFactory);
+        com.jlshell.api.server.ApiServer apiServer =
+                new com.jlshell.api.server.ApiServer(apiCfg, capabilityBus, programApiRegistry, sessionPluginActivator);
+        if (apiEnabled) {
+            try {
+                apiServer.start();
+                log.info("External API on 127.0.0.1:{} (token at ~/.jlshell/api.token)", apiServer.port());
+            } catch (java.io.IOException e) {
+                log.warn("API server failed to start (non-fatal): {}", e.getMessage());
+            }
+        }
 
+        // 7. Main window
         mainWindow = new MainWindow(
                 viewModel,
                 connectionProfileService,
@@ -233,6 +261,7 @@ public class AppContext implements AutoCloseable {
 
         this.apiServer = apiServer;
         this.programPluginManager = programPluginManager;
+        this.programApiProviders = programApiProviders;
 
         log.info("AppContext initialised");
     }
@@ -245,6 +274,7 @@ public class AppContext implements AutoCloseable {
     public void close() {
         log.info("AppContext shutting down");
         if (apiServer != null) apiServer.stop();
+        programApiProviders.forEach(ProgramApiProvider::deactivate);
         if (programPluginManager != null) programPluginManager.deactivateAll();
         if (accountService != null) accountService.shutdown();
         if (memoryReclaimService != null) memoryReclaimService.close();

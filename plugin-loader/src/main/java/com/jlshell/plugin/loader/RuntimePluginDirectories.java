@@ -44,6 +44,42 @@ public final class RuntimePluginDirectories {
         }
     }
 
+    /**
+     * 同时兼容根目录下的传统平铺 JAR，以及 {@code <root>/<plugin-id>/<name>.jar}。
+     * 子目录中的历史备份放在 {@code .previous/} 或使用 {@code previous-} 前缀，不参与扫描。
+     */
+    public static List<Path> pluginJars(Path directory) {
+        if (directory == null || !Files.isDirectory(directory)) {
+            return List.of();
+        }
+        List<Path> jars = new ArrayList<>();
+        try (var children = Files.list(directory)) {
+            children.filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().endsWith(".jar"))
+                    .forEach(jars::add);
+        } catch (java.io.IOException ignored) {
+            return List.of();
+        }
+        try (var children = Files.list(directory)) {
+            children.filter(Files::isDirectory)
+                    .forEach(pluginDir -> addPluginDirectoryJars(jars, pluginDir));
+        } catch (java.io.IOException ignored) {
+            // 已收集的传统平铺 JAR 仍可用。
+        }
+        return List.copyOf(jars);
+    }
+
+    private static void addPluginDirectoryJars(List<Path> jars, Path pluginDir) {
+        try (var files = Files.list(pluginDir)) {
+            files.filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().endsWith(".jar"))
+                    .filter(path -> !path.getFileName().toString().startsWith("previous-"))
+                    .forEach(jars::add);
+        } catch (java.io.IOException ignored) {
+            // 单个插件目录不可读时继续扫描其他插件。
+        }
+    }
+
     private static List<Path> resolveApplicationDirs() {
         List<Path> dirs = new ArrayList<>();
 
