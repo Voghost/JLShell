@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "com.jlshell.demo.session-tools",
+  "version": "0.1.0",
+  "scope": "SESSION",
+  "entrypoint": "com.jlshell.demo.session.SessionToolsPlugin",
+  "defaultLocale": "en",
+  "displayName": "Session Tools Demo",
+  "description": "Demonstrates a session plugin view, SSH access, storage, and session capability.",
+  "author": "JLShell",
+  "license": "Apache-2.0",
+  "repository": "https://github.com/Voghost/JLShell",
+  "minHostVersion": "0.1.0",
+  "maxHostVersion": "0.1.999"
+}

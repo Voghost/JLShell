@@ -42,6 +42,8 @@ public class PluginsTabView extends BorderPane {
     private final String sessionId;
     private final java.util.Set<String> activatedPluginIds = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final ChangeListener<java.util.Locale> localeListener;
+    private final ChangeListener<Number> catalogRevisionListener;
+    private final ListView<PluginDescriptor> listView = new ListView<>();
 
     public PluginsTabView(
             PluginManager pluginManager,
@@ -60,9 +62,6 @@ public class PluginsTabView extends BorderPane {
         this.sessionId = sessionId;
         this.capabilityBus = capabilityBus;
         this.storageFactory = storageFactory;
-
-        ListView<PluginDescriptor> listView = new ListView<>();
-        listView.getItems().addAll(pluginManager.getAvailablePlugins());
 
         listView.setCellFactory(lv -> new ListCell<>() {
             @Override
@@ -148,8 +147,26 @@ public class PluginsTabView extends BorderPane {
 
         localeListener = (obs, oldLocale, newLocale) -> listView.refresh();
         i18nService.localeProperty().addListener(localeListener);
+        catalogRevisionListener = (obs, oldRevision, newRevision) -> {
+            if (Platform.isFxApplicationThread()) {
+                refreshPluginList();
+            } else {
+                Platform.runLater(this::refreshPluginList);
+            }
+        };
+        // 首次读取可能触发延迟扫描；先完成初始渲染，再监听后续目录变更，避免扫描通知重入。
+        refreshPluginList();
+        pluginManager.catalogRevisionProperty().addListener(catalogRevisionListener);
+    }
 
-        if (listView.getItems().isEmpty()) {
+    private void refreshPluginList() {
+        java.util.List<PluginDescriptor> available = pluginManager.getAvailablePlugins();
+        listView.getItems().setAll(available);
+        java.util.Set<String> availableIds = available.stream()
+                .map(PluginDescriptor::id)
+                .collect(java.util.stream.Collectors.toSet());
+        activatedPluginIds.retainAll(availableIds);
+        if (available.isEmpty()) {
             setCenter(new Label(i18nService.get("plugin.noPlugins")));
         } else {
             setCenter(listView);
@@ -163,6 +180,7 @@ public class PluginsTabView extends BorderPane {
 
     public void dispose() {
         i18nService.localeProperty().removeListener(localeListener);
+        pluginManager.catalogRevisionProperty().removeListener(catalogRevisionListener);
         stopPlugins();
         setCenter(null);
     }

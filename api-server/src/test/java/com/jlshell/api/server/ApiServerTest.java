@@ -12,7 +12,9 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
-import com.jlshell.api.server.dispatch.HostMethods;
+import com.jlshell.program.api.DefaultProgramApiRegistry;
+import com.jlshell.program.api.ProgramApiCatalog;
+import com.jlshell.program.api.ProgramApiRegistry;
 import com.jlshell.plugin.api.rpc.CapabilityBus;
 import com.jlshell.plugin.api.rpc.CapabilitySpec;
 import com.jlshell.plugin.api.rpc.RpcRequest;
@@ -35,16 +37,23 @@ class ApiServerTest {
     private ApiServer server;
     private final HttpClient client = HttpClient.newHttpClient();
 
-    private HostMethods stubHost() {
-        return new HostMethods() {
-            @Override public CompletableFuture<JsonElement> sessionConnect(JsonElement p) { return CompletableFuture.completedFuture(new JsonPrimitive("sid-1")); }
-            @Override public CompletableFuture<JsonElement> sessionDisconnect(JsonElement p) { return CompletableFuture.completedFuture(JsonNull.INSTANCE); }
-            @Override public CompletableFuture<JsonElement> sessionList(JsonElement p) { return CompletableFuture.completedFuture(new JsonArray()); }
-            @Override public CompletableFuture<JsonElement> sessionInfo(JsonElement p) { return CompletableFuture.completedFuture(new JsonObject()); }
-            @Override public CompletableFuture<JsonElement> commandRun(JsonElement p) { return CompletableFuture.completedFuture(new JsonObject()); }
-            @Override public CompletableFuture<JsonElement> apiToken(JsonElement p) { return CompletableFuture.completedFuture(new JsonPrimitive("tok")); }
-            @Override public CompletableFuture<JsonElement> apiMethods(JsonElement p) { return CompletableFuture.completedFuture(new JsonArray()); }
-        };
+    private ProgramApiRegistry stubProgramApi() {
+        DefaultProgramApiRegistry registry = new DefaultProgramApiRegistry();
+        registry.register(ProgramApiCatalog.SESSION_CONNECT,
+                p -> CompletableFuture.completedFuture(new JsonPrimitive("sid-1")));
+        registry.register(ProgramApiCatalog.SESSION_DISCONNECT,
+                p -> CompletableFuture.completedFuture(JsonNull.INSTANCE));
+        registry.register(ProgramApiCatalog.SESSION_LIST,
+                p -> CompletableFuture.completedFuture(new JsonArray()));
+        registry.register(ProgramApiCatalog.SESSION_INFO,
+                p -> CompletableFuture.completedFuture(new JsonObject()));
+        registry.register(ProgramApiCatalog.COMMAND_RUN,
+                p -> CompletableFuture.completedFuture(new JsonObject()));
+        registry.register(ProgramApiCatalog.API_TOKEN,
+                p -> CompletableFuture.completedFuture(new JsonPrimitive("tok")));
+        registry.register(ProgramApiCatalog.API_METHODS,
+                p -> CompletableFuture.completedFuture(new JsonArray()));
+        return registry;
     }
 
     private CapabilityBus stubBus() {
@@ -57,7 +66,7 @@ class ApiServerTest {
     }
 
     private void startServer() throws Exception {
-        server = new ApiServer(new ApiServerConfig(0, "secret-token", true), stubBus(), stubHost());
+        server = new ApiServer(new ApiServerConfig(0, "secret-token", true), stubBus(), stubProgramApi());
         server.start();
     }
 
@@ -141,7 +150,7 @@ class ApiServerTest {
                 return CompletableFuture.completedFuture(null);
             }
         };
-        server = new ApiServer(new ApiServerConfig(0, "secret-token", true), bus, stubHost(), activator);
+        server = new ApiServer(new ApiServerConfig(0, "secret-token", true), bus, stubProgramApi(), activator);
         server.start();
 
         HttpResponse<String> response = post("secret-token", """

@@ -13,6 +13,12 @@
     <artifactId>plugin-session-demo</artifactId>
     <name>JLShell Session Plugin Demo</name>
 
+    <properties>
+        <jlshell.plugin.id>com.jlshell.demo.session-tools</jlshell.plugin.id>
+        <jlshell.plugin.version>0.1.0</jlshell.plugin.version>
+        <jlshell.plugin.scope>SESSION</jlshell.plugin.scope>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>com.jlshell</groupId>

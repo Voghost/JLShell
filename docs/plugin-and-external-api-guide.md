@@ -1,6 +1,6 @@
 # JLShell 插件与外部 API 开放指南
 
-> 面向：需要扩展 JLShell 的开发者与 Agent。本文以仓库当前实现为准；先阅读本文，再按需查看 `plugins/plugin-session-demo`、`plugins/plugin-program-demo` 两个可运行示例。
+> 面向：需要扩展 JLShell 的开发者与 Agent。本文以仓库当前实现为准；先阅读本文，再按需查看 `plugins/plugin-session-demo`、`plugins/plugin-program-demo` 两个可运行示例。外部 JSON-RPC 宿主 SPI 的完整契约见 [`program-api/README.md`](../program-api/README.md)。
 
 ## 1. 先选扩展方式
 
@@ -121,7 +121,7 @@ public void activate(PluginContext context) {
 
 ### 4.1 加载位置与 SPI
 
-程序插件在应用启动后加载一次，JAR 目录为：
+程序插件在 API Server 启动前加载一次，JAR 目录为：
 
 1. 用户目录：`~/.jlshell/program-plugins/`
 2. 打包应用目录旁的 `program-plugins/`
@@ -291,7 +291,26 @@ curl --fail-with-body \
 }
 ```
 
-### 6.4 当前自省限制
+### 6.4 扩展外部方法（Program API SPI）
+
+除 `capability.invoke` 外，程序插件还可通过 `ProgramApiProvider` 直接注册新的 JSON-RPC 方法。插件实现类需同时实现 `JlShellProgramPlugin` 与 `ProgramApiProvider`，并继续只在 `JlShellProgramPlugin` 的 ServiceLoader 文件中登记。加载器会在程序插件激活后注册 API provider，随后才创建 API Server。
+
+`plugin-program-demo` 提供两个可调用方法：
+
+| 方法 | 行为 |
+| --- | --- |
+| `demo.host.info` | 返回 JLShell 运行环境、主题和语言信息 |
+| `demo.echo` | 原样返回请求的 `params` |
+
+例如：
+
+```json
+{"jsonrpc":"2.0","id":4,"method":"demo.echo","params":{"message":"hello"}}
+```
+
+自定义方法必须使用插件专属命名空间，且不得覆盖系统方法。注册表检测到重复方法名会拒绝启动该插件。插件包必须将 `program-api`（以及 `plugin-api`）标记为宿主提供依赖，不能 shade 进 JAR；完整接口、会话抽象、打包配置和安全要求见 [`program-api/README.md`](../program-api/README.md)。
+
+### 6.5 当前自省限制
 
 `capability.list` 会返回 `name`、`description`、`requiresSession` 和可选 `inputSchema`，**当前实现不返回 `pluginId`**。因此纯外部 Agent 不能仅凭此方法的结果拼出可调用的完整路由；应通过插件文档、固定配置，或 JLShell“偏好设置 → API”中的能力浏览器取得 `pluginId/capability` 对。为每个对外能力维护稳定的插件 ID 和名称。
 

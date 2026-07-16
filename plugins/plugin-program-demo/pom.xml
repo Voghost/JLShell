@@ -13,10 +13,20 @@
     <artifactId>plugin-program-demo</artifactId>
     <name>JLShell Program Plugin Demo</name>
 
+    <properties>
+        <jlshell.plugin.id>com.jlshell.demo.program-host-tools</jlshell.plugin.id>
+        <jlshell.plugin.version>0.1.0</jlshell.plugin.version>
+        <jlshell.plugin.scope>PROGRAM</jlshell.plugin.scope>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>com.jlshell</groupId>
             <artifactId>plugin-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.jlshell</groupId>
+            <artifactId>program-api</artifactId>
         </dependency>
         <dependency>
             <groupId>org.openjfx</groupId>

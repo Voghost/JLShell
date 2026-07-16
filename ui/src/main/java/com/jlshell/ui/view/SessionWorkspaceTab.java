@@ -55,6 +55,8 @@ public class SessionWorkspaceTab extends Tab {
     private final PluginManager pluginManager;
     private final CapabilityBus capabilityBus;
     private final java.util.function.Function<String, PluginStorage> storageFactory;
+    private final Runnable sessionCountChanged;
+    private final java.util.function.Consumer<String> statsDisconnectListener;
 
     // 保存构造参数用于重连
     private final TerminalViewFactory terminalViewFactory;
@@ -84,7 +86,8 @@ public class SessionWorkspaceTab extends Tab {
             ThemeService themeService,
             PluginManager pluginManager,
             CapabilityBus capabilityBus,
-            java.util.function.Function<String, PluginStorage> storageFactory
+            java.util.function.Function<String, PluginStorage> storageFactory,
+            Runnable sessionCountChanged
     ) {
         super(connectionProfile.displayName());
         this.connectionProfile = connectionProfile;
@@ -101,6 +104,9 @@ public class SessionWorkspaceTab extends Tab {
         this.pluginManager = pluginManager;
         this.capabilityBus = capabilityBus;
         this.storageFactory = storageFactory;
+        this.sessionCountChanged = sessionCountChanged == null ? () -> { } : sessionCountChanged;
+        this.statsDisconnectListener = ignored -> notifySessionCountChanged();
+        this.sshSession.addDisconnectListener(statsDisconnectListener);
 
         // 本工作区 Tab 的会话 id：来自 SSH 会话，用于 per-session 插件能力 registry 路由
         String sessionId = sshSession.sessionId().toString();
@@ -191,10 +197,14 @@ public class SessionWorkspaceTab extends Tab {
                     return null;
                 })
                 .thenApply(unused -> (Void) null)
-                .whenComplete((unused, throwable) -> FxThread.run(this::disposeUiReferences));
+                .whenComplete((unused, throwable) -> {
+                    notifySessionCountChanged();
+                    FxThread.run(this::disposeUiReferences);
+                });
     }
 
     private void disposeUiReferences() {
+        sshSession.removeDisconnectListener(statsDisconnectListener);
         if (sftpPane != null) {
             sftpPane.dispose();
             sftpPane = null;
@@ -260,6 +270,7 @@ public class SessionWorkspaceTab extends Tab {
         if (pluginsTabView != null) {
             pluginsTabView.stopPlugins();
         }
+        sshSession.removeDisconnectListener(statsDisconnectListener);
 
         // 1. 关闭旧终端
         terminalWorkspaceView.closeAsync()
@@ -287,6 +298,8 @@ public class SessionWorkspaceTab extends Tab {
                     // 4. 在 FX 线程替换 sshSession 和终端视图
                     return FxThread.supplyAsync(() -> {
                         this.sshSession = newSession;
+                        this.sshSession.addDisconnectListener(statsDisconnectListener);
+                        notifySessionCountChanged();
                         // 创建新的终端视图
                         String newSessionId = newSession.sessionId().toString();
                         TerminalWorkspaceView newView = new TerminalWorkspaceView(
@@ -315,6 +328,14 @@ public class SessionWorkspaceTab extends Tab {
                         resetPluginPaneAfterReconnect();
                     }
                 }));
+    }
+
+    private void notifySessionCountChanged() {
+        try {
+            sessionCountChanged.run();
+        } catch (RuntimeException e) {
+            log.warn("Failed to update account connection statistics", e);
+        }
     }
 
     private void resetFilePaneAfterReconnect() {

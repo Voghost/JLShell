@@ -85,6 +85,7 @@ public class TerminalWorkspaceView extends BorderPane {
     private final SftpService sftpService;
     private final java.util.function.Function<String, PluginStorage> storageFactory;
     private final java.util.function.Consumer<String> sessionDisconnectListener;
+    private final ChangeListener<Number> pluginCatalogRevisionListener;
     /** 本工作区 Tab 对应的会话 id（SSH 会话或合成的 local-uuid），用于 per-session registry 路由 */
     private final String sessionId;
     private final StackPane terminalHost = new StackPane();
@@ -169,6 +170,18 @@ public class TerminalWorkspaceView extends BorderPane {
         getStyleClass().add("workspace-panel");
         setTop(buildToolbar());
         setCenter(terminalHost);
+        this.pluginCatalogRevisionListener = (obs, oldRevision, newRevision) -> {
+            if (Platform.isFxApplicationThread()) {
+                if (toolbar != null) rebuildPinnedPluginButtons();
+            } else {
+                Platform.runLater(() -> {
+                    if (toolbar != null) rebuildPinnedPluginButtons();
+                });
+            }
+        };
+        if (pluginManager != null) {
+            pluginManager.catalogRevisionProperty().addListener(pluginCatalogRevisionListener);
+        }
     }
 
     public CompletableFuture<Void> initialize() {
@@ -237,6 +250,9 @@ public class TerminalWorkspaceView extends BorderPane {
     public CompletableFuture<Void> closeAsync() {
         hideFloatingCard();
         sshSession.removeDisconnectListener(sessionDisconnectListener);
+        if (pluginManager != null) {
+            pluginManager.catalogRevisionProperty().removeListener(pluginCatalogRevisionListener);
+        }
         detachPrimarySwingNode();
         for (int i = 0; i < handles.size(); i++) {
             TerminalViewHandle handle = handles.get(i);

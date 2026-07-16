@@ -16,8 +16,12 @@ import com.jlshell.plugin.api.JlShellPlugin;
 import com.jlshell.plugin.api.PluginCompatibility;
 import com.jlshell.plugin.api.PluginContext;
 import com.jlshell.plugin.api.PluginView;
+import com.jlshell.plugin.api.PluginScope;
+import com.jlshell.plugin.loader.store.PluginPackageValidator;
 
 import javafx.beans.property.ObjectProperty;
+import javafx.beans.property.ReadOnlyLongProperty;
+import javafx.beans.property.ReadOnlyLongWrapper;
 import javafx.beans.property.SimpleObjectProperty;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.beans.property.StringProperty;
@@ -40,21 +44,30 @@ public class PluginManager {
 
     private final String userPluginsDir;
     private final String hostVersion;
+    private final PluginEnablementService enablementService;
     private final List<PluginDescriptor> plugins = new ArrayList<>();
+    private final List<URLClassLoader> externalClassLoaders = new ArrayList<>();
     private final Map<String, SessionPluginSet> activeBySession = new ConcurrentHashMap<>();
     private volatile boolean loaded = false;
 
     private final StringProperty themeName = new SimpleStringProperty("dark");
     private final ObjectProperty<Locale> locale = new SimpleObjectProperty<>(Locale.getDefault());
+    /** UI 通过该版本号感知插件目录重新扫描，避免每个 Session 持有过期列表。 */
+    private final ReadOnlyLongWrapper catalogRevision = new ReadOnlyLongWrapper(0);
 
     public PluginManager(String userPluginsDir) {
-        this.userPluginsDir = userPluginsDir;
-        this.hostVersion = DEFAULT_HOST_VERSION;
+        this(userPluginsDir, DEFAULT_HOST_VERSION, new PluginEnablementService());
     }
 
     public PluginManager(String userPluginsDir, String hostVersion) {
+        this(userPluginsDir, hostVersion, new PluginEnablementService());
+    }
+
+    public PluginManager(String userPluginsDir, String hostVersion,
+                         PluginEnablementService enablementService) {
         this.userPluginsDir = userPluginsDir;
         this.hostVersion = hostVersion == null || hostVersion.isBlank() ? DEFAULT_HOST_VERSION : hostVersion;
+        this.enablementService = enablementService == null ? new PluginEnablementService() : enablementService;
     }
 
     public PluginManager() {
@@ -67,9 +80,21 @@ public class PluginManager {
      */
     public void loadPlugins() {
         plugins.clear();
+        closeExternalClassLoaders();
         loadFromClassLoader(Thread.currentThread().getContextClassLoader());
         loadFromExternalDirs();
+        catalogRevision.set(catalogRevision.get() + 1);
         log.info("Loaded {} plugin(s)", plugins.size());
+    }
+
+    /**
+     * 停用全部会话插件后重新扫描外部目录。
+     * 商店安装或升级 SESSION 插件后调用，使新 JAR 在无需重启的情况下生效。
+     */
+    public synchronized void reloadPlugins() {
+        deactivateAll();
+        loaded = false;
+        ensureLoaded();
     }
 
     /**
@@ -100,12 +125,13 @@ public class PluginManager {
 
     private void loadFromDirectory(Path dir) {
         if (!Files.isDirectory(dir)) return;
-        File[] jars = dir.toFile().listFiles(f -> f.getName().endsWith(".jar"));
-        if (jars == null) return;
-        for (File jar : jars) {
+        for (Path jarPath : RuntimePluginDirectories.pluginJars(dir)) {
+            File jar = jarPath.toFile();
             try {
+                PluginPackageValidator.validateForLoading(jarPath, PluginScope.SESSION);
                 URL[] urls = {jar.toURI().toURL()};
                 URLClassLoader loader = new URLClassLoader(urls, Thread.currentThread().getContextClassLoader());
+                externalClassLoaders.add(loader);
                 loadFromClassLoader(loader);
                 log.info("Loaded plugins from: {}", jar.getName());
             } catch (Exception e) {
@@ -114,9 +140,42 @@ public class PluginManager {
         }
     }
 
+    private void closeExternalClassLoaders() {
+        externalClassLoaders.forEach(loader -> {
+            try {
+                loader.close();
+            } catch (java.io.IOException e) {
+                log.debug("Failed to close external plugin class loader", e);
+            }
+        });
+        externalClassLoaders.clear();
+    }
+
     public List<PluginDescriptor> getAvailablePlugins() {
         ensureLoaded();
+        return plugins.stream().filter(descriptor -> isPluginEnabled(descriptor.id())).toList();
+    }
+
+    /** 包含已停用插件，供“已安装”管理页展示。 */
+    public List<PluginDescriptor> getInstalledPlugins() {
+        ensureLoaded();
         return List.copyOf(plugins);
+    }
+
+    public boolean isPluginEnabled(String pluginId) {
+        return enablementService.isEnabled(pluginId, PluginScope.SESSION);
+    }
+
+    /** 停用会立即关闭所有 Session 中的实例；启用后会重新出现在 Session 插件列表。 */
+    public void setPluginEnabled(String pluginId, boolean enabled) {
+        if (!enabled) deactivatePlugin(pluginId);
+        enablementService.setEnabled(pluginId, PluginScope.SESSION, enabled);
+        catalogRevision.set(catalogRevision.get() + 1);
+    }
+
+    /** 每次重新扫描插件目录后递增，供所有已打开的 Session 页面刷新插件列表。 */
+    public ReadOnlyLongProperty catalogRevisionProperty() {
+        return catalogRevision.getReadOnlyProperty();
     }
 
     public StringProperty themeNameProperty() {
@@ -139,6 +198,7 @@ public class PluginManager {
 
     public void activatePlugin(String pluginId, PluginContext context) {
         ensureLoaded();
+        if (!isPluginEnabled(pluginId)) return;
         plugins.stream()
                 .filter(d -> d.id().equals(pluginId))
                 .findFirst()
@@ -151,6 +211,7 @@ public class PluginManager {
      */
     public void activateInstance(JlShellPlugin plugin, PluginContext context) {
         ensureLoaded();
+        if (!isPluginEnabled(plugin.id())) return;
         String sid = (context instanceof DefaultPluginContext dpc) ? dpc.sessionId() : null;
         SessionPluginSet set = activeBySession.computeIfAbsent(
                 sid == null ? GLOBAL_KEY : sid, SessionPluginSet::new);
@@ -275,7 +336,14 @@ public class PluginManager {
 
     private static void disposeContext(PluginContext context) {
         if (context instanceof DefaultPluginContext defaultContext) {
-            defaultContext.disposeBindings();
+            // 插件被卸载、升级或会话关闭时，不保留已经失效的插件页面。
+            try {
+                defaultContext.closeTab();
+            } catch (RuntimeException e) {
+                log.warn("Failed to close plugin tab while disposing context", e);
+            } finally {
+                defaultContext.disposeBindings();
+            }
         }
     }
 

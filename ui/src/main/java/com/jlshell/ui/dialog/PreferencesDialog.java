@@ -10,6 +10,13 @@ import com.jlshell.plugin.api.rpc.Capability;
 import com.jlshell.plugin.api.rpc.CapabilityBus;
 import com.jlshell.plugin.api.rpc.CapabilitySpec;
 import com.jlshell.plugin.loader.PluginManager;
+import com.jlshell.plugin.loader.store.PluginInstaller;
+import com.jlshell.plugin.loader.store.PluginStoreClient;
+import com.jlshell.plugin.loader.store.PluginStoreDetail;
+import com.jlshell.plugin.loader.store.PluginStoreListing;
+import com.jlshell.plugin.loader.store.PluginStoreSearch;
+import com.jlshell.plugin.loader.store.PluginStoreUpdate;
+import com.jlshell.plugin.loader.store.PluginStoreVersion;
 import com.jlshell.program.api.ProgramApiCatalog;
 import com.jlshell.program.api.ProgramApiDefinition;
 import com.jlshell.program.plugin.loader.ProgramPluginManager;
@@ -25,6 +32,7 @@ import com.jlshell.ui.theme.AccentColor;
 import com.jlshell.ui.theme.AppTheme;
 import com.jlshell.ui.theme.ThemeService;
 import javafx.beans.binding.Bindings;
+import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.collections.transformation.FilteredList;
@@ -41,7 +49,9 @@ import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
 import javafx.scene.control.PasswordField;
+import javafx.scene.control.ProgressBar;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.Separator;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.Slider;
 import javafx.scene.control.Tab;
@@ -50,9 +60,11 @@ import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.GridPane;
+import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
+import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.Font;
 import javafx.scene.text.Text;
@@ -71,6 +83,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.ArrayList;
+import java.nio.file.Path;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ForkJoinPool;
 import java.util.stream.Collectors;
 
 /**
@@ -81,13 +96,12 @@ public class PreferencesDialog {
 
     public static final int TAB_GENERAL = 0;
     public static final int TAB_ACCOUNT = 1;
-    public static final int TAB_CONNECTION = 2;
-    public static final int TAB_TERMINAL = 3;
-    public static final int TAB_IMPORT = 4;
-    public static final int TAB_API = 5;
-    public static final int TAB_PLUGINS = 6;
-    public static final int TAB_SHORTCUTS = 7;
-    public static final int TAB_ABOUT = 8;
+    public static final int TAB_TERMINAL = 2;
+    public static final int TAB_IMPORT = 3;
+    public static final int TAB_API = 4;
+    public static final int TAB_PLUGINS = 5;
+    public static final int TAB_SHORTCUTS = 6;
+    public static final int TAB_ABOUT = 7;
 
     private static final List<String> PREFERRED_MONO = List.of(
             "JetBrains Mono", "Cascadia Code", "Cascadia Mono", "Fira Code",
@@ -208,13 +222,16 @@ public class PreferencesDialog {
         dialog.setHeaderText(null);
         if (owner != null) dialog.initOwner(owner);
         themeService.applyToDialog(dialog);
-        dialog.getDialogPane().setPrefWidth(620);
+        dialog.setResizable(true);
+        dialog.getDialogPane().setPrefSize(1040, 760);
+        dialog.getDialogPane().setMinSize(860, 620);
 
         FontProfile[] pending = { fontProfileService.activeProfile() };
         String[] pendingLang = { appSettings.get("ui.language", null) };
         String[] pendingTheme = { appSettings.get("ui.theme", "DARK") };
         AccentColor[] pendingAccent = { themeService.accentColor() };
         String[] pendingConnTimeout = { appSettings.get("connection.timeout", "10") };
+        String[] pendingKeepAlive = { appSettings.get("connection.keepAliveInterval", "60") };
         String[] pendingHoverExpand = { appSettings.get("ui.topbar.hoverExpand", "false") };
         TerminalColorScheme[] pendingScheme = { themeService.activeColorScheme() };
         String[] pendingApiEnabled = { appSettings.get("api.enabled", "false") };
@@ -234,7 +251,8 @@ public class PreferencesDialog {
         };
 
         TabPane tabs = buildTabPane(fontProfileService, appSettings, i18n, themeService,
-                pending, pendingLang, pendingTheme, pendingAccent, pendingConnTimeout, pendingHoverExpand, pendingScheme,
+                pending, pendingLang, pendingTheme, pendingAccent, pendingConnTimeout, pendingKeepAlive,
+                pendingHoverExpand, pendingScheme,
                 connectionProfileService, activeProjectId, apiServer, capabilityBus, programPluginManager, pluginManager,
                 selectedSessionId,
                 pendingApiEnabled, pendingApiPort,
@@ -256,12 +274,12 @@ public class PreferencesDialog {
         // Apply 按钮：拦截默认关闭行为，只应用设置
         Button applyButton = (Button) dialog.getDialogPane().lookupButton(applyBtnType);
         PreferencesSnapshot[] lastApplied = { snapshotOf(pending, pendingLang, pendingTheme, pendingAccent,
-                pendingConnTimeout, pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort,
+                pendingConnTimeout, pendingKeepAlive, pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort,
                 pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines,
                 pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl,
                 pendingAccountSyncEnabled, pendingAccountBaseUrl, shortcutRegistry) };
         updateApplyState[0] = () -> applyButton.setDisable(!hasPendingSettingsChanges(lastApplied[0],
-                snapshotOf(pending, pendingLang, pendingTheme, pendingAccent, pendingConnTimeout,
+                snapshotOf(pending, pendingLang, pendingTheme, pendingAccent, pendingConnTimeout, pendingKeepAlive,
                         pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort,
                         pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines,
                         pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl,
@@ -269,9 +287,13 @@ public class PreferencesDialog {
         updateApplyState[0].run();
         applyButton.addEventFilter(javafx.event.ActionEvent.ACTION, e -> {
             e.consume(); // 阻止 Dialog 默认的关闭逻辑
-            boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending, pendingLang, pendingTheme, pendingAccent, pendingConnTimeout, pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort, pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines, pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl, pendingAccountSyncEnabled, pendingAccountBaseUrl);
+            boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending,
+                    pendingLang, pendingTheme, pendingAccent, pendingConnTimeout, pendingKeepAlive,
+                    pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort, pendingUiFontFamily,
+                    pendingUiFontSize, pendingScrollbackLines, pendingUpdateAutoCheck, pendingUpdateChannel,
+                    pendingUpdateBaseUrl, pendingAccountSyncEnabled, pendingAccountBaseUrl);
             lastApplied[0] = snapshotOf(pending, pendingLang, pendingTheme, pendingAccent,
-                    pendingConnTimeout, pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort,
+                    pendingConnTimeout, pendingKeepAlive, pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort,
                     pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines,
                     pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl,
                     pendingAccountSyncEnabled, pendingAccountBaseUrl, shortcutRegistry);
@@ -282,13 +304,22 @@ public class PreferencesDialog {
         dialog.setResultConverter(btn -> {
             if (btn.getButtonData() == ButtonBar.ButtonData.OK_DONE) {
                 boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending,
-                        pendingLang, pendingTheme, pendingAccent, pendingConnTimeout, pendingHoverExpand, pendingScheme,
+                        pendingLang, pendingTheme, pendingAccent, pendingConnTimeout, pendingKeepAlive,
+                        pendingHoverExpand, pendingScheme,
                         pendingApiEnabled, pendingApiPort, pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines,
                         pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl,
                         pendingAccountSyncEnabled, pendingAccountBaseUrl);
                 if (needRestart) showRestartPrompt(owner, i18n);
             }
             return null;
+        });
+
+        // DialogPane 的 minSize 不会约束原生窗口，必须设置到实际 Stage 上。
+        dialog.setOnShown(event -> {
+            if (dialog.getDialogPane().getScene().getWindow() instanceof Stage dialogStage) {
+                dialogStage.setMinWidth(900);
+                dialogStage.setMinHeight(640);
+            }
         });
 
         dialog.showAndWait();
@@ -308,6 +339,7 @@ public class PreferencesDialog {
     private static boolean applyPendingSettings(FontProfileService fontProfileService, AppSettingsService appSettings,
                                               ThemeService themeService, FontProfile[] pending, String[] pendingLang,
                                               String[] pendingTheme, AccentColor[] pendingAccent, String[] pendingConnTimeout,
+                                              String[] pendingKeepAlive,
                                               String[] pendingHoverExpand,
                                               TerminalColorScheme[] pendingScheme,
                                               String[] pendingApiEnabled, String[] pendingApiPort,
@@ -329,6 +361,7 @@ public class PreferencesDialog {
         themeService.setAccentColor(pendingAccent[0]);
 
         appSettings.set("connection.timeout", pendingConnTimeout[0]);
+        appSettings.set("connection.keepAliveInterval", pendingKeepAlive[0]);
         appSettings.set("ui.topbar.hoverExpand", pendingHoverExpand[0]);
 
         if (pendingScheme[0] != null) {
@@ -363,6 +396,7 @@ public class PreferencesDialog {
             String theme,
             AccentColor accent,
             String connectionTimeout,
+            String keepAliveInterval,
             String hoverExpand,
             TerminalColorScheme colorScheme,
             String apiEnabled,
@@ -380,7 +414,8 @@ public class PreferencesDialog {
 
     private static PreferencesSnapshot snapshotOf(FontProfile[] pending, String[] pendingLang,
                                                   String[] pendingTheme, AccentColor[] pendingAccent,
-                                                  String[] pendingConnTimeout, String[] pendingHoverExpand,
+                                                  String[] pendingConnTimeout, String[] pendingKeepAlive,
+                                                  String[] pendingHoverExpand,
                                                   TerminalColorScheme[] pendingScheme,
                                                   String[] pendingApiEnabled, String[] pendingApiPort,
                                                   String[] pendingUiFontFamily, String[] pendingUiFontSize,
@@ -395,6 +430,7 @@ public class PreferencesDialog {
                 pendingTheme[0],
                 pendingAccent[0],
                 pendingConnTimeout[0],
+                pendingKeepAlive[0],
                 pendingHoverExpand[0],
                 pendingScheme[0],
                 pendingApiEnabled[0],
@@ -441,6 +477,7 @@ public class PreferencesDialog {
                                          I18nService i18n, ThemeService themeService,
                                          FontProfile[] pending, String[] pendingLang,
                                          String[] pendingTheme, AccentColor[] pendingAccent, String[] pendingConnTimeout,
+                                         String[] pendingKeepAlive,
                                          String[] pendingHoverExpand,
                                          TerminalColorScheme[] pendingScheme,
                                          com.jlshell.ui.service.ConnectionProfileService connectionProfileService,
@@ -465,7 +502,8 @@ public class PreferencesDialog {
 
         Tab generalTab = new Tab(i18n.get("preferences.tab.general"));
         generalTab.setContent(buildGeneralPane(appSettings, i18n, themeService, pendingLang, pendingTheme,
-                pendingAccent, pendingHoverExpand, pendingUiFontFamily, pendingUiFontSize,
+                pendingAccent, pendingConnTimeout, pendingKeepAlive, pendingHoverExpand,
+                pendingUiFontFamily, pendingUiFontSize,
                 pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl,
                 memoryReclaimService, preferenceChanged));
         tabPane.getTabs().add(generalTab);
@@ -474,10 +512,6 @@ public class PreferencesDialog {
         accountTab.setContent(buildAccountPane(i18n, themeService, accountService, owner,
                 pendingAccountSyncEnabled, pendingAccountBaseUrl, preferenceChanged));
         tabPane.getTabs().add(accountTab);
-
-        Tab connectionTab = new Tab(i18n.get("preferences.tab.connection"));
-        connectionTab.setContent(buildConnectionPane(appSettings, i18n, pendingConnTimeout, preferenceChanged));
-        tabPane.getTabs().add(connectionTab);
 
         Tab terminalTab = new Tab(i18n.get("preferences.tab.terminal"));
         terminalTab.setContent(buildTerminalPane(appSettings, fontProfileService.activeProfile(), i18n, themeService,
@@ -494,7 +528,8 @@ public class PreferencesDialog {
         tabPane.getTabs().add(apiTab);
 
         Tab pluginsTab = new Tab(i18n.get("preferences.tab.plugins"));
-        pluginsTab.setContent(buildPluginsPane(i18n, programPluginManager, pluginManager));
+        pluginsTab.setContent(buildPluginsPane(appSettings, i18n, themeService, owner,
+                programPluginManager, pluginManager));
         tabPane.getTabs().add(pluginsTab);
 
         Tab shortcutsTab = new Tab(i18n.get("preferences.tab.shortcuts"));
@@ -520,6 +555,8 @@ public class PreferencesDialog {
         Label emailValue = new Label();
         Label accountIdValue = new Label();
         Label deviceCountValue = new Label();
+        statusValue.getStyleClass().add("account-status-badge");
+        accountIdValue.setWrapText(true);
 
         TextField baseUrl = new TextField(pendingAccountBaseUrl[0]);
         baseUrl.setPrefWidth(280);
@@ -537,7 +574,8 @@ public class PreferencesDialog {
 
         Label syncHint = new Label(i18n.get("preferences.account.syncHint"));
         syncHint.setWrapText(true);
-        syncHint.setMaxWidth(420);
+        syncHint.setMaxWidth(Double.MAX_VALUE);
+        syncHint.getStyleClass().add("settings-card-description");
 
         Button loginButton = new Button(i18n.get("account.login.action"));
         Button registerButton = new Button(i18n.get("account.register.action"));
@@ -601,32 +639,50 @@ public class PreferencesDialog {
             refreshAccountState.run();
         });
 
-        GridPane grid = new GridPane();
-        grid.setHgap(12);
-        grid.setVgap(10);
-        grid.setPadding(new Insets(16, 20, 8, 20));
-        grid.add(new Label(i18n.get("preferences.account.status")), 0, 0);
-        grid.add(statusValue, 1, 0);
-        grid.add(new Label(i18n.get("account.username")), 0, 1);
-        grid.add(usernameValue, 1, 1);
-        grid.add(new Label(i18n.get("account.email")), 0, 2);
-        grid.add(emailValue, 1, 2);
-        grid.add(new Label(i18n.get("preferences.account.accountId")), 0, 3);
-        grid.add(accountIdValue, 1, 3);
-        grid.add(new Label(i18n.get("preferences.account.deviceCount")), 0, 4);
-        grid.add(deviceCountValue, 1, 4);
         HBox actions = new HBox(8, loginButton, registerButton, logoutButton, changePasswordButton);
         actions.setAlignment(Pos.CENTER_LEFT);
-        grid.add(actions, 1, 5);
-        grid.add(new Label(i18n.get("preferences.account.baseUrl")), 0, 6);
-        grid.add(baseUrl, 1, 6);
-        grid.add(syncEnabled, 1, 7);
-        grid.add(syncHint, 1, 8);
+
+        GridPane identityForm = settingsForm();
+        addSettingsRow(identityForm, 0, i18n.get("preferences.account.status"), statusValue);
+        addSettingsRow(identityForm, 1, i18n.get("account.username"), usernameValue);
+        addSettingsRow(identityForm, 2, i18n.get("account.email"), emailValue);
+        addSettingsRow(identityForm, 3, i18n.get("preferences.account.accountId"), accountIdValue);
+        addSettingsRow(identityForm, 4, i18n.get("preferences.account.deviceCount"), deviceCountValue);
+        addSettingsRow(identityForm, 5, "", actions);
+
+        GridPane syncForm = settingsForm();
+        baseUrl.setMaxWidth(Double.MAX_VALUE);
+        addSettingsRow(syncForm, 0, i18n.get("preferences.account.baseUrl"), baseUrl);
+        addSettingsRow(syncForm, 1, "", syncEnabled);
+        addSettingsRow(syncForm, 2, "", syncHint);
+
+        VBox identityCard = settingsCard(i18n.get("preferences.account.profileSection"),
+                i18n.get("preferences.account.profileSection.description"), identityForm);
+        VBox syncCard = settingsCard(i18n.get("preferences.account.syncSection"),
+                i18n.get("preferences.account.syncSection.description"), syncForm);
+
+        GridPane cards = new GridPane();
+        cards.getStyleClass().add("settings-card-grid");
+        cards.setHgap(14);
+        cards.setVgap(14);
+        javafx.scene.layout.ColumnConstraints profileColumn = new javafx.scene.layout.ColumnConstraints();
+        profileColumn.setPercentWidth(54);
+        profileColumn.setHgrow(Priority.ALWAYS);
+        javafx.scene.layout.ColumnConstraints syncColumn = new javafx.scene.layout.ColumnConstraints();
+        syncColumn.setPercentWidth(46);
+        syncColumn.setHgrow(Priority.ALWAYS);
+        cards.getColumnConstraints().addAll(profileColumn, syncColumn);
+        cards.add(identityCard, 0, 0);
+        cards.add(syncCard, 1, 0);
 
         refreshAccountState.run();
 
-        VBox pane = new VBox(grid);
-        pane.setPadding(new Insets(8));
+        ScrollPane scroll = new ScrollPane(cards);
+        scroll.setFitToWidth(true);
+        scroll.getStyleClass().add("settings-scroll-pane");
+        VBox pane = new VBox(scroll);
+        pane.getStyleClass().add("settings-page");
+        VBox.setVgrow(scroll, Priority.ALWAYS);
         return pane;
     }
 
@@ -715,7 +771,8 @@ public class PreferencesDialog {
 
     private static VBox buildGeneralPane(AppSettingsService appSettings, I18nService i18n,
                                           ThemeService themeService, String[] pendingLang, String[] pendingTheme,
-                                          AccentColor[] pendingAccent, String[] pendingHoverExpand,
+                                          AccentColor[] pendingAccent, String[] pendingConnTimeout,
+                                          String[] pendingKeepAlive, String[] pendingHoverExpand,
                                           String[] pendingUiFontFamily, String[] pendingUiFontSize,
                                           String[] pendingUpdateAutoCheck, String[] pendingUpdateChannel,
                                           String[] pendingUpdateBaseUrl,
@@ -861,27 +918,8 @@ public class PreferencesDialog {
             preferenceChanged.run();
         });
 
-        GridPane grid = new GridPane();
-        grid.setHgap(12);
-        grid.setVgap(10);
-        grid.setPadding(new Insets(16, 20, 8, 20));
-        grid.add(new Label(i18n.get("preferences.general.language")), 0, 0);
-        grid.add(langCombo, 1, 0);
-        grid.add(new Label(i18n.get("preferences.general.theme")), 0, 1);
-        grid.add(themeCombo, 1, 1);
-        grid.add(new Label(i18n.get("preferences.general.accentColor")), 0, 2);
-        grid.add(accentCombo, 1, 2);
-        grid.add(hoverExpandCheck, 1, 3);
-
-        // UI 字体
-        grid.add(new Label(i18n.get("preferences.general.uiFontFamily")), 0, 4);
-        grid.add(uiFontCombo, 1, 4);
-        grid.add(new Label(i18n.get("preferences.general.uiFontSize")), 0, 5);
         HBox uiFontSizeRow = new HBox(8, uiFontSizeSlider, uiFontSizeField);
         uiFontSizeRow.setAlignment(Pos.CENTER_LEFT);
-        grid.add(uiFontSizeRow, 1, 5);
-        grid.add(new Label(i18n.get("preferences.general.uiFontPreview")), 0, 6);
-        grid.add(uiFontPreview, 1, 6);
 
         Button gcButton = new Button(i18n.get("preferences.general.memoryGc"));
         Label memoryStatus = new Label("");
@@ -897,66 +935,191 @@ public class PreferencesDialog {
         });
         HBox memoryRow = new HBox(8, gcButton, memoryStatus);
         memoryRow.setAlignment(Pos.CENTER_LEFT);
-        grid.add(new Label(i18n.get("preferences.general.memory")), 0, 7);
-        grid.add(memoryRow, 1, 7);
-        grid.add(new Label(i18n.get("preferences.updates.title")), 0, 8);
-        grid.add(updateAutoCheck, 1, 8);
-        grid.add(new Label(i18n.get("preferences.updates.channel")), 0, 9);
-        grid.add(updateChannel, 1, 9);
-        grid.add(new Label(i18n.get("preferences.updates.baseUrl")), 0, 10);
-        grid.add(updateBaseUrl, 1, 10);
 
-        VBox pane = new VBox(grid);
-        pane.setPadding(new Insets(8));
-        return pane;
-    }
-
-    // ── Connection Tab ─────────────────────────────────────────────────────
-
-    private static VBox buildConnectionPane(AppSettingsService appSettings, I18nService i18n,
-                                            String[] pendingConnTimeout, Runnable preferenceChanged) {
-        String currentTimeout = appSettings.get("connection.timeout", "10");
-
-        TextField timeoutField = new TextField(currentTimeout);
-        timeoutField.setPrefWidth(80);
+        TextField timeoutField = new TextField(pendingConnTimeout[0]);
+        timeoutField.setPrefWidth(72);
+        timeoutField.setMaxWidth(72);
         timeoutField.textProperty().addListener((o, ov, nv) -> {
             try {
-                int v = Integer.parseInt(nv.trim());
-                if (v > 0) {
-                    pendingConnTimeout[0] = String.valueOf(v);
+                int value = Integer.parseInt(nv.trim());
+                if (value > 0) {
+                    pendingConnTimeout[0] = String.valueOf(value);
                     preferenceChanged.run();
                 }
             } catch (NumberFormatException ignored) {}
         });
+        HBox timeoutRow = new HBox(8, timeoutField,
+                new Label(i18n.get("preferences.connection.timeoutUnit")));
+        timeoutRow.setAlignment(Pos.CENTER_LEFT);
 
-        Label timeoutUnit = new Label(i18n.get("preferences.connection.timeoutUnit"));
-
-        String currentKeepAlive = appSettings.get("connection.keepAliveInterval", "60");
-        TextField keepAliveField = new TextField(currentKeepAlive);
-        keepAliveField.setPrefWidth(80);
+        TextField keepAliveField = new TextField(pendingKeepAlive[0]);
+        keepAliveField.setPrefWidth(72);
+        keepAliveField.setMaxWidth(72);
         keepAliveField.textProperty().addListener((o, ov, nv) -> {
             try {
-                int v = Integer.parseInt(nv.trim());
-                if (v >= 0) appSettings.set("connection.keepAliveInterval", String.valueOf(v));
+                int value = Integer.parseInt(nv.trim());
+                if (value >= 0) {
+                    pendingKeepAlive[0] = String.valueOf(value);
+                    preferenceChanged.run();
+                }
             } catch (NumberFormatException ignored) {}
         });
+        HBox keepAliveRow = new HBox(8, keepAliveField,
+                new Label(i18n.get("preferences.connection.keepAliveUnit")));
+        keepAliveRow.setAlignment(Pos.CENTER_LEFT);
 
-        Label keepAliveUnit = new Label(i18n.get("preferences.connection.keepAliveUnit"));
+        GridPane appearanceForm = settingsForm();
+        addSettingsRow(appearanceForm, 0, i18n.get("preferences.general.language"), langCombo);
+        addSettingsRow(appearanceForm, 1, i18n.get("preferences.general.theme"), themeCombo);
+        addSettingsRow(appearanceForm, 2, i18n.get("preferences.general.accentColor"), accentCombo);
+        addSettingsRow(appearanceForm, 3, "", hoverExpandCheck);
 
-        GridPane grid = new GridPane();
-        grid.setHgap(12);
-        grid.setVgap(10);
-        grid.setPadding(new Insets(16, 20, 8, 20));
+        GridPane fontForm = settingsForm();
+        addSettingsRow(fontForm, 0, i18n.get("preferences.general.uiFontFamily"), uiFontCombo);
+        addSettingsRow(fontForm, 1, i18n.get("preferences.general.uiFontSize"), uiFontSizeRow);
+        StackPane previewBox = new StackPane(uiFontPreview);
+        previewBox.getStyleClass().add("settings-preview-box");
+        previewBox.setAlignment(Pos.CENTER_LEFT);
+        addSettingsRow(fontForm, 2, i18n.get("preferences.general.uiFontPreview"), previewBox);
 
-        grid.add(new Label(i18n.get("preferences.connection.timeout")), 0, 0);
-        grid.add(new HBox(4, timeoutField, timeoutUnit), 1, 0);
+        GridPane systemForm = settingsForm();
+        addSettingsRow(systemForm, 0, i18n.get("preferences.general.memory"), memoryRow);
 
-        grid.add(new Label(i18n.get("preferences.connection.keepAlive")), 0, 1);
-        grid.add(new HBox(4, keepAliveField, keepAliveUnit), 1, 1);
+        GridPane connectionForm = settingsForm();
+        addSettingsRow(connectionForm, 0, i18n.get("preferences.connection.timeout"), timeoutRow);
+        addSettingsRow(connectionForm, 1, i18n.get("preferences.connection.keepAlive"), keepAliveRow);
 
-        VBox pane = new VBox(grid);
-        pane.setPadding(new Insets(8));
+        GridPane updatesForm = settingsForm();
+        updateBaseUrl.setMaxWidth(Double.MAX_VALUE);
+        addSettingsRow(updatesForm, 0, "", updateAutoCheck);
+        addSettingsRow(updatesForm, 1, i18n.get("preferences.updates.channel"), updateChannel);
+        addSettingsRow(updatesForm, 2, i18n.get("preferences.updates.baseUrl"), updateBaseUrl);
+
+        VBox appearanceCard = settingsCard(i18n.get("preferences.general.appearance"),
+                i18n.get("preferences.general.appearance.description"), appearanceForm);
+        VBox fontCard = settingsCard(i18n.get("preferences.general.fontSection"),
+                i18n.get("preferences.general.fontSection.description"), fontForm);
+        VBox connectionCard = settingsCard(i18n.get("preferences.connection.section"),
+                i18n.get("preferences.connection.section.description"), connectionForm);
+        VBox systemCard = settingsCard(i18n.get("preferences.general.systemSection"),
+                i18n.get("preferences.general.systemSection.description"), systemForm);
+        VBox updatesCard = settingsCard(i18n.get("preferences.updates.title"),
+                i18n.get("preferences.updates.description"), updatesForm);
+
+        GridPane cards = new GridPane();
+        cards.getStyleClass().add("settings-card-grid");
+        cards.setHgap(14);
+        cards.setVgap(14);
+        javafx.scene.layout.ColumnConstraints leftColumn = new javafx.scene.layout.ColumnConstraints();
+        leftColumn.setPercentWidth(50);
+        leftColumn.setHgrow(Priority.ALWAYS);
+        javafx.scene.layout.ColumnConstraints rightColumn = new javafx.scene.layout.ColumnConstraints();
+        rightColumn.setPercentWidth(50);
+        rightColumn.setHgrow(Priority.ALWAYS);
+        cards.getColumnConstraints().addAll(leftColumn, rightColumn);
+        cards.add(appearanceCard, 0, 0);
+        cards.add(fontCard, 1, 0);
+        cards.add(connectionCard, 0, 1);
+        cards.add(systemCard, 1, 1);
+        cards.add(updatesCard, 0, 2, 2, 1);
+
+        ScrollPane scroll = new ScrollPane(cards);
+        scroll.setFitToWidth(true);
+        scroll.getStyleClass().add("settings-scroll-pane");
+        VBox pane = new VBox(scroll);
+        pane.getStyleClass().add("settings-page");
+        VBox.setVgrow(scroll, Priority.ALWAYS);
         return pane;
+    }
+
+    private static GridPane settingsForm() {
+        GridPane form = new GridPane();
+        form.getStyleClass().add("settings-form");
+        form.setHgap(14);
+        form.setVgap(12);
+        javafx.scene.layout.ColumnConstraints labels = new javafx.scene.layout.ColumnConstraints();
+        labels.setMinWidth(95);
+        labels.setPrefWidth(115);
+        javafx.scene.layout.ColumnConstraints values = new javafx.scene.layout.ColumnConstraints();
+        values.setHgrow(Priority.ALWAYS);
+        values.setFillWidth(true);
+        form.getColumnConstraints().addAll(labels, values);
+        return form;
+    }
+
+    private static void addSettingsRow(GridPane form, int row, String label, javafx.scene.Node value) {
+        Label key = new Label(label);
+        key.getStyleClass().add("settings-field-label");
+        key.setVisible(!label.isBlank());
+        key.setManaged(!label.isBlank());
+        form.add(key, 0, row);
+        form.add(value, 1, row);
+        GridPane.setHgrow(value, Priority.ALWAYS);
+        if (value instanceof Region region) region.setMaxWidth(Double.MAX_VALUE);
+    }
+
+    private static VBox settingsCard(String title, String description, javafx.scene.Node content) {
+        Label titleLabel = new Label(title);
+        titleLabel.getStyleClass().add("settings-card-title");
+        Label descriptionLabel = new Label(description);
+        descriptionLabel.getStyleClass().add("settings-card-description");
+        descriptionLabel.setWrapText(true);
+        VBox card = new VBox(5, titleLabel, descriptionLabel, new Separator(), content);
+        card.getStyleClass().add("settings-card");
+        card.setMaxWidth(Double.MAX_VALUE);
+        VBox.setVgrow(content, Priority.ALWAYS);
+        GridPane.setHgrow(card, Priority.ALWAYS);
+        return card;
+    }
+
+    private record SettingsSectionLink(String title, javafx.scene.Node target) {}
+
+    private static VBox settingsSectionDirectory(I18nService i18n, ScrollPane scrollPane, VBox content,
+                                                 List<SettingsSectionLink> sections) {
+        Label title = new Label(i18n.get("settings.directory.title"));
+        title.getStyleClass().add("settings-directory-title");
+        Label hint = new Label(i18n.get("settings.directory.hint"));
+        hint.getStyleClass().add("settings-directory-hint");
+        hint.setWrapText(true);
+
+        javafx.scene.control.ToggleGroup group = new javafx.scene.control.ToggleGroup();
+        VBox items = new VBox(5);
+        for (SettingsSectionLink section : sections) {
+            javafx.scene.control.ToggleButton item = new javafx.scene.control.ToggleButton(section.title());
+            item.getStyleClass().add("settings-directory-item");
+            item.setToggleGroup(group);
+            item.setUserData(section);
+            item.setMaxWidth(Double.MAX_VALUE);
+            item.setAlignment(Pos.CENTER_LEFT);
+            items.getChildren().add(item);
+        }
+        if (!items.getChildren().isEmpty()) {
+            ((javafx.scene.control.ToggleButton) items.getChildren().get(0)).setSelected(true);
+        }
+        group.selectedToggleProperty().addListener((obs, oldToggle, newToggle) -> {
+            if (newToggle == null) {
+                if (oldToggle != null) oldToggle.setSelected(true);
+                return;
+            }
+            if (newToggle.getUserData() instanceof SettingsSectionLink section) {
+                Platform.runLater(() -> scrollSettingsSection(scrollPane, content, section.target()));
+            }
+        });
+
+        VBox directory = new VBox(8, title, hint, new Separator(), items);
+        directory.getStyleClass().add("settings-directory");
+        directory.setMinWidth(138);
+        directory.setPrefWidth(154);
+        directory.setMaxWidth(168);
+        return directory;
+    }
+
+    private static void scrollSettingsSection(ScrollPane scrollPane, VBox content, javafx.scene.Node target) {
+        double contentHeight = content.getBoundsInLocal().getHeight();
+        double viewportHeight = scrollPane.getViewportBounds().getHeight();
+        double scrollableHeight = Math.max(1, contentHeight - viewportHeight);
+        scrollPane.setVvalue(Math.max(0, Math.min(1,
+                target.getBoundsInParent().getMinY() / scrollableHeight)));
     }
 
     private static ListCell<AccentColor> accentCell() {
@@ -1043,7 +1206,6 @@ public class PreferencesDialog {
         GridPane fontGrid = new GridPane();
         fontGrid.setHgap(12);
         fontGrid.setVgap(10);
-        fontGrid.setPadding(new Insets(16, 20, 8, 20));
 
         fontGrid.add(new Label(i18n.get("preferences.terminal.fontFamily")), 0, 0);
         fontGrid.add(fontCombo, 1, 0, 2, 1);
@@ -1247,13 +1409,8 @@ public class PreferencesDialog {
         actionBtns.setAlignment(Pos.CENTER_LEFT);
 
         VBox schemeSection = new VBox(8);
-        schemeSection.setPadding(new Insets(8, 20, 8, 20));
-
-        Label schemeLabel = new Label(i18n.get("preferences.terminal.colorScheme"));
-        schemeLabel.setStyle("-fx-font-weight:bold;");
 
         schemeSection.getChildren().addAll(
-                schemeLabel,
                 filterField,
                 schemeList,
                 schemePreview,
@@ -1261,8 +1418,26 @@ public class PreferencesDialog {
                 actionBtns);
 
         // ── Combine ──
-        VBox pane = new VBox(fontGrid, schemeSection);
-        pane.setPadding(new Insets(0, 0, 8, 0));
+        VBox typographyCard = settingsCard(i18n.get("preferences.terminal.typographySection"),
+                i18n.get("preferences.terminal.typographySection.description"), fontGrid);
+        VBox colorsCard = settingsCard(i18n.get("preferences.terminal.colorsSection"),
+                i18n.get("preferences.terminal.colorsSection.description"), schemeSection);
+        VBox cards = new VBox(14, typographyCard, colorsCard);
+        cards.getStyleClass().add("settings-card-grid");
+        ScrollPane scroll = new ScrollPane(cards);
+        scroll.setFitToWidth(true);
+        scroll.getStyleClass().add("settings-scroll-pane");
+        VBox directory = settingsSectionDirectory(i18n, scroll, cards, List.of(
+                new SettingsSectionLink(i18n.get("preferences.terminal.typographySection"), typographyCard),
+                new SettingsSectionLink(i18n.get("preferences.terminal.colorsSection"), colorsCard)));
+        BorderPane workspace = new BorderPane();
+        workspace.setLeft(directory);
+        workspace.setCenter(scroll);
+        workspace.getStyleClass().add("settings-directory-workspace");
+        BorderPane.setMargin(directory, new Insets(16, 0, 16, 18));
+        VBox pane = new VBox(workspace);
+        pane.getStyleClass().add("settings-page");
+        VBox.setVgrow(workspace, Priority.ALWAYS);
         return pane;
     }
 
@@ -1314,9 +1489,6 @@ public class PreferencesDialog {
                                      String selectedSessionId,
                                      String[] pendingApiEnabled, String[] pendingApiPort,
                                      Runnable preferenceChanged) {
-        VBox box = new VBox(12);
-        box.setPadding(new Insets(16, 20, 12, 20));
-
         CheckBox enableCb = new CheckBox(i18n.get("api.enabled"));
         enableCb.setSelected("true".equalsIgnoreCase(pendingApiEnabled[0]));
         enableCb.selectedProperty().addListener((o, ov, nv) -> {
@@ -1324,7 +1496,6 @@ public class PreferencesDialog {
             preferenceChanged.run();
         });
 
-        Label portLabel = new Label(i18n.get("api.port"));
         TextField portField = new TextField(pendingApiPort[0]);
         portField.setPrefWidth(80);
         portField.setPromptText(i18n.get("api.port.hint"));
@@ -1342,7 +1513,7 @@ public class PreferencesDialog {
 
         Label tokenHint = new Label(i18n.get("api.tokenHint"));
         tokenHint.setWrapText(true);
-        tokenHint.setStyle("-fx-font-size: 0.85em;");
+        tokenHint.getStyleClass().add("api-config-hint");
 
         Button copyToken = new Button(i18n.get("api.copyToken"));
         copyToken.setDisable(apiServer == null || apiServer.token() == null || apiServer.token().isEmpty());
@@ -1355,28 +1526,55 @@ public class PreferencesDialog {
         });
 
         Label restart = new Label(i18n.get("api.restartRequired"));
-        restart.setStyle("-fx-text-fill: gray; -fx-font-size: 0.85em;");
+        restart.getStyleClass().add("api-config-hint");
         restart.setWrapText(true);
 
-        HBox configRow = new HBox(8, portLabel, portField);
+        Label portLabel = new Label(i18n.get("api.port"));
+        portLabel.getStyleClass().add("api-config-label");
+        HBox portControl = new HBox(7, portLabel, portField);
+        portControl.setAlignment(Pos.CENTER_LEFT);
+        Label statusLabel = new Label(i18n.get("api.status"));
+        statusLabel.getStyleClass().add("api-config-label");
+        HBox statusControl = new HBox(7, statusLabel, currentLabel);
+        statusControl.setAlignment(Pos.CENTER_LEFT);
+        Region configSpacer = new Region();
+        HBox.setHgrow(configSpacer, Priority.ALWAYS);
+        HBox configRow = new HBox(18, enableCb, portControl, statusControl, configSpacer, copyToken);
+        configRow.getStyleClass().add("api-config-row");
         configRow.setAlignment(Pos.CENTER_LEFT);
-        HBox tokenRow = new HBox(8, tokenHint, copyToken);
-        tokenRow.setAlignment(Pos.CENTER_LEFT);
+        Label metaSeparator = new Label("•");
+        metaSeparator.getStyleClass().add("api-config-hint");
+        HBox metaRow = new HBox(8, tokenHint, metaSeparator, restart);
+        metaRow.setAlignment(Pos.CENTER_LEFT);
+        VBox configContent = new VBox(8, configRow, metaRow);
+        VBox configCard = settingsCard(i18n.get("api.config.title"),
+                i18n.get("api.config.description"), configContent);
+        VBox.setVgrow(configCard, Priority.NEVER);
 
         VBox apiBrowser = buildApiBrowser(i18n, apiServer, capabilityBus, selectedSessionId);
         VBox.setVgrow(apiBrowser, Priority.ALWAYS);
+        VBox docsCard = settingsCard(i18n.get("api.docs.title"),
+                i18n.get("api.docs.section.description"), apiBrowser);
+        docsCard.setPrefHeight(500);
+        VBox.setVgrow(docsCard, Priority.ALWAYS);
 
-        box.getChildren().addAll(enableCb, configRow, currentLabel, tokenRow, restart, apiBrowser);
-        return box;
+        VBox cards = new VBox(14, configCard, docsCard);
+        cards.getStyleClass().add("settings-card-grid");
+        ScrollPane pageScroll = new ScrollPane(cards);
+        pageScroll.setFitToWidth(true);
+        pageScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        pageScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        pageScroll.getStyleClass().addAll("settings-scroll-pane", "api-page-scroll");
+        VBox pane = new VBox(pageScroll);
+        pane.getStyleClass().add("settings-page");
+        VBox.setVgrow(pageScroll, Priority.ALWAYS);
+        return pane;
     }
 
     private static VBox buildApiBrowser(I18nService i18n, com.jlshell.api.server.ApiServer apiServer,
                                         CapabilityBus capabilityBus, String selectedSessionId) {
         ObservableList<ApiDocEntry> entries = FXCollections.observableArrayList(apiDocEntries(capabilityBus, selectedSessionId));
         FilteredList<ApiDocEntry> filtered = new FilteredList<>(entries, e -> true);
-
-        Label title = new Label(i18n.get("api.docs.title"));
-        title.setStyle("-fx-font-weight: bold;");
 
         TextField search = new TextField();
         search.setPromptText(i18n.get("api.docs.search"));
@@ -1410,29 +1608,128 @@ public class PreferencesDialog {
             }
         });
 
-        TextArea detail = new TextArea();
-        detail.setEditable(false);
-        detail.setWrapText(false);
-        detail.setPrefHeight(220);
-        detail.getStyleClass().add("api-doc-detail");
+        javafx.scene.text.TextFlow detailFlow = new javafx.scene.text.TextFlow();
+        detailFlow.getStyleClass().add("api-code-flow");
+        detailFlow.setLineSpacing(2);
+        ScrollPane detailScroll = new ScrollPane(detailFlow);
+        detailScroll.setFitToWidth(true);
+        detailScroll.setPannable(false);
+        detailScroll.getStyleClass().add("api-code-scroll");
+        detailFlow.prefWidthProperty().bind(detailScroll.widthProperty().subtract(28));
 
+        Label formatBadge = new Label("JSON-RPC");
+        formatBadge.getStyleClass().add("api-code-format-badge");
+        Button copyDetail = new Button(i18n.get("api.docs.copy"));
+        copyDetail.getStyleClass().add("api-code-copy-button");
+        String[] currentDetail = {""};
+        copyDetail.setOnAction(event -> copyToClipboard(currentDetail[0]));
+        Region codeHeaderSpacer = new Region();
+        HBox.setHgrow(codeHeaderSpacer, Priority.ALWAYS);
+        HBox codeHeader = new HBox(8, formatBadge, codeHeaderSpacer, copyDetail);
+        codeHeader.setAlignment(Pos.CENTER_LEFT);
+        VBox detail = new VBox(8, codeHeader, detailScroll);
+        detail.getStyleClass().add("api-code-pane");
+        detail.setMinWidth(460);
+        VBox.setVgrow(detailScroll, Priority.ALWAYS);
+
+        java.util.function.Consumer<ApiDocEntry> updateDetail = entry -> {
+            currentDetail[0] = entry == null ? "" : entry.detailText(i18n, apiServer);
+            detailFlow.getChildren().setAll(entry == null
+                    ? List.of()
+                    : apiDetailNodes(i18n, entry, apiServer));
+            detailScroll.setHvalue(0);
+            detailScroll.setVvalue(0);
+            copyDetail.setDisable(currentDetail[0].isBlank());
+        };
         list.getSelectionModel().selectedItemProperty().addListener((obs, oldValue, entry) ->
-                detail.setText(entry == null ? "" : entry.detailText(i18n, apiServer)));
+                updateDetail.accept(entry));
         if (!filtered.isEmpty()) {
             list.getSelectionModel().select(0);
         }
 
         SplitPane split = new SplitPane(list, detail);
-        split.setDividerPositions(0.36);
+        split.setDividerPositions(0.30);
+        split.setPrefHeight(350);
         VBox.setVgrow(split, Priority.ALWAYS);
 
         Label hint = new Label(i18n.get("api.docs.hint"));
         hint.setWrapText(true);
         hint.setStyle("-fx-text-fill: gray; -fx-font-size: 0.85em;");
 
-        VBox pane = new VBox(8, title, search, split, hint);
-        pane.setPadding(new Insets(8, 0, 0, 0));
+        VBox pane = new VBox(8, search, split, hint);
         return pane;
+    }
+
+    private static List<Text> highlightApiDetail(String content) {
+        List<Text> nodes = new ArrayList<>();
+        String source = content == null ? "" : content;
+        java.util.regex.Pattern tokenPattern = java.util.regex.Pattern.compile(
+                "(https?://[^\\s]+)|(\"(?:\\\\.|[^\"\\\\])*\")|\\b(true|false|null)\\b|"
+                        + "(?<![\\w.])(-?\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?)\\b|([{}\\[\\],:])");
+        java.util.regex.Matcher matcher = tokenPattern.matcher(source);
+        int cursor = 0;
+        while (matcher.find()) {
+            if (matcher.start() > cursor) {
+                nodes.add(apiCodeText(source.substring(cursor, matcher.start()), "api-code-text"));
+            }
+            String styleClass;
+            if (matcher.group(1) != null) styleClass = "api-code-url";
+            else if (matcher.group(2) != null) styleClass = "api-code-string";
+            else if (matcher.group(3) != null) styleClass = "api-code-keyword";
+            else if (matcher.group(4) != null) styleClass = "api-code-number";
+            else styleClass = "api-code-punctuation";
+            nodes.add(apiCodeText(matcher.group(), styleClass));
+            cursor = matcher.end();
+        }
+        if (cursor < source.length()) {
+            nodes.add(apiCodeText(source.substring(cursor), "api-code-text"));
+        }
+        return nodes;
+    }
+
+    private static List<javafx.scene.Node> apiDetailNodes(
+            I18nService i18n, ApiDocEntry entry, com.jlshell.api.server.ApiServer apiServer) {
+        String detail = entry.detailText(i18n, apiServer);
+        String endpointHeading = i18n.get("api.docs.endpoint") + ":";
+        String requestHeading = i18n.get("api.docs.request") + ":";
+        int endpointEnd = detail.indexOf(endpointHeading) + endpointHeading.length();
+        int requestEnd = detail.indexOf(requestHeading, Math.max(0, endpointEnd)) + requestHeading.length();
+        if (endpointEnd < endpointHeading.length() || requestEnd < requestHeading.length()) {
+            return new ArrayList<>(highlightApiDetail(detail));
+        }
+
+        List<javafx.scene.Node> nodes = new ArrayList<>();
+        nodes.addAll(highlightApiDetail(detail.substring(0, endpointEnd)));
+        nodes.add(apiCodeText("  ", "api-code-text"));
+        nodes.add(apiInlineCopyButton(i18n, i18n.get("api.docs.copyEndpoint"),
+                entry.endpoint(apiServer)));
+        nodes.addAll(highlightApiDetail(detail.substring(endpointEnd, requestEnd)));
+        nodes.add(apiCodeText("  ", "api-code-text"));
+        nodes.add(apiInlineCopyButton(i18n, i18n.get("api.docs.copyRequest"),
+                entry.requestExample()));
+        nodes.addAll(highlightApiDetail(detail.substring(requestEnd)));
+        return nodes;
+    }
+
+    private static Button apiInlineCopyButton(I18nService i18n, String tooltip, String value) {
+        Button button = new Button(i18n.get("api.docs.copySection"));
+        button.getStyleClass().add("api-inline-copy-button");
+        button.setTooltip(new Tooltip(tooltip));
+        button.setOnAction(event -> copyToClipboard(value));
+        return button;
+    }
+
+    private static Text apiCodeText(String value, String styleClass) {
+        Text text = new Text(value);
+        text.getStyleClass().add("api-code-text");
+        if (!"api-code-text".equals(styleClass)) text.getStyleClass().add(styleClass);
+        return text;
+    }
+
+    private static void copyToClipboard(String value) {
+        javafx.scene.input.ClipboardContent clipboardContent = new javafx.scene.input.ClipboardContent();
+        clipboardContent.putString(value == null ? "" : value);
+        javafx.scene.input.Clipboard.getSystemClipboard().setContent(clipboardContent);
     }
 
     private static List<ApiDocEntry> apiDocEntries(CapabilityBus capabilityBus, String selectedSessionId) {
@@ -1482,7 +1779,7 @@ public class PreferencesDialog {
 
     private static String pluginArgsExample(Capability capability) {
         CapabilitySpec spec = capability.spec();
-        String args = spec.inputSchema() == null ? "{}" : "{ /* see inputSchema */ }";
+        String args = "{}";
         return "{\"sessionId\":\"" + (spec.requiresSession() ? "<session-id>" : "<optional-session-id>")
                 + "\",\"pluginId\":\"" + capability.pluginId()
                 + "\",\"capability\":\"" + spec.name()
@@ -1500,61 +1797,328 @@ public class PreferencesDialog {
         }
 
         String detailText(I18nService i18n, com.jlshell.api.server.ApiServer apiServer) {
-            String endpoint = apiServer != null && apiServer.enabled() && apiServer.port() > 0
-                    ? "http://127.0.0.1:" + apiServer.port() + "/rpc"
-                    : "http://127.0.0.1:<port>/rpc";
-            String method = type == ApiDocType.PLUGIN ? "capability.invoke" : name;
-            String params = type == ApiDocType.PLUGIN ? paramsExample : paramsExample;
             return i18n.get("api.docs.type") + ": " + typeLabel(i18n) + "\n"
                     + i18n.get("api.docs.name") + ": " + name + "\n"
-                    + i18n.get("api.docs.method") + ": " + method + "\n"
+                    + i18n.get("api.docs.method") + ": " + method() + "\n"
                     + i18n.get("api.docs.requiresSession") + ": " + (requiresSession ? i18n.get("api.docs.yes") : i18n.get("api.docs.no")) + "\n\n"
                     + i18n.get("api.docs.description") + ":\n" + description + "\n\n"
-                    + i18n.get("api.docs.endpoint") + ":\n" + endpoint + "\n\n"
+                    + i18n.get("api.docs.endpoint") + ":\n" + endpoint(apiServer) + "\n\n"
                     + i18n.get("api.docs.headers") + ":\nAuthorization: Bearer <token>\nContent-Type: application/json\n\n"
-                    + i18n.get("api.docs.request") + ":\n"
-                    + "{\n"
+                    + i18n.get("api.docs.request") + ":\n" + requestExample() + "\n\n"
+                    + i18n.get("api.docs.inputSchema") + ":\n"
+                    + (inputSchema == null ? i18n.get("api.docs.noSchema") : prettyJson(inputSchema.toString())) + "\n\n"
+                    + i18n.get("api.docs.result") + ":\n" + resultHint;
+        }
+
+        String endpoint(com.jlshell.api.server.ApiServer apiServer) {
+            return apiServer != null && apiServer.enabled() && apiServer.port() > 0
+                    ? "http://127.0.0.1:" + apiServer.port() + "/rpc"
+                    : "http://127.0.0.1:<port>/rpc";
+        }
+
+        String requestExample() {
+            String params = prettyJson(paramsExample).replace("\n", "\n  ");
+            return "{\n"
                     + "  \"jsonrpc\": \"2.0\",\n"
                     + "  \"id\": 1,\n"
-                    + "  \"method\": \"" + method + "\",\n"
-                    + "  \"params\": " + compactJson(params) + "\n"
-                    + "}\n\n"
-                    + i18n.get("api.docs.inputSchema") + ":\n"
-                    + (inputSchema == null ? i18n.get("api.docs.noSchema") : inputSchema.toString()) + "\n\n"
-                    + i18n.get("api.docs.result") + ":\n" + resultHint;
+                    + "  \"method\": \"" + method() + "\",\n"
+                    + "  \"params\": " + params + "\n"
+                    + "}";
+        }
+
+        private String method() {
+            return type == ApiDocType.PLUGIN ? "capability.invoke" : name;
         }
     }
 
-    private static String compactJson(String json) {
-        return json == null || json.isBlank() ? "{}" : json.trim().replace("\n", "");
+    private static String prettyJson(String json) {
+        if (json == null || json.isBlank()) return "{}";
+        try {
+            return new com.google.gson.GsonBuilder().setPrettyPrinting().create()
+                    .toJson(com.google.gson.JsonParser.parseString(json));
+        } catch (RuntimeException ignored) {
+            return json.trim();
+        }
     }
 
     // ── Plugins Tab ────────────────────────────────────────────────────────
 
-    private static VBox buildPluginsPane(I18nService i18n, ProgramPluginManager programPluginManager,
-                                         PluginManager pluginManager) {
-        VBox pane = new VBox(10);
-        pane.setPadding(new Insets(16, 20, 12, 20));
+    private static VBox buildPluginsPane(AppSettingsService appSettings, I18nService i18n,
+                                         ThemeService themeService, Stage owner,
+                                         ProgramPluginManager programPluginManager, PluginManager pluginManager) {
+        VBox pane = new VBox();
+        pane.getStyleClass().add("plugin-manager-pane");
 
-        ObservableList<PluginDocEntry> entries = FXCollections.observableArrayList(pluginDocEntries(programPluginManager, pluginManager));
-        FilteredList<PluginDocEntry> filtered = new FilteredList<>(entries, e -> true);
+        ObservableList<PluginDocEntry> installedEntries = FXCollections.observableArrayList(
+                pluginDocEntries(programPluginManager, pluginManager));
+        TabPane pluginTabs = new TabPane();
+        pluginTabs.getStyleClass().add("plugin-manager-tabs");
+        pluginTabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
 
-        ComboBox<String> scopeFilter = new ComboBox<>(FXCollections.observableArrayList(
-                i18n.get("plugins.filter.all"),
-                i18n.get("plugins.filter.program"),
-                i18n.get("plugins.filter.session")
-        ));
-        scopeFilter.getSelectionModel().select(0);
-        scopeFilter.valueProperty().addListener((obs, oldValue, newValue) -> {
-            String selected = newValue == null ? i18n.get("plugins.filter.all") : newValue;
-            filtered.setPredicate(entry -> selected.equals(i18n.get("plugins.filter.all"))
-                    || (selected.equals(i18n.get("plugins.filter.program")) && entry.scope() == com.jlshell.plugin.api.PluginScope.PROGRAM)
-                    || (selected.equals(i18n.get("plugins.filter.session")) && entry.scope() == com.jlshell.plugin.api.PluginScope.SESSION));
+        Tab marketplace = new Tab(i18n.get("plugins.store.marketplace"));
+        marketplace.setContent(buildPluginStorePane(appSettings, i18n, themeService, owner,
+                programPluginManager, pluginManager, installedEntries));
+        Tab installed = new Tab(i18n.get("plugins.store.installed", installedEntries.size()));
+        installed.setContent(buildInstalledPluginsPane(appSettings, i18n, themeService, owner,
+                programPluginManager, pluginManager, installedEntries));
+        installedEntries.addListener((javafx.collections.ListChangeListener<PluginDocEntry>) change ->
+                installed.setText(i18n.get("plugins.store.installed", installedEntries.size())));
+
+        pluginTabs.getTabs().addAll(marketplace, installed);
+        VBox.setVgrow(pluginTabs, Priority.ALWAYS);
+        pane.getChildren().add(pluginTabs);
+        return pane;
+    }
+
+    private static BorderPane buildPluginStorePane(AppSettingsService appSettings, I18nService i18n,
+                                                    ThemeService themeService, Stage owner,
+                                                    ProgramPluginManager programPluginManager, PluginManager pluginManager,
+                                                    ObservableList<PluginDocEntry> installedEntries) {
+        String home = System.getProperty("user.home");
+        PluginStoreClient client = new PluginStoreClient(UpdateService.configuredBaseUrl(appSettings), ForkJoinPool.commonPool());
+        PluginInstaller installer = new PluginInstaller(client,
+                Path.of(home, ".jlshell", "program-plugins"), Path.of(home, ".jlshell", "plugins"));
+
+        TextField query = new TextField();
+        query.setPromptText(i18n.get("plugins.store.search"));
+        query.getStyleClass().add("plugin-search-field");
+        ComboBox<String> scope = new ComboBox<>(FXCollections.observableArrayList(
+                i18n.get("plugins.filter.all"), i18n.get("plugins.filter.program"), i18n.get("plugins.filter.session")));
+        scope.getSelectionModel().select(0);
+        scope.setMinWidth(130);
+        Button search = new Button(i18n.get("plugins.store.searchButton"));
+        Label status = new Label();
+        status.setWrapText(true);
+        status.getStyleClass().add("plugin-status");
+        ProgressBar installProgress = new ProgressBar(0);
+        installProgress.setMaxWidth(Double.MAX_VALUE);
+        installProgress.getStyleClass().add("plugin-install-progress");
+        installProgress.setVisible(false);
+        installProgress.setManaged(false);
+
+        ObservableList<PluginStoreListing> listings = FXCollections.observableArrayList();
+        ListView<PluginStoreListing> list = new ListView<>(listings);
+        list.getStyleClass().add("plugin-manager-list");
+        list.setMinWidth(330);
+        list.setCellFactory(view -> new ListCell<>() {
+            @Override protected void updateItem(PluginStoreListing item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setText(null);
+                    setGraphic(null);
+                    return;
+                }
+                Label name = new Label(item.displayName());
+                name.getStyleClass().add("plugin-item-name");
+                Label description = new Label(item.description());
+                description.getStyleClass().add("plugin-item-description");
+                description.setMaxWidth(230);
+                description.setTextOverrun(javafx.scene.control.OverrunStyle.ELLIPSIS);
+                Label meta = new Label(item.scope().name() + "  ·  " + item.latestVersion()
+                        + "  ·  ↓ " + compactCount(item.downloads()));
+                meta.getStyleClass().add("plugin-item-meta");
+                HBox metaRow = new HBox(7, meta);
+                metaRow.setAlignment(Pos.CENTER_LEFT);
+                if (isMarketplacePluginInstalled(item, installer, installedEntries)) {
+                    metaRow.getChildren().add(pluginStateBadge(
+                            i18n.get("plugins.store.installedBadge"), "plugin-state-installed"));
+                }
+                VBox text = new VBox(3, name, description, metaRow);
+                HBox.setHgrow(text, Priority.ALWAYS);
+                HBox row = new HBox(12, pluginAvatar(item.displayName()), text);
+                row.setAlignment(Pos.CENTER_LEFT);
+                row.getStyleClass().add("plugin-list-cell-content");
+                setText(null);
+                setGraphic(row);
+            }
         });
 
+        VBox detailHost = new VBox();
+        detailHost.getStyleClass().add("plugin-detail-pane");
+        detailHost.getChildren().add(pluginEmptyState(i18n.get("plugins.store.selectHint")));
+        ScrollPane detailScroll = new ScrollPane(detailHost);
+        detailScroll.setFitToWidth(true);
+        detailScroll.setFitToHeight(true);
+        detailScroll.getStyleClass().add("plugin-detail-scroll");
+
+        Button install = new Button(i18n.get("plugins.store.install"));
+        install.getStyleClass().add("plugin-install-button");
+        install.setDisable(true);
+        PluginStoreVersion[] selectedVersion = new PluginStoreVersion[1];
+
+        Runnable runSearch = () -> {
+            search.setDisable(true);
+            status.setText(i18n.get("plugins.store.loading"));
+            com.jlshell.plugin.api.PluginScope requestedScope = scope.getValue().equals(i18n.get("plugins.filter.program"))
+                    ? com.jlshell.plugin.api.PluginScope.PROGRAM
+                    : scope.getValue().equals(i18n.get("plugins.filter.session"))
+                    ? com.jlshell.plugin.api.PluginScope.SESSION : null;
+            client.search(new PluginStoreSearch(query.getText(), requestedScope, getVersion(), i18n.getLocale(), 0, 20,
+                            PluginStoreSearch.Sort.UPDATED))
+                    .whenComplete((page, error) -> Platform.runLater(() -> {
+                        search.setDisable(false);
+                        if (error != null) {
+                            status.setText(i18n.get("plugins.store.error", userMessage(error)));
+                            return;
+                        }
+                        listings.setAll(page.content());
+                        status.setText(i18n.get("plugins.store.results", page.totalElements()));
+                        if (!listings.isEmpty()) list.getSelectionModel().select(0);
+                    }));
+        };
+        search.setOnAction(event -> runSearch.run());
+        query.setOnAction(event -> runSearch.run());
+
+        list.getSelectionModel().selectedItemProperty().addListener((obs, oldValue, selected) -> {
+            selectedVersion[0] = null;
+            install.setDisable(true);
+            detailHost.getChildren().setAll(pluginEmptyState(i18n.get("plugins.store.loading")));
+            if (selected == null) return;
+            client.detail(selected.pluginId(), i18n.getLocale(), getVersion())
+                    .whenComplete((storeDetail, error) -> Platform.runLater(() -> {
+                        if (list.getSelectionModel().getSelectedItem() != selected) return;
+                        if (error != null) {
+                            detailHost.getChildren().setAll(pluginEmptyState(
+                                    i18n.get("plugins.store.error", userMessage(error))));
+                            return;
+                        }
+                        selectedVersion[0] = approvedVersion(storeDetail, selected.latestVersion());
+                        detailHost.getChildren().setAll(marketplaceDetail(
+                                i18n, selected, selectedVersion[0], install,
+                                isMarketplacePluginInstalled(selected, installer, installedEntries)));
+                        install.setDisable(selectedVersion[0] == null);
+                    }));
+        });
+
+        installedEntries.addListener((javafx.collections.ListChangeListener<PluginDocEntry>) change -> {
+            list.refresh();
+            PluginStoreListing selected = list.getSelectionModel().getSelectedItem();
+            if (selected != null && selectedVersion[0] != null) {
+                detailHost.getChildren().setAll(marketplaceDetail(
+                        i18n, selected, selectedVersion[0], install,
+                        isMarketplacePluginInstalled(selected, installer, installedEntries)));
+            }
+        });
+
+        install.setOnAction(event -> {
+            PluginStoreListing selected = list.getSelectionModel().getSelectedItem();
+            PluginStoreVersion version = selectedVersion[0];
+            if (selected == null || version == null) return;
+            List<PluginInstaller.InstalledArtifact> existing = installer.findInstalled(selected.pluginId());
+            boolean loadedLocally = installedEntries.stream()
+                    .anyMatch(entry -> entry.metadata().id().equals(selected.pluginId()));
+            if (loadedLocally && existing.isEmpty()) {
+                status.setText(i18n.get("plugins.store.bundledConflict"));
+                return;
+            }
+            if (existing.stream().anyMatch(artifact -> artifact.scope() != selected.scope())) {
+                status.setText(i18n.get("plugins.store.scopeConflict"));
+                return;
+            }
+            if (!existing.isEmpty() && !confirmPluginAction(
+                    Alert.AlertType.CONFIRMATION,
+                    i18n.get("plugins.store.replaceTitle"),
+                    i18n.get("plugins.store.replaceMessage", selected.displayName(),
+                            existing.stream().map(PluginInstaller.InstalledArtifact::version)
+                                    .filter(value -> value != null && !value.isBlank()).distinct()
+                                    .collect(Collectors.joining(", ")),
+                            version.version()),
+                    i18n.get("plugins.store.replace"), owner, i18n, themeService)) {
+                return;
+            }
+            install.setDisable(true);
+            status.setText(i18n.get("plugins.store.installing"));
+            installProgress.setProgress(0);
+            installProgress.setManaged(true);
+            installProgress.setVisible(true);
+            Runnable beforeReplace = selected.scope() == com.jlshell.plugin.api.PluginScope.SESSION && pluginManager != null
+                    ? uiThreadAction(() -> pluginManager.deactivatePlugin(selected.pluginId())) : () -> { };
+            java.util.function.DoubleConsumer progressListener = progress -> Platform.runLater(() -> {
+                installProgress.setProgress(progress);
+                status.setText(i18n.get("plugins.store.installProgress", Math.round(progress * 100)));
+            });
+            java.util.concurrent.CompletableFuture.supplyAsync(
+                            () -> installer.install(selected, version, beforeReplace, progressListener),
+                            ForkJoinPool.commonPool())
+                    .whenComplete((result, error) -> Platform.runLater(() -> {
+                        installProgress.setVisible(false);
+                        installProgress.setManaged(false);
+                        if (error != null) {
+                            status.setText(i18n.get("plugins.store.error", userMessage(error)));
+                            install.setDisable(false);
+                            return;
+                        }
+                        if (result.scope() == com.jlshell.plugin.api.PluginScope.SESSION && pluginManager != null) {
+                            pluginManager.reloadPlugins();
+                            installedEntries.setAll(pluginDocEntries(programPluginManager, pluginManager));
+                            status.setText(i18n.get("plugins.store.installedSession"));
+                        } else {
+                            status.setText(i18n.get("plugins.store.installedProgram"));
+                        }
+                        list.refresh();
+                        detailHost.getChildren().setAll(marketplaceDetail(
+                                i18n, selected, version, install, true));
+                        install.setDisable(false);
+                    }));
+        });
+
+        HBox controls = new HBox(8, query, scope, search);
+        controls.getStyleClass().add("plugin-toolbar");
+        HBox.setHgrow(query, Priority.ALWAYS);
+        VBox left = new VBox(8, controls, list, installProgress, status);
+        left.getStyleClass().add("plugin-list-pane");
+        VBox.setVgrow(list, Priority.ALWAYS);
+
+        SplitPane split = new SplitPane(left, detailScroll);
+        split.getStyleClass().add("plugin-content-split");
+        split.setDividerPositions(0.38);
+        BorderPane root = new BorderPane(split);
+        root.getStyleClass().add("plugin-marketplace-root");
+        Platform.runLater(runSearch);
+        return root;
+    }
+
+    private static BorderPane buildInstalledPluginsPane(AppSettingsService appSettings, I18nService i18n,
+                                                        ThemeService themeService, Stage owner,
+                                                        ProgramPluginManager programPluginManager,
+                                                        PluginManager pluginManager,
+                                                        ObservableList<PluginDocEntry> entries) {
+        String home = System.getProperty("user.home");
+        PluginStoreClient storeClient = new PluginStoreClient(
+                UpdateService.configuredBaseUrl(appSettings), ForkJoinPool.commonPool());
+        PluginInstaller installer = new PluginInstaller(storeClient,
+                Path.of(home, ".jlshell", "program-plugins"), Path.of(home, ".jlshell", "plugins"));
+        FilteredList<PluginDocEntry> filtered = new FilteredList<>(entries, item -> true);
+        TextField search = new TextField();
+        search.setPromptText(i18n.get("plugins.store.searchInstalled"));
+        ComboBox<String> scope = new ComboBox<>(FXCollections.observableArrayList(
+                i18n.get("plugins.filter.all"), i18n.get("plugins.filter.program"), i18n.get("plugins.filter.session")));
+        scope.getSelectionModel().select(0);
+        scope.setMinWidth(130);
+        Button updates = new Button(i18n.get("plugins.store.checkUpdates"));
+        Label status = new Label();
+        status.getStyleClass().add("plugin-status");
+        status.setWrapText(true);
+
+        Runnable applyFilter = () -> {
+            String q = search.getText() == null ? "" : search.getText().strip().toLowerCase(Locale.ROOT);
+            String selectedScope = scope.getValue();
+            filtered.setPredicate(item -> (q.isBlank()
+                    || item.metadata().displayName().toLowerCase(Locale.ROOT).contains(q)
+                    || item.metadata().id().toLowerCase(Locale.ROOT).contains(q))
+                    && (selectedScope == null || selectedScope.equals(i18n.get("plugins.filter.all"))
+                    || (selectedScope.equals(i18n.get("plugins.filter.program"))
+                    && item.scope() == com.jlshell.plugin.api.PluginScope.PROGRAM)
+                    || (selectedScope.equals(i18n.get("plugins.filter.session"))
+                    && item.scope() == com.jlshell.plugin.api.PluginScope.SESSION)));
+        };
+        search.textProperty().addListener((obs, oldValue, newValue) -> applyFilter.run());
+        scope.valueProperty().addListener((obs, oldValue, newValue) -> applyFilter.run());
+
         ListView<PluginDocEntry> list = new ListView<>(filtered);
-        list.setPrefWidth(230);
-        list.setCellFactory(lv -> new ListCell<>() {
+        list.getStyleClass().add("plugin-manager-list");
+        list.setMinWidth(330);
+        list.setCellFactory(view -> new ListCell<>() {
             @Override protected void updateItem(PluginDocEntry item, boolean empty) {
                 super.updateItem(item, empty);
                 if (empty || item == null) {
@@ -1563,66 +2127,378 @@ public class PreferencesDialog {
                     return;
                 }
                 Label name = new Label(item.metadata().displayName());
-                name.setStyle("-fx-font-weight: bold;");
-                Label scope = new Label(item.scopeLabel(i18n));
-                scope.getStyleClass().add("plugin-scope-badge");
-                scope.getStyleClass().add(item.scope() == com.jlshell.plugin.api.PluginScope.PROGRAM
-                        ? "plugin-scope-program"
-                        : "plugin-scope-session");
+                name.getStyleClass().add("plugin-item-name");
+                Label id = new Label(item.metadata().id());
+                id.getStyleClass().add("plugin-item-description");
+                id.setMaxWidth(230);
+                id.setTextOverrun(javafx.scene.control.OverrunStyle.ELLIPSIS);
+                Label badge = new Label(item.scopeLabel(i18n));
+                badge.getStyleClass().addAll("plugin-scope-badge",
+                        item.scope() == com.jlshell.plugin.api.PluginScope.PROGRAM
+                                ? "plugin-scope-program" : "plugin-scope-session");
                 Label version = new Label(item.metadata().version());
                 version.getStyleClass().add("plugin-version-label");
-                HBox meta = new HBox(6, scope, version);
+                Label state = pluginStateBadge(
+                        i18n.get(item.enabled() ? "plugins.store.enabled" : "plugins.store.disabled"),
+                        item.enabled() ? "plugin-state-enabled" : "plugin-state-disabled");
+                HBox meta = new HBox(7, badge, state, version);
                 meta.setAlignment(Pos.CENTER_LEFT);
-                VBox row = new VBox(5, name, meta);
+                VBox text = new VBox(3, name, id, meta);
+                HBox.setHgrow(text, Priority.ALWAYS);
+                HBox row = new HBox(12, pluginAvatar(item.metadata().displayName()), text);
+                row.setAlignment(Pos.CENTER_LEFT);
+                row.getStyleClass().add("plugin-list-cell-content");
                 setText(null);
                 setGraphic(row);
             }
         });
 
-        TextArea detail = new TextArea();
-        detail.setEditable(false);
-        detail.setWrapText(true);
-        detail.setPrefHeight(180);
+        VBox detailHost = new VBox();
+        detailHost.getStyleClass().add("plugin-detail-pane");
+        detailHost.getChildren().add(pluginEmptyState(i18n.get("plugins.store.selectInstalledHint")));
+        ScrollPane detailScroll = new ScrollPane(detailHost);
+        detailScroll.setFitToWidth(true);
+        detailScroll.setFitToHeight(true);
+        detailScroll.getStyleClass().add("plugin-detail-scroll");
 
-        VBox settingsHost = new VBox(8);
-        settingsHost.setPadding(new Insets(8, 0, 0, 0));
-        list.getSelectionModel().selectedItemProperty().addListener((obs, oldValue, entry) -> {
-            detail.setText(entry == null ? "" : entry.detailText(i18n));
-            settingsHost.getChildren().clear();
-            if (entry != null && entry.settingsNode() != null) {
-                settingsHost.getChildren().add(new Label(i18n.get("plugins.settings")));
-                settingsHost.getChildren().add(entry.settingsNode());
+        java.util.function.Consumer<PluginDocEntry> uninstallEntry = entry -> {
+            if (entry == null) return;
+            if (!confirmPluginAction(
+                    Alert.AlertType.CONFIRMATION,
+                    i18n.get("plugins.store.uninstallTitle"),
+                    i18n.get("plugins.store.uninstallMessage", entry.metadata().displayName()),
+                    i18n.get("plugins.store.uninstall"), owner, i18n, themeService)) {
+                return;
             }
+            status.setText(i18n.get("plugins.store.uninstalling"));
+            Runnable beforeDelete = entry.scope() == com.jlshell.plugin.api.PluginScope.SESSION && pluginManager != null
+                    ? uiThreadAction(() -> pluginManager.deactivatePlugin(entry.metadata().id())) : () -> { };
+            java.util.concurrent.CompletableFuture.supplyAsync(
+                            () -> installer.uninstall(entry.metadata().id(), entry.scope(), beforeDelete),
+                            ForkJoinPool.commonPool())
+                    .whenComplete((result, error) -> Platform.runLater(() -> {
+                        if (error != null) {
+                            status.setText(i18n.get("plugins.store.error", userMessage(error)));
+                            return;
+                        }
+                        if (!result.removed()) {
+                            status.setText(i18n.get("plugins.store.notRemovable"));
+                            return;
+                        }
+                        if (entry.scope() == com.jlshell.plugin.api.PluginScope.SESSION && pluginManager != null) {
+                            pluginManager.reloadPlugins();
+                            status.setText(i18n.get("plugins.store.uninstalledSession"));
+                        } else {
+                            status.setText(i18n.get("plugins.store.uninstalledProgram"));
+                        }
+                        entries.removeIf(item -> item.scope() == entry.scope()
+                                && item.metadata().id().equals(entry.metadata().id()));
+                        list.getSelectionModel().clearSelection();
+                        detailHost.getChildren().setAll(
+                                pluginEmptyState(i18n.get("plugins.store.selectInstalledHint")));
+                    }));
+        };
+        java.util.function.Consumer<PluginDocEntry> toggleEntry = entry -> {
+            if (entry == null) return;
+            boolean enable = !entry.enabled();
+            if (!enable && !confirmPluginAction(
+                    Alert.AlertType.CONFIRMATION,
+                    i18n.get("plugins.store.disableTitle"),
+                    i18n.get("plugins.store.disableMessage", entry.metadata().displayName()),
+                    i18n.get("plugins.store.disable"), owner, i18n, themeService)) {
+                return;
+            }
+            try {
+                if (entry.scope() == com.jlshell.plugin.api.PluginScope.SESSION) {
+                    if (pluginManager == null) return;
+                    pluginManager.setPluginEnabled(entry.metadata().id(), enable);
+                } else {
+                    if (programPluginManager == null) return;
+                    programPluginManager.setPluginEnabled(entry.metadata().id(), enable);
+                }
+                entries.setAll(pluginDocEntries(programPluginManager, pluginManager));
+                entries.stream()
+                        .filter(item -> item.scope() == entry.scope()
+                                && item.metadata().id().equals(entry.metadata().id()))
+                        .findFirst().ifPresent(item -> list.getSelectionModel().select(item));
+                status.setText(i18n.get(enable
+                        ? "plugins.store.enabledMessage" : "plugins.store.disabledMessage",
+                        entry.metadata().displayName()));
+            } catch (RuntimeException error) {
+                status.setText(i18n.get("plugins.store.error", userMessage(error)));
+            }
+        };
+        list.getSelectionModel().selectedItemProperty().addListener((obs, oldValue, entry) -> {
+            if (entry == null) {
+                detailHost.getChildren().setAll(
+                        pluginEmptyState(i18n.get("plugins.store.selectInstalledHint")));
+                return;
+            }
+            boolean removable = installer.findInstalled(entry.metadata().id()).stream()
+                    .anyMatch(artifact -> artifact.scope() == entry.scope());
+            detailHost.getChildren().setAll(installedPluginDetail(
+                    i18n, entry, removable, () -> uninstallEntry.accept(entry),
+                    () -> toggleEntry.accept(entry)));
         });
-        if (!filtered.isEmpty()) {
-            list.getSelectionModel().select(0);
+        if (!filtered.isEmpty()) list.getSelectionModel().select(0);
+
+        updates.setOnAction(event -> {
+            PluginStoreClient client = new PluginStoreClient(UpdateService.configuredBaseUrl(appSettings), ForkJoinPool.commonPool());
+            checkPluginUpdates(client, i18n, programPluginManager, pluginManager, status);
+        });
+        HBox controls = new HBox(8, search, scope, updates);
+        controls.getStyleClass().add("plugin-toolbar");
+        HBox.setHgrow(search, Priority.ALWAYS);
+        VBox left = new VBox(8, controls, list, status);
+        left.getStyleClass().add("plugin-list-pane");
+        VBox.setVgrow(list, Priority.ALWAYS);
+
+        SplitPane split = new SplitPane(left, detailScroll);
+        split.getStyleClass().add("plugin-content-split");
+        split.setDividerPositions(0.38);
+        BorderPane root = new BorderPane(split);
+        root.getStyleClass().add("plugin-marketplace-root");
+        return root;
+    }
+
+    private static VBox marketplaceDetail(I18nService i18n, PluginStoreListing plugin,
+                                          PluginStoreVersion version, Button install, boolean installed) {
+        Label name = new Label(plugin.displayName());
+        name.getStyleClass().add("plugin-detail-title");
+        Label author = new Label(plugin.author() + "  ·  " + plugin.scope().name()
+                + "  ·  ↓ " + compactCount(plugin.downloads()));
+        author.getStyleClass().add("plugin-detail-author");
+        VBox headingText = new VBox(4, name, author);
+        HBox.setHgrow(headingText, Priority.ALWAYS);
+        HBox heading = new HBox(12, pluginAvatar(plugin.displayName()), headingText);
+        if (installed) {
+            heading.getChildren().add(pluginStateBadge(
+                    i18n.get("plugins.store.installedBadge"), "plugin-state-installed"));
         }
+        heading.getChildren().add(install);
+        heading.setAlignment(Pos.CENTER_LEFT);
 
-        VBox right = new VBox(8, detail, settingsHost);
-        SplitPane split = new SplitPane(list, right);
-        split.setDividerPositions(0.35);
-        VBox.setVgrow(split, Priority.ALWAYS);
+        Label description = new Label(plugin.description());
+        description.setWrapText(true);
+        description.getStyleClass().add("plugin-detail-description");
+        Label versionTitle = new Label(i18n.get("plugins.field.version"));
+        versionTitle.getStyleClass().add("plugin-detail-section-title");
+        Label versionText = new Label(version == null ? i18n.get("plugins.store.noApprovedVersion")
+                : version.version() + "  ·  " + humanSize(version.size()));
+        versionText.getStyleClass().add("plugin-detail-meta");
+        Label notesTitle = new Label(i18n.get("plugins.store.releaseNotes"));
+        notesTitle.getStyleClass().add("plugin-detail-section-title");
+        Label notes = new Label(version == null || isBlank(version.releaseNotes()) ? "—" : version.releaseNotes());
+        notes.setWrapText(true);
+        notes.getStyleClass().add("plugin-detail-description");
+        Label id = new Label(plugin.pluginId());
+        id.getStyleClass().add("plugin-detail-id");
+        return new VBox(18, heading, new Separator(), description, versionTitle, versionText,
+                notesTitle, notes, new Separator(), id);
+    }
 
-        pane.getChildren().addAll(scopeFilter, split);
+    private static VBox installedPluginDetail(I18nService i18n, PluginDocEntry entry,
+                                              boolean removable, Runnable uninstallAction,
+                                              Runnable toggleAction) {
+        Label name = new Label(entry.metadata().displayName());
+        name.getStyleClass().add("plugin-detail-title");
+        Label author = new Label(entry.metadata().author() + "  ·  " + entry.scopeLabel(i18n));
+        author.getStyleClass().add("plugin-detail-author");
+        VBox headingText = new VBox(4, name, author);
+        HBox.setHgrow(headingText, Priority.ALWAYS);
+        Label state = pluginStateBadge(
+                i18n.get(entry.enabled() ? "plugins.store.enabled" : "plugins.store.disabled"),
+                entry.enabled() ? "plugin-state-enabled" : "plugin-state-disabled");
+        Button toggle = new Button(i18n.get(entry.enabled()
+                ? "plugins.store.disable" : "plugins.store.enable"));
+        toggle.getStyleClass().add(entry.enabled() ? "plugin-disable-button" : "plugin-enable-button");
+        toggle.setOnAction(event -> toggleAction.run());
+        Button uninstall = new Button(i18n.get("plugins.store.uninstall"));
+        uninstall.getStyleClass().add("plugin-uninstall-button");
+        uninstall.setDisable(!removable);
+        uninstall.setOnAction(event -> uninstallAction.run());
+        HBox heading = new HBox(10, pluginAvatar(entry.metadata().displayName()), headingText,
+                state, toggle, uninstall);
+        heading.setAlignment(Pos.CENTER_LEFT);
+
+        Label description = new Label(entry.metadata().description());
+        description.setWrapText(true);
+        description.getStyleClass().add("plugin-detail-description");
+        GridPane metadata = new GridPane();
+        metadata.setHgap(16);
+        metadata.setVgap(9);
+        addPluginMetadataRow(metadata, 0, i18n.get("plugins.field.id"), entry.metadata().id());
+        addPluginMetadataRow(metadata, 1, i18n.get("plugins.field.version"), entry.metadata().version());
+        addPluginMetadataRow(metadata, 2, i18n.get("plugins.field.hostRange"), entry.hostRange(i18n));
+        addPluginMetadataRow(metadata, 3, i18n.get("plugins.field.status"), entry.metadata().compatibilityStatus().name());
+        addPluginMetadataRow(metadata, 4, i18n.get("plugins.store.runtimeState"),
+                i18n.get(entry.enabled() ? "plugins.store.enabled" : "plugins.store.disabled"));
+
+        VBox result = new VBox(18, heading, new Separator(), description, metadata);
+        if (!isBlank(entry.metadata().compatibilityWarning())) {
+            Label warning = new Label(entry.metadata().compatibilityWarning());
+            warning.setWrapText(true);
+            warning.getStyleClass().add("plugin-detail-warning");
+            result.getChildren().add(warning);
+        }
+        if (entry.settingsNode() != null) {
+            Label settingsTitle = new Label(i18n.get("plugins.settings"));
+            settingsTitle.getStyleClass().add("plugin-detail-section-title");
+            result.getChildren().addAll(new Separator(), settingsTitle, entry.settingsNode());
+        }
+        return result;
+    }
+
+    private static void addPluginMetadataRow(GridPane grid, int row, String key, String value) {
+        Label keyLabel = new Label(key);
+        keyLabel.getStyleClass().add("plugin-detail-meta-key");
+        Label valueLabel = new Label(value == null ? "" : value);
+        valueLabel.setWrapText(true);
+        valueLabel.getStyleClass().add("plugin-detail-meta-value");
+        grid.addRow(row, keyLabel, valueLabel);
+    }
+
+    private static boolean isMarketplacePluginInstalled(PluginStoreListing plugin,
+                                                        PluginInstaller installer,
+                                                        List<PluginDocEntry> installedEntries) {
+        boolean loadedOrBundled = installedEntries.stream().anyMatch(entry ->
+                entry.scope() == plugin.scope() && entry.metadata().id().equals(plugin.pluginId()));
+        if (loadedOrBundled) return true;
+        return installer.findInstalled(plugin.pluginId()).stream()
+                .anyMatch(artifact -> artifact.scope() == plugin.scope());
+    }
+
+    private static Label pluginStateBadge(String text, String stateStyleClass) {
+        Label badge = new Label(text);
+        badge.getStyleClass().addAll("plugin-state-badge", stateStyleClass);
+        return badge;
+    }
+
+    private static StackPane pluginAvatar(String name) {
+        String text = name == null || name.isBlank() ? "P" : name.strip().substring(0, 1).toUpperCase(Locale.ROOT);
+        Label initial = new Label(text);
+        initial.getStyleClass().add("plugin-avatar-text");
+        StackPane avatar = new StackPane(initial);
+        avatar.getStyleClass().add("plugin-avatar");
+        return avatar;
+    }
+
+    private static StackPane pluginEmptyState(String text) {
+        Label label = new Label(text);
+        label.setWrapText(true);
+        label.getStyleClass().add("plugin-empty-state");
+        StackPane pane = new StackPane(label);
+        pane.setMinHeight(360);
         return pane;
+    }
+
+    private static String compactCount(long value) {
+        if (value >= 1_000_000) return String.format(Locale.ROOT, "%.1fM", value / 1_000_000.0);
+        if (value >= 1_000) return String.format(Locale.ROOT, "%.1fK", value / 1_000.0);
+        return Long.toString(value);
+    }
+
+    private static String humanSize(long bytes) {
+        if (bytes >= 1024L * 1024L) return String.format(Locale.ROOT, "%.1f MB", bytes / (1024.0 * 1024.0));
+        if (bytes >= 1024L) return String.format(Locale.ROOT, "%.1f KB", bytes / 1024.0);
+        return bytes + " B";
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    private static PluginStoreVersion approvedVersion(PluginStoreDetail detail, String latestVersion) {
+        if (detail == null) return null;
+        return detail.versions().stream()
+                .filter(PluginStoreVersion::approved)
+                .filter(version -> version.version().equals(latestVersion))
+                .findFirst().orElse(null);
+    }
+
+    private static boolean confirmPluginAction(Alert.AlertType type, String title, String message,
+                                               String confirmText, Stage owner, I18nService i18n,
+                                               ThemeService themeService) {
+        ButtonType confirm = new ButtonType(confirmText, ButtonBar.ButtonData.OK_DONE);
+        ButtonType cancel = new ButtonType(i18n.get("plugins.store.cancel"), ButtonBar.ButtonData.CANCEL_CLOSE);
+        Alert alert = new Alert(type, message, confirm, cancel);
+        alert.setTitle(title);
+        alert.setHeaderText(null);
+        if (owner != null) alert.initOwner(owner);
+        themeService.applyToDialog(alert);
+        return alert.showAndWait().orElse(cancel) == confirm;
+    }
+
+    private static Runnable uiThreadAction(Runnable action) {
+        return () -> {
+            if (Platform.isFxApplicationThread()) {
+                action.run();
+                return;
+            }
+            CountDownLatch completed = new CountDownLatch(1);
+            Platform.runLater(() -> {
+                try { action.run(); } finally { completed.countDown(); }
+            });
+            try {
+                completed.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("插件停用操作被中断", e);
+            }
+        };
+    }
+
+    private static void checkPluginUpdates(PluginStoreClient client, I18nService i18n,
+                                           ProgramPluginManager programPluginManager, PluginManager pluginManager,
+                                           Label status) {
+        List<com.jlshell.plugin.api.PluginMetadata> installed = new ArrayList<>();
+        if (programPluginManager != null) programPluginManager.getAvailablePlugins().forEach(p -> installed.add(p.metadata()));
+        if (pluginManager != null) pluginManager.getAvailablePlugins().forEach(p -> installed.add(p.metadata()));
+        if (installed.isEmpty()) {
+            status.setText(i18n.get("plugins.store.noInstalled"));
+            return;
+        }
+        status.setText(i18n.get("plugins.store.checkingUpdates"));
+        List<java.util.concurrent.CompletableFuture<PluginStoreUpdate>> checks = installed.stream()
+                .map(metadata -> client.latestUpdate(metadata.id(), metadata.version(), getVersion())
+                        .exceptionally(error -> null))
+                .toList();
+        java.util.concurrent.CompletableFuture.allOf(checks.toArray(java.util.concurrent.CompletableFuture[]::new))
+                .whenComplete((ignored, error) -> Platform.runLater(() -> {
+                    long count = checks.stream()
+                            .map(java.util.concurrent.CompletableFuture::join)
+                            .filter(update -> update != null && update.updateAvailable())
+                            .count();
+                    status.setText(count == 0 ? i18n.get("plugins.store.upToDate")
+                            : i18n.get("plugins.store.updatesAvailable", count));
+                }));
+    }
+
+    private static String userMessage(Throwable error) {
+        Throwable cause = error instanceof java.util.concurrent.CompletionException && error.getCause() != null
+                ? error.getCause() : error;
+        return cause.getMessage() == null ? cause.getClass().getSimpleName() : cause.getMessage();
     }
 
     private static List<PluginDocEntry> pluginDocEntries(ProgramPluginManager programPluginManager,
                                                          PluginManager pluginManager) {
         List<PluginDocEntry> entries = new ArrayList<>();
         if (programPluginManager != null) {
-            programPluginManager.getAvailablePlugins().forEach(desc -> {
-                javafx.scene.Node settings = desc.instance().settingsView(desc.context());
-                entries.add(new PluginDocEntry(desc.metadata(), settings));
+            programPluginManager.getInstalledPlugins().forEach(desc -> {
+                boolean enabled = programPluginManager.isPluginEnabled(desc.id());
+                javafx.scene.Node settings = enabled ? desc.instance().settingsView(desc.context()) : null;
+                entries.add(new PluginDocEntry(desc.metadata(), settings, enabled));
             });
         }
         if (pluginManager != null) {
-            pluginManager.getAvailablePlugins().forEach(desc -> entries.add(new PluginDocEntry(desc.metadata(), null)));
+            pluginManager.getInstalledPlugins().forEach(desc -> entries.add(
+                    new PluginDocEntry(desc.metadata(), null, pluginManager.isPluginEnabled(desc.id()))));
         }
         return entries;
     }
 
-    private record PluginDocEntry(com.jlshell.plugin.api.PluginMetadata metadata, javafx.scene.Node settingsNode) {
+    private record PluginDocEntry(com.jlshell.plugin.api.PluginMetadata metadata,
+                                  javafx.scene.Node settingsNode, boolean enabled) {
         com.jlshell.plugin.api.PluginScope scope() {
             return metadata.scope();
         }
@@ -1633,12 +2509,16 @@ public class PreferencesDialog {
                     : i18n.get("plugins.scope.session");
         }
 
-        String detailText(I18nService i18n) {
-            String range = (blank(metadata.minHostVersionInclusive()) && blank(metadata.maxHostVersionInclusive()))
+        String hostRange(I18nService i18n) {
+            return (blank(metadata.minHostVersionInclusive()) && blank(metadata.maxHostVersionInclusive()))
                     ? i18n.get("plugins.compat.undeclared")
                     : (blank(metadata.minHostVersionInclusive()) ? "*" : metadata.minHostVersionInclusive())
                     + " - "
                     + (blank(metadata.maxHostVersionInclusive()) ? "*" : metadata.maxHostVersionInclusive());
+        }
+
+        String detailText(I18nService i18n) {
+            String range = hostRange(i18n);
             String warning = blank(metadata.compatibilityWarning()) ? "" : "\n\n" + i18n.get("plugins.warning")
                     + ":\n" + metadata.compatibilityWarning();
             return i18n.get("plugins.field.id") + ": " + metadata.id() + "\n"
@@ -1663,7 +2543,7 @@ public class PreferencesDialog {
                                         com.jlshell.ui.service.ConnectionProfileService connectionProfileService,
                                         String activeProjectId) {
         VBox pane = new VBox(16);
-        pane.setPadding(new Insets(16, 20, 12, 20));
+        pane.getStyleClass().add("settings-page");
 
         // 三个 section 共享一个结果标签，显示最近一次导入结果
         Label globalResult = new Label();
@@ -1673,7 +2553,10 @@ public class PreferencesDialog {
             // 从终端 Tab 打开的偏好设置没有连接服务上下文，提示用户从主菜单打开
             Label hint = new Label(i18n.get("import.noFile"));
             hint.setStyle("-fx-text-fill: #9ca3af; -fx-font-size: 0.92em;");
-            pane.getChildren().add(hint);
+            VBox unavailableCard = settingsCard(i18n.get("preferences.tab.import"), "", hint);
+            VBox cards = new VBox(unavailableCard);
+            cards.getStyleClass().add("settings-card-grid");
+            pane.getChildren().add(cards);
             return pane;
         }
 
@@ -1686,7 +2569,22 @@ public class PreferencesDialog {
         // ── Manual section ──
         VBox manualSection = buildManualSection(i18n, connectionProfileService, activeProjectId, globalResult);
 
-        pane.getChildren().addAll(mobaxtermSection, xshellSection, manualSection, globalResult);
+        VBox cards = new VBox(14, mobaxtermSection, xshellSection, manualSection, globalResult);
+        cards.getStyleClass().add("settings-card-grid");
+        ScrollPane scroll = new ScrollPane(cards);
+        scroll.setFitToWidth(true);
+        scroll.getStyleClass().add("settings-scroll-pane");
+        VBox directory = settingsSectionDirectory(i18n, scroll, cards, List.of(
+                new SettingsSectionLink(i18n.get("import.section.mobaxterm"), mobaxtermSection),
+                new SettingsSectionLink(i18n.get("import.section.xshell"), xshellSection),
+                new SettingsSectionLink(i18n.get("import.section.manual"), manualSection)));
+        BorderPane workspace = new BorderPane();
+        workspace.setLeft(directory);
+        workspace.setCenter(scroll);
+        workspace.getStyleClass().add("settings-directory-workspace");
+        BorderPane.setMargin(directory, new Insets(16, 0, 16, 18));
+        pane.getChildren().add(workspace);
+        VBox.setVgrow(workspace, Priority.ALWAYS);
         return pane;
     }
 
@@ -1694,10 +2592,10 @@ public class PreferencesDialog {
                                               com.jlshell.ui.service.ConnectionProfileService service,
                                               String projectId, Label globalResult) {
         Label title = new Label(i18n.get("import.section.mobaxterm"));
-        title.setStyle("-fx-font-size: 1.08em;-fx-font-weight:bold;");
+        title.getStyleClass().add("settings-card-title");
 
         Label hint = new Label(i18n.get("import.mobaxterm.hint"));
-        hint.setStyle("-fx-text-fill: #9ca3af; -fx-font-size: 0.85em;");
+        hint.getStyleClass().add("settings-card-description");
         hint.setWrapText(true);
 
         Label foundLabel = new Label();
@@ -1733,7 +2631,7 @@ public class PreferencesDialog {
 
         HBox buttonRow = new HBox(8, browseBtn, importBtn);
         VBox section = new VBox(6, title, hint, buttonRow, foundLabel);
-        section.setStyle("-fx-background-color: rgba(255,255,255,0.03); -fx-background-radius: 8; -fx-padding: 12;");
+        section.getStyleClass().add("settings-card");
         return section;
     }
 
@@ -1741,10 +2639,10 @@ public class PreferencesDialog {
                                            com.jlshell.ui.service.ConnectionProfileService service,
                                            String projectId, Label globalResult) {
         Label title = new Label(i18n.get("import.section.xshell"));
-        title.setStyle("-fx-font-size: 1.08em;-fx-font-weight:bold;");
+        title.getStyleClass().add("settings-card-title");
 
         Label hint = new Label(i18n.get("import.xshell.hint"));
-        hint.setStyle("-fx-text-fill: #9ca3af; -fx-font-size: 0.85em;");
+        hint.getStyleClass().add("settings-card-description");
         hint.setWrapText(true);
 
         Label foundLabel = new Label();
@@ -1795,7 +2693,7 @@ public class PreferencesDialog {
 
         HBox buttonRow = new HBox(8, browseBtn, browseDirBtn, importBtn);
         VBox section = new VBox(6, title, hint, buttonRow, foundLabel);
-        section.setStyle("-fx-background-color: rgba(255,255,255,0.03); -fx-background-radius: 8; -fx-padding: 12;");
+        section.getStyleClass().add("settings-card");
         return section;
     }
 
@@ -1803,10 +2701,10 @@ public class PreferencesDialog {
                                            com.jlshell.ui.service.ConnectionProfileService service,
                                            String projectId, Label globalResult) {
         Label title = new Label(i18n.get("import.section.manual"));
-        title.setStyle("-fx-font-size: 1.08em;-fx-font-weight:bold;");
+        title.getStyleClass().add("settings-card-title");
 
         Label hint = new Label(i18n.get("import.manual.hint"));
-        hint.setStyle("-fx-text-fill: #9ca3af; -fx-font-size: 0.85em;");
+        hint.getStyleClass().add("settings-card-description");
         hint.setWrapText(true);
 
         // 手动表格：name/host/port/user/authType/password/passphrase + 删除按钮
@@ -2019,7 +2917,7 @@ public class PreferencesDialog {
 
         HBox buttonRow = new HBox(8, loadJsonBtn, addRowBtn, sampleBtn, pasteJsonBtn, importBtn);
         VBox section = new VBox(6, title, hint, tableScroll, buttonRow);
-        section.setStyle("-fx-background-color: rgba(255,255,255,0.03); -fx-background-radius: 8; -fx-padding: 12;");
+        section.getStyleClass().add("settings-card");
         return section;
     }
 
@@ -2341,21 +3239,56 @@ public class PreferencesDialog {
     private static VBox buildShortcutsPane(ShortcutRegistry shortcutRegistry, I18nService i18n,
                                             ThemeService themeService, Stage owner,
                                             Runnable preferenceChanged) {
-        VBox pane = new VBox(10);
+        VBox pane = new VBox(12);
+        pane.getStyleClass().add("shortcut-page");
         pane.setPadding(new Insets(16, 20, 12, 20));
 
         // Search field
         TextField searchField = new TextField();
         searchField.setPromptText(i18n.get("shortcut.search.prompt"));
-        searchField.setPrefWidth(Double.MAX_VALUE);
+        searchField.setMinWidth(220);
+        searchField.setPrefWidth(480);
+        searchField.setMaxWidth(520);
+
+        Label totalBadge = new Label();
+        Label customizedBadge = new Label();
+        Label unassignedBadge = new Label();
+        totalBadge.getStyleClass().add("shortcut-summary-badge");
+        customizedBadge.getStyleClass().add("shortcut-summary-badge");
+        unassignedBadge.getStyleClass().add("shortcut-summary-badge");
+        Label resultCount = new Label();
+        resultCount.getStyleClass().add("shortcut-result-count");
+
+        Runnable[] refreshSummary = new Runnable[1];
+        refreshSummary[0] = () -> {
+            if (shortcutRegistry == null) {
+                totalBadge.setText(i18n.get("shortcut.summary.total", 0));
+                customizedBadge.setText(i18n.get("shortcut.summary.customized", 0));
+                unassignedBadge.setText(i18n.get("shortcut.summary.unassigned", 0));
+                return;
+            }
+            List<ShortcutDefinition> definitions = shortcutRegistry.definitions();
+            long customized = definitions.stream().filter(definition ->
+                    !Objects.equals(normalizeShortcutBinding(shortcutRegistry.getEffectivePrimary(definition.id())),
+                            normalizeShortcutBinding(definition.defaultPrimary()))
+                            || !Objects.equals(normalizeShortcutBinding(shortcutRegistry.getEffectiveSecondary(definition.id())),
+                            normalizeShortcutBinding(definition.defaultSecondary()))).count();
+            long unassigned = definitions.stream().filter(definition ->
+                    normalizeShortcutBinding(shortcutRegistry.getEffectivePrimary(definition.id())).isBlank()
+                            && normalizeShortcutBinding(shortcutRegistry.getEffectiveSecondary(definition.id())).isBlank()).count();
+            totalBadge.setText(i18n.get("shortcut.summary.total", definitions.size()));
+            customizedBadge.setText(i18n.get("shortcut.summary.customized", customized));
+            unassignedBadge.setText(i18n.get("shortcut.summary.unassigned", unassigned));
+        };
 
         // Scrollable content area for shortcut rows
-        VBox shortcutsList = new VBox(6);
+        VBox shortcutsList = new VBox(14);
+        shortcutsList.getStyleClass().add("shortcut-list-container");
         ScrollPane scrollPane = new ScrollPane(shortcutsList);
         scrollPane.setFitToWidth(true);
         scrollPane.setFitToHeight(true);
         scrollPane.setPrefHeight(400);
-        scrollPane.setStyle("-fx-background: transparent; -fx-background-color: transparent;");
+        scrollPane.getStyleClass().add("shortcut-scroll-pane");
         VBox.setVgrow(scrollPane, Priority.ALWAYS);
 
         // Build shortcut rows grouped by category
@@ -2375,65 +3308,45 @@ public class PreferencesDialog {
                     String category = entry.getKey();
                     List<ShortcutDefinition> defs = entry.getValue();
 
-                    // Category header
                     Label categoryLabel = new Label(i18n.get("shortcut.category." + category));
-                    categoryLabel.setStyle("-fx-font-weight: bold; -fx-font-size: 1.05em; -fx-padding: 6 0 2 0;");
-                    categoryLabel.setUserData("category:" + category);
-                    shortcutsList.getChildren().add(categoryLabel);
+                    categoryLabel.getStyleClass().add("shortcut-category-title");
+                    Label categoryCount = new Label(i18n.get("shortcut.category.count", defs.size()));
+                    categoryCount.getStyleClass().add("shortcut-category-count");
+                    Region categorySpacer = new Region();
+                    HBox.setHgrow(categorySpacer, Priority.ALWAYS);
+                    HBox categoryHeader = new HBox(8, categoryLabel, categorySpacer, categoryCount);
+                    categoryHeader.setAlignment(Pos.CENTER_LEFT);
+                    categoryHeader.getStyleClass().add("shortcut-category-header");
+                    VBox rows = new VBox();
 
-                    // Shortcut rows
                     for (ShortcutDefinition def : defs) {
-                        VBox row = buildShortcutRow(def, shortcutRegistry, i18n, themeService, owner, this,
-                                preferenceChanged);
-                        shortcutsList.getChildren().add(row);
+                        VBox row = buildShortcutRow(def, shortcutRegistry, i18n, themeService, owner,
+                                refreshSummary[0], preferenceChanged);
+                        rows.getChildren().add(row);
                     }
+                    VBox categoryCard = new VBox(8, categoryHeader, new Separator(), rows);
+                    categoryCard.getStyleClass().add("shortcut-category-card");
+                    categoryCard.setUserData("category:" + category);
+                    shortcutsList.getChildren().add(categoryCard);
                 }
+                refreshSummary[0].run();
+                int visible = filterShortcutRows(shortcutsList, shortcutRegistry, i18n, searchField.getText());
+                resultCount.setText(i18n.get("shortcut.search.results", visible));
             }
         };
         rebuildList.run();
 
         // Search filtering
         searchField.textProperty().addListener((obs, oldVal, newVal) -> {
-            String query = newVal == null ? "" : newVal.trim().toLowerCase();
-            for (javafx.scene.Node node : shortcutsList.getChildren()) {
-                if (node.getUserData() instanceof String s && s.startsWith("category:")) {
-                    // Category headers: visibility depends on whether any child row is visible
-                    continue;
-                }
-                if (node.getUserData() instanceof ShortcutDefinition def) {
-                    boolean match = query.isBlank()
-                            || i18n.get(def.nameKey()).toLowerCase().contains(query)
-                            || ShortcutConverter.toDisplayText(shortcutRegistry.getEffectivePrimary(def.id())).toLowerCase().contains(query)
-                            || ShortcutConverter.toDisplayText(shortcutRegistry.getEffectiveSecondary(def.id())).toLowerCase().contains(query);
-                    node.setVisible(match);
-                    node.setManaged(match);
-                }
-            }
-            // Hide category headers when all their rows are filtered out
-            for (int i = 0; i < shortcutsList.getChildren().size(); i++) {
-                javafx.scene.Node node = shortcutsList.getChildren().get(i);
-                if (node.getUserData() instanceof String s && s.startsWith("category:")) {
-                    String cat = s.substring("category:".length());
-                    boolean anyVisible = false;
-                    for (int j = i + 1; j < shortcutsList.getChildren().size(); j++) {
-                        javafx.scene.Node next = shortcutsList.getChildren().get(j);
-                        if (next.getUserData() instanceof String ns && ns.startsWith("category:")) {
-                            break; // reached next category
-                        }
-                        if (next.isVisible()) {
-                            anyVisible = true;
-                            break;
-                        }
-                    }
-                    node.setVisible(anyVisible);
-                    node.setManaged(anyVisible);
-                }
-            }
+            if (shortcutRegistry == null) return;
+            int visible = filterShortcutRows(shortcutsList, shortcutRegistry, i18n, newVal);
+            resultCount.setText(i18n.get("shortcut.search.results", visible));
         });
 
         // Reset to Defaults button
         Button resetBtn = new Button(i18n.get("shortcut.resetDefaults"));
         resetBtn.setDisable(shortcutRegistry == null);
+        resetBtn.setMinWidth(Region.USE_PREF_SIZE);
         resetBtn.setOnAction(e -> {
             Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
                     i18n.get("shortcut.resetDefaults.confirm"),
@@ -2449,17 +3362,158 @@ public class PreferencesDialog {
             }
         });
 
-        pane.getChildren().addAll(searchField, scrollPane, resetBtn);
+        Label pageTitle = new Label(i18n.get("shortcut.summary.title"));
+        pageTitle.getStyleClass().add("shortcut-summary-title");
+        Label pageDescription = new Label(i18n.get("shortcut.summary.description"));
+        pageDescription.getStyleClass().add("shortcut-summary-description");
+        pageDescription.setWrapText(true);
+        VBox titleBox = new VBox(3, pageTitle, pageDescription);
+        HBox badges = new HBox(7, totalBadge, customizedBadge, unassignedBadge);
+        badges.setAlignment(Pos.CENTER_RIGHT);
+        BorderPane summaryHeader = new BorderPane();
+        summaryHeader.setLeft(titleBox);
+        summaryHeader.setRight(badges);
+        BorderPane.setAlignment(badges, Pos.TOP_RIGHT);
+
+        VBox searchBox = new VBox(4, searchField, resultCount);
+        HBox toolbar = new HBox(12, searchBox, new Region(), resetBtn);
+        toolbar.getStyleClass().add("shortcut-toolbar");
+        toolbar.setAlignment(Pos.CENTER_LEFT);
+        HBox.setHgrow(toolbar.getChildren().get(1), Priority.ALWAYS);
+
+        VBox overview = new VBox(12, summaryHeader, new Separator(), toolbar);
+        overview.getStyleClass().add("shortcut-overview-card");
+
+        Label commandHeader = new Label(i18n.get("shortcut.column.command"));
+        commandHeader.getStyleClass().add("shortcut-column-title");
+        commandHeader.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(commandHeader, Priority.ALWAYS);
+        Label primaryHeader = new Label(i18n.get("shortcut.column.primary"));
+        primaryHeader.getStyleClass().add("shortcut-column-title");
+        primaryHeader.setMinWidth(186);
+        Label secondaryHeader = new Label(i18n.get("shortcut.column.secondary"));
+        secondaryHeader.getStyleClass().add("shortcut-column-title");
+        secondaryHeader.setMinWidth(186);
+        HBox columns = new HBox(14, commandHeader, primaryHeader, secondaryHeader);
+        columns.getStyleClass().add("shortcut-column-header");
+        columns.setAlignment(Pos.CENTER_LEFT);
+
+        javafx.scene.control.ToggleGroup directoryGroup = new javafx.scene.control.ToggleGroup();
+        VBox directoryItems = new VBox(5);
+        Map<String, Integer> categorySizes = new LinkedHashMap<>();
+        if (shortcutRegistry != null) {
+            shortcutRegistry.definitions().forEach(definition ->
+                    categorySizes.merge(definition.category(), 1, Integer::sum));
+        }
+        javafx.scene.control.ToggleButton allItem = shortcutDirectoryItem(
+                i18n.get("shortcut.directory.all", shortcutRegistry == null ? 0 : shortcutRegistry.definitions().size()),
+                "all", directoryGroup);
+        directoryItems.getChildren().add(allItem);
+        for (Map.Entry<String, Integer> category : categorySizes.entrySet()) {
+            directoryItems.getChildren().add(shortcutDirectoryItem(
+                    i18n.get("shortcut.directory.category",
+                            i18n.get("shortcut.category." + category.getKey()), category.getValue()),
+                    category.getKey(), directoryGroup));
+        }
+        allItem.setSelected(true);
+        directoryGroup.selectedToggleProperty().addListener((obs, oldToggle, newToggle) -> {
+            if (newToggle == null) {
+                if (oldToggle != null) oldToggle.setSelected(true);
+                return;
+            }
+            String category = String.valueOf(newToggle.getUserData());
+            if (!searchField.getText().isBlank()) searchField.clear();
+            Platform.runLater(() -> scrollToShortcutCategory(scrollPane, shortcutsList, category));
+        });
+
+        Label directoryTitle = new Label(i18n.get("shortcut.directory.title"));
+        directoryTitle.getStyleClass().add("shortcut-directory-title");
+        Label directoryHint = new Label(i18n.get("shortcut.directory.hint"));
+        directoryHint.getStyleClass().add("shortcut-directory-hint");
+        directoryHint.setWrapText(true);
+        VBox directory = new VBox(8, directoryTitle, directoryHint, new Separator(), directoryItems);
+        directory.getStyleClass().add("shortcut-directory");
+        directory.setMinWidth(138);
+        directory.setPrefWidth(154);
+        directory.setMaxWidth(168);
+
+        VBox content = new VBox(12, overview, columns, scrollPane);
+        VBox.setVgrow(scrollPane, Priority.ALWAYS);
+        BorderPane workspace = new BorderPane();
+        workspace.getStyleClass().add("shortcut-workspace");
+        workspace.setLeft(directory);
+        workspace.setCenter(content);
+        BorderPane.setMargin(directory, new Insets(0, 14, 0, 0));
+        VBox.setVgrow(workspace, Priority.ALWAYS);
+        pane.getChildren().add(workspace);
         return pane;
+    }
+
+    private static javafx.scene.control.ToggleButton shortcutDirectoryItem(String text, String category,
+                                                                            javafx.scene.control.ToggleGroup group) {
+        javafx.scene.control.ToggleButton item = new javafx.scene.control.ToggleButton(text);
+        item.getStyleClass().add("shortcut-directory-item");
+        item.setUserData(category);
+        item.setToggleGroup(group);
+        item.setMaxWidth(Double.MAX_VALUE);
+        item.setAlignment(Pos.CENTER_LEFT);
+        return item;
+    }
+
+    private static void scrollToShortcutCategory(ScrollPane scrollPane, VBox shortcutsList, String category) {
+        if ("all".equals(category)) {
+            scrollPane.setVvalue(0);
+            return;
+        }
+        javafx.scene.Node target = shortcutsList.getChildren().stream()
+                .filter(node -> Objects.equals(node.getUserData(), "category:" + category))
+                .findFirst().orElse(null);
+        if (target == null) return;
+        double contentHeight = shortcutsList.getBoundsInLocal().getHeight();
+        double viewportHeight = scrollPane.getViewportBounds().getHeight();
+        double scrollableHeight = Math.max(1, contentHeight - viewportHeight);
+        scrollPane.setVvalue(Math.max(0, Math.min(1,
+                target.getBoundsInParent().getMinY() / scrollableHeight)));
+    }
+
+    private static int filterShortcutRows(VBox shortcutsList, ShortcutRegistry shortcutRegistry,
+                                          I18nService i18n, String searchText) {
+        if (shortcutRegistry == null) return 0;
+        String query = searchText == null ? "" : searchText.trim().toLowerCase(Locale.ROOT);
+        int visibleCount = 0;
+        for (javafx.scene.Node cardNode : shortcutsList.getChildren()) {
+            if (!(cardNode instanceof VBox card) || card.getChildren().size() < 3
+                    || !(card.getChildren().get(2) instanceof VBox rows)) continue;
+            boolean anyVisible = false;
+            for (javafx.scene.Node row : rows.getChildren()) {
+                if (row.getUserData() instanceof ShortcutDefinition def) {
+                    boolean match = query.isBlank()
+                            || i18n.get(def.nameKey()).toLowerCase(Locale.ROOT).contains(query)
+                            || ShortcutConverter.toDisplayText(shortcutRegistry.getEffectivePrimary(def.id()))
+                            .toLowerCase(Locale.ROOT).contains(query)
+                            || ShortcutConverter.toDisplayText(shortcutRegistry.getEffectiveSecondary(def.id()))
+                            .toLowerCase(Locale.ROOT).contains(query);
+                    row.setVisible(match);
+                    row.setManaged(match);
+                    anyVisible |= match;
+                    if (match) visibleCount++;
+                }
+            }
+            card.setVisible(anyVisible);
+            card.setManaged(anyVisible);
+        }
+        return visibleCount;
     }
 
     private static VBox buildShortcutRow(ShortcutDefinition def, ShortcutRegistry registry,
                                           I18nService i18n, ThemeService themeService, Stage owner,
-                                          Runnable rebuildList, Runnable preferenceChanged) {
+                                          Runnable refreshSummary, Runnable preferenceChanged) {
         VBox rowBox = new VBox();
         rowBox.setUserData(def);
+        rowBox.getStyleClass().add("shortcut-row");
 
         Label nameLabel = new Label(i18n.get(def.nameKey()));
+        nameLabel.getStyleClass().add("shortcut-command-name");
         nameLabel.setMaxWidth(Double.MAX_VALUE);
         HBox.setHgrow(nameLabel, Priority.ALWAYS);
 
@@ -2467,38 +3521,53 @@ public class PreferencesDialog {
         String primarySpec = registry.getEffectivePrimary(def.id());
         Button primaryBtn = new Button(primarySpec != null ? ShortcutConverter.toDisplayText(primarySpec) : i18n.get("shortcut.unassigned"));
         primaryBtn.getStyleClass().add("shortcut-key-button");
-        primaryBtn.setMinWidth(100);
+        primaryBtn.setMinWidth(148);
+        primaryBtn.setPrefWidth(148);
 
         // Secondary shortcut button
         String secondarySpec = registry.getEffectiveSecondary(def.id());
         Button secondaryBtn = new Button(secondarySpec != null ? ShortcutConverter.toDisplayText(secondarySpec) : i18n.get("shortcut.unassigned"));
         secondaryBtn.getStyleClass().add("shortcut-key-button");
-        secondaryBtn.setMinWidth(100);
+        secondaryBtn.setMinWidth(148);
+        secondaryBtn.setPrefWidth(148);
 
         // Per-key clear buttons (只清除单个快捷键)
         Button clearPrimaryBtn = new Button("×");
         clearPrimaryBtn.getStyleClass().add("shortcut-clear-button");
+        clearPrimaryBtn.setTooltip(new Tooltip(i18n.get("shortcut.clear")));
         clearPrimaryBtn.setOnAction(e -> {
             registry.setUserPrimary(def.id(), null);
             primaryBtn.setText(i18n.get("shortcut.unassigned"));
+            refreshSummary.run();
             preferenceChanged.run();
         });
 
         Button clearSecondaryBtn = new Button("×");
         clearSecondaryBtn.getStyleClass().add("shortcut-clear-button");
+        clearSecondaryBtn.setTooltip(new Tooltip(i18n.get("shortcut.clear")));
         clearSecondaryBtn.setOnAction(e -> {
             registry.setUserSecondary(def.id(), null);
             secondaryBtn.setText(i18n.get("shortcut.unassigned"));
+            refreshSummary.run();
             preferenceChanged.run();
         });
 
         // Setup key recording for primary and secondary
-        setupKeyRecording(primaryBtn, def, registry, i18n, themeService, owner, true, secondaryBtn, preferenceChanged);
-        setupKeyRecording(secondaryBtn, def, registry, i18n, themeService, owner, false, primaryBtn, preferenceChanged);
+        Runnable shortcutChanged = () -> {
+            refreshSummary.run();
+            preferenceChanged.run();
+        };
+        setupKeyRecording(primaryBtn, def, registry, i18n, themeService, owner, true, secondaryBtn, shortcutChanged);
+        setupKeyRecording(secondaryBtn, def, registry, i18n, themeService, owner, false, primaryBtn, shortcutChanged);
 
-        HBox hbox = new HBox(8, nameLabel, primaryBtn, clearPrimaryBtn, secondaryBtn, clearSecondaryBtn);
+        HBox primaryCell = new HBox(6, primaryBtn, clearPrimaryBtn);
+        primaryCell.setMinWidth(186);
+        primaryCell.setAlignment(Pos.CENTER_LEFT);
+        HBox secondaryCell = new HBox(6, secondaryBtn, clearSecondaryBtn);
+        secondaryCell.setMinWidth(186);
+        secondaryCell.setAlignment(Pos.CENTER_LEFT);
+        HBox hbox = new HBox(14, nameLabel, primaryCell, secondaryCell);
         hbox.setAlignment(Pos.CENTER_LEFT);
-        hbox.setPadding(new Insets(4, 0, 4, 8));
         rowBox.getChildren().add(hbox);
         return rowBox;
     }

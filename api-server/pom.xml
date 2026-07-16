@@ -13,18 +13,6 @@
     <dependencies>
         <dependency>
             <groupId>com.jlshell</groupId>
-            <artifactId>core</artifactId>
-            <version>${project.version}</version>
-            <exclusions>
-                <!-- api-server 不依赖 JavaFX；core 经 plugin-api 传递 javafx，一并排除 -->
-                <exclusion>
-                    <groupId>org.openjfx</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <dependency>
-            <groupId>com.jlshell</groupId>
             <artifactId>plugin-api</artifactId>
             <version>${project.version}</version>
             <exclusions>
@@ -34,6 +22,11 @@
                     <artifactId>*</artifactId>
                 </exclusion>
             </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>com.jlshell</groupId>
+            <artifactId>program-api</artifactId>
+            <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>com.google.code.gson</groupId>

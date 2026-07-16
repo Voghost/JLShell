@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "com.jlshell.demo.program-host-tools",
+  "version": "0.1.0",
+  "scope": "PROGRAM",
+  "entrypoint": "com.jlshell.demo.program.HostToolsProgramPlugin",
+  "defaultLocale": "en",
+  "displayName": "Program Host Tools Demo",
+  "description": "Demonstrates program-level settings, storage, and global API capabilities.",
+  "author": "JLShell",
+  "license": "Apache-2.0",
+  "repository": "https://github.com/Voghost/JLShell",
+  "minHostVersion": "0.1.0",
+  "maxHostVersion": "0.1.999"
+}

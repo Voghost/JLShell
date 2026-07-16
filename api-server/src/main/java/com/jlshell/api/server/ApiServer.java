@@ -2,21 +2,24 @@ package com.jlshell.api.server;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.util.Map;
 import com.sun.net.httpserver.HttpServer;
 import com.jlshell.api.server.dispatch.CapabilityInvokeMethod;
 import com.jlshell.api.server.dispatch.CapabilityListMethod;
-import com.jlshell.api.server.dispatch.HostMethods;
 import com.jlshell.api.server.dispatch.MethodDispatcher;
 import com.jlshell.plugin.api.rpc.SessionPluginActivator;
 import com.jlshell.api.server.jsonrpc.RpcHandler;
 import com.jlshell.plugin.api.rpc.CapabilityBus;
+import com.jlshell.program.api.ProgramApiCatalog;
+import com.jlshell.program.api.ProgramApiMethod;
+import com.jlshell.program.api.ProgramApiRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * 外部 API server：JDK {@link HttpServer}，绑 127.0.0.1，bearer token 鉴权。
  *
- * <p>把 {@link CapabilityBus}（插件能力透传）与 {@link HostMethods}（内置 host method）
+ * <p>把 {@link CapabilityBus}（插件能力透传）与 {@link ProgramApiRegistry}（宿主 SPI 方法）
  * 统一注册到 {@link MethodDispatcher}，对外暴露 /rpc 单端点。
  */
 public final class ApiServer {
@@ -26,27 +29,28 @@ public final class ApiServer {
     private HttpServer httpServer;
     private int actualPort = -1;
 
-    public ApiServer(ApiServerConfig config, CapabilityBus bus, HostMethods hostMethods) {
-        this(config, bus, hostMethods, SessionPluginActivator.noop());
+    public ApiServer(ApiServerConfig config, CapabilityBus bus, ProgramApiRegistry programApiRegistry) {
+        this(config, bus, programApiRegistry, SessionPluginActivator.noop());
     }
 
-    public ApiServer(ApiServerConfig config, CapabilityBus bus, HostMethods hostMethods,
+    public ApiServer(ApiServerConfig config, CapabilityBus bus, ProgramApiRegistry programApiRegistry,
                      SessionPluginActivator sessionPluginActivator) {
         this.config = config;
         this.dispatcher = new MethodDispatcher();
         // 透传插件能力
         dispatcher.register("capability.invoke", new CapabilityInvokeMethod(bus, sessionPluginActivator));
         dispatcher.register("capability.list", new CapabilityListMethod(bus));
-        // 内置 host method
-        dispatcher.register("session.connect", hostMethods::sessionConnect);
-        dispatcher.register("session.disconnect", params -> hostMethods.sessionDisconnect(params)
-                .thenCompose(result -> sessionPluginActivator.deactivate(sessionId(params))
-                        .thenApply(ignored -> result)));
-        dispatcher.register("session.list", hostMethods::sessionList);
-        dispatcher.register("session.info", hostMethods::sessionInfo);
-        dispatcher.register("command.run", hostMethods::commandRun);
-        dispatcher.register("api.token", hostMethods::apiToken);
-        dispatcher.register("api.methods", hostMethods::apiMethods);
+        // Program API 由 app 的 ServiceLoader SPI 提供。
+        Map<String, ProgramApiMethod> programMethods = programApiRegistry.methods();
+        programMethods.forEach((method, handler) ->
+                dispatcher.register(method, handler::handle));
+        ProgramApiMethod disconnectMethod = programMethods.get(ProgramApiCatalog.SESSION_DISCONNECT);
+        if (disconnectMethod != null) {
+            dispatcher.register(ProgramApiCatalog.SESSION_DISCONNECT, params ->
+                    disconnectMethod.handle(params)
+                            .thenCompose(result -> sessionPluginActivator.deactivate(sessionId(params))
+                                    .thenApply(ignored -> result)));
+        }
     }
 
     private static String sessionId(com.google.gson.JsonElement params) {

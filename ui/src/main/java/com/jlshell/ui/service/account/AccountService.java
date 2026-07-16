@@ -14,7 +14,6 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -53,14 +52,15 @@ public class AccountService {
     private static final String LEGACY_SETTINGS_DISPLAY_NAME = "account.displayName";
 
     private static final String DEFAULT_BASE_URL = JlshellDefaults.accountBaseUrl();
-    private static final long HEARTBEAT_INTERVAL_MINUTES = 15;
-    private static final long NEAR_EXPIRY_MINUTES = 30;
-    private static final long REPORT_STATS_INTERVAL_MINUTES = 5;
+    private static final Duration HEARTBEAT_INTERVAL = Duration.ofMinutes(15);
+    private static final Duration REPORT_STATS_INTERVAL = Duration.ofMinutes(5);
 
     private final AppSettingsService appSettings;
     private final ExecutorService executor;
     private final HttpClient httpClient;
     private final Gson gson = new Gson();
+    private final Duration heartbeatInterval;
+    private final Duration reportStatsInterval;
 
     private final ScheduledThreadPoolExecutor heartbeatScheduler;
     private volatile ScheduledFuture<?> heartbeatTask;
@@ -70,20 +70,41 @@ public class AccountService {
     private volatile int liveConnectionCount;
 
     public AccountService(AppSettingsService appSettings, ExecutorService executor) {
+        this(appSettings, executor, HttpClient.newBuilder()
+                        .connectTimeout(Duration.ofSeconds(10))
+                        .executor(executor)
+                        .followRedirects(HttpClient.Redirect.NORMAL)
+                        .build(),
+                newScheduler(), HEARTBEAT_INTERVAL, REPORT_STATS_INTERVAL);
+    }
+
+    AccountService(AppSettingsService appSettings, ExecutorService executor, HttpClient httpClient,
+                   ScheduledThreadPoolExecutor scheduler, Duration heartbeatInterval,
+                   Duration reportStatsInterval) {
         this.appSettings = Objects.requireNonNull(appSettings);
         this.executor = Objects.requireNonNull(executor);
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(10))
-                .executor(executor)
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .build();
-        this.heartbeatScheduler = new ScheduledThreadPoolExecutor(1, r -> {
+        this.httpClient = Objects.requireNonNull(httpClient);
+        this.heartbeatScheduler = Objects.requireNonNull(scheduler);
+        this.heartbeatInterval = requirePositive(heartbeatInterval, "heartbeatInterval");
+        this.reportStatsInterval = requirePositive(reportStatsInterval, "reportStatsInterval");
+        heartbeatScheduler.setRemoveOnCancelPolicy(true);
+        heartbeatScheduler.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+    }
+
+    private static ScheduledThreadPoolExecutor newScheduler() {
+        return new ScheduledThreadPoolExecutor(1, r -> {
             Thread t = new Thread(r, "jlshell-account-heartbeat");
             t.setDaemon(true);
             return t;
         });
-        heartbeatScheduler.setRemoveOnCancelPolicy(true);
-        heartbeatScheduler.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+    }
+
+    private static Duration requirePositive(Duration duration, String name) {
+        Objects.requireNonNull(duration, name);
+        if (duration.isZero() || duration.isNegative()) {
+            throw new IllegalArgumentException(name + " must be positive");
+        }
+        return duration;
     }
 
     // ── 公开 API ──────────────────────────────────────────────────────────
@@ -191,13 +212,15 @@ public class AccountService {
                 }
                 MeResponse me = gson.fromJson(response.body(), MeResponse.class);
                 if (me == null) {
-                    clearSession();
-                    return null;
+                    throw new IOException("Account API did not return valid account information");
                 }
                 AccountSession session = buildSessionFromMe(me, token);
-                persist(session);
+                if (!replaceSessionIfTokenMatches(token, session)) {
+                    return null;
+                }
                 startHeartbeat();
                 startReportStats();
+                reportCurrentStats("restored session");
                 return session;
             } catch (AccountHttpException e) {
                 throw e;
@@ -237,8 +260,7 @@ public class AccountService {
                     return null;
                 }
                 AccountSession session = buildSessionFromAuth(authResponse);
-                persist(session);
-                return session;
+                return replaceSessionIfTokenMatches(token, session) ? session : null;
             } catch (AccountHttpException e) {
                 throw e;
             } catch (Exception e) {
@@ -257,6 +279,7 @@ public class AccountService {
                 if (token.isBlank()) {
                     return null;
                 }
+                String accountId = appSettings.get(SETTINGS_ACCOUNT_ID, "");
                 String body = gson.toJson(new ReportStatsRequest(
                         Math.max(0, connectionCount), ensureDeviceId()));
                 HttpRequest request = HttpRequest.newBuilder(endpoint("/api/v1/account/report-stats"))
@@ -278,9 +301,7 @@ public class AccountService {
                 }
                 MeResponse me = gson.fromJson(response.body(), MeResponse.class);
                 if (me == null) return null;
-                AccountSession session = buildSessionFromMe(me, token);
-                persist(session);
-                return session;
+                return updateAccountFromStats(me, accountId);
             } catch (Exception e) {
                 log.warn("Report-stats failed: {}", e.getMessage());
                 return null;
@@ -296,6 +317,7 @@ public class AccountService {
                 if (token.isBlank()) {
                     throw new AccountException("Not signed in", null);
                 }
+                String accountId = appSettings.get(SETTINGS_ACCOUNT_ID, "");
                 String body = gson.toJson(new ChangePasswordRequest(oldPassword, newPassword));
                 HttpRequest request = HttpRequest.newBuilder(endpoint("/api/v1/account/password"))
                         .timeout(Duration.ofSeconds(20))
@@ -311,9 +333,7 @@ public class AccountService {
                 if (me == null) {
                     throw new IOException("Change password did not return account info");
                 }
-                AccountSession session = buildSessionFromMe(me, token);
-                persist(session);
-                return session;
+                return updateAccountFromStats(me, accountId);
             } catch (AccountHttpException e) {
                 throw e;
             } catch (Exception e) {
@@ -389,10 +409,15 @@ public class AccountService {
 
     /** 更新当前活跃连接数，并立即上报。由 MainWindow 调用。 */
     public void updateLiveStats(int connectionCount) {
-        this.liveConnectionCount = connectionCount;
+        setLiveConnectionCount(connectionCount);
         if (isSignedIn()) {
-            reportStats(connectionCount);
+            reportCurrentStats("SSH session state change");
         }
+    }
+
+    /** 只更新本机缓存，供启动验证前设置真实 SSH 连接数。 */
+    public void setLiveConnectionCount(int connectionCount) {
+        this.liveConnectionCount = Math.max(0, connectionCount);
     }
 
     /** 关闭调度器。在 AppContext.close() 中调用。 */
@@ -477,6 +502,7 @@ public class AccountService {
                 persist(session);
                 startHeartbeat();
                 startReportStats();
+                reportCurrentStats("authentication");
                 return session;
             } catch (AccountHttpException e) {
                 throw e;
@@ -486,8 +512,7 @@ public class AccountService {
         }, executor);
     }
 
-    private void persist(AccountSession session) {
-        appSettings.set(SETTINGS_TOKEN, session.token());
+    private synchronized void persist(AccountSession session) {
         appSettings.set(SETTINGS_ACCOUNT_ID, session.id());
         appSettings.set(SETTINGS_USERNAME, session.username());
         appSettings.set(SETTINGS_EMAIL, session.email());
@@ -497,9 +522,33 @@ public class AccountService {
         appSettings.set(SETTINGS_CONN_COUNT, String.valueOf(session.connectionCount()));
         appSettings.set(SETTINGS_TERM_COUNT, String.valueOf(session.terminalCount()));
         appSettings.set(SETTINGS_HIST_DEVICE_COUNT, String.valueOf(session.historicalDeviceCount()));
+        // Token 最后替换；其他字段全部成功写入后，新会话才对读取方可见。
+        appSettings.set(SETTINGS_TOKEN, session.token());
     }
 
-    private void clearSession() {
+    private synchronized boolean replaceSessionIfTokenMatches(String expectedToken, AccountSession session) {
+        if (!expectedToken.equals(appSettings.get(SETTINGS_TOKEN, ""))) {
+            return false;
+        }
+        persist(session);
+        return true;
+    }
+
+    /** 统计接口不返回新 Token，始终保留心跳可能刚刚替换的当前 Token。 */
+    private synchronized AccountSession updateAccountFromStats(MeResponse me, String expectedAccountId) {
+        String currentToken = appSettings.get(SETTINGS_TOKEN, "");
+        String currentAccountId = appSettings.get(SETTINGS_ACCOUNT_ID, "");
+        if (currentToken.isBlank()
+                || !Objects.equals(expectedAccountId, currentAccountId)
+                || !Objects.equals(currentAccountId, defaultString(me.id()))) {
+            return null;
+        }
+        AccountSession session = buildSessionFromMe(me, currentToken);
+        persist(session);
+        return session;
+    }
+
+    private synchronized void clearSession() {
         appSettings.remove(SETTINGS_TOKEN);
         appSettings.remove(SETTINGS_ACCOUNT_ID);
         appSettings.remove(SETTINGS_USERNAME);
@@ -520,17 +569,15 @@ public class AccountService {
         stopHeartbeat();
         heartbeatTask = heartbeatScheduler.scheduleAtFixedRate(() -> {
             try {
-                if (tokenNearExpiry()) {
-                    heartbeat().whenComplete((session, error) -> {
-                        if (error != null) {
-                            log.warn("Scheduled heartbeat error: {}", error.getMessage());
-                        }
-                    });
-                }
+                heartbeat().whenComplete((session, error) -> {
+                    if (error != null) {
+                        log.warn("Scheduled heartbeat error: {}", error.getMessage());
+                    }
+                });
             } catch (Exception e) {
                 log.warn("Heartbeat scheduler error: {}", e.getMessage());
             }
-        }, HEARTBEAT_INTERVAL_MINUTES, HEARTBEAT_INTERVAL_MINUTES, TimeUnit.MINUTES);
+        }, heartbeatInterval.toMillis(), heartbeatInterval.toMillis(), TimeUnit.MILLISECONDS);
     }
 
     private void stopHeartbeat() {
@@ -546,12 +593,12 @@ public class AccountService {
         reportStatsTask = heartbeatScheduler.scheduleAtFixedRate(() -> {
             try {
                 if (isSignedIn()) {
-                    reportStats(liveConnectionCount);
+                    reportCurrentStats("scheduled report");
                 }
             } catch (Exception e) {
                 log.warn("Report-stats scheduler error: {}", e.getMessage());
             }
-        }, REPORT_STATS_INTERVAL_MINUTES, REPORT_STATS_INTERVAL_MINUTES, TimeUnit.MINUTES);
+        }, reportStatsInterval.toMillis(), reportStatsInterval.toMillis(), TimeUnit.MILLISECONDS);
     }
 
     private void stopReportStats() {
@@ -562,15 +609,12 @@ public class AccountService {
         }
     }
 
-    private boolean tokenNearExpiry() {
-        String expiresAt = appSettings.get(SETTINGS_EXPIRES_AT, "");
-        if (expiresAt.isBlank()) return false;
-        try {
-            Instant expiry = Instant.parse(expiresAt);
-            return expiry.isBefore(Instant.now().plus(Duration.ofMinutes(NEAR_EXPIRY_MINUTES)));
-        } catch (Exception e) {
-            return false;
-        }
+    private void reportCurrentStats(String trigger) {
+        reportStats(liveConnectionCount).whenComplete((session, error) -> {
+            if (error != null) {
+                log.warn("Account stats report failed after {}: {}", trigger, error.getMessage());
+            }
+        });
     }
 
     private URI endpoint(String path) {
