@@ -5,6 +5,8 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -40,6 +42,8 @@ import com.jlshell.ui.support.FxThread;
 import com.jlshell.ui.support.SwingNodeImeBridge;
 import com.jlshell.ui.theme.ThemeService;
 import javafx.beans.value.ChangeListener;
+import javafx.animation.KeyFrame;
+import javafx.animation.Timeline;
 import javafx.application.Platform;
 import javafx.event.EventHandler;
 import javafx.embed.swing.SwingNode;
@@ -51,6 +55,7 @@ import javafx.scene.control.Button;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressIndicator;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
 import javafx.scene.input.MouseEvent;
@@ -63,6 +68,7 @@ import javafx.scene.layout.VBox;
 import javafx.scene.shape.SVGPath;
 import javafx.stage.Stage;
 import javafx.stage.Window;
+import javafx.util.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -109,24 +115,42 @@ public class TerminalWorkspaceView extends BorderPane {
         return cwdProperty;
     }
 
-    // System info bar labels
-    private Label ipLabel;
-    private Label osLabel;
-    private Label cpuLabel;
-    private Label memLabel;
-    private Label diskLabel;
+    // 会话底部状态栏
+    private HBox sessionStatusBar;
+    private Label ipValueLabel;
+    private Label osValueLabel;
+    private Label cpuValueLabel;
+    private Label memValueLabel;
+    private Label diskValueLabel;
+    private Timeline statusRefreshTimeline;
+    private boolean statusRefreshInFlight;
+    private long statusSamplingGeneration;
+    private long previousRxBytes = -1;
+    private long previousTxBytes = -1;
+    private long previousCpuTotal = -1;
+    private long previousCpuIdle = -1;
+    private long previousSampleNanos = -1;
+    private String currentDownloadRate = "--";
+    private String currentUploadRate = "--";
+    private String currentCpuUsage = "--";
+    private StatusSummary lastStatusSummary;
 
     // Floating card state
     private javafx.stage.Popup floatingPopup;
     private VBox floatingContent;
+    private ScrollPane floatingScroll;
     private String floatingPendingType;
+    private HBox floatingAnchor;
+    private final Map<String, Label> floatingLiveLabels = new HashMap<>();
     private Button pluginQuickLaunchBtn;
     private HBox toolbar;
     private Region pluginDivider;
     private final List<HBox> pinnedPluginButtons = new ArrayList<>();
 
     private static final String PINNED_PLUGINS_KEY = "toolbar.pinnedPlugins";
+    public static final String STATUS_BAR_VISIBLE_KEY = "ui.terminal.statusBar.visible";
     private static final int MAX_PINNED = 5;
+    private static final java.time.Duration STATUS_COMMAND_TIMEOUT = java.time.Duration.ofSeconds(8);
 
     /** 断连提示覆盖层：显示断连原因 + 重连按钮 */
     private StackPane disconnectOverlay;
@@ -170,6 +194,8 @@ public class TerminalWorkspaceView extends BorderPane {
         getStyleClass().add("workspace-panel");
         setTop(buildToolbar());
         setCenter(terminalHost);
+        setBottom(buildSessionStatusBar());
+        setStatusBarVisible(Boolean.parseBoolean(appSettingsService.get(STATUS_BAR_VISIBLE_KEY, "true")));
         this.pluginCatalogRevisionListener = (obs, oldRevision, newRevision) -> {
             if (Platform.isFxApplicationThread()) {
                 if (toolbar != null) rebuildPinnedPluginButtons();
@@ -190,20 +216,13 @@ public class TerminalWorkspaceView extends BorderPane {
         return createTerminalNode().thenAccept(node -> FxThread.run(() -> {
             primaryNode = node;
             terminalHost.getChildren().setAll(node);
+            startStatusSampling();
             log.info("Terminal workspace initialized for session {}", sshSession.sessionId());
         }));
     }
 
     /**
-     * 向终端注入 OSC 7 提示钩子。
-     * bash: 通过 PROMPT_COMMAND 在每次提示时发送当前目录
-     * zsh: 通过 chpwd 钩子在目录变更时发送
-     *
-     * <p>使用 stty -echo 临时关闭回显来安静注入，完成后恢复回显。
-     */
-
-    /**
-     * 控制顶部工具栏（系统信息条 + 插件按钮 + 字体设置）的显隐。
+     * 控制顶部工具栏（插件按钮 + 字体设置）的显隐。
      * 顶栏折叠时隐藏，给终端更多垂直空间。
      */
     public void setToolbarVisible(boolean visible) {
@@ -213,16 +232,32 @@ public class TerminalWorkspaceView extends BorderPane {
         }
     }
 
-    public void injectOsc7PromptHook() {
-        if (handles.isEmpty()) return;
-        TerminalViewHandle handle = handles.getFirst();
+    /** 控制会话底部资源状态栏的显隐，并持久化用户选择。 */
+    public void setStatusBarVisible(boolean visible) {
+        if (sessionStatusBar != null) {
+            sessionStatusBar.setManaged(visible);
+            sessionStatusBar.setVisible(visible);
+        }
+        appSettingsService.set(STATUS_BAR_VISIBLE_KEY, String.valueOf(visible));
+        if (visible) {
+            startStatusSampling();
+        } else {
+            stopStatusSampling();
+            hideFloatingCard();
+        }
+    }
 
-        // 用 stty -echo 关闭回显 → 执行钩子 → stty echo 恢复回显
-        // 用分号连接成单条命令行，一次性发送
+    /**
+     * 为当前交互式 Shell 安装 OSC 7 目录上报钩子。
+     *
+     * <p>钩子只存在于本次远程 Shell 进程，不修改用户的 bashrc/zshrc。
+     * 发送时由终端连接器过滤命令自身的 PTY 回显，因此不会在终端留下整段内部命令。
+     */
+    private void installOsc7PromptHook(TerminalViewHandle handle) {
         // bash: PROMPT_COMMAND 末尾可能已有分号（如 "history -a;"），直接追加会
         // 产生 "history -a; ; _jlshell_osc7" 双分号语法错误，因此先 strip 尾部分号再追加。
         String hook = ""
-                + " stty -echo;"
+                + ": __JLSHELL_OSC7_SETUP__;"
                 + " if [ -n \"$ZSH_VERSION\" ]; then"
                 + "   _jlshell_osc7() { printf '\\033]7;file://%s%s\\007' \"$HOSTNAME\" \"$PWD\"; };"
                 + "   chpwd_functions=(${chpwd_functions[@]} _jlshell_osc7);"
@@ -233,10 +268,10 @@ public class TerminalWorkspaceView extends BorderPane {
                 + "   PROMPT_COMMAND=\"${_PC:+$_PC; }_jlshell_osc7\";"
                 + "   _jlshell_osc7;"
                 + " fi;"
-                + " stty echo\n";
+                + "\n";
 
-        handle.sendStringToTerminal(hook);
-        log.debug("[OSC7] Prompt hook injected (quiet mode via stty -echo)");
+        handle.sendStringToTerminalSilently(hook);
+        log.debug("[OSC7] Prompt hook installed silently");
     }
 
     public void applyColorScheme(TerminalColorScheme scheme) {
@@ -249,6 +284,7 @@ public class TerminalWorkspaceView extends BorderPane {
 
     public CompletableFuture<Void> closeAsync() {
         hideFloatingCard();
+        stopStatusSampling();
         sshSession.removeDisconnectListener(sessionDisconnectListener);
         if (pluginManager != null) {
             pluginManager.catalogRevisionProperty().removeListener(pluginCatalogRevisionListener);
@@ -284,6 +320,12 @@ public class TerminalWorkspaceView extends BorderPane {
         disconnectLabel = null;
         reconnectBtn = null;
         toolbar = null;
+        sessionStatusBar = null;
+        ipValueLabel = null;
+        osValueLabel = null;
+        cpuValueLabel = null;
+        memValueLabel = null;
+        diskValueLabel = null;
         pluginQuickLaunchBtn = null;
         pluginDivider = null;
         onReconnect = null;
@@ -329,6 +371,7 @@ public class TerminalWorkspaceView extends BorderPane {
 
         long startedAt = System.nanoTime();
         disconnected = true;
+        stopStatusSampling();
         log.warn("[Terminal] Session {} disconnected, reason={}, handles={}, primaryNode={}",
                 sshSession.sessionId(), reason, handles.size(),
                 primaryNode == null ? "null" : primaryNode.getClass().getSimpleName());
@@ -408,6 +451,9 @@ public class TerminalWorkspaceView extends BorderPane {
     /** 标记已重连（清除断连状态，由 SessionWorkspaceTab 在重连成功后调用） */
     public void markReconnected() {
         hideDisconnectOverlay();
+        if (sessionStatusBar != null && sessionStatusBar.isVisible()) {
+            startStatusSampling();
+        }
     }
 
     /** 返回终端是否处于断连状态 */
@@ -420,23 +466,6 @@ public class TerminalWorkspaceView extends BorderPane {
     private HBox buildToolbar() {
         Button fontSettings = iconBtn("/icons/font.svg", i18nService.get("terminal.fontSettings"), this::openFontSettings);
 
-        ipLabel = new Label(i18nService.get("sysinfo.ip"));
-        ipLabel.getStyleClass().add("sysinfo-label");
-        osLabel = new Label(i18nService.get("sysinfo.os"));
-        osLabel.getStyleClass().add("sysinfo-label");
-        cpuLabel = new Label(i18nService.get("sysinfo.cpu"));
-        cpuLabel.getStyleClass().add("sysinfo-label");
-        memLabel = new Label(i18nService.get("sysinfo.mem"));
-        memLabel.getStyleClass().add("sysinfo-label");
-        diskLabel = new Label(i18nService.get("sysinfo.disk"));
-        diskLabel.getStyleClass().add("sysinfo-label");
-
-        HBox ipSection = sysinfoSection(loadSvgShape("/icons/ip.svg", 12), ipLabel, "ip");
-        HBox osSection = sysinfoSection(loadSvgShape("/icons/system.svg", 12), osLabel, "os");
-        HBox cpuSection = sysinfoSection(loadSvgShape("/icons/cpu.svg", 12), cpuLabel, "cpu");
-        HBox memSection = sysinfoSection(loadSvgShape("/icons/memory-solid.svg", 12), memLabel, "mem");
-        HBox diskSection = sysinfoSection(loadSvgShape("/icons/folder.svg", 12), diskLabel, "disk");
-
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
@@ -446,17 +475,62 @@ public class TerminalWorkspaceView extends BorderPane {
         pluginDivider = new Region();
         pluginDivider.getStyleClass().add("sysinfo-sep-group");
 
-        toolbar = new HBox(4,
-                ipSection, makeSep(),
-                osSection, makeSep(),
-                cpuSection, makeSep(),
-                memSection, makeSep(),
-                diskSection);
-        toolbar.getChildren().addAll(pluginDivider);
+        toolbar = new HBox(4, pluginDivider);
         rebuildPinnedPluginButtons();
         toolbar.getChildren().addAll(spacer, pluginBtn, fontSettings);
         toolbar.getStyleClass().add("toolbar-strip");
         return toolbar;
+    }
+
+    private HBox buildSessionStatusBar() {
+        ipValueLabel = statusValueLabel("--");
+        osValueLabel = statusValueLabel("--");
+        cpuValueLabel = statusValueLabel("--");
+        memValueLabel = statusValueLabel("--");
+        diskValueLabel = statusValueLabel("--");
+
+        HBox ip = statusSection("/icons/ip.svg", i18nService.get("sysinfo.network"), ipValueLabel, "ip");
+        HBox os = statusSection("/icons/system.svg", i18nService.get("sysinfo.os"), osValueLabel, "os");
+        HBox cpu = statusSection("/icons/cpu.svg", i18nService.get("sysinfo.cpu"), cpuValueLabel, "cpu");
+        HBox mem = statusSection("/icons/memory-solid.svg", i18nService.get("sysinfo.mem"), memValueLabel, "mem");
+        HBox disk = statusSection("/icons/folder.svg", i18nService.get("sysinfo.disk"), diskValueLabel, "disk");
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        Button hideButton = iconBtn("/icons/collapse-up.svg", i18nService.get("terminal.statusBar.hide"),
+                () -> setStatusBarVisible(false));
+        hideButton.getStyleClass().add("terminal-status-hide");
+
+        sessionStatusBar = new HBox(2, ip, makeSep(), os, makeSep(), cpu, makeSep(), mem, makeSep(), disk,
+                spacer, hideButton);
+        sessionStatusBar.getStyleClass().add("terminal-status-bar");
+        return sessionStatusBar;
+    }
+
+    private Label statusValueLabel(String text) {
+        Label label = new Label(text);
+        label.getStyleClass().add("terminal-status-value");
+        label.setMinWidth(0);
+        label.setMaxWidth(230);
+        label.setTextOverrun(javafx.scene.control.OverrunStyle.ELLIPSIS);
+        return label;
+    }
+
+    private HBox statusSection(String iconPath, String title, Label value, String type) {
+        Region icon = loadSvgShape(iconPath, 12);
+        Label titleLabel = new Label(title);
+        titleLabel.getStyleClass().add("terminal-status-title");
+        HBox box = icon == null ? new HBox(5, titleLabel, value) : new HBox(5, icon, titleLabel, value);
+        box.setMinWidth(0);
+        HBox.setHgrow(value, Priority.ALWAYS);
+        box.getStyleClass().add("terminal-status-item");
+        javafx.scene.control.Tooltip.install(box,
+                new javafx.scene.control.Tooltip(i18nService.get("terminal.statusBar.details")));
+        box.setOnMouseClicked(event -> {
+            event.consume();
+            toggleFloatingCard(box, type);
+        });
+        return box;
     }
 
     private List<String> loadPinnedPluginIds() {
@@ -536,17 +610,305 @@ public class TerminalWorkspaceView extends BorderPane {
         return sep;
     }
 
+    // ── Realtime status sampling ─────────────────────────────────────────────
+
+    private void startStatusSampling() {
+        if (primaryNode == null || sessionStatusBar == null || !sessionStatusBar.isVisible() || disconnected) {
+            return;
+        }
+        if (statusRefreshTimeline == null) {
+            statusRefreshTimeline = new Timeline(new KeyFrame(Duration.seconds(3), event -> refreshStatusSummary()));
+            statusRefreshTimeline.setCycleCount(Timeline.INDEFINITE);
+        }
+        if (statusRefreshTimeline.getStatus() != javafx.animation.Animation.Status.RUNNING) {
+            resetStatusSamplingBaseline();
+            refreshStatusSummary();
+            statusRefreshTimeline.play();
+        }
+    }
+
+    private void stopStatusSampling() {
+        statusSamplingGeneration++;
+        if (statusRefreshTimeline != null) {
+            statusRefreshTimeline.stop();
+        }
+        statusRefreshInFlight = false;
+        resetStatusSamplingBaseline();
+    }
+
+    private void resetStatusSamplingBaseline() {
+        previousRxBytes = -1;
+        previousTxBytes = -1;
+        previousCpuTotal = -1;
+        previousCpuIdle = -1;
+        previousSampleNanos = -1;
+    }
+
+    private void refreshStatusSummary() {
+        // Tab 未选中时不向远端持续发命令；再次显示后由定时器自动恢复。
+        if (statusRefreshInFlight || disconnected || getScene() == null
+                || sessionStatusBar == null || !sessionStatusBar.isVisible()) {
+            return;
+        }
+        statusRefreshInFlight = true;
+        long generation = statusSamplingGeneration;
+        sshSession.execute(new CommandRequest(buildStatusSummaryCommand(), STATUS_COMMAND_TIMEOUT, false, null))
+                .whenComplete((output, throwable) -> FxThread.run(() -> {
+                    if (generation != statusSamplingGeneration || sessionStatusBar == null) {
+                        return;
+                    }
+                    statusRefreshInFlight = false;
+                    if (throwable != null) {
+                        log.debug("Unable to refresh terminal status for session {}: {}",
+                                sshSession.sessionId(), throwable.getMessage());
+                        return;
+                    }
+                    applyStatusSummary(parseStatusSummary(output.stdout()));
+                }));
+    }
+
+    /**
+     * 单次采集全部摘要，减少 SSH 往返。Linux 使用 proc/sysfs，macOS 与 BSD 命令作为降级路径。
+     * 输出采用带前缀的制表符协议，避免受远端本地化文本影响。
+     */
+    private String buildStatusSummaryCommand() {
+        return """
+                LC_ALL=C
+                if [ -r /etc/os-release ]; then
+                  . /etc/os-release
+                  jl_os="${PRETTY_NAME:-${NAME:-Linux}}"
+                else
+                  jl_os="$(uname -s 2>/dev/null) $(uname -r 2>/dev/null)"
+                fi
+                jl_host="$(hostname 2>/dev/null || uname -n 2>/dev/null)"
+                jl_kernel="$(uname -srmo 2>/dev/null || uname -a 2>/dev/null)"
+                jl_iface="$(ip route show default 2>/dev/null | awk 'NR==1 {print $5}')"
+                if [ -z "$jl_iface" ]; then
+                  jl_iface="$(route -n get default 2>/dev/null | awk '/interface:/{print $2; exit}')"
+                fi
+                jl_ip=""
+                if [ -n "$jl_iface" ]; then
+                  jl_ip="$(ip -o -4 addr show dev "$jl_iface" 2>/dev/null | awk 'NR==1 {split($4,a,"/"); print a[1]}')"
+                  [ -n "$jl_ip" ] || jl_ip="$(ipconfig getifaddr "$jl_iface" 2>/dev/null)"
+                fi
+                [ -n "$jl_ip" ] || jl_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+                jl_rx=0; jl_tx=0
+                if [ -n "$jl_iface" ] && [ -r "/sys/class/net/$jl_iface/statistics/rx_bytes" ]; then
+                  jl_rx="$(cat "/sys/class/net/$jl_iface/statistics/rx_bytes" 2>/dev/null)"
+                  jl_tx="$(cat "/sys/class/net/$jl_iface/statistics/tx_bytes" 2>/dev/null)"
+                elif [ -n "$jl_iface" ]; then
+                  set -- $(netstat -ibn 2>/dev/null | awk -v i="$jl_iface" '$1==i && $7 ~ /^[0-9]+$/ {rx=$7; tx=$10} END {print rx+0, tx+0}')
+                  jl_rx="${1:-0}"; jl_tx="${2:-0}"
+                fi
+                set -- $(awk '/^cpu / {idle=$5+$6; total=0; for(i=2;i<=NF;i++) total+=$i; print total, idle; exit}' /proc/stat 2>/dev/null)
+                jl_cpu_total="${1:-0}"; jl_cpu_idle="${2:-0}"
+                jl_load="$(awk '{print $1}' /proc/loadavg 2>/dev/null)"
+                [ -n "$jl_load" ] || jl_load="$(uptime 2>/dev/null | sed 's/.*load averages*[: ] *//' | cut -d, -f1 | xargs)"
+                jl_cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo 0)"
+                set -- $(awk '/MemTotal:/{t=$2} /MemAvailable:/{a=$2} END{if(t>0) printf "%.0f %.0f\\n",t*1024,(t-a)*1024}' /proc/meminfo 2>/dev/null)
+                jl_mem_total="${1:-0}"; jl_mem_used="${2:-0}"
+                if [ "$jl_mem_total" = 0 ]; then
+                  jl_mem_total="$(sysctl -n hw.memsize 2>/dev/null || echo 0)"
+                  jl_page_size="$(pagesize 2>/dev/null || echo 4096)"
+                  jl_mem_used="$(vm_stat 2>/dev/null | awk -v p="$jl_page_size" '
+                    /Pages active:/ {a=$3} /Pages wired down:/ {w=$4} /Pages occupied by compressor:/ {c=$5}
+                    END {gsub("\\.","",a); gsub("\\.","",w); gsub("\\.","",c); printf "%.0f\\n",(a+w+c)*p}')"
+                  [ -n "$jl_mem_used" ] || jl_mem_used=0
+                fi
+                set -- $(df -Pk / 2>/dev/null | awk 'NR==2 {gsub("%","",$5); printf "%.0f %.0f %s\\n",$2*1024,$3*1024,$5}')
+                jl_disk_total="${1:-0}"; jl_disk_used="${2:-0}"; jl_disk_pct="${3:-0}"
+                printf 'JL_OS\t%s\n' "$jl_os"
+                printf 'JL_HOST\t%s\n' "$jl_host"
+                printf 'JL_KERNEL\t%s\n' "$jl_kernel"
+                printf 'JL_NET\t%s\t%s\t%s\t%s\n' "$jl_iface" "$jl_ip" "$jl_rx" "$jl_tx"
+                printf 'JL_CPU\t%s\t%s\t%s\t%s\n' "$jl_cpu_total" "$jl_cpu_idle" "$jl_load" "$jl_cores"
+                printf 'JL_MEM\t%s\t%s\n' "$jl_mem_total" "$jl_mem_used"
+                printf 'JL_DISK\t%s\t%s\t%s\n' "$jl_disk_total" "$jl_disk_used" "$jl_disk_pct"
+                """;
+    }
+
+    private StatusSummary parseStatusSummary(String raw) {
+        String os = "--";
+        String host = "--";
+        String kernel = "--";
+        String iface = "--";
+        String ip = "--";
+        long rx = 0;
+        long tx = 0;
+        long cpuTotal = 0;
+        long cpuIdle = 0;
+        double load = -1;
+        int cores = 0;
+        long memTotal = 0;
+        long memUsed = 0;
+        long diskTotal = 0;
+        long diskUsed = 0;
+        int diskPercent = 0;
+        for (String line : raw.split("\\R")) {
+            String[] parts = line.split("\\t", -1);
+            if (parts.length < 2) continue;
+            switch (parts[0]) {
+                case "JL_OS" -> os = parts[1];
+                case "JL_HOST" -> host = parts[1];
+                case "JL_KERNEL" -> kernel = parts[1];
+                case "JL_NET" -> {
+                    if (parts.length >= 5) {
+                        iface = parts[1].isBlank() ? "--" : parts[1];
+                        ip = parts[2].isBlank() ? "--" : parts[2];
+                        rx = parseLong(parts[3]);
+                        tx = parseLong(parts[4]);
+                    }
+                }
+                case "JL_CPU" -> {
+                    if (parts.length >= 5) {
+                        cpuTotal = parseLong(parts[1]);
+                        cpuIdle = parseLong(parts[2]);
+                        load = parseDouble(parts[3]);
+                        cores = (int) parseLong(parts[4]);
+                    }
+                }
+                case "JL_MEM" -> {
+                    if (parts.length >= 3) {
+                        memTotal = parseLong(parts[1]);
+                        memUsed = parseLong(parts[2]);
+                    }
+                }
+                case "JL_DISK" -> {
+                    if (parts.length >= 4) {
+                        diskTotal = parseLong(parts[1]);
+                        diskUsed = parseLong(parts[2]);
+                        diskPercent = (int) parseLong(parts[3]);
+                    }
+                }
+                default -> { }
+            }
+        }
+        return new StatusSummary(os, host, kernel, iface, ip, rx, tx, cpuTotal, cpuIdle, load, cores,
+                memTotal, memUsed, diskTotal, diskUsed, diskPercent);
+    }
+
+    private void applyStatusSummary(StatusSummary summary) {
+        lastStatusSummary = summary;
+        long now = System.nanoTime();
+        if (previousSampleNanos > 0 && now > previousSampleNanos) {
+            double elapsedSeconds = (now - previousSampleNanos) / 1_000_000_000.0;
+            if (summary.rxBytes() >= previousRxBytes && summary.txBytes() >= previousTxBytes
+                    && previousRxBytes >= 0 && previousTxBytes >= 0) {
+                currentDownloadRate = formatRate((summary.rxBytes() - previousRxBytes) / elapsedSeconds);
+                currentUploadRate = formatRate((summary.txBytes() - previousTxBytes) / elapsedSeconds);
+            }
+        }
+        if (previousCpuTotal >= 0 && summary.cpuTotal() > previousCpuTotal) {
+            long totalDelta = summary.cpuTotal() - previousCpuTotal;
+            long idleDelta = summary.cpuIdle() - previousCpuIdle;
+            int usage = (int) Math.round(100.0 * Math.max(0, totalDelta - idleDelta) / totalDelta);
+            currentCpuUsage = Math.max(0, Math.min(100, usage)) + "%";
+        } else if (summary.load() >= 0 && summary.cores() > 0) {
+            int pressure = (int) Math.round(Math.min(100, summary.load() / summary.cores() * 100));
+            currentCpuUsage = pressure + "%";
+        }
+
+        previousSampleNanos = now;
+        previousRxBytes = summary.rxBytes();
+        previousTxBytes = summary.txBytes();
+        previousCpuTotal = summary.cpuTotal();
+        previousCpuIdle = summary.cpuIdle();
+
+        ipValueLabel.setText("↓ " + currentDownloadRate + "  ↑ " + currentUploadRate);
+        ipValueLabel.setTooltip(new javafx.scene.control.Tooltip(summary.iface() + " · " + summary.ip()));
+        osValueLabel.setText(compactOsName(summary.os()));
+        osValueLabel.setTooltip(new javafx.scene.control.Tooltip(summary.host() + " · " + summary.kernel()));
+        cpuValueLabel.setText(currentCpuUsage + (summary.load() >= 0 ? " · L " + formatDecimal(summary.load()) : ""));
+        memValueLabel.setText(formatUsage(summary.memUsed(), summary.memTotal()));
+        diskValueLabel.setText(summary.diskPercent() + "% · " + formatBytes(summary.diskUsed()) + "/"
+                + formatBytes(summary.diskTotal()));
+        updateFloatingLiveSummary(summary);
+    }
+
+    private void updateFloatingLiveSummary(StatusSummary summary) {
+        if (floatingPopup == null || !floatingPopup.isShowing() || floatingLiveLabels.isEmpty()) return;
+        setFloatingLiveText("network.interface", summary.iface() + " · " + summary.ip());
+        setFloatingLiveText("network.speed", "↓ " + currentDownloadRate + "   ↑ " + currentUploadRate);
+        setFloatingLiveText("os.hostname", summary.host());
+        setFloatingLiveText("os.kernel", summary.kernel());
+        setFloatingLiveText("cpu.pressure", currentCpuUsage + (summary.load() >= 0
+                ? " · Load " + formatDecimal(summary.load()) : ""));
+        setFloatingLiveText("mem.usage", formatUsage(summary.memUsed(), summary.memTotal()));
+        setFloatingLiveText("disk.usage", summary.diskPercent() + "% · " + formatBytes(summary.diskUsed())
+                + "/" + formatBytes(summary.diskTotal()));
+    }
+
+    private void setFloatingLiveText(String key, String value) {
+        Label label = floatingLiveLabels.get(key);
+        if (label != null) label.setText(value);
+    }
+
+    private static String compactOsName(String os) {
+        if (os == null || os.isBlank()) return "--";
+        return os.length() <= 28 ? os : os.substring(0, 27) + "…";
+    }
+
+    private static String formatUsage(long used, long total) {
+        if (total <= 0) return "--";
+        int percent = (int) Math.round(used * 100.0 / total);
+        return percent + "% · " + formatBytes(used) + "/" + formatBytes(total);
+    }
+
+    private static String formatRate(double bytesPerSecond) {
+        return formatBytes((long) Math.max(0, bytesPerSecond)) + "/s";
+    }
+
+    private static String formatBytes(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        double value = bytes;
+        String[] units = {"B", "KB", "MB", "GB", "TB"};
+        int unit = 0;
+        while (value >= 1024 && unit < units.length - 1) {
+            value /= 1024;
+            unit++;
+        }
+        return (value >= 10 ? String.format(java.util.Locale.ROOT, "%.0f", value)
+                : String.format(java.util.Locale.ROOT, "%.1f", value)) + " " + units[unit];
+    }
+
+    private static String formatDecimal(double value) {
+        return String.format(java.util.Locale.ROOT, "%.2f", value);
+    }
+
+    private static long parseLong(String value) {
+        try {
+            return Long.parseLong(value == null || value.isBlank() ? "0" : value.trim());
+        } catch (NumberFormatException ignored) {
+            return 0;
+        }
+    }
+
+    private static double parseDouble(String value) {
+        try {
+            return Double.parseDouble(value == null || value.isBlank() ? "-1" : value.trim());
+        } catch (NumberFormatException ignored) {
+            return -1;
+        }
+    }
+
+    private record StatusSummary(
+            String os, String host, String kernel, String iface, String ip,
+            long rxBytes, long txBytes, long cpuTotal, long cpuIdle, double load, int cores,
+            long memTotal, long memUsed, long diskTotal, long diskUsed, int diskPercent
+    ) { }
+
     // ── Floating card (click to show, click elsewhere to hide) ───────────────
 
     private void toggleFloatingCard(HBox anchor, String type) {
         // If same type is showing, just hide
-        if (floatingPopup != null && floatingPopup.isShowing() && floatingPendingType == type) {
+        if (floatingPopup != null && floatingPopup.isShowing() && java.util.Objects.equals(floatingPendingType, type)) {
             hideFloatingCard();
             return;
         }
         hideFloatingCard();
 
         floatingPendingType = type;
+        floatingAnchor = anchor;
 
         // Loading indicator
         ProgressIndicator loading = new ProgressIndicator();
@@ -556,28 +918,53 @@ public class TerminalWorkspaceView extends BorderPane {
         floatingContent.setAlignment(Pos.CENTER);
         floatingContent.setPadding(new Insets(10));
         floatingContent.setPrefWidth(440);
-        floatingContent.getStyleClass().add("hover-card");
+
+        floatingScroll = new ScrollPane(floatingContent);
+        floatingScroll.getStyleClass().addAll("hover-card", "hover-card-scroll");
+        floatingScroll.setFitToWidth(true);
+        floatingScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        floatingScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        floatingScroll.setPannable(true);
+        floatingScroll.setPrefViewportWidth(440);
+        floatingScroll.setPrefViewportHeight(72);
+        floatingScroll.setMaxHeight(480);
 
         floatingPopup = new javafx.stage.Popup();
-        floatingPopup.getContent().setAll(floatingContent);
+        floatingPopup.getContent().setAll(floatingScroll);
         floatingPopup.setAutoHide(true);
         floatingPopup.setAutoFix(true);
 
-        Point2D pos = anchor.localToScreen(0, anchor.getHeight() + 4);
-        floatingPopup.show(anchor, pos.getX(), pos.getY());
+        Point2D pos = anchor.localToScreen(0, 0);
+        floatingPopup.show(anchor, pos.getX(), Math.max(0, pos.getY() - 120));
+        Platform.runLater(this::positionFloatingCardAboveAnchor);
 
         // Fetch and format
         String cmd = buildDetailCmd(type);
         sshSession.execute(new CommandRequest(cmd, java.time.Duration.ofSeconds(10), false, null))
                 .thenAccept(output -> FxThread.run(() -> {
-                    if (floatingPopup != null && floatingPopup.isShowing() && floatingPendingType == type) {
+                    if (floatingPopup != null && floatingPopup.isShowing() && java.util.Objects.equals(floatingPendingType, type)) {
+                        if ("disk".equals(type)) {
+                            int stdoutLength = output.stdout() == null ? 0 : output.stdout().length();
+                            String stderr = output.stderr() == null ? "" : output.stderr().strip();
+                            if (stdoutLength == 0 || (output.exitCode() != null && output.exitCode() != 0)) {
+                                log.warn("Storage detail command returned no usable data: exitCode={}, stderr={}",
+                                        output.exitCode(), stderr);
+                            } else {
+                                log.debug("Storage detail command completed: exitCode={}, stdoutLength={}",
+                                        output.exitCode(), stdoutLength);
+                            }
+                        }
                         renderFormattedContent(type, output.stdout());
+                        updateFloatingCardViewport();
+                        positionFloatingCardAboveAnchor();
                     }
                 }))
                 .exceptionally(ex -> {
                     FxThread.run(() -> {
                         if (floatingPopup != null && floatingPopup.isShowing()) {
                             floatingContent.getChildren().setAll(kvRow("Error", ex.getMessage()));
+                            updateFloatingCardViewport();
+                            positionFloatingCardAboveAnchor();
                         }
                     });
                     return null;
@@ -590,19 +977,66 @@ public class TerminalWorkspaceView extends BorderPane {
             floatingPopup = null;
         }
         floatingPendingType = null;
+        floatingAnchor = null;
+        floatingScroll = null;
+        floatingLiveLabels.clear();
+    }
+
+    private void updateFloatingCardViewport() {
+        if (floatingScroll == null || floatingContent == null) return;
+        floatingContent.applyCss();
+        floatingContent.layout();
+        double contentHeight = floatingContent.prefHeight(440);
+        double maxHeight = 480;
+        if (floatingAnchor != null && floatingAnchor.getScene() != null) {
+            Point2D anchorPosition = floatingAnchor.localToScreen(0, 0);
+            if (anchorPosition != null) {
+                javafx.stage.Screen screen = javafx.stage.Screen.getScreensForRectangle(
+                                anchorPosition.getX(), anchorPosition.getY(), 1, 1)
+                        .stream().findFirst().orElse(javafx.stage.Screen.getPrimary());
+                maxHeight = Math.min(maxHeight, screen.getVisualBounds().getHeight() * 0.62);
+            }
+        }
+        floatingScroll.setPrefViewportHeight(Math.max(72, Math.min(maxHeight, contentHeight)));
+        floatingScroll.setMaxHeight(maxHeight);
+        floatingScroll.requestLayout();
+    }
+
+    private void positionFloatingCardAboveAnchor() {
+        if (floatingPopup == null || !floatingPopup.isShowing() || floatingAnchor == null) return;
+        Point2D anchorPosition = floatingAnchor.localToScreen(0, 0);
+        if (anchorPosition == null) return;
+        javafx.stage.Screen screen = javafx.stage.Screen.getScreensForRectangle(
+                        anchorPosition.getX(), anchorPosition.getY(), 1, 1)
+                .stream().findFirst().orElse(javafx.stage.Screen.getPrimary());
+        javafx.geometry.Rectangle2D bounds = screen.getVisualBounds();
+        double popupWidth = Math.max(440, floatingPopup.getWidth());
+        double popupHeight = Math.max(120, floatingPopup.getHeight());
+        double preferredX = anchorPosition.getX();
+        if (preferredX + popupWidth > bounds.getMaxX() - 8) {
+            preferredX = anchorPosition.getX() + floatingAnchor.getWidth() - popupWidth;
+        }
+        double x = Math.max(bounds.getMinX() + 8,
+                Math.min(preferredX, bounds.getMaxX() - popupWidth - 8));
+        double y = Math.max(bounds.getMinY() + 8,
+                Math.min(anchorPosition.getY() - popupHeight - 6, bounds.getMaxY() - popupHeight - 8));
+        floatingPopup.setX(x);
+        floatingPopup.setY(y);
     }
 
     private String buildDetailCmd(String type) {
         switch (type) {
             case "ip":
-                return "ip -brief addr show 2>/dev/null || ifconfig 2>/dev/null";
+                return "echo '---ADDRESS---'; (ip -brief addr show 2>/dev/null || ifconfig 2>/dev/null); "
+                        + "echo '---ROUTE---'; (ip route show 2>/dev/null || netstat -rn 2>/dev/null)";
             case "os":
-                return "hostnamectl 2>/dev/null || (echo \"Static hostname: $(hostname)\"; "
+                return "hostnamectl 2>/dev/null || (echo \"Hostname: $(hostname)\"; "
                         + "echo \"Operating System: $(uname -s) $(uname -r)\"; "
                         + "echo \"Architecture: $(uname -m)\"; "
                         + "echo \"Kernel: $(uname -r)\")";
             case "cpu":
-                return "lscpu 2>/dev/null || (echo \"Model name: $(sysctl -n machdep.cpu.brand_string 2>/dev/null)\"; "
+                return "echo \"Load average: $(cat /proc/loadavg 2>/dev/null | awk '{print $1, $2, $3}' || uptime)\"; "
+                        + "lscpu 2>/dev/null || (echo \"Model name: $(sysctl -n machdep.cpu.brand_string 2>/dev/null)\"; "
                         + "echo \"CPU(s): $(sysctl -n hw.logicalcpu 2>/dev/null)\")";
             case "mem":
                 return "free -h 2>/dev/null || (echo \"Total: $(sysctl -n hw.memsize 2>/dev/null | awk '{print int($1/1073741824)\" GB\"}')\"; "
@@ -610,7 +1044,7 @@ public class TerminalWorkspaceView extends BorderPane {
                         + "echo \"---SWAP---\"; "
                         + "swapon --show 2>/dev/null || echo \"Swap: $(sysctl -n vm.swapusage 2>/dev/null || echo N/A)\"";
             case "disk":
-                return "df -h 2>/dev/null || df -k 2>/dev/null";
+                return "df -Pk 2>/dev/null || df -k 2>/dev/null";
             default:
                 return "echo N/A";
         }
@@ -621,6 +1055,39 @@ public class TerminalWorkspaceView extends BorderPane {
     private void renderFormattedContent(String type, String raw) {
         floatingContent.getChildren().clear();
         floatingContent.setAlignment(Pos.TOP_LEFT);
+        floatingLiveLabels.clear();
+
+        if (lastStatusSummary != null) {
+            switch (type) {
+                case "ip" -> {
+                    floatingContent.getChildren().add(liveKvRow("network.interface",
+                            i18nService.get("sysinfo.networkInterface"),
+                            lastStatusSummary.iface() + " · " + lastStatusSummary.ip()));
+                    floatingContent.getChildren().add(liveKvRow("network.speed",
+                            i18nService.get("sysinfo.realtimeSpeed"),
+                            "↓ " + currentDownloadRate + "   ↑ " + currentUploadRate));
+                    floatingContent.getChildren().add(sectionHeader(i18nService.get("sysinfo.networkDetails")));
+                }
+                case "os" -> {
+                    floatingContent.getChildren().add(liveKvRow("os.hostname",
+                            i18nService.get("sysinfo.hostname"), lastStatusSummary.host()));
+                    floatingContent.getChildren().add(liveKvRow("os.kernel",
+                            i18nService.get("sysinfo.kernel"), lastStatusSummary.kernel()));
+                }
+                case "cpu" -> floatingContent.getChildren().add(liveKvRow("cpu.pressure",
+                        i18nService.get("sysinfo.currentPressure"),
+                        currentCpuUsage + (lastStatusSummary.load() >= 0
+                                ? " · Load " + formatDecimal(lastStatusSummary.load()) : "")));
+                case "mem" -> floatingContent.getChildren().add(liveKvRow("mem.usage",
+                        i18nService.get("sysinfo.currentUsage"),
+                        formatUsage(lastStatusSummary.memUsed(), lastStatusSummary.memTotal())));
+                case "disk" -> floatingContent.getChildren().add(liveKvRow("disk.usage",
+                        i18nService.get("sysinfo.currentUsage"),
+                        lastStatusSummary.diskPercent() + "% · " + formatBytes(lastStatusSummary.diskUsed())
+                                + "/" + formatBytes(lastStatusSummary.diskTotal())));
+                default -> { }
+            }
+        }
 
         switch (type) {
             case "ip" -> renderIpContent(raw);
@@ -638,6 +1105,15 @@ public class TerminalWorkspaceView extends BorderPane {
         for (String line : raw.split("\n")) {
             line = line.trim();
             if (line.isEmpty()) continue;
+
+            if (line.equals("---ADDRESS---")) {
+                floatingContent.getChildren().add(sectionHeader(i18nService.get("sysinfo.addresses")));
+                continue;
+            }
+            if (line.equals("---ROUTE---")) {
+                floatingContent.getChildren().add(sectionHeader(i18nService.get("sysinfo.routes")));
+                continue;
+            }
 
             if (line.startsWith("lo") || line.startsWith("Loopback")) continue;
 
@@ -682,7 +1158,7 @@ public class TerminalWorkspaceView extends BorderPane {
                 String key = line.substring(0, colon).trim();
                 String val = line.substring(colon + 1).trim();
                 // Only show interesting fields
-                if (key.matches("Model name|CPU\\(s\\)|Thread|Core|Socket|Architecture|CPU MHz|CPU max MHz|L[123] cache|Vendor ID|CPU family")) {
+                if (key.matches("Load average|Model name|CPU\\(s\\)|Thread|Core|Socket|Architecture|CPU MHz|CPU max MHz|L[123] cache|Vendor ID|CPU family")) {
                     floatingContent.getChildren().add(kvRow(key, val));
                 }
             }
@@ -756,45 +1232,96 @@ public class TerminalWorkspaceView extends BorderPane {
     }
 
     private void renderDiskContent(String raw) {
-        // df -h table: Filesystem Size Used Avail Use% Mounted on
-        String[] lines = raw.split("\n");
-        if (lines.length < 2) {
-            floatingContent.getChildren().add(monospaceBlock(raw));
-            return;
-        }
+        String[] lines = raw == null ? new String[0] : raw.split("\\R");
+        VBox rows = new VBox();
+        rows.getStyleClass().add("disk-table-rows");
 
-        // Parse header to find column indices
         for (int i = 1; i < lines.length; i++) {
             String line = lines[i].trim();
             if (line.isEmpty()) continue;
             String[] parts = line.split("\\s+");
             if (parts.length < 6) continue;
 
-            String fs = parts[0];
-            String size = parts[1];
-            String used = parts[2];
-            String avail = parts[3];
-            String usePct = parts.length > 4 ? parts[4] : "";
-            String mount = parts.length > 5 ? parts[5] : "";
+            long totalBytes = parseLong(parts[1]) * 1024;
+            long availableBytes = parseLong(parts[3]) * 1024;
+            int usedPercent = (int) parseLong(parts[4].replace("%", ""));
+            String mountPath = String.join(" ", java.util.Arrays.copyOfRange(parts, 5, parts.length))
+                    .replace("\\040", " ");
 
-            // Skip tmpfs, devtmpfs, squashfs
-            if (fs.startsWith("tmpfs") || fs.startsWith("devtmpfs") || fs.startsWith("squashfs")) continue;
+            Label path = new Label(mountPath);
+            path.getStyleClass().add("disk-table-path");
+            path.setMinWidth(0);
+            path.setMaxWidth(Double.MAX_VALUE);
+            path.setTextOverrun(javafx.scene.control.OverrunStyle.ELLIPSIS);
+            path.setTooltip(new javafx.scene.control.Tooltip(mountPath));
+            HBox.setHgrow(path, Priority.ALWAYS);
 
-            // Mount point as header, then details
-            floatingContent.getChildren().add(sectionHeader(mount.isEmpty() ? fs : mount));
-            floatingContent.getChildren().add(kvRow("Device", fs));
-            floatingContent.getChildren().add(kvRow("Size", size));
-            floatingContent.getChildren().add(kvRow("Used", used + " / " + size + " (" + usePct + ")"));
-            floatingContent.getChildren().add(kvRow("Avail", avail));
+            Label capacity = new Label(formatBytes(availableBytes) + "/" + formatBytes(totalBytes));
+            capacity.getStyleClass().add("disk-table-capacity");
+            capacity.setMinWidth(112);
+            capacity.setAlignment(Pos.CENTER_RIGHT);
 
-            // Usage bar
-            if (!usePct.isEmpty() && usePct.endsWith("%")) {
-                try {
-                    int pct = Integer.parseInt(usePct.replace("%", ""));
-                    floatingContent.getChildren().add(usageBar(pct));
-                } catch (NumberFormatException ignored) {}
-            }
+            Region track = new Region();
+            track.getStyleClass().add("disk-table-progress-track");
+            track.setMinSize(112, 4);
+            track.setPrefSize(112, 4);
+            track.setMaxSize(112, 4);
+            Region fill = new Region();
+            fill.getStyleClass().add("disk-table-progress-fill");
+            if (usedPercent >= 90) fill.getStyleClass().add("disk-progress-danger");
+            else if (usedPercent >= 75) fill.getStyleClass().add("disk-progress-warning");
+            double fillWidth = Math.max(2, 112 * Math.min(100, Math.max(0, usedPercent)) / 100.0);
+            fill.setMinSize(fillWidth, 4);
+            fill.setPrefSize(fillWidth, 4);
+            fill.setMaxSize(fillWidth, 4);
+            StackPane progress = new StackPane(track, fill);
+            StackPane.setAlignment(fill, Pos.CENTER_LEFT);
+            progress.setMinSize(112, 4);
+            progress.setPrefSize(112, 4);
+            progress.setMaxSize(112, 4);
+            javafx.scene.control.Tooltip.install(progress, new javafx.scene.control.Tooltip(
+                    i18nService.get("sysinfo.usedPercent", usedPercent)));
+
+            VBox usage = new VBox(3, capacity, progress);
+            usage.setAlignment(Pos.CENTER_RIGHT);
+            usage.setMinWidth(112);
+
+            HBox row = new HBox(12, path, usage);
+            row.getStyleClass().add("disk-table-row");
+            row.setAlignment(Pos.CENTER_LEFT);
+            rows.getChildren().add(row);
         }
+
+        if (rows.getChildren().isEmpty()) {
+            floatingContent.getChildren().add(kvRow(i18nService.get("sysinfo.storageDetails"),
+                    i18nService.get("sysinfo.noStorageData")));
+            return;
+        }
+
+        Label pathHeader = new Label(i18nService.get("sysinfo.mountPath"));
+        pathHeader.getStyleClass().add("disk-table-header-label");
+        pathHeader.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(pathHeader, Priority.ALWAYS);
+        Label capacityHeader = new Label(i18nService.get("sysinfo.availableTotal"));
+        capacityHeader.getStyleClass().add("disk-table-header-label");
+        capacityHeader.setMinWidth(112);
+        capacityHeader.setAlignment(Pos.CENTER_RIGHT);
+        HBox header = new HBox(12, pathHeader, capacityHeader);
+        header.getStyleClass().add("disk-table-header");
+
+        ScrollPane scroll = new ScrollPane(rows);
+        scroll.getStyleClass().add("disk-table-scroll");
+        scroll.setFitToWidth(true);
+        scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        scroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        scroll.setPannable(true);
+        scroll.setPrefViewportHeight(Math.min(340, rows.getChildren().size() * 39.0));
+        scroll.setMaxHeight(340);
+
+        VBox table = new VBox(header, scroll);
+        table.getStyleClass().add("disk-table");
+        table.setMaxWidth(Double.MAX_VALUE);
+        floatingContent.getChildren().add(table);
     }
 
     // ── Card UI components ───────────────────────────────────────────────────
@@ -804,6 +1331,17 @@ public class TerminalWorkspaceView extends BorderPane {
         keyLabel.getStyleClass().add("card-key");
         Label valLabel = new Label(value);
         valLabel.getStyleClass().add("card-val");
+        HBox row = new HBox(8, keyLabel, valLabel);
+        row.getStyleClass().add("card-row");
+        return row;
+    }
+
+    private HBox liveKvRow(String liveKey, String key, String value) {
+        Label keyLabel = new Label(key);
+        keyLabel.getStyleClass().add("card-key");
+        Label valLabel = new Label(value);
+        valLabel.getStyleClass().addAll("card-val", "card-live-val");
+        floatingLiveLabels.put(liveKey, valLabel);
         HBox row = new HBox(8, keyLabel, valLabel);
         row.getStyleClass().add("card-row");
         return row;
@@ -1094,6 +1632,9 @@ public class TerminalWorkspaceView extends BorderPane {
                     if (handle instanceof DefaultTerminalViewHandle dvh) {
                         dvh.setOnDisconnected(this::onTerminalDisconnected);
                     }
+                    // 文件页可能稍后才首次创建；连接建立时先静默启用目录上报，
+                    // 文件页的复选框只控制是否跟随，不再打断用户弹窗确认。
+                    installOsc7PromptHook(handle);
                     return FxThread.supplyAsync(() -> createEmbeddedTerminalNode(handle));
                 });
     }

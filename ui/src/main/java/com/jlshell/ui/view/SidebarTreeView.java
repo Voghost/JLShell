@@ -14,6 +14,8 @@ import com.jlshell.ui.model.ConnectionProfile;
 import com.jlshell.ui.model.FolderProfile;
 import com.jlshell.ui.model.SidebarItem;
 import com.jlshell.ui.service.I18nService;
+import javafx.beans.property.ReadOnlyBooleanProperty;
+import javafx.beans.property.ReadOnlyBooleanWrapper;
 import javafx.collections.ObservableList;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
@@ -61,6 +63,12 @@ public class SidebarTreeView {
     private Consumer<String> onNewConnectionInFolder;
 
     private final Map<String, Integer> folderDepths = new HashMap<>();
+    private final Map<String, TreeItem<SidebarItem>> folderItemsById = new HashMap<>();
+    private final Set<String> collapsedFolderIds = new HashSet<>();
+    private final ReadOnlyBooleanWrapper hasFolders = new ReadOnlyBooleanWrapper(false);
+    private final ReadOnlyBooleanWrapper allFoldersExpanded = new ReadOnlyBooleanWrapper(true);
+    private Consumer<Set<String>> onCollapsedFoldersChanged;
+    private boolean suppressExpansionNotifications;
 
     /** 完整树结构快照，用于搜索过滤时恢复。key = TreeItem, value = 该节点的原始 children。 */
     private final Map<TreeItem<SidebarItem>, List<TreeItem<SidebarItem>>> originalChildren = new HashMap<>();
@@ -159,19 +167,35 @@ public class SidebarTreeView {
     public void setOnRenameFolder(BiConsumer<String, String> v) { this.onRenameFolder = v; }
     public void setOnMove(BiConsumer<List<SidebarItem>, String> v) { this.onMove = v; }
     public void setOnNewConnectionInFolder(Consumer<String> v) { this.onNewConnectionInFolder = v; }
+    public void setOnCollapsedFoldersChanged(Consumer<Set<String>> v) { this.onCollapsedFoldersChanged = v; }
+    public ReadOnlyBooleanProperty hasFoldersProperty() { return hasFolders.getReadOnlyProperty(); }
+    public ReadOnlyBooleanProperty allFoldersExpandedProperty() { return allFoldersExpanded.getReadOnlyProperty(); }
 
-    public void populate(List<FolderProfile> folders, List<ConnectionProfile> connections) {
+    public void populate(List<FolderProfile> folders, List<ConnectionProfile> connections,
+                         Set<String> persistedCollapsedFolderIds) {
         root.getChildren().clear();
         folderDepths.clear();
+        folderItemsById.clear();
+        collapsedFolderIds.clear();
+        if (persistedCollapsedFolderIds != null) {
+            collapsedFolderIds.addAll(persistedCollapsedFolderIds);
+        }
 
         Map<String, TreeItem<SidebarItem>> folderItems = new HashMap<>();
 
         for (FolderProfile folder : folders) {
             TreeItem<SidebarItem> item = new TreeItem<>(
                     new SidebarItem.FolderItem(folder.id(), folder.name(), folder.parentId()));
-            item.setExpanded(true);
+            item.setExpanded(!collapsedFolderIds.contains(folder.id()));
+            item.expandedProperty().addListener((obs, wasExpanded, isExpanded) ->
+                    handleFolderExpansionChanged(folder.id(), isExpanded));
             folderItems.put(folder.id(), item);
+            folderItemsById.put(folder.id(), item);
         }
+
+        collapsedFolderIds.retainAll(folderItemsById.keySet());
+        hasFolders.set(!folderItemsById.isEmpty());
+        updateAggregateExpansionState();
 
         for (FolderProfile folder : folders) {
             TreeItem<SidebarItem> item = folderItems.get(folder.id());
@@ -198,6 +222,62 @@ public class SidebarTreeView {
         saveOriginalStructure();
     }
 
+    private void handleFolderExpansionChanged(String folderId, boolean expanded) {
+        if (suppressExpansionNotifications || currentFilter != null) {
+            return;
+        }
+        if (expanded) {
+            collapsedFolderIds.remove(folderId);
+        } else {
+            collapsedFolderIds.add(folderId);
+        }
+        updateAggregateExpansionState();
+        notifyCollapsedFoldersChanged();
+    }
+
+    public void toggleAllFolders() {
+        if (allFoldersExpanded.get()) {
+            collapseAllFolders();
+        } else {
+            expandAllFolders();
+        }
+    }
+
+    public void expandAllFolders() {
+        collapsedFolderIds.clear();
+        applyPersistedExpansionState();
+        updateAggregateExpansionState();
+        notifyCollapsedFoldersChanged();
+    }
+
+    public void collapseAllFolders() {
+        collapsedFolderIds.clear();
+        collapsedFolderIds.addAll(folderItemsById.keySet());
+        applyPersistedExpansionState();
+        updateAggregateExpansionState();
+        notifyCollapsedFoldersChanged();
+    }
+
+    private void updateAggregateExpansionState() {
+        allFoldersExpanded.set(collapsedFolderIds.isEmpty());
+    }
+
+    private void applyPersistedExpansionState() {
+        suppressExpansionNotifications = true;
+        try {
+            folderItemsById.forEach((folderId, item) ->
+                    item.setExpanded(!collapsedFolderIds.contains(folderId)));
+        } finally {
+            suppressExpansionNotifications = false;
+        }
+    }
+
+    private void notifyCollapsedFoldersChanged() {
+        if (onCollapsedFoldersChanged != null) {
+            onCollapsedFoldersChanged.accept(Set.copyOf(collapsedFolderIds));
+        }
+    }
+
     // ── 搜索过滤 ──────────────────────────────────────────────────────
 
     /** 在 populate() 末尾调用，保存完整树结构快照供过滤使用。 */
@@ -222,7 +302,14 @@ public class SidebarTreeView {
     public void applyFilter(String filterText) {
         currentFilter = (filterText == null || filterText.isBlank()) ? null : filterText.toLowerCase();
         if (currentFilter == null) {
-            restoreFullTree();
+            suppressExpansionNotifications = true;
+            try {
+                restoreFullTree();
+                folderItemsById.forEach((folderId, item) ->
+                        item.setExpanded(!collapsedFolderIds.contains(folderId)));
+            } finally {
+                suppressExpansionNotifications = false;
+            }
             return;
         }
 
@@ -267,21 +354,26 @@ public class SidebarTreeView {
             }
         }
 
-        // 根据匹配结果重建每个节点的可见 children
-        for (Map.Entry<TreeItem<SidebarItem>, List<TreeItem<SidebarItem>>> entry : originalChildren.entrySet()) {
-            TreeItem<SidebarItem> parent = entry.getKey();
-            List<TreeItem<SidebarItem>> origChildren = entry.getValue();
+        suppressExpansionNotifications = true;
+        try {
+            // 根据匹配结果重建每个节点的可见 children
+            for (Map.Entry<TreeItem<SidebarItem>, List<TreeItem<SidebarItem>>> entry : originalChildren.entrySet()) {
+                TreeItem<SidebarItem> parent = entry.getKey();
+                List<TreeItem<SidebarItem>> origChildren = entry.getValue();
 
-            List<TreeItem<SidebarItem>> visibleChildren = new ArrayList<>();
-            for (TreeItem<SidebarItem> origChild : origChildren) {
-                if (matchingItems.contains(origChild) || requiredParents.contains(origChild)) {
-                    visibleChildren.add(origChild);
+                List<TreeItem<SidebarItem>> visibleChildren = new ArrayList<>();
+                for (TreeItem<SidebarItem> origChild : origChildren) {
+                    if (matchingItems.contains(origChild) || requiredParents.contains(origChild)) {
+                        visibleChildren.add(origChild);
+                    }
+                }
+                parent.getChildren().setAll(visibleChildren);
+                if (requiredParents.contains(parent)) {
+                    parent.setExpanded(true);
                 }
             }
-            parent.getChildren().setAll(visibleChildren);
-            if (requiredParents.contains(parent)) {
-                parent.setExpanded(true);
-            }
+        } finally {
+            suppressExpansionNotifications = false;
         }
     }
 

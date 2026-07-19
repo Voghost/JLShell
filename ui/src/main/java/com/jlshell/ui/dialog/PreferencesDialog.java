@@ -59,8 +59,11 @@ import javafx.scene.control.TabPane;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
+import javafx.scene.control.OverrunStyle;
+import javafx.scene.layout.ColumnConstraints;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
@@ -83,6 +86,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.ArrayList;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ForkJoinPool;
@@ -1516,13 +1520,11 @@ public class PreferencesDialog {
         tokenHint.getStyleClass().add("api-config-hint");
 
         Button copyToken = new Button(i18n.get("api.copyToken"));
+        copyToken.getStyleClass().add("api-copy-token-button");
         copyToken.setDisable(apiServer == null || apiServer.token() == null || apiServer.token().isEmpty());
         copyToken.setOnAction(e -> {
             String t = apiServer == null ? "" : apiServer.token();
-            javafx.scene.input.Clipboard cb = javafx.scene.input.Clipboard.getSystemClipboard();
-            javafx.scene.input.ClipboardContent cc = new javafx.scene.input.ClipboardContent();
-            cc.putString(t);
-            cb.setContent(cc);
+            copyWithFeedback(copyToken, t, i18n);
         });
 
         Label restart = new Label(i18n.get("api.restartRequired"));
@@ -1622,7 +1624,7 @@ public class PreferencesDialog {
         Button copyDetail = new Button(i18n.get("api.docs.copy"));
         copyDetail.getStyleClass().add("api-code-copy-button");
         String[] currentDetail = {""};
-        copyDetail.setOnAction(event -> copyToClipboard(currentDetail[0]));
+        copyDetail.setOnAction(event -> copyWithFeedback(copyDetail, currentDetail[0], i18n));
         Region codeHeaderSpacer = new Region();
         HBox.setHgrow(codeHeaderSpacer, Priority.ALWAYS);
         HBox codeHeader = new HBox(8, formatBadge, codeHeaderSpacer, copyDetail);
@@ -1690,32 +1692,40 @@ public class PreferencesDialog {
     private static List<javafx.scene.Node> apiDetailNodes(
             I18nService i18n, ApiDocEntry entry, com.jlshell.api.server.ApiServer apiServer) {
         String detail = entry.detailText(i18n, apiServer);
+        String methodMarker = i18n.get("api.docs.method") + ": " + entry.method();
         String endpointHeading = i18n.get("api.docs.endpoint") + ":";
         String requestHeading = i18n.get("api.docs.request") + ":";
-        int endpointEnd = detail.indexOf(endpointHeading) + endpointHeading.length();
-        int requestEnd = detail.indexOf(requestHeading, Math.max(0, endpointEnd)) + requestHeading.length();
-        if (endpointEnd < endpointHeading.length() || requestEnd < requestHeading.length()) {
-            return new ArrayList<>(highlightApiDetail(detail));
-        }
-
+        String schemaHeading = i18n.get("api.docs.inputSchema") + ":";
         List<javafx.scene.Node> nodes = new ArrayList<>();
-        nodes.addAll(highlightApiDetail(detail.substring(0, endpointEnd)));
-        nodes.add(apiCodeText("  ", "api-code-text"));
-        nodes.add(apiInlineCopyButton(i18n, i18n.get("api.docs.copyEndpoint"),
-                entry.endpoint(apiServer)));
-        nodes.addAll(highlightApiDetail(detail.substring(endpointEnd, requestEnd)));
-        nodes.add(apiCodeText("  ", "api-code-text"));
-        nodes.add(apiInlineCopyButton(i18n, i18n.get("api.docs.copyRequest"),
-                entry.requestExample()));
-        nodes.addAll(highlightApiDetail(detail.substring(requestEnd)));
+        int cursor = 0;
+        cursor = appendApiDetailCopy(nodes, detail, cursor, methodMarker,
+                i18n, i18n.get("api.docs.copyMethod"), entry.method());
+        cursor = appendApiDetailCopy(nodes, detail, cursor, endpointHeading,
+                i18n, i18n.get("api.docs.copyEndpoint"), entry.endpoint(apiServer));
+        cursor = appendApiDetailCopy(nodes, detail, cursor, requestHeading,
+                i18n, i18n.get("api.docs.copyRequest"), entry.requestExample());
+        cursor = appendApiDetailCopy(nodes, detail, cursor, schemaHeading,
+                i18n, i18n.get("api.docs.copySchema"), entry.schemaText(i18n));
+        nodes.addAll(highlightApiDetail(detail.substring(cursor)));
         return nodes;
+    }
+
+    private static int appendApiDetailCopy(List<javafx.scene.Node> nodes, String detail, int cursor,
+                                           String marker, I18nService i18n, String tooltip, String value) {
+        int markerStart = detail.indexOf(marker, cursor);
+        if (markerStart < 0) return cursor;
+        int markerEnd = markerStart + marker.length();
+        nodes.addAll(highlightApiDetail(detail.substring(cursor, markerEnd)));
+        nodes.add(apiCodeText("  ", "api-code-text"));
+        nodes.add(apiInlineCopyButton(i18n, tooltip, value));
+        return markerEnd;
     }
 
     private static Button apiInlineCopyButton(I18nService i18n, String tooltip, String value) {
         Button button = new Button(i18n.get("api.docs.copySection"));
         button.getStyleClass().add("api-inline-copy-button");
         button.setTooltip(new Tooltip(tooltip));
-        button.setOnAction(event -> copyToClipboard(value));
+        button.setOnAction(event -> copyWithFeedback(button, value, i18n));
         return button;
     }
 
@@ -1730,6 +1740,21 @@ public class PreferencesDialog {
         javafx.scene.input.ClipboardContent clipboardContent = new javafx.scene.input.ClipboardContent();
         clipboardContent.putString(value == null ? "" : value);
         javafx.scene.input.Clipboard.getSystemClipboard().setContent(clipboardContent);
+    }
+
+    private static void copyWithFeedback(Button button, String value, I18nService i18n) {
+        copyToClipboard(value);
+        String originalText = button.getText();
+        button.setText(i18n.get("api.copy.copied"));
+        // 不使用 disable，避免禁用态透明度变化，也不会覆盖按钮原本的禁用绑定。
+        button.setMouseTransparent(true);
+
+        PauseTransition restore = new PauseTransition(Duration.seconds(1.4));
+        restore.setOnFinished(ignored -> {
+            button.setText(originalText);
+            button.setMouseTransparent(false);
+        });
+        restore.play();
     }
 
     private static List<ApiDocEntry> apiDocEntries(CapabilityBus capabilityBus, String selectedSessionId) {
@@ -1824,6 +1849,10 @@ public class PreferencesDialog {
                     + "  \"method\": \"" + method() + "\",\n"
                     + "  \"params\": " + params + "\n"
                     + "}";
+        }
+
+        String schemaText(I18nService i18n) {
+            return inputSchema == null ? i18n.get("api.docs.noSchema") : prettyJson(inputSchema.toString());
         }
 
         private String method() {
@@ -3671,64 +3700,374 @@ public class PreferencesDialog {
 
     // ── About Tab ──────────────────────────────────────────────────────────
 
-    private static VBox buildAboutPane(I18nService i18n) {
-        VBox pane = new VBox(12);
-        pane.setPadding(new Insets(24, 28, 16, 28));
-        pane.setAlignment(Pos.TOP_CENTER);
+    static javafx.scene.Node buildAboutPane(I18nService i18n) {
+        return buildAboutPane(i18n, null);
+    }
+
+    static javafx.scene.Node buildAboutPane(I18nService i18n, Runnable checkUpdatesAction) {
+        VBox content = new VBox(8);
+        content.getStyleClass().add("about-content");
+        content.setMaxWidth(920);
+
+        Label logo = new Label("JL");
+        logo.getStyleClass().add("about-logo");
+        logo.setAlignment(Pos.CENTER);
 
         Label appName = new Label("JLShell");
-        appName.setStyle("-fx-font-size: 1.54em;-fx-font-weight:bold;");
+        appName.getStyleClass().add("about-app-name");
+        Label desc = new Label(i18n.get("preferences.about.description"));
+        desc.getStyleClass().add("about-description");
+        desc.setWrapText(true);
+        VBox identity = new VBox(4, appName, desc);
+        identity.setAlignment(Pos.CENTER_LEFT);
 
         Label version = new Label(i18n.get("preferences.about.version", VERSION));
-        version.setStyle("-fx-font-size: 0.92em;");
+        version.getStyleClass().add("about-version-badge");
 
-        Label desc = new Label(i18n.get("preferences.about.description"));
-        desc.setStyle("-fx-font-size: 0.85em;");
-        desc.setWrapText(true);
-        desc.setMaxWidth(400);
-        desc.setPrefWidth(400);
-        desc.setAlignment(Pos.CENTER);
-        desc.setTextAlignment(TextAlignment.CENTER);
+        HBox heroActions = new HBox(8, version);
+        heroActions.setAlignment(Pos.CENTER_RIGHT);
+        if (checkUpdatesAction != null) {
+            heroActions.getChildren().add(aboutCompactActionButton(
+                    i18n.get("menu.help.checkUpdates"), "/icons/about-update.svg", checkUpdatesAction));
+        }
 
-        Region sep = new Region();
-        sep.setStyle("-fx-pref-height:1px;-fx-background-color:derive(-fx-text-fill, 50%);-fx-max-width:300;");
-        sep.setPrefWidth(300);
+        Region heroSpacer = new Region();
+        HBox.setHgrow(heroSpacer, Priority.ALWAYS);
+        HBox hero = new HBox(12, logo, identity, heroSpacer, heroActions);
+        hero.getStyleClass().add("about-hero");
+        hero.setAlignment(Pos.CENTER_LEFT);
 
-        VBox authorBox = new VBox(4);
-        authorBox.setAlignment(Pos.CENTER);
+        GridPane links = new GridPane();
+        links.getStyleClass().add("about-links");
+        links.setHgap(10);
+        links.setVgap(10);
+        links.setMaxWidth(Double.MAX_VALUE);
+        for (int index = 0; index < 4; index++) {
+            ColumnConstraints linkColumn = new ColumnConstraints();
+            linkColumn.setPercentWidth(25);
+            linkColumn.setHgrow(Priority.ALWAYS);
+            linkColumn.setFillWidth(true);
+            links.getColumnConstraints().add(linkColumn);
+        }
 
-        Label authorTitle = new Label(i18n.get("preferences.about.author"));
-        authorTitle.setStyle("-fx-font-size: 0.85em;-fx-font-weight:bold;");
+        List<Button> linkButtons = List.of(
+                aboutLinkButton(i18n.get("preferences.about.website"),
+                        i18n.get("preferences.about.website.description"),
+                        "/icons/about-home.svg", "https://jlshell.oomn.net"),
+                aboutLinkButton(i18n.get("preferences.about.github"),
+                        i18n.get("preferences.about.github.description"),
+                        "/icons/about-github.svg", "https://github.com/Voghost/JLShell"),
+                aboutLinkButton(i18n.get("preferences.about.releases"),
+                        i18n.get("preferences.about.releases.description"),
+                        "/icons/about-download.svg", "https://github.com/Voghost/JLShell/releases/latest"),
+                aboutLinkButton(i18n.get("preferences.about.feedback"),
+                        i18n.get("preferences.about.feedback.description"),
+                        "/icons/about-issues.svg", "https://github.com/Voghost/JLShell/issues")
+        );
+        for (int index = 0; index < linkButtons.size(); index++) {
+            Button linkButton = linkButtons.get(index);
+            links.add(linkButton, index, 0);
+            GridPane.setHgrow(linkButton, Priority.ALWAYS);
+            GridPane.setFillWidth(linkButton, true);
+        }
+        VBox linksCard = aboutCard(i18n.get("preferences.about.resources"),
+                i18n.get("preferences.about.resources.description"), links);
 
-        Label authorName = new Label("voghost");
-        authorName.setStyle("-fx-font-size: 0.92em;");
+        FlowPane capabilities = new FlowPane(7, 7);
+        capabilities.getStyleClass().add("about-chip-list");
+        List.of("SSH Terminal", "SFTP", i18n.get("preferences.about.capability.connections"),
+                        i18n.get("preferences.about.capability.plugins"), "JSON-RPC API")
+                .forEach(text -> capabilities.getChildren().add(aboutChip(text)));
+        Label tech = new Label("Java 21 · JavaFX 21 · SSHJ · JediTerm · JDBI 3 · SQLite");
+        tech.getStyleClass().add("about-tech-stack");
+        tech.setWrapText(true);
+        VBox capabilitiesBody = new VBox(6, capabilities, tech);
+        VBox capabilitiesCard = aboutCard(i18n.get("preferences.about.capabilities"),
+                i18n.get("preferences.about.capabilities.description"), capabilitiesBody);
 
-        Label github = new Label("https://www.github.com/Voghost");
-        github.setStyle("-fx-font-size: 0.85em;-fx-text-fill:-jl-accent;-fx-underline:true;-fx-cursor:hand;");
-        github.setOnMouseClicked(e -> {
-            try { java.awt.Desktop.getDesktop().browse(java.net.URI.create("https://www.github.com/Voghost")); }
-            catch (Exception ignored) {}
+        VBox projectInfo = new VBox(5,
+                aboutInfoRow(i18n.get("preferences.about.author"), "Voghost"),
+                aboutInfoRow(i18n.get("preferences.about.license"), "MIT"),
+                aboutInfoRow(i18n.get("preferences.about.repository"), "Voghost/JLShell"));
+        VBox projectCard = aboutCard(i18n.get("preferences.about.project"),
+                i18n.get("preferences.about.project.description"), projectInfo);
+
+        String javaVersion = System.getProperty("java.runtime.version",
+                System.getProperty("java.version", "-"));
+        String os = System.getProperty("os.name", "-") + " "
+                + System.getProperty("os.version", "") + " · " + System.getProperty("os.arch", "-");
+        VBox runtimeInfo = new VBox(5,
+                aboutInfoRow(i18n.get("preferences.about.runtime.app"), VERSION),
+                aboutInfoRow(i18n.get("preferences.about.runtime.java"), javaVersion),
+                aboutInfoRow(i18n.get("preferences.about.runtime.system"), os.strip()));
+
+        Button copyRuntime = new Button(i18n.get("preferences.about.runtime.copy"));
+        copyRuntime.getStyleClass().addAll("about-compact-action", "about-runtime-copy");
+        copyRuntime.setOnAction(event -> {
+            copyToClipboard(buildRuntimeDiagnostics());
+            copyRuntime.setText(i18n.get("preferences.about.runtime.copied"));
+            copyRuntime.setDisable(true);
+            PauseTransition restore = new PauseTransition(Duration.seconds(1.4));
+            restore.setOnFinished(ignored -> {
+                copyRuntime.setText(i18n.get("preferences.about.runtime.copy"));
+                copyRuntime.setDisable(false);
+            });
+            restore.play();
         });
+        VBox runtimeCard = aboutCard(i18n.get("preferences.about.runtime"),
+                i18n.get("preferences.about.runtime.description"), runtimeInfo, copyRuntime);
 
-        authorBox.getChildren().addAll(authorTitle, authorName, github);
+        HBox detailCards = new HBox(10, projectCard, runtimeCard);
+        detailCards.getStyleClass().add("about-detail-cards");
+        HBox.setHgrow(projectCard, Priority.ALWAYS);
+        HBox.setHgrow(runtimeCard, Priority.ALWAYS);
+        projectCard.setMaxWidth(Double.MAX_VALUE);
+        runtimeCard.setMaxWidth(Double.MAX_VALUE);
 
-        Region sep2 = new Region();
-        sep2.setStyle("-fx-pref-height:1px;-fx-background-color:derive(-fx-text-fill, 50%);-fx-max-width:300;");
-        sep2.setPrefWidth(300);
+        Label footer = new Label(i18n.get("preferences.about.footer"));
+        footer.getStyleClass().add("about-footer");
+        footer.setMaxWidth(Double.MAX_VALUE);
+        content.getChildren().addAll(hero, linksCard, capabilitiesCard, detailCards, footer);
 
-        Label techTitle = new Label(i18n.get("preferences.about.techStack"));
-        techTitle.setStyle("-fx-font-size: 0.85em;-fx-font-weight:bold;");
+        StackPane wrapper = new StackPane(content);
+        wrapper.getStyleClass().add("about-page");
+        wrapper.setAlignment(Pos.TOP_CENTER);
+        ScrollPane scroll = new ScrollPane(wrapper);
+        scroll.getStyleClass().addAll("settings-scroll-pane", "about-scroll-pane");
+        scroll.setFitToWidth(true);
+        scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        scroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        return scroll;
+    }
 
-        Label techDetail = new Label("Java 21 · JavaFX 21 · SSHJ · JediTerm · JDBI 3 · SQLite");
-        techDetail.setStyle("-fx-font-size: 0.77em;");
-        techDetail.setWrapText(true);
-        techDetail.setMaxWidth(400);
-        techDetail.setPrefWidth(400);
-        techDetail.setAlignment(Pos.CENTER);
-        techDetail.setTextAlignment(TextAlignment.CENTER);
+    private static VBox aboutCard(String title, String description, javafx.scene.Node body) {
+        return aboutCard(title, description, body, null);
+    }
 
-        pane.getChildren().addAll(appName, version, desc, sep, authorBox, sep2, techTitle, techDetail);
-        return pane;
+    private static VBox aboutCard(String title, String description, javafx.scene.Node body,
+                                  javafx.scene.Node headerAction) {
+        Label titleLabel = new Label(title);
+        titleLabel.getStyleClass().add("about-card-title");
+        Label descriptionLabel = new Label(description);
+        descriptionLabel.getStyleClass().add("about-card-description");
+        descriptionLabel.setWrapText(true);
+
+        javafx.scene.Node header = titleLabel;
+        if (headerAction != null) {
+            Region spacer = new Region();
+            HBox.setHgrow(spacer, Priority.ALWAYS);
+            HBox headerRow = new HBox(8, titleLabel, spacer, headerAction);
+            headerRow.setAlignment(Pos.CENTER_LEFT);
+            header = headerRow;
+        }
+
+        VBox card = new VBox(4, header, descriptionLabel, new Separator(), body);
+        card.getStyleClass().add("about-card");
+        return card;
+    }
+
+    /**
+     * 构建可直接粘贴到 Issue 的客户端环境报告。
+     * 刻意不包含用户名、用户目录、启动参数和环境变量，避免复制敏感信息。
+     */
+    static String buildRuntimeDiagnostics() {
+        Runtime runtime = Runtime.getRuntime();
+        String launcherVersion = runtimeProperty("jlshell.launcher.version");
+        String javafxVersion = firstRuntimeProperty("javafx.runtime.version", "javafx.version");
+        String javaRuntime = runtimeProperty("java.runtime.name") + " "
+                + firstRuntimeProperty("java.runtime.version", "java.version");
+        String javaVm = runtimeProperty("java.vm.name") + " " + runtimeProperty("java.vm.version");
+        String system = runtimeProperty("os.name") + " " + runtimeProperty("os.version");
+
+        StringBuilder report = new StringBuilder(512)
+                .append("JLShell Environment Report\n")
+                .append("Generated: ").append(java.time.OffsetDateTime.now()).append('\n')
+                .append('\n')
+                .append("Application\n")
+                .append("- JLShell: ").append(VERSION).append('\n');
+        if (!"-".equals(launcherVersion)) {
+            report.append("- Launcher: ").append(launcherVersion).append('\n');
+        }
+
+        report.append('\n')
+                .append("Java\n")
+                .append("- Runtime: ").append(javaRuntime.strip()).append('\n')
+                .append("- Vendor: ").append(runtimeProperty("java.vendor")).append('\n')
+                .append("- VM: ").append(javaVm.strip()).append('\n')
+                .append("- Class version: ").append(runtimeProperty("java.class.version")).append('\n')
+                .append("- JavaFX: ").append(javafxVersion).append('\n')
+                .append('\n')
+                .append("System\n")
+                .append("- OS: ").append(system.strip()).append('\n')
+                .append("- Architecture: ").append(runtimeProperty("os.arch")).append('\n')
+                .append("- Available processors: ").append(runtime.availableProcessors()).append('\n')
+                .append("- Max heap: ").append(formatRuntimeBytes(runtime.maxMemory())).append('\n')
+                .append("- Locale: ").append(Locale.getDefault().toLanguageTag()).append('\n')
+                .append("- Time zone: ").append(java.time.ZoneId.systemDefault().getId()).append('\n')
+                .append("- File encoding: ").append(java.nio.charset.Charset.defaultCharset().name()).append('\n');
+
+        String display = primaryDisplayDescription();
+        if (!display.isBlank()) {
+            report.append("- Primary display: ").append(display).append('\n');
+        }
+        return report.toString();
+    }
+
+    private static String primaryDisplayDescription() {
+        if (!Platform.isFxApplicationThread()) {
+            return "";
+        }
+        try {
+            javafx.stage.Screen screen = javafx.stage.Screen.getPrimary();
+            javafx.geometry.Rectangle2D bounds = screen.getBounds();
+            return Math.round(bounds.getWidth()) + "x" + Math.round(bounds.getHeight())
+                    + " logical px @ " + Math.round(screen.getDpi()) + " DPI";
+        } catch (Throwable ignored) {
+            return "";
+        }
+    }
+
+    private static String firstRuntimeProperty(String... keys) {
+        for (String key : keys) {
+            String value = runtimeProperty(key);
+            if (!"-".equals(value)) return value;
+        }
+        return "-";
+    }
+
+    private static String runtimeProperty(String key) {
+        String value = System.getProperty(key);
+        return value == null || value.isBlank() ? "-" : value.strip();
+    }
+
+    private static String formatRuntimeBytes(long bytes) {
+        double gib = bytes / (1024d * 1024d * 1024d);
+        return String.format(Locale.ROOT, "%.2f GiB", gib);
+    }
+
+    private static Button aboutLinkButton(String title, String description, String iconResource, String url) {
+        return aboutActionButton(title, description, iconResource, () -> openExternalLink(url));
+    }
+
+    private static Button aboutActionButton(String title, String description,
+                                            String iconResource, Runnable action) {
+        Label titleLabel = new Label(title);
+        titleLabel.getStyleClass().add("about-link-title");
+        titleLabel.setTextOverrun(OverrunStyle.ELLIPSIS);
+        titleLabel.setMaxWidth(Double.MAX_VALUE);
+        Label descriptionLabel = new Label(description);
+        descriptionLabel.getStyleClass().add("about-link-description");
+        descriptionLabel.setWrapText(false);
+        descriptionLabel.setTextOverrun(OverrunStyle.ELLIPSIS);
+        descriptionLabel.setMaxWidth(Double.MAX_VALUE);
+        VBox text = new VBox(3, titleLabel, descriptionLabel);
+        text.setAlignment(Pos.CENTER_LEFT);
+        text.setMinWidth(0);
+        HBox.setHgrow(text, Priority.ALWAYS);
+
+        Region icon = loadAboutSvgIcon(iconResource, 18);
+        StackPane iconBox = new StackPane(icon == null ? new Region() : icon);
+        iconBox.getStyleClass().add("about-link-icon-box");
+        iconBox.setMinSize(30, 30);
+        iconBox.setPrefSize(30, 30);
+        iconBox.setMaxSize(30, 30);
+
+        HBox graphic = new HBox(11, iconBox, text);
+        graphic.getStyleClass().add("about-link-graphic");
+        graphic.setAlignment(Pos.CENTER_LEFT);
+        graphic.setMinWidth(0);
+        graphic.setMaxWidth(Double.MAX_VALUE);
+        Button button = new Button();
+        button.setGraphic(graphic);
+        button.setContentDisplay(javafx.scene.control.ContentDisplay.GRAPHIC_ONLY);
+        button.getStyleClass().add("about-link-button");
+        button.setMinWidth(0);
+        button.setMaxWidth(Double.MAX_VALUE);
+        button.setMinHeight(62);
+        button.setPrefHeight(62);
+        button.setMaxHeight(62);
+        button.setOnAction(event -> action.run());
+        return button;
+    }
+
+    private static Button aboutCompactActionButton(String title, String iconResource, Runnable action) {
+        Button button = new Button(title);
+        Region icon = loadAboutSvgIcon(iconResource, 14);
+        if (icon != null) button.setGraphic(icon);
+        button.getStyleClass().add("about-compact-action");
+        button.setOnAction(event -> action.run());
+        return button;
+    }
+
+    private static Region loadAboutSvgIcon(String resourcePath, double size) {
+        try (var stream = PreferencesDialog.class.getResourceAsStream(resourcePath)) {
+            if (stream == null) return null;
+            String svgContent = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+            StringBuilder pathData = new StringBuilder();
+            int offset = 0;
+            while (offset < svgContent.length()) {
+                int start = svgContent.indexOf("d=\"", offset);
+                if (start < 0) break;
+                if (start > 0 && Character.isLetterOrDigit(svgContent.charAt(start - 1))) {
+                    offset = start + 3;
+                    continue;
+                }
+                start += 3;
+                int end = svgContent.indexOf('"', start);
+                if (end < 0) break;
+                if (!pathData.isEmpty()) pathData.append(' ');
+                pathData.append(svgContent, start, end);
+                offset = end + 1;
+            }
+            if (pathData.isEmpty()) return null;
+
+            javafx.scene.shape.SVGPath shape = new javafx.scene.shape.SVGPath();
+            shape.setContent(pathData.toString());
+            Region icon = new Region();
+            icon.setShape(shape);
+            icon.setMinSize(size, size);
+            icon.setPrefSize(size, size);
+            icon.setMaxSize(size, size);
+            icon.setStyle("-fx-scale-shape: true;");
+            icon.getStyleClass().add("about-link-icon");
+            return icon;
+        } catch (Exception error) {
+            org.slf4j.LoggerFactory.getLogger(PreferencesDialog.class)
+                    .warn("Failed to load About page icon {}", resourcePath, error);
+            return null;
+        }
+    }
+
+    private static Label aboutChip(String text) {
+        Label chip = new Label(text);
+        chip.getStyleClass().add("about-chip");
+        return chip;
+    }
+
+    private static HBox aboutInfoRow(String key, String value) {
+        Label keyLabel = new Label(key);
+        keyLabel.getStyleClass().add("about-info-key");
+        Label valueLabel = new Label(value);
+        valueLabel.getStyleClass().add("about-info-value");
+        valueLabel.setWrapText(true);
+        valueLabel.setMaxWidth(280);
+        valueLabel.setTextAlignment(TextAlignment.RIGHT);
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        HBox row = new HBox(8, keyLabel, spacer, valueLabel);
+        row.setAlignment(Pos.TOP_LEFT);
+        return row;
+    }
+
+    private static void openExternalLink(String url) {
+        try {
+            if (java.awt.Desktop.isDesktopSupported()) {
+                java.awt.Desktop.getDesktop().browse(java.net.URI.create(url));
+            }
+        } catch (Exception error) {
+            org.slf4j.LoggerFactory.getLogger(PreferencesDialog.class)
+                    .warn("Failed to open external link {}", url, error);
+        }
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────

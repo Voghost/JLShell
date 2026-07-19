@@ -632,6 +632,58 @@
     -fx-border-radius: 0;
 }
 
+/* 会话级实时资源状态栏 */
+.terminal-status-bar {
+    -fx-alignment: center-left;
+    -fx-background-color: #f8fafc;
+    -fx-border-color: #d9e2ec transparent transparent transparent;
+    -fx-border-width: 1 0 0 0;
+    -fx-padding: 3 8 3 10;
+    -fx-spacing: 2;
+    -fx-min-height: 31;
+    -fx-pref-height: 31;
+}
+
+.terminal-status-item {
+    -fx-alignment: center-left;
+    -fx-spacing: 5;
+    -fx-padding: 3 7;
+    -fx-background-radius: 5;
+    -fx-cursor: hand;
+}
+
+.terminal-status-item:hover {
+    -fx-background-color: #e8eef6;
+}
+
+.terminal-status-item .action-bar-icon {
+    -fx-background-color: #8290a3;
+}
+
+.terminal-status-item:hover .action-bar-icon {
+    -fx-background-color: -jl-accent;
+}
+
+.terminal-status-title {
+    -fx-text-fill: #718096;
+    -fx-font-size: 0.82em;
+}
+
+.terminal-status-value {
+    -fx-text-fill: #334155;
+    -fx-font-size: 0.84em;
+    -fx-font-weight: 600;
+}
+
+.terminal-status-hide {
+    -fx-opacity: 0.55;
+    -fx-padding: 3 6;
+}
+
+.terminal-status-hide:hover {
+    -fx-opacity: 0.95;
+}
+
 /* ---------- Split Pane ---------- */
 .split-pane {
     -fx-background-color: #f8fafc;
@@ -934,6 +986,32 @@
     -fx-padding: 8 4 5 4;
 }
 
+.sidebar-section-header {
+    -fx-padding: 3 0 2 0;
+    -fx-alignment: center-left;
+}
+
+.sidebar-section-header .sidebar-section-label {
+    -fx-padding: 5 4;
+}
+
+.sidebar-tree-action {
+    -fx-min-width: 24px;
+    -fx-pref-width: 24px;
+    -fx-min-height: 24px;
+    -fx-pref-height: 24px;
+    -fx-padding: 4px;
+    -fx-opacity: 0.55;
+}
+
+.sidebar-tree-action:hover {
+    -fx-opacity: 0.86;
+}
+
+.sidebar-tree-action:disabled {
+    -fx-opacity: 0.24;
+}
+
 /* ---------- Sidebar search field ---------- */
 .sidebar-search-row {
     -fx-background-color: rgba(255, 255, 255, 0.74);
@@ -1077,6 +1155,19 @@
     -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.12), 12, 0.25, 0, 4);
 }
 
+.hover-card-scroll > .viewport {
+    -fx-background-color: transparent;
+}
+
+.hover-card-scroll {
+    -fx-padding: 0;
+    -fx-background-insets: 0;
+}
+
+.card-live-val {
+    -fx-text-fill: #1e293b;
+}
+
 .plugin-quick-item {
     -fx-text-fill: #334155;
     -fx-font-size: 0.92em;
@@ -1155,6 +1246,76 @@
 .card-bar-track {
     -fx-background-color: #e2e8f0;
     -fx-background-radius: 3;
+}
+
+/* 存储详情：紧凑挂载点表格 */
+.disk-table {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #cbd5e1;
+    -fx-border-width: 1;
+    -fx-border-radius: 5;
+    -fx-background-radius: 5;
+}
+
+.disk-table-header {
+    -fx-padding: 7 9;
+    -fx-background-color: #f1f5f9;
+    -fx-border-color: transparent transparent #cbd5e1 transparent;
+    -fx-border-width: 0 0 1 0;
+}
+
+.disk-table-header-label {
+    -fx-text-fill: #334155;
+    -fx-font-size: 0.82em;
+    -fx-font-weight: 700;
+}
+
+.disk-table-row {
+    -fx-padding: 7 9;
+    -fx-border-color: transparent transparent rgba(203, 213, 225, 0.72) transparent;
+    -fx-border-width: 0 0 1 0;
+}
+
+.disk-table-row:hover {
+    -fx-background-color: #f1f5f9;
+}
+
+.disk-table-path,
+.disk-table-capacity {
+    -fx-text-fill: #334155;
+    -fx-font-size: 0.82em;
+}
+
+.disk-table-capacity {
+    -fx-font-family: "JetBrains Mono", "Menlo", "Consolas", monospace;
+}
+
+.disk-table-progress-track {
+    -fx-background-color: #dbe4ee;
+    -fx-background-radius: 2;
+}
+
+.disk-table-progress-fill {
+    -fx-background-color: #34a879;
+    -fx-background-radius: 2;
+}
+
+.disk-table-progress-fill.disk-progress-warning {
+    -fx-background-color: #d1902f;
+}
+
+.disk-table-progress-fill.disk-progress-danger {
+    -fx-background-color: #d94f5c;
+}
+
+.disk-table-scroll,
+.disk-table-scroll > .viewport {
+    -fx-background-color: transparent;
+}
+
+.disk-table-scroll {
+    -fx-border-color: transparent;
+    -fx-padding: 0;
 }
 
 /* ---------- SFTP Browser ---------- */
@@ -2270,6 +2431,212 @@
     -fx-border-color: #e2e8f0;
 }
 
+/* ---------- About page ---------- */
+.about-page,
+.about-scroll-pane,
+.about-scroll-pane > .viewport {
+    -fx-background-color: #f8fafc;
+}
+
+.about-page {
+    -fx-padding: 12 18 14 18;
+}
+
+.about-content {
+    -fx-spacing: 8;
+}
+
+.about-hero {
+    -fx-padding: 12 16;
+    -fx-background-color: linear-gradient(to right, #ffffff, #f5f3ff);
+    -fx-border-color: #d8e0ea;
+    -fx-border-width: 1;
+    -fx-border-radius: 10;
+    -fx-background-radius: 10;
+}
+
+.about-logo {
+    -fx-min-width: 44px;
+    -fx-min-height: 44px;
+    -fx-pref-width: 44px;
+    -fx-pref-height: 44px;
+    -fx-background-color: linear-gradient(to bottom right, -jl-accent, #6d4bd1);
+    -fx-background-radius: 11;
+    -fx-text-fill: white;
+    -fx-font-size: 1.18em;
+    -fx-font-weight: 900;
+}
+
+.about-app-name {
+    -fx-text-fill: #0f172a;
+    -fx-font-size: 1.35em;
+    -fx-font-weight: 900;
+}
+
+.about-description,
+.about-card-description,
+.about-link-description,
+.about-tech-stack,
+.about-footer {
+    -fx-text-fill: #64748b;
+}
+
+.about-version-badge {
+    -fx-padding: 4 9;
+    -fx-background-color: rgba(124, 58, 237, 0.09);
+    -fx-background-radius: 999;
+    -fx-text-fill: #6d28d9;
+    -fx-font-weight: 700;
+}
+
+.about-compact-action {
+    -fx-min-height: 30px;
+    -fx-pref-height: 30px;
+    -fx-padding: 4 9;
+    -fx-background-color: rgba(124, 58, 237, 0.06);
+    -fx-border-color: rgba(109, 40, 217, 0.20);
+    -fx-border-radius: 7;
+    -fx-background-radius: 7;
+    -fx-text-fill: #6d28d9;
+    -fx-font-size: 0.82em;
+    -fx-cursor: hand;
+}
+
+.about-compact-action .about-link-icon {
+    -fx-background-color: #6d28d9;
+}
+
+.about-compact-action:hover {
+    -fx-background-color: rgba(124, 58, 237, 0.11);
+    -fx-border-color: -jl-accent;
+}
+
+.about-runtime-copy {
+    -fx-min-height: 23px;
+    -fx-pref-height: 23px;
+    -fx-padding: 1 8;
+    -fx-font-size: 0.76em;
+}
+
+.about-card {
+    -fx-padding: 10 14 11 14;
+    -fx-spacing: 4;
+    -fx-background-color: #ffffff;
+    -fx-border-color: #d8e0ea;
+    -fx-border-width: 1;
+    -fx-border-radius: 9;
+    -fx-background-radius: 9;
+}
+
+.about-card-title {
+    -fx-text-fill: #0f172a;
+    -fx-font-size: 1em;
+    -fx-font-weight: 800;
+}
+
+.about-card-description {
+    -fx-font-size: 0.84em;
+}
+
+.about-card .separator {
+    -fx-padding: 3 0 4 0;
+}
+
+.about-card .separator .line {
+    -fx-border-color: #e2e8f0;
+}
+
+.about-links {
+    -fx-padding: 1 0 0 0;
+}
+
+.about-link-button {
+    -fx-min-width: 0;
+    -fx-min-height: 62px;
+    -fx-pref-height: 62px;
+    -fx-max-height: 62px;
+    -fx-padding: 8 10;
+    -fx-alignment: center-left;
+    -fx-background-color: #f8fafc;
+    -fx-border-color: #d6dee8;
+    -fx-border-width: 1;
+    -fx-border-radius: 7;
+    -fx-background-radius: 7;
+    -fx-cursor: hand;
+}
+
+.about-link-button:hover {
+    -fx-background-color: #f5f3ff;
+    -fx-border-color: -jl-accent;
+}
+
+.about-link-icon-box {
+    -fx-background-color: rgba(124, 58, 237, 0.08);
+    -fx-background-radius: 8;
+}
+
+.about-link-icon {
+    -fx-background-color: #64748b;
+}
+
+.about-link-button:hover .about-link-icon-box {
+    -fx-background-color: rgba(124, 58, 237, 0.14);
+}
+
+.about-link-button:hover .about-link-icon {
+    -fx-background-color: #6d28d9;
+}
+
+.about-link-title {
+    -fx-text-fill: #1e293b;
+    -fx-font-weight: 750;
+}
+
+.about-link-button:hover .about-link-title {
+    -fx-text-fill: #6d28d9;
+}
+
+.about-link-description {
+    -fx-font-size: 0.78em;
+}
+
+.about-chip-list {
+    -fx-padding: 2 0 0 0;
+}
+
+.about-chip {
+    -fx-padding: 3 8;
+    -fx-background-color: rgba(124, 58, 237, 0.08);
+    -fx-background-radius: 999;
+    -fx-text-fill: #6d28d9;
+    -fx-font-size: 0.8em;
+}
+
+.about-tech-stack {
+    -fx-font-size: 0.8em;
+}
+
+.about-info-key {
+    -fx-text-fill: #64748b;
+    -fx-font-size: 0.84em;
+}
+
+.about-info-value {
+    -fx-text-fill: #1e293b;
+    -fx-font-size: 0.84em;
+    -fx-font-weight: 600;
+}
+
+.about-detail-cards > .about-card {
+    -fx-pref-width: 420px;
+}
+
+.about-footer {
+    -fx-padding: 2 0 0 0;
+    -fx-font-size: 0.78em;
+    -fx-alignment: center;
+}
+
 .settings-form {
     -fx-padding: 2 0 0 0;
 }
@@ -2348,10 +2715,18 @@
 }
 
 .api-code-copy-button {
+    -fx-min-width: 82px;
+    -fx-pref-width: 82px;
     -fx-padding: 4 10;
 }
 
+.api-copy-token-button {
+    -fx-min-width: 88px;
+}
+
 .api-inline-copy-button {
+    -fx-min-width: 62px;
+    -fx-pref-width: 62px;
     -fx-min-height: 20px;
     -fx-pref-height: 20px;
     -fx-padding: 1 8;

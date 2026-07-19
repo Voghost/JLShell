@@ -66,4 +66,40 @@ class RuntimePluginDirectoriesTest {
         assertThat(RuntimePluginDirectories.pluginJars(root))
                 .containsExactlyInAnyOrder(flat, named, legacyNested);
     }
+
+    @Test
+    void keepsInstallationPluginDirectoriesWhenRunningFromUpdatedJar() throws Exception {
+        Path installRoot = Files.createDirectories(tempDir.resolve("JLShell"));
+        Path appDir = Files.createDirectories(installRoot.resolve("app"));
+        Path launcherJar = Files.createFile(appDir.resolve("jlshell-launcher.jar"));
+        Path bundledJar = Files.createFile(appDir.resolve("jlshell-app-bundled.jar"));
+        Path updatedJar = Files.createDirectories(tempDir.resolve("home/.jlshell/updates"))
+                .resolve("jlshell-app-0.1.61.jar");
+        Files.createFile(updatedJar);
+
+        String oldAppDir = System.getProperty("jlshell.app.dir");
+        String oldLauncher = System.getProperty("jlshell.launcher.jar");
+        String oldBundled = System.getProperty("jlshell.bundled.jar");
+        try {
+            System.clearProperty("jlshell.app.dir");
+            System.setProperty("jlshell.launcher.jar", launcherJar.toString());
+            System.setProperty("jlshell.bundled.jar", bundledJar.toString());
+
+            assertThat(RuntimePluginDirectories.resolve(
+                    tempDir.resolve("user-plugins").toString(), "plugins"))
+                    .contains(
+                            appDir.resolve("plugins").toAbsolutePath().normalize(),
+                            installRoot.resolve("plugins").toAbsolutePath().normalize())
+                    .doesNotContain(updatedJar.getParent().resolve("plugins").toAbsolutePath().normalize());
+        } finally {
+            restoreProperty("jlshell.app.dir", oldAppDir);
+            restoreProperty("jlshell.launcher.jar", oldLauncher);
+            restoreProperty("jlshell.bundled.jar", oldBundled);
+        }
+    }
+
+    private static void restoreProperty(String name, String value) {
+        if (value == null) System.clearProperty(name);
+        else System.setProperty(name, value);
+    }
 }

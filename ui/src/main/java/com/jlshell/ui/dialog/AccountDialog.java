@@ -227,7 +227,6 @@ public final class AccountDialog {
                     return;
                 }
                 dialog.close();
-                showInfo(owner, i18n, themeService, i18n.get("account.login.success"));
             }));
         });
 
