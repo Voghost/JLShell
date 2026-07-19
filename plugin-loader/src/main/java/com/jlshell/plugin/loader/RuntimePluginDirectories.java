@@ -88,6 +88,12 @@ public final class RuntimePluginDirectories {
             addDistinct(dirs, Path.of(appDir));
         }
 
+        // 在线更新后 RuntimePluginDirectories 会来自 ~/.jlshell/updates 下的活动 JAR，
+        // 不能再依赖它自己的 code source 推断安装目录。启动器提供的 JAR 路径始终
+        // 指向安装包，借此继续兼容 <install>/plugins 与 <install>/app/plugins。
+        addArtifactParent(dirs, System.getProperty("jlshell.launcher.jar"));
+        addArtifactParent(dirs, System.getProperty("jlshell.bundled.jar"));
+
         try {
             Path codeSourcePath = Path.of(RuntimePluginDirectories.class.getProtectionDomain()
                     .getCodeSource().getLocation().toURI());
@@ -111,6 +117,16 @@ public final class RuntimePluginDirectories {
         }
 
         return dirs;
+    }
+
+    private static void addArtifactParent(List<Path> dirs, String artifactPath) {
+        if (artifactPath == null || artifactPath.isBlank()) return;
+        try {
+            Path parent = Path.of(artifactPath).toAbsolutePath().normalize().getParent();
+            if (parent != null) addDistinct(dirs, parent);
+        } catch (RuntimeException ignored) {
+            // 无效的外部属性不能阻断用户目录和其他安装目录的扫描。
+        }
     }
 
     private static void addDistinct(List<Path> dirs, Path dir) {

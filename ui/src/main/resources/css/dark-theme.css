@@ -627,6 +627,58 @@
     -fx-border-radius: 0;
 }
 
+/* 会话级实时资源状态栏 */
+.terminal-status-bar {
+    -fx-alignment: center-left;
+    -fx-background-color: #171c22;
+    -fx-border-color: #2a333e transparent transparent transparent;
+    -fx-border-width: 1 0 0 0;
+    -fx-padding: 3 8 3 10;
+    -fx-spacing: 2;
+    -fx-min-height: 31;
+    -fx-pref-height: 31;
+}
+
+.terminal-status-item {
+    -fx-alignment: center-left;
+    -fx-spacing: 5;
+    -fx-padding: 3 7;
+    -fx-background-radius: 5;
+    -fx-cursor: hand;
+}
+
+.terminal-status-item:hover {
+    -fx-background-color: #252d38;
+}
+
+.terminal-status-item .action-bar-icon {
+    -fx-background-color: #7f8a99;
+}
+
+.terminal-status-item:hover .action-bar-icon {
+    -fx-background-color: -jl-accent;
+}
+
+.terminal-status-title {
+    -fx-text-fill: #7f8a99;
+    -fx-font-size: 0.82em;
+}
+
+.terminal-status-value {
+    -fx-text-fill: #c4cad3;
+    -fx-font-size: 0.84em;
+    -fx-font-weight: 600;
+}
+
+.terminal-status-hide {
+    -fx-opacity: 0.55;
+    -fx-padding: 3 6;
+}
+
+.terminal-status-hide:hover {
+    -fx-opacity: 0.95;
+}
+
 /* ---------- Split Pane ---------- */
 .split-pane {
     -fx-background-color: #1e1f22;
@@ -910,6 +962,32 @@
     -fx-padding: 8 4 5 4;
 }
 
+.sidebar-section-header {
+    -fx-padding: 3 0 2 0;
+    -fx-alignment: center-left;
+}
+
+.sidebar-section-header .sidebar-section-label {
+    -fx-padding: 5 4;
+}
+
+.sidebar-tree-action {
+    -fx-min-width: 24px;
+    -fx-pref-width: 24px;
+    -fx-min-height: 24px;
+    -fx-pref-height: 24px;
+    -fx-padding: 4px;
+    -fx-opacity: 0.55;
+}
+
+.sidebar-tree-action:hover {
+    -fx-opacity: 0.86;
+}
+
+.sidebar-tree-action:disabled {
+    -fx-opacity: 0.24;
+}
+
 /* ---------- Sidebar search field ---------- */
 .sidebar-search-row {
     -fx-background-color: rgba(15, 20, 28, 0.72);
@@ -1168,6 +1246,19 @@
     -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.45), 12, 0.25, 0, 4);
 }
 
+.hover-card-scroll > .viewport {
+    -fx-background-color: transparent;
+}
+
+.hover-card-scroll {
+    -fx-padding: 0;
+    -fx-background-insets: 0;
+}
+
+.card-live-val {
+    -fx-text-fill: #dfe7f2;
+}
+
 .plugin-quick-item {
     -fx-text-fill: #dfe1e5;
     -fx-font-size: 0.92em;
@@ -1246,6 +1337,76 @@
 .card-bar-track {
     -fx-background-color: #3c3f41;
     -fx-background-radius: 3;
+}
+
+/* 存储详情：紧凑挂载点表格 */
+.disk-table {
+    -fx-background-color: #20252c;
+    -fx-border-color: #3b444f;
+    -fx-border-width: 1;
+    -fx-border-radius: 5;
+    -fx-background-radius: 5;
+}
+
+.disk-table-header {
+    -fx-padding: 7 9;
+    -fx-background-color: #252b33;
+    -fx-border-color: transparent transparent #3b444f transparent;
+    -fx-border-width: 0 0 1 0;
+}
+
+.disk-table-header-label {
+    -fx-text-fill: #c9d0da;
+    -fx-font-size: 0.82em;
+    -fx-font-weight: 700;
+}
+
+.disk-table-row {
+    -fx-padding: 7 9;
+    -fx-border-color: transparent transparent rgba(67, 75, 86, 0.58) transparent;
+    -fx-border-width: 0 0 1 0;
+}
+
+.disk-table-row:hover {
+    -fx-background-color: #29313b;
+}
+
+.disk-table-path,
+.disk-table-capacity {
+    -fx-text-fill: #d7dce4;
+    -fx-font-size: 0.82em;
+}
+
+.disk-table-capacity {
+    -fx-font-family: "JetBrains Mono", "Menlo", "Consolas", monospace;
+}
+
+.disk-table-progress-track {
+    -fx-background-color: #38414c;
+    -fx-background-radius: 2;
+}
+
+.disk-table-progress-fill {
+    -fx-background-color: #45b98a;
+    -fx-background-radius: 2;
+}
+
+.disk-table-progress-fill.disk-progress-warning {
+    -fx-background-color: #d79b38;
+}
+
+.disk-table-progress-fill.disk-progress-danger {
+    -fx-background-color: #db5c68;
+}
+
+.disk-table-scroll,
+.disk-table-scroll > .viewport {
+    -fx-background-color: transparent;
+}
+
+.disk-table-scroll {
+    -fx-border-color: transparent;
+    -fx-padding: 0;
 }
 
 /* ---------- SFTP Browser ---------- */
@@ -2266,6 +2427,212 @@
     -fx-border-color: #393c42;
 }
 
+/* ---------- About page ---------- */
+.about-page,
+.about-scroll-pane,
+.about-scroll-pane > .viewport {
+    -fx-background-color: #2b2d30;
+}
+
+.about-page {
+    -fx-padding: 12 18 14 18;
+}
+
+.about-content {
+    -fx-spacing: 8;
+}
+
+.about-hero {
+    -fx-padding: 12 16;
+    -fx-background-color: linear-gradient(to right, #24262a, #29283a);
+    -fx-border-color: #3b3e44;
+    -fx-border-width: 1;
+    -fx-border-radius: 10;
+    -fx-background-radius: 10;
+}
+
+.about-logo {
+    -fx-min-width: 44px;
+    -fx-min-height: 44px;
+    -fx-pref-width: 44px;
+    -fx-pref-height: 44px;
+    -fx-background-color: linear-gradient(to bottom right, -jl-accent, #6d4bd1);
+    -fx-background-radius: 11;
+    -fx-text-fill: white;
+    -fx-font-size: 1.18em;
+    -fx-font-weight: 900;
+}
+
+.about-app-name {
+    -fx-text-fill: #f3f4f6;
+    -fx-font-size: 1.35em;
+    -fx-font-weight: 900;
+}
+
+.about-description,
+.about-card-description,
+.about-link-description,
+.about-tech-stack,
+.about-footer {
+    -fx-text-fill: #8f949e;
+}
+
+.about-version-badge {
+    -fx-padding: 4 9;
+    -fx-background-color: rgba(139, 92, 246, 0.15);
+    -fx-background-radius: 999;
+    -fx-text-fill: #b59bff;
+    -fx-font-weight: 700;
+}
+
+.about-compact-action {
+    -fx-min-height: 30px;
+    -fx-pref-height: 30px;
+    -fx-padding: 4 9;
+    -fx-background-color: rgba(139, 92, 246, 0.10);
+    -fx-border-color: rgba(181, 155, 255, 0.28);
+    -fx-border-radius: 7;
+    -fx-background-radius: 7;
+    -fx-text-fill: #c5b5f2;
+    -fx-font-size: 0.82em;
+    -fx-cursor: hand;
+}
+
+.about-compact-action .about-link-icon {
+    -fx-background-color: #b59bff;
+}
+
+.about-compact-action:hover {
+    -fx-background-color: rgba(139, 92, 246, 0.18);
+    -fx-border-color: -jl-accent;
+}
+
+.about-runtime-copy {
+    -fx-min-height: 23px;
+    -fx-pref-height: 23px;
+    -fx-padding: 1 8;
+    -fx-font-size: 0.76em;
+}
+
+.about-card {
+    -fx-padding: 10 14 11 14;
+    -fx-spacing: 4;
+    -fx-background-color: #24262a;
+    -fx-border-color: #3b3e44;
+    -fx-border-width: 1;
+    -fx-border-radius: 9;
+    -fx-background-radius: 9;
+}
+
+.about-card-title {
+    -fx-text-fill: #eef0f3;
+    -fx-font-size: 1em;
+    -fx-font-weight: 800;
+}
+
+.about-card-description {
+    -fx-font-size: 0.84em;
+}
+
+.about-card .separator {
+    -fx-padding: 3 0 4 0;
+}
+
+.about-card .separator .line {
+    -fx-border-color: #393c42;
+}
+
+.about-links {
+    -fx-padding: 1 0 0 0;
+}
+
+.about-link-button {
+    -fx-min-width: 0;
+    -fx-min-height: 62px;
+    -fx-pref-height: 62px;
+    -fx-max-height: 62px;
+    -fx-padding: 8 10;
+    -fx-alignment: center-left;
+    -fx-background-color: #1c1e22;
+    -fx-border-color: #3a3d43;
+    -fx-border-width: 1;
+    -fx-border-radius: 7;
+    -fx-background-radius: 7;
+    -fx-cursor: hand;
+}
+
+.about-link-button:hover {
+    -fx-background-color: #252833;
+    -fx-border-color: -jl-accent;
+}
+
+.about-link-icon-box {
+    -fx-background-color: rgba(139, 92, 246, 0.13);
+    -fx-background-radius: 8;
+}
+
+.about-link-icon {
+    -fx-background-color: #aaaeb8;
+}
+
+.about-link-button:hover .about-link-icon-box {
+    -fx-background-color: rgba(139, 92, 246, 0.22);
+}
+
+.about-link-button:hover .about-link-icon {
+    -fx-background-color: #b59bff;
+}
+
+.about-link-title {
+    -fx-text-fill: #dfe1e5;
+    -fx-font-weight: 750;
+}
+
+.about-link-button:hover .about-link-title {
+    -fx-text-fill: #b59bff;
+}
+
+.about-link-description {
+    -fx-font-size: 0.78em;
+}
+
+.about-chip-list {
+    -fx-padding: 2 0 0 0;
+}
+
+.about-chip {
+    -fx-padding: 3 8;
+    -fx-background-color: rgba(139, 92, 246, 0.12);
+    -fx-background-radius: 999;
+    -fx-text-fill: #b9a7ee;
+    -fx-font-size: 0.8em;
+}
+
+.about-tech-stack {
+    -fx-font-size: 0.8em;
+}
+
+.about-info-key {
+    -fx-text-fill: #8f949e;
+    -fx-font-size: 0.84em;
+}
+
+.about-info-value {
+    -fx-text-fill: #d7d9de;
+    -fx-font-size: 0.84em;
+    -fx-font-weight: 600;
+}
+
+.about-detail-cards > .about-card {
+    -fx-pref-width: 420px;
+}
+
+.about-footer {
+    -fx-padding: 2 0 0 0;
+    -fx-font-size: 0.78em;
+    -fx-alignment: center;
+}
+
 .settings-form {
     -fx-padding: 2 0 0 0;
 }
@@ -2344,10 +2711,18 @@
 }
 
 .api-code-copy-button {
+    -fx-min-width: 82px;
+    -fx-pref-width: 82px;
     -fx-padding: 4 10;
 }
 
+.api-copy-token-button {
+    -fx-min-width: 88px;
+}
+
 .api-inline-copy-button {
+    -fx-min-width: 62px;
+    -fx-pref-width: 62px;
     -fx-min-height: 20px;
     -fx-pref-height: 20px;
     -fx-padding: 1 8;

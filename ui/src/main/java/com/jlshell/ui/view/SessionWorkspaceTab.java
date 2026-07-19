@@ -227,7 +227,6 @@ public class SessionWorkspaceTab extends Tab {
         sftpPane = new SftpBrowserPane(connectionProfile, sshSession, sftpService, i18nService, themeService);
         // 连接终端 cwd 属性，实现"跟随终端目录"
         sftpPane.setTerminalCwdProperty(terminalWorkspaceView.cwdProperty());
-        sftpPane.setInjectOsc7HookCallback(() -> terminalWorkspaceView.injectOsc7PromptHook());
         filesTab.setContent(sftpPane);
     }
 
@@ -250,11 +249,18 @@ public class SessionWorkspaceTab extends Tab {
         }
     }
 
-    /**
-     * 控制终端工作区顶部工具栏（系统信息条 + 插件按钮 + 字体设置）的显隐。
-     */
+    /** 控制终端工作区顶部插件与字体工具栏的显隐。 */
     public void setToolbarVisible(boolean visible) {
-        terminalWorkspaceView.setToolbarVisible(visible);
+        if (terminalWorkspaceView != null) {
+            terminalWorkspaceView.setToolbarVisible(visible);
+        }
+    }
+
+    /** 控制终端底部实时状态栏的显隐。 */
+    public void setStatusBarVisible(boolean visible) {
+        if (terminalWorkspaceView != null) {
+            terminalWorkspaceView.setStatusBarVisible(visible);
+        }
     }
 
     /**

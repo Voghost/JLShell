@@ -22,7 +22,7 @@ A modern cross-platform SSH/SFTP client built with JavaFX, featuring an IDE-insp
 ### SFTP Browser
 - Dual-panel file manager with folder tree + file list for both local and remote
 - Upload, download, rename, delete, create folder
-- Follow terminal directory (OSC 7 prompt hook injection)
+- Follow terminal directory (silent, session-scoped OSC 7 shell integration)
 
 ### Connection Management
 - Save and organize connections into **projects** and **folders** (nested, up to 5 levels)

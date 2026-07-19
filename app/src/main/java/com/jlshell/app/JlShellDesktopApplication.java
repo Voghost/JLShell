@@ -15,6 +15,7 @@ import com.jlshell.ui.view.MainWindow;
 import com.jlshell.ui.support.BundledFontLoader;
 import com.jlshell.ui.support.RestartHelper;
 import javafx.application.Application;
+import javafx.application.ConditionalFeature;
 import javafx.application.Platform;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
@@ -76,6 +77,12 @@ public class JlShellDesktopApplication extends Application {
         // corners.  UNDECORATED still paints an opaque white background.
         if (isWindows()) {
             stage.initStyle(StageStyle.TRANSPARENT);
+        } else if (isMac() && Platform.isSupported(ConditionalFeature.UNIFIED_WINDOW)) {
+            // Keep the native macOS traffic-light controls, while allowing the
+            // JavaFX scene background to extend into the title-bar decoration.
+            // A regular DECORATED stage follows the launcher process appearance,
+            // which can differ between a jpackage app and an IDE/direct launch.
+            stage.initStyle(StageStyle.UNIFIED);
         }
 
         stage.setTitle("JLShell");
@@ -147,6 +154,10 @@ public class JlShellDesktopApplication extends Application {
         }, "jlshell-shutdown");
         shutdownThread.setDaemon(true);
         shutdownThread.start();
+    }
+
+    private static boolean isMac() {
+        return System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("mac");
     }
 
     /**

@@ -278,6 +278,7 @@ public class AppContext implements AutoCloseable {
         if (programPluginManager != null) programPluginManager.deactivateAll();
         if (accountService != null) accountService.shutdown();
         if (memoryReclaimService != null) memoryReclaimService.close();
+        if (mainWindow != null) mainWindow.flushPendingUiState();
         executor.shutdownNow();
         dataSource.close();
     }

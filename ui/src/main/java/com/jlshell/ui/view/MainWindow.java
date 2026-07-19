@@ -8,7 +8,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import com.jlshell.api.server.ApiServer;
@@ -33,6 +35,7 @@ import com.jlshell.ui.service.ConnectionShareService;
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.service.LocalShellLauncher;
 import com.jlshell.ui.service.MemoryReclaimService;
+import com.jlshell.ui.service.SidebarExpansionStateStore;
 import com.jlshell.ui.service.account.AccountService;
 import com.jlshell.ui.service.account.AccountConnectionCounter;
 import com.jlshell.ui.service.update.UpdateService;
@@ -137,6 +140,10 @@ public class MainWindow {
     private final AccountService accountService;
     private final ShortcutRegistry shortcutRegistry;
     private final ConnectionShareService connectionShareService = new ConnectionShareService();
+    private final SidebarExpansionStateStore sidebarExpansionStateStore;
+    private final Map<String, Set<String>> sidebarCollapsedFolderStateCache = new ConcurrentHashMap<>();
+    private final Object sidebarExpansionSaveLock = new Object();
+    private CompletableFuture<Void> sidebarExpansionSave = CompletableFuture.completedFuture(null);
     private final TabPane workspaceTabs = new TabPane();
     private final List<com.jlshell.terminal.service.TerminalViewHandle> localShellHandles = new ArrayList<>();
     private final Set<String> connectingConnectionIds = new HashSet<>();
@@ -219,6 +226,7 @@ public class MainWindow {
         this.terminalViewFactory = terminalViewFactory;
         this.fontProfileService = fontProfileService;
         this.appSettingsService = appSettingsService;
+        this.sidebarExpansionStateStore = new SidebarExpansionStateStore(appSettingsService);
         this.sftpService = sftpService;
         this.themeService = themeService;
         this.i18nService = i18nService;
@@ -260,7 +268,9 @@ public class MainWindow {
         rootPane = root;
         root.getStyleClass().add("app-root");
 
-        boolean isWindows = System.getProperty("os.name", "").toLowerCase().contains("win");
+        String osName = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
+        boolean isWindows = osName.contains("win");
+        boolean isMacUnified = osName.contains("mac") && stage.getStyle() == javafx.stage.StageStyle.UNIFIED;
         if (isWindows) {
             root.setTop(buildCustomTitleBar(stage));
         } else {
@@ -292,9 +302,10 @@ public class MainWindow {
         Scene scene = new Scene(root, initW, initH);
         installApplicationShortcuts(scene, stage);
 
-        // On Windows, the stage is UNDECORATED — make the scene background
-        // transparent so the rounded corners and border of .app-root are visible.
-        if (isWindows) {
+        // Windows needs transparency for the custom rounded chrome. macOS
+        // UNIFIED needs it so the themed scene background reaches the native
+        // title bar while retaining the system traffic-light controls.
+        if (isWindows || isMacUnified) {
             scene.setFill(javafx.scene.paint.Color.TRANSPARENT);
         }
 
@@ -477,6 +488,10 @@ public class MainWindow {
         CheckMenuItem focusModeItem = new CheckMenuItem(i18nService.get("focusMode.toggle"));
         focusModeItem.setSelected(focusMode);
         focusModeItem.setOnAction(event -> setFocusMode(focusModeItem.isSelected()));
+        CheckMenuItem terminalStatusBarItem = new CheckMenuItem(i18nService.get("terminal.statusBar.toggle"));
+        terminalStatusBarItem.setSelected(Boolean.parseBoolean(
+                appSettingsService.get(TerminalWorkspaceView.STATUS_BAR_VISIBLE_KEY, "true")));
+        terminalStatusBarItem.setOnAction(event -> setTerminalStatusBarVisible(terminalStatusBarItem.isSelected()));
         ToggleGroup themeGroup = new ToggleGroup();
         RadioMenuItem darkTheme = new RadioMenuItem(i18nService.get("theme.dark"));
         RadioMenuItem lightTheme = new RadioMenuItem(i18nService.get("theme.light"));
@@ -487,10 +502,12 @@ public class MainWindow {
             darkTheme.setSelected(currentTheme == AppTheme.DARK);
             lightTheme.setSelected(currentTheme == AppTheme.LIGHT);
             focusModeItem.setSelected(focusMode);
+            terminalStatusBarItem.setSelected(Boolean.parseBoolean(
+                    appSettingsService.get(TerminalWorkspaceView.STATUS_BAR_VISIBLE_KEY, "true")));
         });
         darkTheme.setOnAction(event -> themeService.setTheme(AppTheme.DARK));
         lightTheme.setOnAction(event -> themeService.setTheme(AppTheme.LIGHT));
-        viewMenu.getItems().addAll(toggleSidebarItem, collapseTopBarItem, focusModeItem,
+        viewMenu.getItems().addAll(toggleSidebarItem, collapseTopBarItem, terminalStatusBarItem, focusModeItem,
                 new SeparatorMenuItem(), darkTheme, lightTheme);
 
         // Preferences menu item
@@ -1319,6 +1336,7 @@ public class MainWindow {
                         }
                     }
                 }, executor).whenComplete((v, t) -> FxThread.run(this::loadConnections)));
+        sidebarTreeView.setOnCollapsedFoldersChanged(this::saveSidebarCollapsedFolders);
 
         sidebarTreeView.getTreeView().getSelectionModel().selectedItemProperty()
                 .addListener((obs, ov, nv) -> {
@@ -1372,6 +1390,19 @@ public class MainWindow {
         sectionLabel = new Label(i18nService.get("sidebar.connections"));
         sectionLabel.getStyleClass().add("sidebar-section-label");
 
+        Button toggleAllFoldersButton = svgIconButton(
+                "/icons/expandv2.svg", i18nService.get("sidebar.collapseAll"), sidebarTreeView::toggleAllFolders);
+        toggleAllFoldersButton.getStyleClass().add("sidebar-tree-action");
+        toggleAllFoldersButton.disableProperty().bind(sidebarTreeView.hasFoldersProperty().not());
+        sidebarTreeView.allFoldersExpandedProperty().addListener((obs, wasExpanded, isExpanded) ->
+                toggleAllFoldersButton.getTooltip().setText(i18nService.get(
+                        isExpanded ? "sidebar.collapseAll" : "sidebar.expandAll")));
+        Region sectionSpacer = new Region();
+        HBox.setHgrow(sectionSpacer, Priority.ALWAYS);
+        HBox sectionHeader = new HBox(2, sectionLabel, sectionSpacer, toggleAllFoldersButton);
+        sectionHeader.getStyleClass().add("sidebar-section-header");
+        sectionHeader.setAlignment(Pos.CENTER_LEFT);
+
         projectSwitchLabel = new Label(i18nService.get("project.switch.label"));
         projectSwitchLabel.getStyleClass().add("sidebar-project-label");
         projectSwitchLabel.setMinWidth(Region.USE_PREF_SIZE);
@@ -1423,7 +1454,7 @@ public class MainWindow {
         projectRow.getStyleClass().add("sidebar-project-row");
         VBox.setMargin(projectRow, new Insets(10, 6, 8, 6));
 
-        VBox listPanel = new VBox(0, sectionLabel, searchRow, sidebarTreeView.getTreeView());
+        VBox listPanel = new VBox(0, sectionHeader, searchRow, sidebarTreeView.getTreeView());
         listPanel.getStyleClass().add("sidebar-list-panel");
         VBox.setMargin(listPanel, new Insets(0, 6, 8, 6));
         VBox.setVgrow(listPanel, Priority.ALWAYS);
@@ -1544,6 +1575,14 @@ public class MainWindow {
         setFocusMode(!focusMode);
     }
 
+    private void setTerminalStatusBarVisible(boolean visible) {
+        appSettingsService.set(TerminalWorkspaceView.STATUS_BAR_VISIBLE_KEY, String.valueOf(visible));
+        workspaceTabs.getTabs().stream()
+                .filter(SessionWorkspaceTab.class::isInstance)
+                .map(SessionWorkspaceTab.class::cast)
+                .forEach(tab -> tab.setStatusBarVisible(visible));
+    }
+
     private void setFocusMode(boolean enabled) {
         if (focusMode == enabled) {
             return;
@@ -1634,7 +1673,7 @@ public class MainWindow {
             for (javafx.scene.control.Tab t : workspaceTabs.getTabs()) {
                 if (t instanceof SessionWorkspaceTab swt) {
                     setTabHeaderVisible(swt.getInnerTabPane(), false);
-                    // 隐藏终端工具栏（IP/CPU/Mem/Disk + 插件按钮 + 字体设置）
+                    // 隐藏终端顶部插件与字体工具栏；底部状态栏由用户独立控制。
                     swt.setToolbarVisible(false);
                 }
             }
@@ -1815,16 +1854,22 @@ public class MainWindow {
         CompletableFuture.supplyAsync(() -> {
             java.util.List<ConnectionProfile> profiles = connectionProfileService.listProfilesByProject(projectId);
             java.util.List<FolderProfile> folders = connectionProfileService.listFolders(projectId);
-            return java.util.Map.entry(folders, profiles);
+            Set<String> collapsedFolders = sidebarCollapsedFolderStateCache.computeIfAbsent(
+                    sidebarExpansionCacheKey(projectId),
+                    ignored -> Set.copyOf(sidebarExpansionStateStore.loadCollapsedFolderIds(projectId)));
+            return new ConnectionTreeSnapshot(folders, profiles, collapsedFolders);
         }, executor).whenComplete((entry, throwable) -> FxThread.run(() -> {
+            if (!Objects.equals(projectId, activeProjectId)) {
+                return;
+            }
             if (throwable != null) {
                 showError(i18nService.get("status.connectionSaveFailed", throwable.getMessage()));
                 return;
             }
-            cachedProfiles = entry.getValue();
-            viewModel.replaceConnections(entry.getValue());
+            cachedProfiles = entry.profiles();
+            viewModel.replaceConnections(entry.profiles());
             if (sidebarTreeView != null) {
-                sidebarTreeView.populate(entry.getKey(), entry.getValue());
+                sidebarTreeView.populate(entry.folders(), entry.profiles(), entry.collapsedFolderIds());
                 // 重新应用当前搜索过滤
                 if (searchField != null && !searchField.getText().isBlank()) {
                     sidebarTreeView.applyFilter(searchField.getText());
@@ -1837,6 +1882,43 @@ public class MainWindow {
                     i18nService.get("status.connectionsLoaded", viewModel.connections().size()));
         }));
     }
+
+    private void saveSidebarCollapsedFolders(Set<String> collapsedFolderIds) {
+        String projectId = activeProjectId;
+        Set<String> snapshot = Set.copyOf(collapsedFolderIds);
+        sidebarCollapsedFolderStateCache.put(sidebarExpansionCacheKey(projectId), snapshot);
+        synchronized (sidebarExpansionSaveLock) {
+            sidebarExpansionSave = sidebarExpansionSave
+                    .handle((unused, error) -> {
+                        if (error != null) {
+                            log.warn("Failed to persist sidebar folder expansion state", error);
+                        }
+                        return null;
+                    })
+                    .thenRunAsync(() -> sidebarExpansionStateStore.saveCollapsedFolderIds(projectId, snapshot), executor);
+        }
+    }
+
+    private static String sidebarExpansionCacheKey(String projectId) {
+        return projectId == null ? "<default>" : projectId;
+    }
+
+    /** Ensure the latest asynchronous sidebar state write finishes before the data source closes. */
+    public void flushPendingUiState() {
+        CompletableFuture<Void> pending;
+        synchronized (sidebarExpansionSaveLock) {
+            pending = sidebarExpansionSave;
+        }
+        try {
+            pending.get(2, TimeUnit.SECONDS);
+        } catch (Exception error) {
+            log.warn("Failed to flush pending sidebar folder expansion state", error);
+        }
+    }
+
+    private record ConnectionTreeSnapshot(List<FolderProfile> folders,
+                                          List<ConnectionProfile> profiles,
+                                          Set<String> collapsedFolderIds) {}
 
     private void createFolder(Stage stage) {
         promptFolderName(stage, i18nService.get("sidebar.newFolder"), "")

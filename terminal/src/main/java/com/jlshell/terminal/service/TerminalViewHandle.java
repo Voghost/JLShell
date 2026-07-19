@@ -41,6 +41,14 @@ public interface TerminalViewHandle extends AutoCloseable {
     }
 
     /**
+     * 向终端发送程序内部命令，并隐藏该命令自身的 PTY 回显。
+     * 命令执行产生的真实输出仍会正常显示；不支持的实现回退为普通发送。
+     */
+    default void sendStringToTerminalSilently(String text) {
+        sendStringToTerminal(text);
+    }
+
+    /**
      * 返回终端光标在 Swing 组件内的像素坐标，用于 IME 候选窗定位。
      * 默认返回 (0,0)，不影响不支持的实现。
      */

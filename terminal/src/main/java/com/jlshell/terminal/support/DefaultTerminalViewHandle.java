@@ -126,6 +126,14 @@ public class DefaultTerminalViewHandle implements TerminalViewHandle {
     }
 
     @Override
+    public void sendStringToTerminalSilently(String text) {
+        if (text == null || text.isEmpty()) return;
+        // 必须先注册过滤目标，再把输入交给 EDT，避免远端快速回显造成竞态。
+        ttyConnector.suppressNextEcho(text);
+        sendStringToTerminal(text);
+    }
+
+    @Override
     public java.awt.Point getCursorLocationInComponent() {
         if (widget.getTerminalPanel() instanceof RefreshableTerminalPanel rtp) {
             return rtp.getCursorLocationInComponent();

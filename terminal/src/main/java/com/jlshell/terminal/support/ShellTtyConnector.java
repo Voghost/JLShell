@@ -46,6 +46,10 @@ public class ShellTtyConnector implements TtyConnector {
     private StringBuilder oscBuffer;
     private boolean inOscSequence;
 
+    /** 过滤程序内部命令的单次 PTY 回显；正常终端输出仍原样交给 JediTerm。 */
+    private final TerminalEchoSuppressor echoSuppressor = new TerminalEchoSuppressor();
+    private final StringBuilder filteredOutput = new StringBuilder();
+
     /** 连接断开回调（由 UI 层注册，用于显示断连提示和重连按钮） */
     private volatile Consumer<DisconnectReason> onDisconnected;
 
@@ -72,17 +76,38 @@ public class ShellTtyConnector implements TtyConnector {
         return cwdProperty;
     }
 
+    /**
+     * 隐藏下一次指定输入在 PTY 输出中的回显。
+     * OSC 等由命令产生的真实输出不会被过滤。
+     */
+    public void suppressNextEcho(String text) {
+        echoSuppressor.suppressNext(text);
+    }
+
     @Override
     public int read(char[] buffer, int offset, int length) throws IOException {
+        if (length == 0) {
+            return 0;
+        }
         try {
-            int read = reader.read(buffer, offset, length);
-            if (read < 0) {
-                log.info("[TtyConnector] '{}' received EOF (remote closed shell)", name);
-                markDisconnected(DisconnectReason.REMOTE_CLOSED);
-            } else {
-                scanForOsc7(buffer, offset, read);
+            while (true) {
+                int queued = drainFilteredOutput(buffer, offset, length);
+                if (queued > 0) {
+                    return queued;
+                }
+
+                char[] raw = new char[Math.max(256, length)];
+                int read = reader.read(raw, 0, raw.length);
+                if (read < 0) {
+                    log.info("[TtyConnector] '{}' received EOF (remote closed shell)", name);
+                    markDisconnected(DisconnectReason.REMOTE_CLOSED);
+                    return -1;
+                }
+
+                // 先扫描原始输出，确保被终端显示层过滤的内部命令不会影响 OSC 7 解析。
+                scanForOsc7(raw, 0, read);
+                appendFilteredOutput(echoSuppressor.filter(raw, 0, read));
             }
-            return read;
         } catch (IOException exception) {
             String msg = exception.getMessage();
             // SocketTimeoutException 是 socket read timeout 触发，说明 keepalive 可能已失败
@@ -94,6 +119,20 @@ public class ShellTtyConnector implements TtyConnector {
             markDisconnected(DisconnectReason.IO_ERROR);
             throw exception;
         }
+    }
+
+    private synchronized void appendFilteredOutput(String text) {
+        filteredOutput.append(text);
+    }
+
+    private synchronized int drainFilteredOutput(char[] target, int offset, int length) {
+        int count = Math.min(length, filteredOutput.length());
+        if (count == 0) {
+            return 0;
+        }
+        filteredOutput.getChars(0, count, target, offset);
+        filteredOutput.delete(0, count);
+        return count;
     }
 
     /**
@@ -213,8 +252,8 @@ public class ShellTtyConnector implements TtyConnector {
     }
 
     @Override
-    public boolean ready() throws IOException {
-        return reader.ready();
+    public synchronized boolean ready() throws IOException {
+        return !filteredOutput.isEmpty() || reader.ready();
     }
 
     @Override
