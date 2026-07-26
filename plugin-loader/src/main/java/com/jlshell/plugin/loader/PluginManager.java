@@ -18,7 +18,10 @@ import com.jlshell.plugin.api.PluginCompatibility;
 import com.jlshell.plugin.api.PluginContext;
 import com.jlshell.plugin.api.PluginScope;
 import com.jlshell.plugin.api.PluginView;
-import com.jlshell.plugin.api.PluginScope;
+import com.jlshell.plugin.api.security.PluginAccessDecision;
+import com.jlshell.plugin.api.security.PluginAccessRequest;
+import com.jlshell.plugin.api.security.PluginOperation;
+import com.jlshell.plugin.api.storage.SecureStorage;
 import com.jlshell.plugin.loader.store.PluginPackageValidator;
 
 import javafx.beans.property.ObjectProperty;
@@ -47,6 +50,8 @@ public class PluginManager {
     private final String userPluginsDir;
     private final String hostVersion;
     private final PluginEnablementService enablementService;
+    private final PluginAccessController accessController = new PluginAccessController();
+    private volatile Function<String, SecureStorage> secureStorageFactory;
     private final List<PluginDescriptor> plugins = new ArrayList<>();
     private final List<URLClassLoader> externalClassLoaders = new ArrayList<>();
     private final Map<String, SessionPluginSet> activeBySession = new ConcurrentHashMap<>();

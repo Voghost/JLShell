@@ -16,7 +16,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
 import com.jlshell.plugin.api.JlShellProgramPlugin;
-import com.jlshell.plugin.api.PluginScope;
 import com.jlshell.plugin.api.PluginCompatibility;
 import com.jlshell.plugin.api.PluginContext;
 import com.jlshell.plugin.api.PluginScope;
@@ -96,6 +95,34 @@ public class ProgramPluginManager {
                                 DefaultProgramPluginContext.Callbacks callbacks,
                                 ProgramApiContext programApiContext,
                                 PluginEnablementService enablementService) {
+        this(userPluginsDir, hostVersion, pluginManager, globalRegistry, capabilityBus,
+                storageFactory, null, callbacks, programApiContext, enablementService,
+                ProjectIntegrationRegistry.shared());
+    }
+
+    public ProgramPluginManager(String userPluginsDir, String hostVersion,
+                                PluginManager pluginManager,
+                                CapabilityRegistryImpl globalRegistry,
+                                CapabilityBus capabilityBus,
+                                Function<String, PluginStorage> storageFactory,
+                                Function<String, SecureStorage> secureStorageFactory,
+                                DefaultProgramPluginContext.Callbacks callbacks,
+                                ProjectIntegrationRegistry projectIntegrationRegistry) {
+        this(userPluginsDir, hostVersion, pluginManager, globalRegistry, capabilityBus,
+                storageFactory, secureStorageFactory, callbacks, null,
+                new PluginEnablementService(), projectIntegrationRegistry);
+    }
+
+    public ProgramPluginManager(String userPluginsDir, String hostVersion,
+                                PluginManager pluginManager,
+                                CapabilityRegistryImpl globalRegistry,
+                                CapabilityBus capabilityBus,
+                                Function<String, PluginStorage> storageFactory,
+                                Function<String, SecureStorage> secureStorageFactory,
+                                DefaultProgramPluginContext.Callbacks callbacks,
+                                ProgramApiContext programApiContext,
+                                PluginEnablementService enablementService,
+                                ProjectIntegrationRegistry projectIntegrationRegistry) {
         this.userPluginsDir = userPluginsDir;
         this.hostVersion = hostVersion == null || hostVersion.isBlank() ? DEFAULT_HOST_VERSION : hostVersion;
         this.pluginManager = pluginManager;
@@ -106,6 +133,8 @@ public class ProgramPluginManager {
         this.secureStorageFactory = secureStorageFactory;
         this.callbacks = callbacks;
         this.programApiContext = programApiContext;
+        this.projectIntegrationRegistry = projectIntegrationRegistry == null
+                ? ProjectIntegrationRegistry.shared() : projectIntegrationRegistry;
     }
 
     public void ensureLoaded() {
@@ -133,7 +162,7 @@ public class ProgramPluginManager {
         ensureLoaded();
     }
 
-    private void loadFromClassLoader(ClassLoader classLoader) {
+    private void loadFromClassLoader(ClassLoader classLoader, boolean trustedSource) {
         ServiceLoader.load(JlShellProgramPlugin.class, classLoader).forEach(plugin -> {
             plugins.add(toDescriptor(plugin));
             if (trustedSource && plugin.accessPolicyProvider() != null) {
@@ -185,7 +214,8 @@ public class ProgramPluginManager {
         if (enabled) {
             enablementService.setEnabled(pluginId, PluginScope.PROGRAM, true);
             plugins.stream().filter(descriptor -> descriptor.id().equals(pluginId))
-                    .findFirst().ifPresent(this::activateDescriptor);
+                    .findFirst().ifPresent(descriptor -> activateDescriptor(
+                            descriptor, trustedPolicyPlugins.contains(descriptor.instance())));
         } else {
             deactivatePlugin(pluginId);
             enablementService.setEnabled(pluginId, PluginScope.PROGRAM, false);
@@ -193,22 +223,57 @@ public class ProgramPluginManager {
     }
 
     public void activateAll() {
-        for (ProgramPluginDescriptor descriptor : plugins) {
-            if (isPluginEnabled(descriptor.id())) activateDescriptor(descriptor);
-        }
+        plugins.stream()
+                .filter(descriptor -> isPluginEnabled(descriptor.id()))
+                .filter(descriptor -> trustedPolicyPlugins.contains(descriptor.instance()))
+                .forEach(descriptor -> activateDescriptor(descriptor, true));
+        plugins.stream()
+                .filter(descriptor -> isPluginEnabled(descriptor.id()))
+                .filter(descriptor -> !trustedPolicyPlugins.contains(descriptor.instance()))
+                .forEach(descriptor -> activateDescriptor(descriptor, false));
     }
 
-    private void activateDescriptor(ProgramPluginDescriptor descriptor) {
+    private void activateDescriptor(ProgramPluginDescriptor descriptor, boolean trustedPolicyProvider) {
         if (active.containsKey(descriptor.id())) return;
+        if (!trustedPolicyProvider) {
+            PluginAccessDecision decision = pluginManager.accessController().evaluate(new PluginAccessRequest(
+                    PluginOperation.ACTIVATE, PluginScope.PROGRAM, null, descriptor.id(), null));
+            if (decision.effect() == PluginAccessDecision.Effect.DENY) {
+                log.info("Activation denied for program plugin {}: {}", descriptor.id(), decision.reason());
+                disposeDescriptorContext(descriptor);
+                return;
+            }
+        }
+        boolean pluginActivated = false;
         try {
+            if (descriptor.context() instanceof PluginContext pluginContext) {
+                pluginManager.adoptContext(null, descriptor.id(), pluginContext);
+            }
             descriptor.instance().activate(descriptor.context());
-            active.put(descriptor.id(), descriptor.instance());
+            pluginActivated = true;
             if (programApiContext != null && descriptor.instance() instanceof ProgramApiProvider provider) {
                 provider.activate(programApiContext);
             }
+            if (trustedPolicyProvider) {
+                pluginManager.accessController().registerTrusted(
+                        descriptor.id(), descriptor.instance().accessPolicyProvider());
+            } else if (descriptor.instance().accessPolicyProvider() != null) {
+                log.warn("Ignored access policy provider from untrusted plugin {}", descriptor.id());
+            }
+            active.put(descriptor.id(), descriptor.instance());
         } catch (Exception e) {
-            active.remove(descriptor.id());
+            active.remove(descriptor.id(), descriptor.instance());
+            pluginManager.accessController().unregister(descriptor.id());
+            projectIntegrationRegistry.clearForPlugin(descriptor.id());
             globalRegistry.clearForPlugin(descriptor.id());
+            if (pluginActivated) {
+                try {
+                    descriptor.instance().deactivate();
+                } catch (RuntimeException cleanupError) {
+                    log.warn("Failed to roll back program plugin {}", descriptor.id(), cleanupError);
+                }
+            }
+            disposeDescriptorContext(descriptor);
             log.warn("Failed to activate program plugin {}", descriptor.id(), e);
         }
     }
@@ -220,7 +285,20 @@ public class ProgramPluginManager {
             if (plugin instanceof ProgramApiProvider provider) provider.deactivate();
             plugin.deactivate();
         } finally {
+            pluginManager.accessController().unregister(pluginId);
+            projectIntegrationRegistry.clearForPlugin(pluginId);
             globalRegistry.clearForPlugin(pluginId);
+            plugins.stream()
+                    .filter(descriptor -> descriptor.id().equals(pluginId))
+                    .findFirst()
+                    .ifPresent(this::disposeDescriptorContext);
+        }
+    }
+
+    private void disposeDescriptorContext(ProgramPluginDescriptor descriptor) {
+        if (descriptor.context() instanceof DefaultProgramPluginContext context) {
+            context.dispose();
+            pluginManager.releaseContext(null, descriptor.id(), context);
         }
     }
 
