@@ -124,7 +124,9 @@ public class RefreshableTerminalPanel extends TerminalPanel {
      * 返回终端光标在 Swing 组件内的像素坐标（用于 IME 候选窗定位）。
      * 复刻 JediTerm MyInputMethodRequests.getTextLocation 的算法：
      *   x = cursorX * charWidth + insetX
-     *   y = (cursorY + 1) * charHeight  （+1 让候选窗落在光标行下方）
+     *   y = cursorY * charHeight
+     * JediTerminal 的 cursorY 从 1 开始，因此直接乘行高已经是光标行下边缘；
+     * 再加 1 会让候选窗固定向下偏移一整行。
      * 光标坐标通过 capturedCoordAccessor 获取（JediTermWidget init 时注入）。
      * 未初始化时返回 (0,0)，候选窗退化为组件左上角。
      */
@@ -133,8 +135,18 @@ public class RefreshableTerminalPanel extends TerminalPanel {
         if (coord == null || myCharSize.width <= 0 || myCharSize.height <= 0) {
             return new Point(0, 0);
         }
-        int x = coord.getX() * myCharSize.width + getInsetX();
-        int y = (coord.getY() + 1) * myCharSize.height;
+        return cursorAnchor(
+                coord.getX(),
+                coord.getY(),
+                myCharSize.width,
+                myCharSize.height,
+                getInsetX()
+        );
+    }
+
+    static Point cursorAnchor(int cursorX, int cursorY, int charWidth, int charHeight, int insetX) {
+        int x = Math.max(0, cursorX) * Math.max(0, charWidth) + Math.max(0, insetX);
+        int y = Math.max(0, cursorY) * Math.max(0, charHeight);
         return new Point(x, y);
     }
 

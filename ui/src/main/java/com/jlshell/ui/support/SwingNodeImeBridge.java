@@ -7,6 +7,9 @@ import javafx.geometry.Point2D;
 import javafx.scene.input.InputMethodEvent;
 import javafx.scene.input.InputMethodRequests;
 
+import java.awt.Dimension;
+import java.awt.Point;
+
 public final class SwingNodeImeBridge {
 
     private SwingNodeImeBridge() {}
@@ -19,14 +22,16 @@ public final class SwingNodeImeBridge {
                 if (swingNode.getScene() == null || swingNode.getScene().getWindow() == null) {
                     return Point2D.ZERO;
                 }
-                // 光标在 SwingNode 内的像素偏移（逻辑坐标，1:1 对应 AWT 逻辑坐标）
+                // 光标位置是 Swing 组件逻辑坐标。先映射到 SwingNode 局部坐标，
+                // 再让 JavaFX 的 localToScreen 统一处理父节点变换、HiDPI 和显示器缩放。
                 java.awt.Point cursorInComponent = handle.getCursorLocationInComponent();
-                // SwingNode 左上角的屏幕坐标（JavaFX localToScreen 返回逻辑坐标）
-                Bounds bounds = swingNode.localToScreen(swingNode.getBoundsInLocal());
-                if (bounds == null) return Point2D.ZERO;
-                double screenX = bounds.getMinX() + cursorInComponent.x;
-                double screenY = bounds.getMinY() + cursorInComponent.y;
-                return new Point2D(screenX, screenY);
+                Point2D cursorInNode = mapComponentToNode(
+                        cursorInComponent,
+                        handle.getTerminalComponentSize(),
+                        swingNode.getBoundsInLocal()
+                );
+                Point2D cursorOnScreen = swingNode.localToScreen(cursorInNode);
+                return cursorOnScreen == null ? Point2D.ZERO : cursorOnScreen;
             }
 
             @Override
@@ -55,5 +60,21 @@ public final class SwingNodeImeBridge {
         if (committed != null && !committed.isEmpty()) {
             handle.sendStringToTerminal(committed);
         }
+    }
+
+    static Point2D mapComponentToNode(Point cursor, Dimension componentSize, Bounds nodeBounds) {
+        if (cursor == null || nodeBounds == null) {
+            return Point2D.ZERO;
+        }
+        double scaleX = componentSize != null && componentSize.width > 0
+                ? nodeBounds.getWidth() / componentSize.width
+                : 1.0;
+        double scaleY = componentSize != null && componentSize.height > 0
+                ? nodeBounds.getHeight() / componentSize.height
+                : 1.0;
+        return new Point2D(
+                nodeBounds.getMinX() + cursor.x * scaleX,
+                nodeBounds.getMinY() + cursor.y * scaleY
+        );
     }
 }

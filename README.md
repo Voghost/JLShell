@@ -83,6 +83,19 @@ JDK21_WIN=/path/to/win-jdk21 \
 
 Output is in `dist/`.
 
+### Resource warning thresholds
+
+The terminal status bar uses yellow and red warning levels for CPU, memory, and storage usage. The defaults are 70%
+and 90%. To override them, create `~/.jlshell/jlshell.properties` (or pass
+`-Djlshell.config.file=/path/to/jlshell.properties`) with:
+
+```properties
+jlshell.status.warning-percent=70
+jlshell.status.danger-percent=90
+```
+
+The danger threshold must be higher than the warning threshold. Invalid values fall back to safe normalized values.
+
 ---
 
 ## Plugin Development

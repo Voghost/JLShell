@@ -57,6 +57,18 @@ public interface TerminalViewHandle extends AutoCloseable {
     }
 
     /**
+     * 返回 {@link #getCursorLocationInComponent()} 所使用的 Swing 组件尺寸。
+     * UI 层会用它把 Swing 逻辑坐标映射到 SwingNode 的 JavaFX 局部坐标；
+     * 这比假定两边永远 1:1 更能适应节点缩放和不同 DPI 的显示器。
+     */
+    default java.awt.Dimension getTerminalComponentSize() {
+        JComponent terminalComponent = component();
+        return terminalComponent == null
+                ? new java.awt.Dimension(0, 0)
+                : terminalComponent.getSize();
+    }
+
+    /**
      * 终端当前工作目录（通过 OSC 7 序列追踪）。
      * 可观察属性，目录变化时自动更新。
      */

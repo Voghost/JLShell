@@ -83,6 +83,19 @@ JDK21_WIN=/path/to/win-jdk21 \
 
 输出在 `dist/` 目录。
 
+### 资源告警阈值
+
+终端状态栏会对 CPU、内存和存储占用使用黄色、红色告警，默认阈值分别为 70% 和 90%。如需调整，
+可创建 `~/.jlshell/jlshell.properties`，或通过
+`-Djlshell.config.file=/path/to/jlshell.properties` 指定配置文件：
+
+```properties
+jlshell.status.warning-percent=70
+jlshell.status.danger-percent=90
+```
+
+红色阈值必须高于黄色阈值；无效或越界值会自动归一化到安全范围。
+
 ---
 
 ## 插件开发

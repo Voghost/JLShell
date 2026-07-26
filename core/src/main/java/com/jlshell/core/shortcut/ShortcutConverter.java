@@ -57,7 +57,8 @@ public final class ShortcutConverter {
 
     /**
      * 将规范快捷键字符串转换为平台友好的显示文本。
-     * macOS 使用 ⌘⌃⌥⇧ 符号，其他平台使用 Ctrl/Alt/Shift 文本并用 "+" 连接。
+     * macOS 使用 ⌘⌃⌥⇧ 符号并以窄空格分隔，其他平台使用 Ctrl/Alt/Shift
+     * 文本并以带空格的 "+" 连接，避免组合键挤在一起。
      *
      * @param spec 规范快捷键字符串；null 或空白返回空字符串
      * @return 平台友好的显示文本
@@ -76,14 +77,14 @@ public final class ShortcutConverter {
             }
         }
         if (MAC) {
-            StringBuilder sb = new StringBuilder();
+            List<String> items = new ArrayList<>();
             // macOS: meta → ⌘, ctrl → ⌃, alt → ⌥, shift → ⇧
-            if (meta) sb.append("⌘");   // ⌘
-            if (ctrl) sb.append("⌃");   // ⌃
-            if (alt) sb.append("⌥");    // ⌥
-            if (shift) sb.append("⇧");  // ⇧
-            sb.append(macKeyText(keyName));
-            return sb.toString();
+            if (meta) items.add("⌘");
+            if (ctrl) items.add("⌃");
+            if (alt) items.add("⌥");
+            if (shift) items.add("⇧");
+            items.add(macKeyText(keyName));
+            return String.join("\u202f", items);
         } else {
             List<String> items = new ArrayList<>();
             // 非 macOS: meta 映射为 Ctrl
@@ -92,7 +93,7 @@ public final class ShortcutConverter {
             if (alt) items.add("Alt");
             if (shift) items.add("Shift");
             items.add(nonMacKeyText(keyName));
-            return String.join("+", items);
+            return String.join(" + ", items);
         }
     }
 

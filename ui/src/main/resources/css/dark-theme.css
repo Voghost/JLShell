@@ -628,6 +628,10 @@
 }
 
 /* 会话级实时资源状态栏 */
+.terminal-status-area {
+    -fx-background-color: transparent;
+}
+
 .terminal-status-bar {
     -fx-alignment: center-left;
     -fx-background-color: #171c22;
@@ -670,6 +674,24 @@
     -fx-font-weight: 600;
 }
 
+.terminal-status-value.resource-warning,
+.resource-usage-percent.resource-warning {
+    -fx-text-fill: #e0a43f;
+}
+
+.terminal-status-value.resource-danger,
+.resource-usage-percent.resource-danger {
+    -fx-text-fill: #ef6672;
+}
+
+.terminal-server-time {
+    -fx-text-fill: #8d97a5;
+    -fx-font-size: 0.82em;
+    -fx-font-family: "JetBrains Mono", "Menlo", "Consolas", monospace;
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+
 .terminal-status-hide {
     -fx-opacity: 0.55;
     -fx-padding: 3 6;
@@ -677,6 +699,22 @@
 
 .terminal-status-hide:hover {
     -fx-opacity: 0.95;
+}
+
+.terminal-status-reveal {
+    -fx-opacity: 0.38;
+    -fx-padding: 4 8;
+    -fx-background-color: rgba(31, 38, 48, 0.72);
+    -fx-border-color: rgba(127, 138, 153, 0.45);
+    -fx-border-width: 1;
+    -fx-border-radius: 9;
+    -fx-background-radius: 9;
+}
+
+.terminal-status-reveal:hover {
+    -fx-opacity: 0.92;
+    -fx-background-color: rgba(42, 51, 62, 0.94);
+    -fx-border-color: -jl-accent;
 }
 
 /* ---------- Split Pane ---------- */
@@ -1107,7 +1145,7 @@
     -fx-indent: 12;
 }
 
-.tree-cell:hover {
+.tree-cell:filled:hover {
     -fx-background-color: #2b3039;
     -fx-background-radius: 6;
 }
@@ -1337,6 +1375,97 @@
 .card-bar-track {
     -fx-background-color: #3c3f41;
     -fx-background-radius: 3;
+}
+
+.resource-usage-row {
+    -fx-padding: 1 0 5 0;
+}
+
+.resource-usage-progress {
+    -fx-pref-height: 7;
+    -fx-min-height: 7;
+    -fx-max-height: 7;
+}
+
+.resource-usage-progress > .track {
+    -fx-background-color: #38414c;
+    -fx-background-radius: 4;
+}
+
+.resource-usage-progress > .bar {
+    -fx-background-color: #45b98a;
+    -fx-background-insets: 0;
+    -fx-background-radius: 4;
+    -fx-padding: 0;
+}
+
+.resource-usage-progress.resource-warning > .bar {
+    -fx-background-color: #d79b38;
+}
+
+.resource-usage-progress.resource-danger > .bar {
+    -fx-background-color: #db5c68;
+}
+
+.process-table {
+    -fx-background-color: #20252c;
+    -fx-border-color: #3b444f;
+    -fx-border-width: 1;
+    -fx-border-radius: 5;
+    -fx-background-radius: 5;
+}
+
+.process-table-row {
+    -fx-alignment: center-left;
+    -fx-padding: 5 7;
+    -fx-border-color: transparent transparent rgba(67, 75, 86, 0.48) transparent;
+    -fx-border-width: 0 0 1 0;
+}
+
+.process-table-header {
+    -fx-background-color: #252b33;
+}
+
+.process-table-header-label {
+    -fx-text-fill: #9da8b7;
+    -fx-font-size: 0.76em;
+    -fx-font-weight: 700;
+}
+
+.process-table-title {
+    -fx-padding: 0;
+}
+
+.process-copy-hint {
+    -fx-text-fill: #7f8a99;
+    -fx-font-size: 0.72em;
+}
+
+.process-table-value {
+    -fx-text-fill: #d7dce4;
+    -fx-font-size: 0.75em;
+    -fx-font-family: "JetBrains Mono", "Menlo", "Consolas", monospace;
+}
+
+.process-pid-value {
+    -fx-text-fill: #67b7ff;
+    -fx-cursor: hand;
+}
+
+.process-pid-value:hover {
+    -fx-text-fill: #9bd2ff;
+    -fx-underline: true;
+}
+
+.process-pid-value.process-pid-copied {
+    -fx-text-fill: #45b98a;
+    -fx-underline: false;
+}
+
+.process-table-empty {
+    -fx-text-fill: #7f8a99;
+    -fx-font-size: 0.78em;
+    -fx-padding: 8;
 }
 
 /* 存储详情：紧凑挂载点表格 */
@@ -2137,6 +2266,12 @@
 .plugin-manager-list .list-cell:odd {
     -fx-padding: 0;
     -fx-background-color: #191b1f;
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+}
+
+.plugin-manager-list .list-cell:filled,
+.plugin-manager-list .list-cell:filled:odd {
     -fx-border-color: transparent transparent rgba(255, 255, 255, 0.045) transparent;
     -fx-border-width: 0 0 1 0;
 }
