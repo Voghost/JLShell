@@ -11,10 +11,12 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.ServiceLoader;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 
 import com.jlshell.plugin.api.JlShellPlugin;
 import com.jlshell.plugin.api.PluginCompatibility;
 import com.jlshell.plugin.api.PluginContext;
+import com.jlshell.plugin.api.PluginScope;
 import com.jlshell.plugin.api.PluginView;
 import com.jlshell.plugin.api.PluginScope;
 import com.jlshell.plugin.loader.store.PluginPackageValidator;
@@ -213,12 +215,34 @@ public class PluginManager {
         ensureLoaded();
         if (!isPluginEnabled(plugin.id())) return;
         String sid = (context instanceof DefaultPluginContext dpc) ? dpc.sessionId() : null;
+        PluginAccessDecision decision = accessController.evaluate(new PluginAccessRequest(
+                PluginOperation.ACTIVATE, PluginScope.SESSION, sid, plugin.id(), null));
+        if (decision.effect() == PluginAccessDecision.Effect.DENY) {
+            log.info("Activation denied for session plugin {}: {}", plugin.id(), decision.reason());
+            discardContext(sid, plugin.id(), context);
+            if (context instanceof DefaultPluginContext defaultContext) {
+                defaultContext.disposeBindings();
+            }
+            return;
+        }
         SessionPluginSet set = activeBySession.computeIfAbsent(
                 sid == null ? GLOBAL_KEY : sid, SessionPluginSet::new);
         set.plugins.put(plugin.id(), plugin);
         set.contexts.put(plugin.id(), context);
-        plugin.activate(context);
-        log.debug("Activated plugin {} in session {}", plugin.id(), sid);
+        attachRuntimeServices(sid, plugin.id(), context);
+        try {
+            plugin.activate(context);
+            log.debug("Activated plugin {} in session {}", plugin.id(), sid);
+        } catch (RuntimeException | Error error) {
+            set.plugins.remove(plugin.id(), plugin);
+            set.contexts.remove(plugin.id(), context);
+            set.registry.clearForPlugin(plugin.id());
+            disposeContext(context);
+            if (set.plugins.isEmpty() && set.contexts.isEmpty()) {
+                activeBySession.remove(sid == null ? GLOBAL_KEY : sid, set);
+            }
+            throw error;
+        }
     }
 
     /** 供 CapabilityBus 用：按 sessionId 取该会话的 registry。sessionId 为 null 取全局桶。 */
@@ -260,6 +284,40 @@ public class PluginManager {
         SessionPluginSet set = activeBySession.computeIfAbsent(
                 (sessionId == null) ? GLOBAL_KEY : sessionId, SessionPluginSet::new);
         set.contexts.put(pluginId, ctx);
+        attachRuntimeServices(sessionId, pluginId, ctx);
+    }
+
+    private void discardContext(String sessionId, String pluginId, PluginContext expected) {
+        String key = sessionId == null ? GLOBAL_KEY : sessionId;
+        SessionPluginSet set = activeBySession.get(key);
+        if (set == null) return;
+        set.contexts.remove(pluginId, expected);
+        if (set.plugins.isEmpty() && set.contexts.isEmpty()) {
+            activeBySession.remove(key, set);
+        }
+    }
+
+    /** 释放宿主预先挂载、但生命周期由其他管理器负责的上下文。 */
+    public void releaseContext(String sessionId, String pluginId, PluginContext expected) {
+        discardContext(sessionId, pluginId, expected);
+    }
+
+    public PluginAccessController accessController() {
+        return accessController;
+    }
+
+    public void setSecureStorageFactory(Function<String, SecureStorage> secureStorageFactory) {
+        this.secureStorageFactory = secureStorageFactory;
+    }
+
+    private void attachRuntimeServices(String sessionId, String pluginId, PluginContext context) {
+        if (context instanceof DefaultPluginContext defaultContext) {
+            String ownerId = (sessionId == null ? GLOBAL_KEY : sessionId) + "/" + pluginId;
+            defaultContext.attachRuntimeServices(
+                    PluginRuntimeServices.hostEvents(ownerId),
+                    accessController,
+                    secureStorageFactory == null ? null : secureStorageFactory.apply(pluginId));
+        }
     }
 
     /** 按会话停用单个插件。 */
@@ -269,9 +327,9 @@ public class PluginManager {
         if (set == null) return;
         JlShellPlugin plugin = set.plugins.remove(pluginId);
         PluginContext context = set.contexts.remove(pluginId);
+        set.registry.clearForPlugin(pluginId);
+        disposeContext(context);
         if (plugin != null) {
-            set.registry.clearForPlugin(pluginId);
-            disposeContext(context);
             PluginView view = plugin.view();
             if (view != null) view.onSessionClosed();
             plugin.deactivate();
@@ -288,9 +346,9 @@ public class PluginManager {
         activeBySession.forEach((key, set) -> {
             JlShellPlugin plugin = set.plugins.remove(pluginId);
             PluginContext context = set.contexts.remove(pluginId);
+            set.registry.clearForPlugin(pluginId);
+            disposeContext(context);
             if (plugin != null) {
-                set.registry.clearForPlugin(pluginId);
-                disposeContext(context);
                 PluginView view = plugin.view();
                 if (view != null) view.onSessionClosed();
                 plugin.deactivate();

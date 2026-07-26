@@ -44,4 +44,4 @@ Pull requests should include a concise summary, linked issue when applicable, te
 
 ## Security & Configuration Tips
 
-Do not commit secrets, local vault files, generated keys, or user data from `~/.jlshell/`. Credential handling must preserve AES-GCM encryption and clear sensitive payloads after use. Plugin storage is namespaced by plugin ID; do not bypass that isolation.
+Do not commit secrets, local vault files, generated keys, or user data from `~/.jlshell/`. Credential handling must preserve AES-GCM encryption and clear sensitive payloads after use. Plugin storage is namespaced by plugin ID; sensitive plugin values must use `SecureStorage`, which is encrypted in a separate table. Only trusted classpath Program plugins may provide global access policies; external plugin JARs must never become authorization authorities.

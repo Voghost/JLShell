@@ -3,6 +3,7 @@ package com.jlshell.plugin.loader;
 import com.jlshell.plugin.api.PluginContext;
 import com.jlshell.plugin.api.JlShellPlugin;
 import com.jlshell.plugin.api.rpc.Capability;
+import com.jlshell.plugin.api.security.PluginAccessDecision;
 import org.junit.jupiter.api.Test;
 import java.util.Optional;
 import java.util.Locale;

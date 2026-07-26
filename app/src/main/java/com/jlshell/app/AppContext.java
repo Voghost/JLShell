@@ -27,6 +27,7 @@ import com.jlshell.data.crypto.FileSystemMasterKeyProvider;
 import com.jlshell.data.service.JdbiAppSettingsService;
 import com.jlshell.data.service.JdbiCustomColorSchemeStore;
 import com.jlshell.data.JdbiPluginStorage;
+import com.jlshell.data.JdbiSecurePluginStorage;
 import com.jlshell.plugin.loader.CapabilityBusImpl;
 import com.jlshell.plugin.loader.PluginManager;
 import com.jlshell.program.plugin.loader.ProgramPluginManager;
@@ -209,6 +210,7 @@ public class AppContext implements AutoCloseable {
                 pluginManager.globalRegistry(),
                 capabilityBus,
                 storageFactory,
+                secureStorageFactory,
                 (key, fallback) -> {
                     String value = i18nService.get(key);
                     return value == null || value.isBlank() || value.equals(key) ? fallback : value;

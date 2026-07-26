@@ -5,6 +5,7 @@ import com.jlshell.plugin.api.rpc.CapabilityBus;
 import com.jlshell.plugin.api.rpc.RpcError;
 import com.jlshell.plugin.api.rpc.RpcRequest;
 import com.jlshell.plugin.api.rpc.RpcResponse;
+import com.jlshell.plugin.api.security.PluginAccessDecision;
 import com.google.gson.JsonPrimitive;
 import org.junit.jupiter.api.Test;
 import java.util.Optional;
@@ -84,5 +85,26 @@ class CapabilityBusImplTest {
         RpcResponse resp = bus.invoke(new RpcRequest("s1", "com.a", "boom", null, "r1")).get();
         assertThat(resp.error().code()).isEqualTo(-32603);
         assertThat(resp.error().message()).isEqualTo("async-kaboom");
+    }
+
+    @Test
+    void deniedCapabilityIsHiddenAndCannotBeInvoked() throws Exception {
+        PluginManager mgr = new PluginManager();
+        CapabilityBus bus = new CapabilityBusImpl(mgr);
+        DefaultPluginContext ctx = ctxFor(mgr, "com.a", "s1");
+        ctx.capabilityRegistry().register(Capability.builder("paid")
+                .handler((a, c) -> CompletableFuture.completedFuture(new JsonPrimitive("secret")))
+                .build());
+        mgr.accessController().registerTrusted("subscription", request ->
+                "com.a".equals(request.pluginId()) && "paid".equals(request.capability())
+                        ? PluginAccessDecision.deny("pro required")
+                        : PluginAccessDecision.abstain());
+
+        RpcResponse response = bus.invoke(
+                new RpcRequest("s1", "com.a", "paid", null, "r1")).get();
+
+        assertThat(response.error().code()).isEqualTo(-32003);
+        assertThat(response.error().message()).isEqualTo("pro required");
+        assertThat(bus.listCapabilities("s1")).isEmpty();
     }
 }

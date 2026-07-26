@@ -6,6 +6,8 @@ import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -16,12 +18,20 @@ import java.util.function.Function;
 import com.jlshell.plugin.api.JlShellProgramPlugin;
 import com.jlshell.plugin.api.PluginScope;
 import com.jlshell.plugin.api.PluginCompatibility;
+import com.jlshell.plugin.api.PluginContext;
+import com.jlshell.plugin.api.PluginScope;
+import com.jlshell.plugin.api.security.PluginAccessDecision;
+import com.jlshell.plugin.api.security.PluginAccessPolicyProvider;
+import com.jlshell.plugin.api.security.PluginAccessRequest;
+import com.jlshell.plugin.api.security.PluginOperation;
 import com.jlshell.plugin.api.rpc.CapabilityBus;
+import com.jlshell.plugin.api.storage.SecureStorage;
 import com.jlshell.plugin.api.storage.PluginStorage;
 import com.jlshell.plugin.loader.CapabilityRegistryImpl;
 import com.jlshell.plugin.loader.PluginCapabilityRegistryView;
 import com.jlshell.plugin.loader.PluginEnablementService;
 import com.jlshell.plugin.loader.PluginManager;
+import com.jlshell.plugin.loader.PluginRuntimeServices;
 import com.jlshell.plugin.loader.RuntimePluginDirectories;
 import com.jlshell.plugin.loader.store.PluginPackageValidator;
 import com.jlshell.program.api.ProgramApiContext;
@@ -45,10 +55,14 @@ public class ProgramPluginManager {
     private final PluginManager pluginManager;
     private final PluginEnablementService enablementService;
     private final Function<String, PluginStorage> storageFactory;
+    private final Function<String, SecureStorage> secureStorageFactory;
+    private final ProjectIntegrationRegistry projectIntegrationRegistry;
     private final DefaultProgramPluginContext.Callbacks callbacks;
     private final ProgramApiContext programApiContext;
     private final List<ProgramPluginDescriptor> plugins = new ArrayList<>();
     private final Map<String, JlShellProgramPlugin> active = new ConcurrentHashMap<>();
+    private final java.util.Set<JlShellProgramPlugin> trustedPolicyPlugins =
+            Collections.newSetFromMap(new IdentityHashMap<>());
     private volatile boolean loaded;
 
     private final StringProperty themeName = new SimpleStringProperty("dark");
@@ -89,6 +103,7 @@ public class ProgramPluginManager {
         this.globalRegistry = globalRegistry;
         this.capabilityBus = capabilityBus;
         this.storageFactory = storageFactory;
+        this.secureStorageFactory = secureStorageFactory;
         this.callbacks = callbacks;
         this.programApiContext = programApiContext;
     }
@@ -105,7 +120,8 @@ public class ProgramPluginManager {
 
     public void loadPlugins() {
         plugins.clear();
-        loadFromClassLoader(Thread.currentThread().getContextClassLoader());
+        trustedPolicyPlugins.clear();
+        loadFromClassLoader(Thread.currentThread().getContextClassLoader(), true);
         loadFromExternalDirs();
         log.info("Loaded {} program plugin(s)", plugins.size());
     }
@@ -120,6 +136,9 @@ public class ProgramPluginManager {
     private void loadFromClassLoader(ClassLoader classLoader) {
         ServiceLoader.load(JlShellProgramPlugin.class, classLoader).forEach(plugin -> {
             plugins.add(toDescriptor(plugin));
+            if (trustedSource && plugin.accessPolicyProvider() != null) {
+                trustedPolicyPlugins.add(plugin);
+            }
             log.debug("Discovered program plugin: {} ({})", plugin.displayName(), plugin.id());
         });
     }
@@ -138,7 +157,7 @@ public class ProgramPluginManager {
                 PluginPackageValidator.validateForLoading(jarPath, PluginScope.PROGRAM);
                 URL[] urls = {jar.toURI().toURL()};
                 URLClassLoader loader = new URLClassLoader(urls, Thread.currentThread().getContextClassLoader());
-                loadFromClassLoader(loader);
+                loadFromClassLoader(loader, false);
                 log.info("Loaded program plugins from: {}", jar.getName());
             } catch (Exception e) {
                 log.warn("Failed to load program plugin JAR: {}", jar.getName(), e);
@@ -244,13 +263,14 @@ public class ProgramPluginManager {
                 new PluginCapabilityRegistryView(globalRegistry, plugin.id()),
                 capabilityBus,
                 storageFactory == null ? null : storageFactory.apply(plugin.id()),
+                secureStorageFactory == null ? SecureStorage.unavailable() : secureStorageFactory.apply(plugin.id()),
+                projectIntegrationRegistry.scoped(plugin.id()),
+                PluginRuntimeServices.hostEvents("program/" + plugin.id()),
+                pluginManager.accessController(),
                 callbacks
         );
         ctx.setThemeName(themeName.get());
         ctx.setLocale(locale.get());
-        if (pluginManager != null) {
-            pluginManager.adoptContext(null, plugin.id(), ctx);
-        }
         return new ProgramPluginDescriptor(
                 plugin.id(),
                 plugin.displayName(),

@@ -7,9 +7,13 @@ import com.jlshell.plugin.api.NotificationLevel;
 import com.jlshell.plugin.api.PluginContext;
 import com.jlshell.plugin.api.ProgramPluginContext;
 import com.jlshell.plugin.api.SshSessionContext;
+import com.jlshell.plugin.api.event.HostEvents;
+import com.jlshell.plugin.api.project.ProjectIntegration;
 import com.jlshell.plugin.api.rpc.CapabilityBus;
 import com.jlshell.plugin.api.rpc.CapabilityRegistry;
+import com.jlshell.plugin.api.security.PluginAccessPolicy;
 import com.jlshell.plugin.api.storage.PluginStorage;
+import com.jlshell.plugin.api.storage.SecureStorage;
 import javafx.beans.property.ReadOnlyObjectProperty;
 import javafx.beans.property.ReadOnlyStringProperty;
 import javafx.beans.property.SimpleObjectProperty;
@@ -26,6 +30,10 @@ public class DefaultProgramPluginContext implements ProgramPluginContext, Plugin
     private final CapabilityRegistry registry;
     private final CapabilityBus capabilityBus;
     private final PluginStorage storage;
+    private final SecureStorage secureStorage;
+    private final ProjectIntegration projectIntegration;
+    private final HostEvents hostEvents;
+    private final PluginAccessPolicy accessPolicy;
     private final Callbacks callbacks;
     private final StringProperty themeName = new SimpleStringProperty("dark");
     private final SimpleObjectProperty<Locale> locale = new SimpleObjectProperty<>(Locale.getDefault());
@@ -36,12 +44,29 @@ public class DefaultProgramPluginContext implements ProgramPluginContext, Plugin
 
     public DefaultProgramPluginContext(String pluginId, CapabilityRegistry registry,
                                        CapabilityBus capabilityBus, PluginStorage storage,
+                                       SecureStorage secureStorage,
+                                       ProjectIntegration projectIntegration,
+                                       HostEvents hostEvents,
+                                       PluginAccessPolicy accessPolicy,
                                        Callbacks callbacks) {
         this.pluginId = pluginId;
         this.registry = registry;
         this.capabilityBus = capabilityBus;
         this.storage = storage;
+        this.secureStorage = secureStorage == null ? SecureStorage.unavailable() : secureStorage;
+        this.projectIntegration = projectIntegration == null
+                ? ProjectIntegration.unavailable() : projectIntegration;
+        this.hostEvents = hostEvents == null ? HostEvents.unavailable() : hostEvents;
+        this.accessPolicy = accessPolicy == null ? PluginAccessPolicy.allowAll() : accessPolicy;
         this.callbacks = callbacks;
+    }
+
+    public DefaultProgramPluginContext(String pluginId, CapabilityRegistry registry,
+                                       CapabilityBus capabilityBus, PluginStorage storage,
+                                       Callbacks callbacks) {
+        this(pluginId, registry, capabilityBus, storage,
+                SecureStorage.unavailable(), ProjectIntegration.unavailable(),
+                HostEvents.unavailable(), PluginAccessPolicy.allowAll(), callbacks);
     }
 
     @Override public String themeName() { return themeName.get(); }
@@ -61,6 +86,14 @@ public class DefaultProgramPluginContext implements ProgramPluginContext, Plugin
     @Override public CapabilityBus capabilityBus() { return capabilityBus; }
 
     @Override public PluginStorage storage() { return storage; }
+
+    @Override public SecureStorage secureStorage() { return secureStorage; }
+
+    @Override public ProjectIntegration projectIntegration() { return projectIntegration; }
+
+    @Override public HostEvents hostEvents() { return hostEvents; }
+
+    @Override public PluginAccessPolicy accessPolicy() { return accessPolicy; }
 
     @Override public Optional<SshSessionContext> sshSession() { return Optional.empty(); }
 
@@ -86,4 +119,20 @@ public class DefaultProgramPluginContext implements ProgramPluginContext, Plugin
     @Override public void error(String message) { hostLog.error("[{}] {}", pluginId, message); }
 
     @Override public void error(String message, Throwable t) { hostLog.error("[{}] {}", pluginId, message, t); }
+
+    void dispose() {
+        closeIfNeeded(projectIntegration);
+        closeIfNeeded(hostEvents);
+    }
+
+    private void closeIfNeeded(Object value) {
+        if (!(value instanceof AutoCloseable closeable)) {
+            return;
+        }
+        try {
+            closeable.close();
+        } catch (Exception error) {
+            hostLog.warn("[{}] Failed to release plugin context resource", pluginId, error);
+        }
+    }
 }
