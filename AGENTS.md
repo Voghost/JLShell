@@ -40,6 +40,10 @@ Tests use JUnit 5 with Mockito and AssertJ where useful. Place tests in the owni
 
 Recent history uses Conventional Commit prefixes such as `feat:` and `fix:`. Keep messages imperative, for example `fix: prevent terminal freeze on idle`.
 
+Base daily work and feature branches on `develop`. Merge stable changes with a
+GitHub Pull Request from `develop` to `main`; do not push development commits
+directly to `main`. Create release tags only from `main`.
+
 Pull requests should include a concise summary, linked issue when applicable, test evidence, and screenshots or recordings for UI changes. Note database, plugin API, or distribution-script impact explicitly.
 
 ## Security & Configuration Tips
