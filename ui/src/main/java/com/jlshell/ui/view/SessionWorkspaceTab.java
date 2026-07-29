@@ -313,6 +313,9 @@ public class SessionWorkspaceTab extends Tab {
                         notifySessionCountChanged();
                         // 创建新的终端视图
                         String newSessionId = newSession.sessionId().toString();
+                        PluginRuntimeServices.publish(new SessionOpenedEvent(
+                                newSessionId, connectionProfile.id(),
+                                connectionProfile.projectId(), Instant.now()));
                         TerminalWorkspaceView newView = new TerminalWorkspaceView(
                                 newSessionId, newSession, terminalViewFactory, fontProfileService,
                                 appSettingsService, i18nService, themeService, pluginManager,
