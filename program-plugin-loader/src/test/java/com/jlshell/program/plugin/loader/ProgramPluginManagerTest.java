@@ -8,9 +8,12 @@ import java.util.List;
 import com.google.gson.JsonPrimitive;
 import com.jlshell.plugin.api.JlShellProgramPlugin;
 import com.jlshell.plugin.api.ProgramPluginContext;
+import com.jlshell.plugin.api.PluginContext;
 import com.jlshell.plugin.api.rpc.Capability;
 import com.jlshell.plugin.api.rpc.CapabilityBus;
 import com.jlshell.plugin.api.rpc.RpcRequest;
+import com.jlshell.plugin.api.security.PluginAccessDecision;
+import com.jlshell.plugin.api.security.PluginAccessPolicyProvider;
 import com.jlshell.plugin.loader.CapabilityBusImpl;
 import com.jlshell.plugin.loader.PluginManager;
 import com.jlshell.plugin.loader.PluginEnablementService;
@@ -34,6 +37,7 @@ class ProgramPluginManagerTest {
         );
         ProgramPluginDescriptor descriptor = descriptor(manager, plugin);
 
+        sessionManager.adoptContext(null, descriptor.id(), (PluginContext) descriptor.context());
         descriptor.instance().activate(descriptor.context());
 
         assertThat(bus.listRegisteredCapabilities(null)).hasSize(1);
@@ -109,5 +113,28 @@ class ProgramPluginManagerTest {
                     .build());
         }
         @Override public void deactivate() { deactivateCount++; }
+    }
+
+    private static final class PolicyPlugin extends TestProgramPlugin {
+        private final List<String> order;
+        private PolicyPlugin(List<String> order) { this.order = order; }
+        @Override public String id() { return "com.test.policy"; }
+        @Override public void activate(ProgramPluginContext context) { order.add("policy"); }
+        @Override public PluginAccessPolicyProvider accessPolicyProvider() {
+            return request -> "com.test.paid".equals(request.pluginId())
+                    ? PluginAccessDecision.deny("subscription required")
+                    : PluginAccessDecision.abstain();
+        }
+    }
+
+    private static final class TrackingPlugin extends TestProgramPlugin {
+        private final List<String> order;
+        private boolean activated;
+        private TrackingPlugin(List<String> order) { this.order = order; }
+        @Override public String id() { return "com.test.paid"; }
+        @Override public void activate(ProgramPluginContext context) {
+            activated = true;
+            order.add("paid");
+        }
     }
 }

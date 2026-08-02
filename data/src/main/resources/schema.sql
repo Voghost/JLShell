@@ -101,3 +101,11 @@ CREATE TABLE IF NOT EXISTS plugin_storage (
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (plugin_id, key)
 );
+
+CREATE TABLE IF NOT EXISTS plugin_secure_storage (
+    plugin_id  TEXT    NOT NULL,
+    key        TEXT    NOT NULL,
+    value      TEXT    NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (plugin_id, key)
+);

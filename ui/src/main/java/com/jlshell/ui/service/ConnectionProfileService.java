@@ -28,6 +28,10 @@ import com.jlshell.data.entity.CredentialEntity;
 import com.jlshell.data.entity.ProjectEntity;
 import com.jlshell.data.entity.RecentSessionEntry;
 import com.jlshell.data.entity.SessionHistoryEntity;
+import com.jlshell.plugin.api.event.ConnectionCreatedEvent;
+import com.jlshell.plugin.api.event.ProjectCreatedEvent;
+import com.jlshell.plugin.api.event.ProjectDeletedEvent;
+import com.jlshell.plugin.loader.PluginRuntimeServices;
 import com.jlshell.ui.model.ConnectionFormData;
 import com.jlshell.ui.model.ConnectionProfile;
 import com.jlshell.ui.model.FavoriteConnectionProfile;
@@ -156,8 +160,9 @@ public class ConnectionProfileService {
 
     private ConnectionProfile doSave(ConnectionFormData formData) {
         ConnectionType connType = formData.connectionType() != null ? formData.connectionType() : ConnectionType.SSH;
+        boolean creating = formData.id() == null || formData.id().isBlank();
 
-        return jdbi.inTransaction(h -> {
+        ConnectionProfile saved = jdbi.inTransaction(h -> {
             ConnectionDao connDao = h.attach(ConnectionDao.class);
             CredentialDao credDao = h.attach(CredentialDao.class);
 
@@ -240,6 +245,11 @@ public class ConnectionProfileService {
 
             return toProfile(entity);
         });
+        if (creating) {
+            PluginRuntimeServices.publish(new ConnectionCreatedEvent(
+                    saved.id(), saved.projectId(), saved.displayName(), saved.host(), saved.port(), Instant.now()));
+        }
+        return saved;
     }
 
     public void delete(String id) {
@@ -373,7 +383,8 @@ public class ConnectionProfileService {
     }
 
     public ProjectProfile saveProject(String id, String name, String description) {
-        return jdbi.inTransaction(h -> {
+        boolean creating = id == null || id.isBlank();
+        ProjectProfile saved = jdbi.inTransaction(h -> {
             ProjectDao dao = h.attach(ProjectDao.class);
             boolean isNew = id == null || id.isBlank();
             ProjectEntity entity = isNew
@@ -393,6 +404,11 @@ public class ConnectionProfileService {
             }
             return toProjectProfile(entity);
         });
+        if (creating) {
+            PluginRuntimeServices.publish(new ProjectCreatedEvent(
+                    saved.id(), saved.name(), saved.description(), Instant.now()));
+        }
+        return saved;
     }
 
     public void deleteProject(String id) {
@@ -402,6 +418,7 @@ public class ConnectionProfileService {
             vaultService.clearProjectIdForProject(id);
             h.attach(ProjectDao.class).deleteById(id);
         });
+        PluginRuntimeServices.publish(new ProjectDeletedEvent(id, Instant.now()));
     }
 
     // ── Session history ───────────────────────────────────────────────

@@ -6,9 +6,12 @@ import java.util.Optional;
 import com.jlshell.plugin.api.NotificationLevel;
 import com.jlshell.plugin.api.PluginContext;
 import com.jlshell.plugin.api.SshSessionContext;
+import com.jlshell.plugin.api.event.HostEvents;
 import com.jlshell.plugin.api.rpc.CapabilityBus;
 import com.jlshell.plugin.api.rpc.CapabilityRegistry;
+import com.jlshell.plugin.api.security.PluginAccessPolicy;
 import com.jlshell.plugin.api.storage.PluginStorage;
+import com.jlshell.plugin.api.storage.SecureStorage;
 
 import javafx.beans.property.ReadOnlyObjectProperty;
 import javafx.beans.property.ReadOnlyStringProperty;
@@ -28,10 +31,13 @@ public class DefaultPluginContext implements PluginContext {
     private final CapabilityRegistry registry;
     private final CapabilityBus capabilityBus;
     private final PluginStorage storage;
+    private SecureStorage secureStorage;
     private final StringProperty themeName = new SimpleStringProperty("dark");
     private final SimpleObjectProperty<Locale> locale = new SimpleObjectProperty<>(Locale.getDefault());
     private final Optional<SshSessionContext> sshSession;
     private final Callbacks callbacks;
+    private HostEvents hostEvents = HostEvents.unavailable();
+    private PluginAccessPolicy accessPolicy = PluginAccessPolicy.allowAll();
 
     public interface Callbacks {
         void openTab(String title, Node content);
@@ -43,14 +49,23 @@ public class DefaultPluginContext implements PluginContext {
     public DefaultPluginContext(String pluginId, String sessionId,
                                 CapabilityRegistry registry, CapabilityBus capabilityBus,
                                 PluginStorage storage,
+                                SecureStorage secureStorage,
                                 Optional<SshSessionContext> sshSession, Callbacks callbacks) {
         this.pluginId = pluginId;
         this.sessionId = sessionId;
         this.registry = registry;
         this.capabilityBus = capabilityBus;
         this.storage = storage;
+        this.secureStorage = secureStorage == null ? SecureStorage.unavailable() : secureStorage;
         this.sshSession = sshSession;
         this.callbacks = callbacks;
+    }
+
+    public DefaultPluginContext(String pluginId, String sessionId,
+                                CapabilityRegistry registry, CapabilityBus capabilityBus,
+                                PluginStorage storage,
+                                Optional<SshSessionContext> sshSession, Callbacks callbacks) {
+        this(pluginId, sessionId, registry, capabilityBus, storage, SecureStorage.unavailable(), sshSession, callbacks);
     }
 
     public DefaultPluginContext(String pluginId, String sessionId,
@@ -92,6 +107,30 @@ public class DefaultPluginContext implements PluginContext {
     }
 
     @Override
+    public SecureStorage secureStorage() {
+        return secureStorage;
+    }
+
+    @Override
+    public HostEvents hostEvents() {
+        return hostEvents;
+    }
+
+    @Override
+    public PluginAccessPolicy accessPolicy() {
+        return accessPolicy;
+    }
+
+    void attachRuntimeServices(HostEvents hostEvents, PluginAccessPolicy accessPolicy,
+                               SecureStorage secureStorage) {
+        this.hostEvents = hostEvents == null ? HostEvents.unavailable() : hostEvents;
+        this.accessPolicy = accessPolicy == null ? PluginAccessPolicy.allowAll() : accessPolicy;
+        if (secureStorage != null) {
+            this.secureStorage = secureStorage;
+        }
+    }
+
+    @Override
     public String themeName() {
         return themeName.get();
     }
@@ -122,6 +161,13 @@ public class DefaultPluginContext implements PluginContext {
     public void disposeBindings() {
         themeName.unbind();
         locale.unbind();
+        if (hostEvents instanceof AutoCloseable closeable) {
+            try {
+                closeable.close();
+            } catch (Exception error) {
+                hostLog.warn("[{}] Failed to close host event subscriptions", pluginId, error);
+            }
+        }
     }
 
     @Override

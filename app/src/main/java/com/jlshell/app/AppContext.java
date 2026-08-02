@@ -27,6 +27,7 @@ import com.jlshell.data.crypto.FileSystemMasterKeyProvider;
 import com.jlshell.data.service.JdbiAppSettingsService;
 import com.jlshell.data.service.JdbiCustomColorSchemeStore;
 import com.jlshell.data.JdbiPluginStorage;
+import com.jlshell.data.JdbiSecurePluginStorage;
 import com.jlshell.plugin.loader.CapabilityBusImpl;
 import com.jlshell.plugin.loader.PluginManager;
 import com.jlshell.program.plugin.loader.ProgramPluginManager;
@@ -147,6 +148,9 @@ public class AppContext implements AutoCloseable {
         CapabilityBusImpl capabilityBus = new CapabilityBusImpl(pluginManager);
         java.util.function.Function<String, com.jlshell.plugin.api.storage.PluginStorage> storageFactory =
                 pluginId -> new JdbiPluginStorage(jdbi, pluginId);
+        java.util.function.Function<String, com.jlshell.plugin.api.storage.SecureStorage> secureStorageFactory =
+                pluginId -> new JdbiSecurePluginStorage(jdbi, pluginId, credentialCipher);
+        pluginManager.setSecureStorageFactory(secureStorageFactory);
         boolean apiEnabled = "true".equalsIgnoreCase(appSettingsService.get("api.enabled", "false"));
         int apiPort = parsePortOrDefault(appSettingsService.get("api.port", "0"), 0);
         String apiToken;
@@ -209,12 +213,14 @@ public class AppContext implements AutoCloseable {
                 pluginManager.globalRegistry(),
                 capabilityBus,
                 storageFactory,
+                secureStorageFactory,
                 (key, fallback) -> {
                     String value = i18nService.get(key);
                     return value == null || value.isBlank() || value.equals(key) ? fallback : value;
                 },
                 programApiContext,
-                pluginEnablementService
+                pluginEnablementService,
+                com.jlshell.program.plugin.loader.ProjectIntegrationRegistry.shared()
         );
         programPluginManager.setThemeName(themeService.currentThemeProperty().get().name().toLowerCase());
         programPluginManager.setLocale(initialLocale);

@@ -5,6 +5,7 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 import com.jlshell.plugin.api.PluginContext;
+import com.jlshell.plugin.api.PluginScope;
 import com.jlshell.plugin.api.SshSessionContext;
 import com.jlshell.plugin.api.rpc.Capability;
 import com.jlshell.plugin.api.rpc.CapabilityBus;
@@ -13,6 +14,9 @@ import com.jlshell.plugin.api.rpc.CapabilitySpec;
 import com.jlshell.plugin.api.rpc.RpcError;
 import com.jlshell.plugin.api.rpc.RpcRequest;
 import com.jlshell.plugin.api.rpc.RpcResponse;
+import com.jlshell.plugin.api.security.PluginAccessDecision;
+import com.jlshell.plugin.api.security.PluginAccessRequest;
+import com.jlshell.plugin.api.security.PluginOperation;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 
@@ -24,6 +28,7 @@ public class CapabilityBusImpl implements CapabilityBus {
 
     private static final int CODE_METHOD_NOT_FOUND = -32601;
     private static final int CODE_INTERNAL = -32603;
+    private static final int CODE_ACCESS_DENIED = -32003;
 
     private final PluginManager pluginManager;
 
@@ -36,6 +41,17 @@ public class CapabilityBusImpl implements CapabilityBus {
         if (req.pluginId() == null || req.capability() == null) {
             return CompletableFuture.completedFuture(
                     RpcResponse.error(RpcError.of(CODE_METHOD_NOT_FOUND, "pluginId and capability required")));
+        }
+        PluginScope scope = req.sessionId() == null ? PluginScope.PROGRAM : PluginScope.SESSION;
+        PluginAccessDecision decision = pluginManager.accessController().evaluate(new PluginAccessRequest(
+                PluginOperation.INVOKE_CAPABILITY,
+                scope,
+                req.sessionId(),
+                req.pluginId(),
+                req.capability()));
+        if (decision.effect() == PluginAccessDecision.Effect.DENY) {
+            return CompletableFuture.completedFuture(RpcResponse.error(
+                    RpcError.of(CODE_ACCESS_DENIED, decision.reason())));
         }
         CapabilityRegistryImpl reg = pluginManager.registryFor(req.sessionId());
         Capability cap = reg.resolve(req.pluginId(), req.capability()).orElse(null);
@@ -77,11 +93,19 @@ public class CapabilityBusImpl implements CapabilityBus {
 
     @Override
     public List<CapabilitySpec> listCapabilities(String sessionId) {
-        return pluginManager.registryFor(sessionId).specs();
+        return listRegisteredCapabilities(sessionId).stream().map(Capability::spec).toList();
     }
 
     @Override
     public List<Capability> listRegisteredCapabilities(String sessionId) {
-        return pluginManager.registryFor(sessionId).capabilities();
+        PluginScope scope = sessionId == null ? PluginScope.PROGRAM : PluginScope.SESSION;
+        return pluginManager.registryFor(sessionId).capabilities().stream()
+                .filter(capability -> pluginManager.accessController().evaluate(new PluginAccessRequest(
+                        PluginOperation.LIST_CAPABILITY,
+                        scope,
+                        sessionId,
+                        capability.pluginId(),
+                        capability.spec().name())).effect() != PluginAccessDecision.Effect.DENY)
+                .toList();
     }
 }
