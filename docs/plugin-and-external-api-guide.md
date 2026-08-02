@@ -15,7 +15,7 @@
 ## 2. 公共约定
 
 - Java 21、Maven 3.9+；首个公开 SDK 版本为 `1.0.0`。Program 插件需要直接扩展
-  SSH 会话时使用 `net.oomn.jlshell:plugin-api:1.1.0`；扩展宿主 JSON-RPC 方法时另用
+  SSH 会话和已有项目配置时使用 `net.oomn.jlshell:plugin-api:1.2.0`；扩展宿主 JSON-RPC 方法时另用
   同版本的 `net.oomn.jlshell:program-api`。两者都必须使用 `provided` scope。
 - 每个插件的 `id()` 必须是稳定且唯一的反向域名，例如 `com.example.deploy-tools`。它同时是能力路由键和私有存储命名空间，发布后不要随意修改。
 - 必须提供名称、版本、描述和宿主兼容范围。兼容范围为空会在插件页显示警告；不在范围内会显示不兼容。
@@ -195,6 +195,14 @@ public void deactivate() {
 - 同一贡献可同时在多个 SSH 会话中激活，每个会话获得独立上下文和控制器。
 - 会话断开、重连、Program 插件停用/升级或应用退出时，控制器、标签页和会话能力都会回收。
 - 插件只能使用 `SshSessionContext` 门面，不能获得底层 SSHJ 对象；失效上下文不得缓存或继续调用。
+
+### 4.3 为已有项目展示配置、状态和修复入口（SDK 1.2.0）
+
+`ProjectCreationContribution` 除新建项目表单外，还可实现
+`createManagementView(ProjectManagementContext)`。宿主在“管理项目”中选中已有项目时
+传入稳定 `projectId`、名称和描述属性；保存时依次调用 `validateManagement(...)` 和
+`onProjectUpdated(...)`。插件应在该视图中展示当前状态、下一步动作和可恢复的修复入口，
+不能要求用户仅凭错误码猜测配置方式。旧插件不实现这些默认方法时行为保持不变。
 
 ## 5. 插件间能力调用
 

@@ -9,8 +9,10 @@ import com.jlshell.core.model.HostKeyVerificationMode;
 import com.jlshell.data.entity.AuthenticationType;
 import com.jlshell.data.entity.VaultEncryptionMode;
 import com.jlshell.plugin.api.event.ProjectCreatedEvent;
+import com.jlshell.plugin.api.event.ProjectUpdatedEvent;
 import com.jlshell.plugin.api.project.ProjectCreationContext;
 import com.jlshell.plugin.api.project.ProjectCreationContribution;
+import com.jlshell.plugin.api.project.ProjectManagementContext;
 import com.jlshell.program.plugin.loader.ProjectIntegrationRegistry;
 import com.jlshell.ui.model.ConnectionFormData;
 import com.jlshell.ui.model.ConnectionProfile;
@@ -214,6 +216,9 @@ public class ProjectManagerDialog {
             }
             if (nv == null) {
                 rebuildProjectContributions(contributionBox, contributionStates, nameField, descField);
+            } else if (!isDefaultProject(nv)) {
+                rebuildProjectManagementContributions(contributionBox, contributionStates,
+                        nv.id(), nameField, descField);
             } else {
                 contributionStates.clear();
                 contributionBox.getChildren().clear();
@@ -265,12 +270,10 @@ public class ProjectManagerDialog {
             if (name.isBlank()) return;
             ProjectProfile selected = listView.getSelectionModel().getSelectedItem();
             if (selected != null && isDefaultProject(selected)) return;
-            if (selected == null) {
-                String validationError = validateProjectContributions(contributionStates);
-                if (validationError != null) {
-                    showError(i18n, themeService, dialog, validationError);
-                    return;
-                }
+            String validationError = validateProjectContributions(contributionStates);
+            if (validationError != null) {
+                showError(i18n, themeService, dialog, validationError);
+                return;
             }
             String id = selected != null ? selected.id() : null;
             ProjectProfile saved = service.saveProject(id, name, descField.getText().trim());
@@ -278,6 +281,10 @@ public class ProjectManagerDialog {
                 ProjectCreatedEvent event = new ProjectCreatedEvent(
                         saved.id(), saved.name(), saved.description(), Instant.now());
                 notifyProjectContributions(contributionStates, event);
+            } else {
+                ProjectUpdatedEvent event = new ProjectUpdatedEvent(
+                        saved.id(), saved.name(), saved.description(), Instant.now());
+                notifyProjectManagementContributions(contributionStates, event);
             }
             refreshProjectItems(items, service, i18n);
             items.stream().filter(p -> Objects.equals(p.id(), saved.id()))
@@ -397,7 +404,7 @@ public class ProjectManagerDialog {
                 Node view = registered.contribution().createView(context);
                 if (view != null) {
                     box.getChildren().add(view);
-                    states.add(new ContributionState(registered.contribution(), context));
+                    states.add(new ContributionState(registered.contribution(), context, null));
                 }
             } catch (RuntimeException error) {
                 log.warn("Failed to create project contribution {}/{}",
@@ -409,10 +416,37 @@ public class ProjectManagerDialog {
         box.setManaged(visible);
     }
 
+    private static void rebuildProjectManagementContributions(
+            VBox box, List<ContributionState> states, String projectId,
+            TextField nameField, TextArea descriptionField) {
+        states.clear();
+        box.getChildren().clear();
+        for (ProjectIntegrationRegistry.RegisteredContribution registered
+                : ProjectIntegrationRegistry.shared().contributions()) {
+            ProjectManagementContext context = new ProjectManagementContext(
+                    projectId, nameField.textProperty(), descriptionField.textProperty());
+            try {
+                Node view = registered.contribution().createManagementView(context);
+                if (view != null) {
+                    box.getChildren().add(view);
+                    states.add(new ContributionState(registered.contribution(), null, context));
+                }
+            } catch (RuntimeException error) {
+                log.warn("Failed to create project management contribution {}/{}",
+                        registered.pluginId(), registered.contribution().id(), error);
+            }
+        }
+        boolean visible = !box.getChildren().isEmpty();
+        box.setVisible(visible);
+        box.setManaged(visible);
+    }
+
     private static String validateProjectContributions(List<ContributionState> states) {
         for (ContributionState state : states) {
             try {
-                String error = state.contribution().validate(state.context()).orElse(null);
+                String error = state.creationContext() != null
+                        ? state.contribution().validate(state.creationContext()).orElse(null)
+                        : state.contribution().validateManagement(state.managementContext()).orElse(null);
                 if (error != null && !error.isBlank()) {
                     return error;
                 }
@@ -427,7 +461,7 @@ public class ProjectManagerDialog {
                                                    ProjectCreatedEvent event) {
         for (ContributionState state : List.copyOf(states)) {
             try {
-                state.contribution().onProjectCreated(event, state.context());
+                state.contribution().onProjectCreated(event, state.creationContext());
             } catch (RuntimeException error) {
                 log.warn("Project contribution callback failed: {}",
                         state.contribution().id(), error);
@@ -435,8 +469,21 @@ public class ProjectManagerDialog {
         }
     }
 
+    private static void notifyProjectManagementContributions(
+            List<ContributionState> states, ProjectUpdatedEvent event) {
+        for (ContributionState state : List.copyOf(states)) {
+            try {
+                state.contribution().onProjectUpdated(event, state.managementContext());
+            } catch (RuntimeException error) {
+                log.warn("Project management contribution callback failed: {}",
+                        state.contribution().id(), error);
+            }
+        }
+    }
+
     private record ContributionState(ProjectCreationContribution contribution,
-                                     ProjectCreationContext context) {
+                                     ProjectCreationContext creationContext,
+                                     ProjectManagementContext managementContext) {
     }
 
     private static boolean contains(String value, String query) {

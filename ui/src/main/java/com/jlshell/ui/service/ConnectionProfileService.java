@@ -31,6 +31,7 @@ import com.jlshell.data.entity.SessionHistoryEntity;
 import com.jlshell.plugin.api.event.ConnectionCreatedEvent;
 import com.jlshell.plugin.api.event.ProjectCreatedEvent;
 import com.jlshell.plugin.api.event.ProjectDeletedEvent;
+import com.jlshell.plugin.api.event.ProjectUpdatedEvent;
 import com.jlshell.plugin.loader.PluginRuntimeServices;
 import com.jlshell.ui.model.ConnectionFormData;
 import com.jlshell.ui.model.ConnectionProfile;
@@ -406,6 +407,9 @@ public class ConnectionProfileService {
         });
         if (creating) {
             PluginRuntimeServices.publish(new ProjectCreatedEvent(
+                    saved.id(), saved.name(), saved.description(), Instant.now()));
+        } else {
+            PluginRuntimeServices.publish(new ProjectUpdatedEvent(
                     saved.id(), saved.name(), saved.description(), Instant.now()));
         }
         return saved;
