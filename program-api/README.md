@@ -2,6 +2,20 @@
 
 `program-api` 是 JLShell 对外 JSON-RPC 宿主方法的纯契约模块。它只依赖 Gson，**不依赖** `core`、`api-server`、JavaFX 或具体 SSH 实现，因此外部程序插件可以针对稳定接口编译。
 
+首个公开 SDK 版本为 `1.0.0`，从 JLShell 私有 GitHub Packages 获取：
+
+```xml
+<dependency>
+    <groupId>com.jlshell</groupId>
+    <artifactId>program-api</artifactId>
+    <version>1.0.0</version>
+    <scope>provided</scope>
+</dependency>
+```
+
+需要实现 JLShell Program 插件生命周期时，同时以 `provided` 方式依赖
+`com.jlshell:plugin-api:1.0.0`。这两个 SDK 均由宿主提供，不得打入插件 fat JAR。
+
 ## 架构与职责
 
 ```text

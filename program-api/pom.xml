@@ -12,6 +12,7 @@
 
     <artifactId>program-api</artifactId>
     <name>JLShell Program API</name>
+    <description>JavaFX-free public SPI for extending JLShell host JSON-RPC methods and session operations.</description>
 
     <dependencies>
         <dependency>

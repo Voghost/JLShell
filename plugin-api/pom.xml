@@ -12,6 +12,7 @@
 
     <artifactId>plugin-api</artifactId>
     <name>JLShell Plugin API</name>
+    <description>Public SDK for JLShell session and program plugins, capability RPC, host events, project contributions, and secure plugin storage.</description>
 
     <dependencies>
         <dependency>
