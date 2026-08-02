@@ -2,6 +2,7 @@
 /.idea/
 /.m2/
 target/
+**/.flattened-pom.xml
 dist/
 .DS_Store
 /.refs/

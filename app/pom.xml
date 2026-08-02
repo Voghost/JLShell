@@ -56,7 +56,7 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
-            <groupId>com.jlshell</groupId>
+            <groupId>net.oomn.jlshell</groupId>
             <artifactId>program-api</artifactId>
             <version>${project.version}</version>
         </dependency>

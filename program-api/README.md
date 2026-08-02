@@ -6,7 +6,7 @@
 
 ```xml
 <dependency>
-    <groupId>com.jlshell</groupId>
+    <groupId>net.oomn.jlshell</groupId>
     <artifactId>program-api</artifactId>
     <version>1.0.0</version>
     <scope>provided</scope>
@@ -14,7 +14,7 @@
 ```
 
 需要实现 JLShell Program 插件生命周期时，同时以 `provided` 方式依赖
-`com.jlshell:plugin-api:1.0.0`。这两个 SDK 均由宿主提供，不得打入插件 fat JAR。
+`net.oomn.jlshell:plugin-api:1.0.0`。这两个 SDK 均由宿主提供，不得打入插件 fat JAR。
 
 ## 架构与职责
 
@@ -92,8 +92,8 @@ com.example.tools.ToolsPlugin
 ```xml
 <artifactSet>
   <excludes>
-    <exclude>com.jlshell:plugin-api</exclude>
-    <exclude>com.jlshell:program-api</exclude>
+    <exclude>net.oomn.jlshell:plugin-api</exclude>
+    <exclude>net.oomn.jlshell:program-api</exclude>
   </excludes>
 </artifactSet>
 ```

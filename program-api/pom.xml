@@ -10,6 +10,7 @@
         <version>0.1.0.RELEASE</version>
     </parent>
 
+    <groupId>net.oomn.jlshell</groupId>
     <artifactId>program-api</artifactId>
     <name>JLShell Program API</name>
     <description>JavaFX-free public SPI for extending JLShell host JSON-RPC methods and session operations.</description>
