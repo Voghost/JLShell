@@ -1,0 +1,108 @@
+name: Publish JLShell SDK to Maven Central
+
+on:
+  workflow_dispatch:
+    inputs:
+      sourceRef:
+        description: Main branch, release tag, or immutable commit to publish
+        required: true
+        default: main
+      sdkVersion:
+        description: Immutable Maven Central SDK version
+        required: true
+        default: 1.0.0
+      autoPublish:
+        description: Publish immediately after validation (irreversible)
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: maven-central-sdk-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out selected source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sourceRef }}
+          fetch-depth: 0
+
+      - name: Require source to be merged into main
+        shell: bash
+        run: |
+          if ! git show-ref --verify --quiet refs/remotes/origin/main; then
+            echo "origin/main is unavailable in the checkout" >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor HEAD refs/remotes/origin/main; then
+            echo "sourceRef must resolve to a commit already merged into main" >&2
+            exit 1
+          fi
+
+      - name: Validate release inputs and configured secrets
+        shell: bash
+        env:
+          SDK_VERSION: ${{ inputs.sdkVersion }}
+          HAS_CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME != '' }}
+          HAS_CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD != '' }}
+          HAS_MAVEN_GPG_PRIVATE_KEY: ${{ secrets.MAVEN_GPG_PRIVATE_KEY != '' }}
+          HAS_MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE != '' }}
+        run: |
+          if [[ ! "$SDK_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9]+)*$ ]]; then
+            echo "Invalid SDK version: $SDK_VERSION" >&2
+            exit 1
+          fi
+          for secret_flag in HAS_CENTRAL_USERNAME HAS_CENTRAL_PASSWORD HAS_MAVEN_GPG_PRIVATE_KEY HAS_MAVEN_GPG_PASSPHRASE; do
+            if [[ "${!secret_flag}" != "true" ]]; then
+              echo "Missing required GitHub Actions secret: ${secret_flag#HAS_}" >&2
+              exit 1
+            fi
+          done
+
+      - name: Set up JDK 21, Central credentials, and GPG key
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          server-id: central
+          server-username: CENTRAL_USERNAME
+          server-password: CENTRAL_PASSWORD
+          gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+
+      - name: Set SDK version in CI workspace
+        env:
+          SDK_VERSION: ${{ inputs.sdkVersion }}
+        run: >-
+          mvn versions:set
+          -DnewVersion="$SDK_VERSION"
+          -DprocessAllModules=true
+          -DgenerateBackupPoms=false
+          -q
+
+      - name: Test public SDK APIs
+        run: mvn -B -ntp -pl plugin-api,program-api -am test
+
+      - name: Upload public SDK APIs to Maven Central
+        env:
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+          CENTRAL_AUTO_PUBLISH: ${{ inputs.autoPublish }}
+          CENTRAL_WAIT_UNTIL: ${{ inputs.autoPublish && 'published' || 'validated' }}
+        run: >-
+          mvn -B -ntp
+          -pl plugin-api,program-api
+          -Pcentral-release
+          -DskipTests
+          -Dcentral.autoPublish="$CENTRAL_AUTO_PUBLISH"
+          -Dcentral.waitUntil="$CENTRAL_WAIT_UNTIL"
+          deploy

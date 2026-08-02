@@ -15,8 +15,8 @@
 ## 2. 公共约定
 
 - Java 21、Maven 3.9+；首个公开 SDK 版本为 `1.0.0`。插件 API 坐标为
-  `com.jlshell:plugin-api:1.0.0`，扩展宿主 JSON-RPC 方法时另用
-  `com.jlshell:program-api:1.0.0`；两者都必须使用 `provided` scope。
+  `net.oomn.jlshell:plugin-api:1.0.0`，扩展宿主 JSON-RPC 方法时另用
+  `net.oomn.jlshell:program-api:1.0.0`；两者都必须使用 `provided` scope。
 - 每个插件的 `id()` 必须是稳定且唯一的反向域名，例如 `com.example.deploy-tools`。它同时是能力路由键和私有存储命名空间，发布后不要随意修改。
 - 必须提供名称、版本、描述和宿主兼容范围。兼容范围为空会在插件页显示警告；不在范围内会显示不兼容。
 - 所有可能阻塞的 SSH、文件、网络或计算工作都必须异步执行，不能阻塞 JavaFX UI 线程。
@@ -320,7 +320,7 @@ curl --fail-with-body \
 
 可直接以现有 demos 为模板。一个插件项目至少应：
 
-1. 依赖 `com.jlshell:plugin-api`；使用 JavaFX UI 时也依赖 `javafx-controls`。
+1. 依赖 `net.oomn.jlshell:plugin-api`；使用 JavaFX UI 时也依赖 `javafx-controls`。
 2. 生成含自身第三方依赖的 fat JAR，但不要把 `plugin-api`、JavaFX 或 SLF4J 打进 JAR（否则会造成宿主类加载冲突）。仓库 `plugins/pom.xml` 已提供 Shade 配置示例。
 3. 在 `META-INF/services/` 中登记正确 SPI。
 4. 将会话插件 JAR 放到 `~/.jlshell/plugins/`，程序插件 JAR 放到 `~/.jlshell/program-plugins/`，然后重启。

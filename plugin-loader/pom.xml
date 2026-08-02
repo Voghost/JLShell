@@ -15,7 +15,7 @@
 
     <dependencies>
         <dependency>
-            <groupId>com.jlshell</groupId>
+            <groupId>net.oomn.jlshell</groupId>
             <artifactId>plugin-api</artifactId>
             <version>${project.version}</version>
         </dependency>
