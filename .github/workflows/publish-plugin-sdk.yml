@@ -1,0 +1,67 @@
+name: Publish JLShell SDK
+
+on:
+  workflow_dispatch:
+    inputs:
+      sourceRef:
+        description: JLShell source branch, tag, or commit to publish
+        required: true
+        default: main
+      sdkVersion:
+        description: Immutable Maven SDK version
+        required: true
+        default: 1.0.0
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out selected source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sourceRef }}
+
+      - name: Set up JDK 21 and Maven credentials
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: GITHUB_TOKEN
+
+      - name: Validate immutable release version
+        shell: bash
+        env:
+          SDK_VERSION: ${{ inputs.sdkVersion }}
+        run: |
+          if [[ ! "$SDK_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9]+)*$ ]]; then
+            echo "Invalid SDK version: $SDK_VERSION" >&2
+            exit 1
+          fi
+
+      - name: Set SDK version in CI workspace
+        env:
+          SDK_VERSION: ${{ inputs.sdkVersion }}
+        run: >-
+          mvn versions:set
+          -DnewVersion="$SDK_VERSION"
+          -DprocessAllModules=true
+          -DgenerateBackupPoms=false
+          -q
+
+      - name: Test public SDK APIs
+        run: mvn -pl plugin-api,program-api -am test
+
+      - name: Publish parent and public SDK APIs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          mvn -pl plugin-api,program-api -am deploy
+          -DskipTests
+          -DaltDeploymentRepository=github::default::https://maven.pkg.github.com/voghost/JLShell

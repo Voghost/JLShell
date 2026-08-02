@@ -16,6 +16,9 @@ import com.jlshell.ui.service.ConnectionProfileService;
 import com.jlshell.plugin.loader.PluginManager;
 import com.jlshell.plugin.api.rpc.CapabilityBus;
 import com.jlshell.plugin.api.storage.PluginStorage;
+import com.jlshell.plugin.api.event.SessionOpenedEvent;
+import com.jlshell.plugin.loader.PluginRuntimeServices;
+import java.time.Instant;
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.theme.ThemeService;
 import com.jlshell.ui.support.FxThread;
@@ -110,6 +113,8 @@ public class SessionWorkspaceTab extends Tab {
 
         // 本工作区 Tab 的会话 id：来自 SSH 会话，用于 per-session 插件能力 registry 路由
         String sessionId = sshSession.sessionId().toString();
+        PluginRuntimeServices.publish(new SessionOpenedEvent(
+                sessionId, connectionProfile.id(), connectionProfile.projectId(), Instant.now()));
 
         this.terminalWorkspaceView = new TerminalWorkspaceView(
                 sessionId,
@@ -308,6 +313,9 @@ public class SessionWorkspaceTab extends Tab {
                         notifySessionCountChanged();
                         // 创建新的终端视图
                         String newSessionId = newSession.sessionId().toString();
+                        PluginRuntimeServices.publish(new SessionOpenedEvent(
+                                newSessionId, connectionProfile.id(),
+                                connectionProfile.projectId(), Instant.now()));
                         TerminalWorkspaceView newView = new TerminalWorkspaceView(
                                 newSessionId, newSession, terminalViewFactory, fontProfileService,
                                 appSettingsService, i18nService, themeService, pluginManager,

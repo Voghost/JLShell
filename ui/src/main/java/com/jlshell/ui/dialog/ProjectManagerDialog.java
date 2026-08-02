@@ -8,6 +8,10 @@ import com.jlshell.core.model.ConnectionType;
 import com.jlshell.core.model.HostKeyVerificationMode;
 import com.jlshell.data.entity.AuthenticationType;
 import com.jlshell.data.entity.VaultEncryptionMode;
+import com.jlshell.plugin.api.event.ProjectCreatedEvent;
+import com.jlshell.plugin.api.project.ProjectCreationContext;
+import com.jlshell.plugin.api.project.ProjectCreationContribution;
+import com.jlshell.program.plugin.loader.ProjectIntegrationRegistry;
 import com.jlshell.ui.model.ConnectionFormData;
 import com.jlshell.ui.model.ConnectionProfile;
 import com.jlshell.ui.model.FolderProfile;
@@ -39,6 +43,7 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
+import javafx.scene.Node;
 import javafx.scene.shape.Rectangle;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -53,6 +58,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.time.Instant;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -64,12 +70,15 @@ import javax.crypto.spec.SecretKeySpec;
 
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * 项目管理对话框：创建、重命名、删除项目。
  */
 public class ProjectManagerDialog {
 
+    private static final Logger log = LoggerFactory.getLogger(ProjectManagerDialog.class);
     private static final Gson GSON = new Gson();
     private static final String PROJECT_CONFIG_TYPE = "JLSHELL_PROJECT_CONFIG_V1";
     private static final int PROJECT_PACKAGE_ITERATIONS = 240_000;
@@ -191,6 +200,10 @@ public class ProjectManagerDialog {
         descField.setPrefRowCount(5);
         descField.setWrapText(true);
 
+        VBox contributionBox = new VBox(8);
+        contributionBox.getStyleClass().add("project-manager-plugin-contributions");
+        List<ContributionState> contributionStates = new java.util.ArrayList<>();
+
         listView.getSelectionModel().selectedItemProperty().addListener((o, ov, nv) -> {
             if (nv != null) {
                 nameField.setText(nv.name());
@@ -198,6 +211,14 @@ public class ProjectManagerDialog {
                 boolean defaultProject = isDefaultProject(nv);
                 nameField.setDisable(defaultProject);
                 descField.setDisable(defaultProject);
+            }
+            if (nv == null) {
+                rebuildProjectContributions(contributionBox, contributionStates, nameField, descField);
+            } else {
+                contributionStates.clear();
+                contributionBox.getChildren().clear();
+                contributionBox.setVisible(false);
+                contributionBox.setManaged(false);
             }
         });
 
@@ -244,8 +265,20 @@ public class ProjectManagerDialog {
             if (name.isBlank()) return;
             ProjectProfile selected = listView.getSelectionModel().getSelectedItem();
             if (selected != null && isDefaultProject(selected)) return;
+            if (selected == null) {
+                String validationError = validateProjectContributions(contributionStates);
+                if (validationError != null) {
+                    showError(i18n, themeService, dialog, validationError);
+                    return;
+                }
+            }
             String id = selected != null ? selected.id() : null;
             ProjectProfile saved = service.saveProject(id, name, descField.getText().trim());
+            if (selected == null) {
+                ProjectCreatedEvent event = new ProjectCreatedEvent(
+                        saved.id(), saved.name(), saved.description(), Instant.now());
+                notifyProjectContributions(contributionStates, event);
+            }
             refreshProjectItems(items, service, i18n);
             items.stream().filter(p -> Objects.equals(p.id(), saved.id()))
                     .findFirst().ifPresent(listView.getSelectionModel()::select);
@@ -324,7 +357,8 @@ public class ProjectManagerDialog {
         nameLabel.getStyleClass().add("project-manager-field-label");
         Label descLabel = new Label(i18n.get("project.field.description"));
         descLabel.getStyleClass().add("project-manager-field-label");
-        VBox form = new VBox(8, nameLabel, nameField, descLabel, descField);
+        rebuildProjectContributions(contributionBox, contributionStates, nameField, descField);
+        VBox form = new VBox(8, nameLabel, nameField, descLabel, descField, contributionBox);
         form.getStyleClass().add("project-manager-form");
         VBox.setVgrow(descField, Priority.ALWAYS);
 
@@ -349,6 +383,60 @@ public class ProjectManagerDialog {
         content.setPadding(new Insets(14));
         dialog.getDialogPane().setContent(content);
         dialog.showAndWait();
+    }
+
+    private static void rebuildProjectContributions(VBox box, List<ContributionState> states,
+                                                    TextField nameField, TextArea descriptionField) {
+        states.clear();
+        box.getChildren().clear();
+        for (ProjectIntegrationRegistry.RegisteredContribution registered
+                : ProjectIntegrationRegistry.shared().contributions()) {
+            ProjectCreationContext context = new ProjectCreationContext(
+                    nameField.textProperty(), descriptionField.textProperty());
+            try {
+                Node view = registered.contribution().createView(context);
+                if (view != null) {
+                    box.getChildren().add(view);
+                    states.add(new ContributionState(registered.contribution(), context));
+                }
+            } catch (RuntimeException error) {
+                log.warn("Failed to create project contribution {}/{}",
+                        registered.pluginId(), registered.contribution().id(), error);
+            }
+        }
+        boolean visible = !box.getChildren().isEmpty();
+        box.setVisible(visible);
+        box.setManaged(visible);
+    }
+
+    private static String validateProjectContributions(List<ContributionState> states) {
+        for (ContributionState state : states) {
+            try {
+                String error = state.contribution().validate(state.context()).orElse(null);
+                if (error != null && !error.isBlank()) {
+                    return error;
+                }
+            } catch (RuntimeException error) {
+                return "Plugin project validation failed: " + error.getMessage();
+            }
+        }
+        return null;
+    }
+
+    private static void notifyProjectContributions(List<ContributionState> states,
+                                                   ProjectCreatedEvent event) {
+        for (ContributionState state : List.copyOf(states)) {
+            try {
+                state.contribution().onProjectCreated(event, state.context());
+            } catch (RuntimeException error) {
+                log.warn("Project contribution callback failed: {}",
+                        state.contribution().id(), error);
+            }
+        }
+    }
+
+    private record ContributionState(ProjectCreationContribution contribution,
+                                     ProjectCreationContext context) {
     }
 
     private static boolean contains(String value, String query) {

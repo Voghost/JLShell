@@ -4,7 +4,11 @@ import java.util.Locale;
 
 import com.jlshell.plugin.api.rpc.CapabilityBus;
 import com.jlshell.plugin.api.rpc.CapabilityRegistry;
+import com.jlshell.plugin.api.event.HostEvents;
+import com.jlshell.plugin.api.project.ProjectIntegration;
+import com.jlshell.plugin.api.security.PluginAccessPolicy;
 import com.jlshell.plugin.api.storage.PluginStorage;
+import com.jlshell.plugin.api.storage.SecureStorage;
 import javafx.beans.property.ReadOnlyObjectProperty;
 import javafx.beans.property.ReadOnlyStringProperty;
 
@@ -23,6 +27,14 @@ public interface ProgramPluginContext {
     CapabilityBus capabilityBus();
 
     PluginStorage storage();
+
+    default SecureStorage secureStorage() { return SecureStorage.unavailable(); }
+
+    default ProjectIntegration projectIntegration() { return ProjectIntegration.unavailable(); }
+
+    default HostEvents hostEvents() { return HostEvents.unavailable(); }
+
+    default PluginAccessPolicy accessPolicy() { return PluginAccessPolicy.allowAll(); }
 
     String resolveI18n(String key, String fallback);
 

@@ -6,6 +6,8 @@ import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -14,14 +16,21 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
 import com.jlshell.plugin.api.JlShellProgramPlugin;
-import com.jlshell.plugin.api.PluginScope;
 import com.jlshell.plugin.api.PluginCompatibility;
+import com.jlshell.plugin.api.PluginContext;
+import com.jlshell.plugin.api.PluginScope;
+import com.jlshell.plugin.api.security.PluginAccessDecision;
+import com.jlshell.plugin.api.security.PluginAccessPolicyProvider;
+import com.jlshell.plugin.api.security.PluginAccessRequest;
+import com.jlshell.plugin.api.security.PluginOperation;
 import com.jlshell.plugin.api.rpc.CapabilityBus;
+import com.jlshell.plugin.api.storage.SecureStorage;
 import com.jlshell.plugin.api.storage.PluginStorage;
 import com.jlshell.plugin.loader.CapabilityRegistryImpl;
 import com.jlshell.plugin.loader.PluginCapabilityRegistryView;
 import com.jlshell.plugin.loader.PluginEnablementService;
 import com.jlshell.plugin.loader.PluginManager;
+import com.jlshell.plugin.loader.PluginRuntimeServices;
 import com.jlshell.plugin.loader.RuntimePluginDirectories;
 import com.jlshell.plugin.loader.store.PluginPackageValidator;
 import com.jlshell.program.api.ProgramApiContext;
@@ -45,10 +54,14 @@ public class ProgramPluginManager {
     private final PluginManager pluginManager;
     private final PluginEnablementService enablementService;
     private final Function<String, PluginStorage> storageFactory;
+    private final Function<String, SecureStorage> secureStorageFactory;
+    private final ProjectIntegrationRegistry projectIntegrationRegistry;
     private final DefaultProgramPluginContext.Callbacks callbacks;
     private final ProgramApiContext programApiContext;
     private final List<ProgramPluginDescriptor> plugins = new ArrayList<>();
     private final Map<String, JlShellProgramPlugin> active = new ConcurrentHashMap<>();
+    private final java.util.Set<JlShellProgramPlugin> trustedPolicyPlugins =
+            Collections.newSetFromMap(new IdentityHashMap<>());
     private volatile boolean loaded;
 
     private final StringProperty themeName = new SimpleStringProperty("dark");
@@ -82,6 +95,34 @@ public class ProgramPluginManager {
                                 DefaultProgramPluginContext.Callbacks callbacks,
                                 ProgramApiContext programApiContext,
                                 PluginEnablementService enablementService) {
+        this(userPluginsDir, hostVersion, pluginManager, globalRegistry, capabilityBus,
+                storageFactory, null, callbacks, programApiContext, enablementService,
+                ProjectIntegrationRegistry.shared());
+    }
+
+    public ProgramPluginManager(String userPluginsDir, String hostVersion,
+                                PluginManager pluginManager,
+                                CapabilityRegistryImpl globalRegistry,
+                                CapabilityBus capabilityBus,
+                                Function<String, PluginStorage> storageFactory,
+                                Function<String, SecureStorage> secureStorageFactory,
+                                DefaultProgramPluginContext.Callbacks callbacks,
+                                ProjectIntegrationRegistry projectIntegrationRegistry) {
+        this(userPluginsDir, hostVersion, pluginManager, globalRegistry, capabilityBus,
+                storageFactory, secureStorageFactory, callbacks, null,
+                new PluginEnablementService(), projectIntegrationRegistry);
+    }
+
+    public ProgramPluginManager(String userPluginsDir, String hostVersion,
+                                PluginManager pluginManager,
+                                CapabilityRegistryImpl globalRegistry,
+                                CapabilityBus capabilityBus,
+                                Function<String, PluginStorage> storageFactory,
+                                Function<String, SecureStorage> secureStorageFactory,
+                                DefaultProgramPluginContext.Callbacks callbacks,
+                                ProgramApiContext programApiContext,
+                                PluginEnablementService enablementService,
+                                ProjectIntegrationRegistry projectIntegrationRegistry) {
         this.userPluginsDir = userPluginsDir;
         this.hostVersion = hostVersion == null || hostVersion.isBlank() ? DEFAULT_HOST_VERSION : hostVersion;
         this.pluginManager = pluginManager;
@@ -89,8 +130,11 @@ public class ProgramPluginManager {
         this.globalRegistry = globalRegistry;
         this.capabilityBus = capabilityBus;
         this.storageFactory = storageFactory;
+        this.secureStorageFactory = secureStorageFactory;
         this.callbacks = callbacks;
         this.programApiContext = programApiContext;
+        this.projectIntegrationRegistry = projectIntegrationRegistry == null
+                ? ProjectIntegrationRegistry.shared() : projectIntegrationRegistry;
     }
 
     public void ensureLoaded() {
@@ -105,7 +149,8 @@ public class ProgramPluginManager {
 
     public void loadPlugins() {
         plugins.clear();
-        loadFromClassLoader(Thread.currentThread().getContextClassLoader());
+        trustedPolicyPlugins.clear();
+        loadFromClassLoader(Thread.currentThread().getContextClassLoader(), true);
         loadFromExternalDirs();
         log.info("Loaded {} program plugin(s)", plugins.size());
     }
@@ -117,9 +162,12 @@ public class ProgramPluginManager {
         ensureLoaded();
     }
 
-    private void loadFromClassLoader(ClassLoader classLoader) {
+    private void loadFromClassLoader(ClassLoader classLoader, boolean trustedSource) {
         ServiceLoader.load(JlShellProgramPlugin.class, classLoader).forEach(plugin -> {
             plugins.add(toDescriptor(plugin));
+            if (trustedSource && plugin.accessPolicyProvider() != null) {
+                trustedPolicyPlugins.add(plugin);
+            }
             log.debug("Discovered program plugin: {} ({})", plugin.displayName(), plugin.id());
         });
     }
@@ -138,7 +186,7 @@ public class ProgramPluginManager {
                 PluginPackageValidator.validateForLoading(jarPath, PluginScope.PROGRAM);
                 URL[] urls = {jar.toURI().toURL()};
                 URLClassLoader loader = new URLClassLoader(urls, Thread.currentThread().getContextClassLoader());
-                loadFromClassLoader(loader);
+                loadFromClassLoader(loader, false);
                 log.info("Loaded program plugins from: {}", jar.getName());
             } catch (Exception e) {
                 log.warn("Failed to load program plugin JAR: {}", jar.getName(), e);
@@ -166,7 +214,8 @@ public class ProgramPluginManager {
         if (enabled) {
             enablementService.setEnabled(pluginId, PluginScope.PROGRAM, true);
             plugins.stream().filter(descriptor -> descriptor.id().equals(pluginId))
-                    .findFirst().ifPresent(this::activateDescriptor);
+                    .findFirst().ifPresent(descriptor -> activateDescriptor(
+                            descriptor, trustedPolicyPlugins.contains(descriptor.instance())));
         } else {
             deactivatePlugin(pluginId);
             enablementService.setEnabled(pluginId, PluginScope.PROGRAM, false);
@@ -174,22 +223,57 @@ public class ProgramPluginManager {
     }
 
     public void activateAll() {
-        for (ProgramPluginDescriptor descriptor : plugins) {
-            if (isPluginEnabled(descriptor.id())) activateDescriptor(descriptor);
-        }
+        plugins.stream()
+                .filter(descriptor -> isPluginEnabled(descriptor.id()))
+                .filter(descriptor -> trustedPolicyPlugins.contains(descriptor.instance()))
+                .forEach(descriptor -> activateDescriptor(descriptor, true));
+        plugins.stream()
+                .filter(descriptor -> isPluginEnabled(descriptor.id()))
+                .filter(descriptor -> !trustedPolicyPlugins.contains(descriptor.instance()))
+                .forEach(descriptor -> activateDescriptor(descriptor, false));
     }
 
-    private void activateDescriptor(ProgramPluginDescriptor descriptor) {
+    private void activateDescriptor(ProgramPluginDescriptor descriptor, boolean trustedPolicyProvider) {
         if (active.containsKey(descriptor.id())) return;
+        if (!trustedPolicyProvider) {
+            PluginAccessDecision decision = pluginManager.accessController().evaluate(new PluginAccessRequest(
+                    PluginOperation.ACTIVATE, PluginScope.PROGRAM, null, descriptor.id(), null));
+            if (decision.effect() == PluginAccessDecision.Effect.DENY) {
+                log.info("Activation denied for program plugin {}: {}", descriptor.id(), decision.reason());
+                disposeDescriptorContext(descriptor);
+                return;
+            }
+        }
+        boolean pluginActivated = false;
         try {
+            if (descriptor.context() instanceof PluginContext pluginContext) {
+                pluginManager.adoptContext(null, descriptor.id(), pluginContext);
+            }
             descriptor.instance().activate(descriptor.context());
-            active.put(descriptor.id(), descriptor.instance());
+            pluginActivated = true;
             if (programApiContext != null && descriptor.instance() instanceof ProgramApiProvider provider) {
                 provider.activate(programApiContext);
             }
+            if (trustedPolicyProvider) {
+                pluginManager.accessController().registerTrusted(
+                        descriptor.id(), descriptor.instance().accessPolicyProvider());
+            } else if (descriptor.instance().accessPolicyProvider() != null) {
+                log.warn("Ignored access policy provider from untrusted plugin {}", descriptor.id());
+            }
+            active.put(descriptor.id(), descriptor.instance());
         } catch (Exception e) {
-            active.remove(descriptor.id());
+            active.remove(descriptor.id(), descriptor.instance());
+            pluginManager.accessController().unregister(descriptor.id());
+            projectIntegrationRegistry.clearForPlugin(descriptor.id());
             globalRegistry.clearForPlugin(descriptor.id());
+            if (pluginActivated) {
+                try {
+                    descriptor.instance().deactivate();
+                } catch (RuntimeException cleanupError) {
+                    log.warn("Failed to roll back program plugin {}", descriptor.id(), cleanupError);
+                }
+            }
+            disposeDescriptorContext(descriptor);
             log.warn("Failed to activate program plugin {}", descriptor.id(), e);
         }
     }
@@ -201,7 +285,20 @@ public class ProgramPluginManager {
             if (plugin instanceof ProgramApiProvider provider) provider.deactivate();
             plugin.deactivate();
         } finally {
+            pluginManager.accessController().unregister(pluginId);
+            projectIntegrationRegistry.clearForPlugin(pluginId);
             globalRegistry.clearForPlugin(pluginId);
+            plugins.stream()
+                    .filter(descriptor -> descriptor.id().equals(pluginId))
+                    .findFirst()
+                    .ifPresent(this::disposeDescriptorContext);
+        }
+    }
+
+    private void disposeDescriptorContext(ProgramPluginDescriptor descriptor) {
+        if (descriptor.context() instanceof DefaultProgramPluginContext context) {
+            context.dispose();
+            pluginManager.releaseContext(null, descriptor.id(), context);
         }
     }
 
@@ -244,13 +341,14 @@ public class ProgramPluginManager {
                 new PluginCapabilityRegistryView(globalRegistry, plugin.id()),
                 capabilityBus,
                 storageFactory == null ? null : storageFactory.apply(plugin.id()),
+                secureStorageFactory == null ? SecureStorage.unavailable() : secureStorageFactory.apply(plugin.id()),
+                projectIntegrationRegistry.scoped(plugin.id()),
+                PluginRuntimeServices.hostEvents("program/" + plugin.id()),
+                pluginManager.accessController(),
                 callbacks
         );
         ctx.setThemeName(themeName.get());
         ctx.setLocale(locale.get());
-        if (pluginManager != null) {
-            pluginManager.adoptContext(null, plugin.id(), ctx);
-        }
         return new ProgramPluginDescriptor(
                 plugin.id(),
                 plugin.displayName(),
