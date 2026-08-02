@@ -1,16 +1,16 @@
-name: Publish Plugin SDK
+name: Publish JLShell SDK
 
 on:
   workflow_dispatch:
     inputs:
       sourceRef:
-        description: JLShell source tag or commit to publish
+        description: JLShell source branch, tag, or commit to publish
         required: true
-        default: v0.1.36
+        default: main
       sdkVersion:
         description: Immutable Maven SDK version
         required: true
-        default: 0.1.36
+        default: 1.0.0
 
 permissions:
   contents: read
@@ -55,13 +55,13 @@ jobs:
           -DgenerateBackupPoms=false
           -q
 
-      - name: Test Plugin API
-        run: mvn -pl plugin-api -am test
+      - name: Test public SDK APIs
+        run: mvn -pl plugin-api,program-api -am test
 
-      - name: Publish parent and Plugin API
+      - name: Publish parent and public SDK APIs
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: >-
-          mvn -pl plugin-api -am deploy
+          mvn -pl plugin-api,program-api -am deploy
           -DskipTests
           -DaltDeploymentRepository=github::default::https://maven.pkg.github.com/voghost/JLShell
