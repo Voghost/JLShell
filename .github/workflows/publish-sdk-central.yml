@@ -10,7 +10,7 @@ on:
       sdkVersion:
         description: Immutable Maven Central SDK version
         required: true
-        default: 1.0.0
+        default: 1.1.0
       autoPublish:
         description: Publish immediately after validation (irreversible)
         required: true

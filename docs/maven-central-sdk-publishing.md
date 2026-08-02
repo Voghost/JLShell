@@ -37,7 +37,8 @@ gpg --armor --export-secret-keys <KEY_ID>
 手动运行 GitHub Actions 工作流 `Publish JLShell SDK to Maven Central`：
 
 - `sourceRef`：默认 `main`，正式发布应使用已合入 `main` 的提交或标签。
-- `sdkVersion`：不可覆盖的语义版本，例如 `1.0.0`。
+- `sdkVersion`：不可覆盖的语义版本；Program 会话贡献 API 对应下一版本 `1.1.0`，已公开的
+  `1.0.0` 不得覆盖。
 - `autoPublish`：首次发布保持 `false`。工作流会上传并等待 Central 校验，通过后由维护者
   在 Portal 中检查并手动 Publish。确认流程稳定后才可选择 `true` 自动公开。
 

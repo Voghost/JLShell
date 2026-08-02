@@ -14,6 +14,7 @@ import com.jlshell.terminal.service.TerminalViewFactory;
 import com.jlshell.ui.model.ConnectionProfile;
 import com.jlshell.ui.service.ConnectionProfileService;
 import com.jlshell.plugin.loader.PluginManager;
+import com.jlshell.program.plugin.loader.ProgramSessionIntegrationRegistry;
 import com.jlshell.plugin.api.rpc.CapabilityBus;
 import com.jlshell.plugin.api.storage.PluginStorage;
 import com.jlshell.plugin.api.event.SessionOpenedEvent;
@@ -56,6 +57,7 @@ public class SessionWorkspaceTab extends Tab {
     private final I18nService i18nService;
     private final ThemeService themeService;
     private final PluginManager pluginManager;
+    private final ProgramSessionIntegrationRegistry programSessionRegistry;
     private final CapabilityBus capabilityBus;
     private final java.util.function.Function<String, PluginStorage> storageFactory;
     private final Runnable sessionCountChanged;
@@ -88,6 +90,7 @@ public class SessionWorkspaceTab extends Tab {
             I18nService i18nService,
             ThemeService themeService,
             PluginManager pluginManager,
+            ProgramSessionIntegrationRegistry programSessionRegistry,
             CapabilityBus capabilityBus,
             java.util.function.Function<String, PluginStorage> storageFactory,
             Runnable sessionCountChanged
@@ -105,6 +108,7 @@ public class SessionWorkspaceTab extends Tab {
         this.i18nService = i18nService;
         this.themeService = themeService;
         this.pluginManager = pluginManager;
+        this.programSessionRegistry = programSessionRegistry;
         this.capabilityBus = capabilityBus;
         this.storageFactory = storageFactory;
         this.sessionCountChanged = sessionCountChanged == null ? () -> { } : sessionCountChanged;
@@ -153,7 +157,8 @@ public class SessionWorkspaceTab extends Tab {
             pluginsTab = new Tab(i18nService.get("workspace.plugins"));
             pluginsTab.setClosable(false);
             pluginsTabView = new PluginsTabView(
-                    pluginManager, sessionId, sshSession, workspaceTabs, i18nService, themeService, sftpService, capabilityBus, storageFactory);
+                    pluginManager, programSessionRegistry, sessionId, sshSession, workspaceTabs,
+                    i18nService, themeService, sftpService, capabilityBus, storageFactory);
             pluginsTab.setContent(pluginsTabView);
             workspaceTabs.getTabs().add(pluginsTab);
         }
@@ -178,6 +183,9 @@ public class SessionWorkspaceTab extends Tab {
 
     public CompletableFuture<Void> closeWorkspace() {
         i18nService.localeProperty().removeListener(localeListener);
+        if (programSessionRegistry != null) {
+            programSessionRegistry.deactivateSession(sshSession.sessionId().toString());
+        }
         if (pluginManager != null) {
             pluginManager.deactivateSession(sshSession.sessionId().toString());
         }
@@ -274,6 +282,9 @@ public class SessionWorkspaceTab extends Tab {
      */
     private void reconnect() {
         log.info("[Reconnect] Starting reconnect for '{}' ({})", connectionProfile.displayName(), connectionProfile.summary());
+        if (programSessionRegistry != null) {
+            programSessionRegistry.deactivateSession(sshSession.sessionId().toString());
+        }
         if (pluginManager != null) {
             pluginManager.deactivateSession(sshSession.sessionId().toString());
         }
@@ -375,7 +386,8 @@ public class SessionWorkspaceTab extends Tab {
         innerTabPane.getTabs().removeIf(tab -> tab != pluginsTab && tab.getProperties().get("pluginId") != null);
         String newSessionId = sshSession.sessionId().toString();
         pluginsTabView = new PluginsTabView(
-                pluginManager, newSessionId, sshSession, innerTabPane, i18nService, themeService,
+                pluginManager, programSessionRegistry, newSessionId, sshSession, innerTabPane,
+                i18nService, themeService,
                 sftpService, capabilityBus, storageFactory);
         pluginsTab.setContent(pluginsTabView);
     }

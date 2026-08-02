@@ -9,11 +9,13 @@ Java `ServiceLoader`，并输出带 UTF-8 JSON 静态清单的 fat JAR。完整�
 
 | 作用域 | SPI | 安装目录 | 运行时能力 | 更新要求 |
 |---|---|---|---|---|
-| `PROGRAM` | `JlShellProgramPlugin` | `~/.jlshell/program-plugins/<plugin-id>/<插件名>.jar` | 全局能力、设置页、存储、主题、语言、通知 | 安装或升级后重启 JLShell |
+| `PROGRAM` | `JlShellProgramPlugin` | `~/.jlshell/program-plugins/<plugin-id>/<插件名>.jar` | 全局能力、设置页、存储；SDK 1.1.0 起可贡献 SSH 会话入口 | 安装或升级后重启 JLShell |
 | `SESSION` | `JlShellPlugin` | `~/.jlshell/plugins/<plugin-id>/<插件名>.jar` | 当前会话 SSH/SFTP、标签页、会话能力、存储、主题、语言、通知 | 替换前必须先停用相关会话实例 |
 
-程序级插件不能假定存在 SSH 连接。会话级插件如不依赖 SSH，可以让
-`requiresSshSession()` 返回 `false`。
+程序级插件本体不能假定存在 SSH 连接。SDK 1.1.0 起，单一 Program 插件可通过
+`ProgramPluginContext.sessionIntegration()` 注册会话贡献，由宿主为每个活动实例提供
+受控的 `PluginContext/SshSessionContext`，无需再发布一个 Session 插件 JAR。会话级
+插件如不依赖 SSH，可以让 `requiresSshSession()` 返回 `false`。
 
 ## 2. 包身份必须完全一致
 

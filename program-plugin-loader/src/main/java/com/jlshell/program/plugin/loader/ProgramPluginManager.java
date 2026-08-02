@@ -56,6 +56,7 @@ public class ProgramPluginManager {
     private final Function<String, PluginStorage> storageFactory;
     private final Function<String, SecureStorage> secureStorageFactory;
     private final ProjectIntegrationRegistry projectIntegrationRegistry;
+    private final ProgramSessionIntegrationRegistry sessionIntegrationRegistry;
     private final DefaultProgramPluginContext.Callbacks callbacks;
     private final ProgramApiContext programApiContext;
     private final List<ProgramPluginDescriptor> plugins = new ArrayList<>();
@@ -135,6 +136,7 @@ public class ProgramPluginManager {
         this.programApiContext = programApiContext;
         this.projectIntegrationRegistry = projectIntegrationRegistry == null
                 ? ProjectIntegrationRegistry.shared() : projectIntegrationRegistry;
+        this.sessionIntegrationRegistry = new ProgramSessionIntegrationRegistry(pluginManager);
     }
 
     public void ensureLoaded() {
@@ -314,6 +316,10 @@ public class ProgramPluginManager {
         return locale;
     }
 
+    public ProgramSessionIntegrationRegistry sessionIntegrationRegistry() {
+        return sessionIntegrationRegistry;
+    }
+
     public void setThemeName(String name) {
         themeName.set(name);
         plugins.forEach(d -> {
@@ -344,6 +350,7 @@ public class ProgramPluginManager {
                 secureStorageFactory == null ? SecureStorage.unavailable() : secureStorageFactory.apply(plugin.id()),
                 projectIntegrationRegistry.scoped(plugin.id()),
                 PluginRuntimeServices.hostEvents("program/" + plugin.id()),
+                sessionIntegrationRegistry.scoped(plugin.id()),
                 pluginManager.accessController(),
                 callbacks
         );

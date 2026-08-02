@@ -12,6 +12,7 @@ import com.jlshell.plugin.api.project.ProjectIntegration;
 import com.jlshell.plugin.api.rpc.CapabilityBus;
 import com.jlshell.plugin.api.rpc.CapabilityRegistry;
 import com.jlshell.plugin.api.security.PluginAccessPolicy;
+import com.jlshell.plugin.api.session.ProgramSessionIntegration;
 import com.jlshell.plugin.api.storage.PluginStorage;
 import com.jlshell.plugin.api.storage.SecureStorage;
 import javafx.beans.property.ReadOnlyObjectProperty;
@@ -33,6 +34,7 @@ public class DefaultProgramPluginContext implements ProgramPluginContext, Plugin
     private final SecureStorage secureStorage;
     private final ProjectIntegration projectIntegration;
     private final HostEvents hostEvents;
+    private final ProgramSessionIntegration sessionIntegration;
     private final PluginAccessPolicy accessPolicy;
     private final Callbacks callbacks;
     private final StringProperty themeName = new SimpleStringProperty("dark");
@@ -47,6 +49,7 @@ public class DefaultProgramPluginContext implements ProgramPluginContext, Plugin
                                        SecureStorage secureStorage,
                                        ProjectIntegration projectIntegration,
                                        HostEvents hostEvents,
+                                       ProgramSessionIntegration sessionIntegration,
                                        PluginAccessPolicy accessPolicy,
                                        Callbacks callbacks) {
         this.pluginId = pluginId;
@@ -57,6 +60,8 @@ public class DefaultProgramPluginContext implements ProgramPluginContext, Plugin
         this.projectIntegration = projectIntegration == null
                 ? ProjectIntegration.unavailable() : projectIntegration;
         this.hostEvents = hostEvents == null ? HostEvents.unavailable() : hostEvents;
+        this.sessionIntegration = sessionIntegration == null
+                ? ProgramSessionIntegration.unavailable() : sessionIntegration;
         this.accessPolicy = accessPolicy == null ? PluginAccessPolicy.allowAll() : accessPolicy;
         this.callbacks = callbacks;
     }
@@ -66,7 +71,8 @@ public class DefaultProgramPluginContext implements ProgramPluginContext, Plugin
                                        Callbacks callbacks) {
         this(pluginId, registry, capabilityBus, storage,
                 SecureStorage.unavailable(), ProjectIntegration.unavailable(),
-                HostEvents.unavailable(), PluginAccessPolicy.allowAll(), callbacks);
+                HostEvents.unavailable(), ProgramSessionIntegration.unavailable(),
+                PluginAccessPolicy.allowAll(), callbacks);
     }
 
     @Override public String themeName() { return themeName.get(); }
@@ -92,6 +98,8 @@ public class DefaultProgramPluginContext implements ProgramPluginContext, Plugin
     @Override public ProjectIntegration projectIntegration() { return projectIntegration; }
 
     @Override public HostEvents hostEvents() { return hostEvents; }
+
+    @Override public ProgramSessionIntegration sessionIntegration() { return sessionIntegration; }
 
     @Override public PluginAccessPolicy accessPolicy() { return accessPolicy; }
 
@@ -123,6 +131,7 @@ public class DefaultProgramPluginContext implements ProgramPluginContext, Plugin
     void dispose() {
         closeIfNeeded(projectIntegration);
         closeIfNeeded(hostEvents);
+        closeIfNeeded(sessionIntegration);
     }
 
     private void closeIfNeeded(Object value) {
