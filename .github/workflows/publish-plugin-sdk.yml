@@ -1,4 +1,4 @@
-name: Publish JLShell SDK
+name: Publish JLShell SDK to GitHub Packages
 
 on:
   workflow_dispatch:
@@ -24,6 +24,19 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.sourceRef }}
+          fetch-depth: 0
+
+      - name: Require source to be merged into main
+        shell: bash
+        run: |
+          if ! git show-ref --verify --quiet refs/remotes/origin/main; then
+            echo "origin/main is unavailable in the checkout" >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor HEAD refs/remotes/origin/main; then
+            echo "sourceRef must resolve to a commit already merged into main" >&2
+            exit 1
+          fi
 
       - name: Set up JDK 21 and Maven credentials
         uses: actions/setup-java@v4
@@ -58,7 +71,7 @@ jobs:
       - name: Test public SDK APIs
         run: mvn -pl plugin-api,program-api -am test
 
-      - name: Publish parent and public SDK APIs
+      - name: Publish parent and public SDK APIs to GitHub Packages
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: >-

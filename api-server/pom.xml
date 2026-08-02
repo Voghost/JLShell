@@ -12,7 +12,7 @@
     <name>JLShell External API Server</name>
     <dependencies>
         <dependency>
-            <groupId>com.jlshell</groupId>
+            <groupId>net.oomn.jlshell</groupId>
             <artifactId>plugin-api</artifactId>
             <version>${project.version}</version>
             <exclusions>
@@ -24,7 +24,7 @@
             </exclusions>
         </dependency>
         <dependency>
-            <groupId>com.jlshell</groupId>
+            <groupId>net.oomn.jlshell</groupId>
             <artifactId>program-api</artifactId>
             <version>${project.version}</version>
         </dependency>
