@@ -2380,6 +2380,7 @@ public class MainWindow {
                     i18nService,
                     themeService,
                     pluginManager,
+                    programPluginManager == null ? null : programPluginManager.sessionIntegrationRegistry(),
                     capabilityBus,
                     storageFactory,
                     this::reportAccountStats

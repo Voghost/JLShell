@@ -7,6 +7,7 @@ import com.jlshell.plugin.api.rpc.CapabilityRegistry;
 import com.jlshell.plugin.api.event.HostEvents;
 import com.jlshell.plugin.api.project.ProjectIntegration;
 import com.jlshell.plugin.api.security.PluginAccessPolicy;
+import com.jlshell.plugin.api.session.ProgramSessionIntegration;
 import com.jlshell.plugin.api.storage.PluginStorage;
 import com.jlshell.plugin.api.storage.SecureStorage;
 import javafx.beans.property.ReadOnlyObjectProperty;
@@ -33,6 +34,16 @@ public interface ProgramPluginContext {
     default ProjectIntegration projectIntegration() { return ProjectIntegration.unavailable(); }
 
     default HostEvents hostEvents() { return HostEvents.unavailable(); }
+
+    /**
+     * Register a session surface owned by this Program plugin.
+     *
+     * <p>The host creates a short-lived {@link PluginContext} for each activated SSH session
+     * contribution and revokes it when the session, plugin, or application stops.</p>
+     */
+    default ProgramSessionIntegration sessionIntegration() {
+        return ProgramSessionIntegration.unavailable();
+    }
 
     default PluginAccessPolicy accessPolicy() { return PluginAccessPolicy.allowAll(); }
 

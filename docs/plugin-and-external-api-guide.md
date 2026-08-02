@@ -7,16 +7,16 @@
 | 目标 | 选择 | 生命周期与作用域 | 是否能直接使用 SSH |
 | --- | --- | --- | --- |
 | 为某一个终端/SSH 会话增加功能、标签页或远程操作 | **会话插件** `JlShellPlugin` | 每个工作区会话各自激活、各自注册能力 | SSH 会话中可以；本地终端中为空 |
-| 为整个应用增加设置页、后台功能或无会话能力 | **程序插件** `JlShellProgramPlugin` | 应用启动后加载一次，能力为全局能力 | 不可以 |
+| 为整个应用增加设置页、后台功能或无会话能力 | **程序插件** `JlShellProgramPlugin` | 应用启动后加载一次，能力为全局能力 | SDK 1.1.0 起可注册受控会话贡献 |
 | 让本机其他程序/Agent 管理已保存连接、会话、命令或调用插件 | **外部 API**（HTTP JSON-RPC） | 仅本机 `127.0.0.1`，需 Bearer Token | 可通过 API 操作已有 SSH 会话 |
 
 三者共用同一套能力总线。程序插件注册全局能力（`sessionId = null`）；会话插件注册的能力按 `(sessionId, pluginId, capability)` 隔离；外部 API 用 `capability.invoke` 调用它们。
 
 ## 2. 公共约定
 
-- Java 21、Maven 3.9+；首个公开 SDK 版本为 `1.0.0`。插件 API 坐标为
-  `net.oomn.jlshell:plugin-api:1.0.0`，扩展宿主 JSON-RPC 方法时另用
-  `net.oomn.jlshell:program-api:1.0.0`；两者都必须使用 `provided` scope。
+- Java 21、Maven 3.9+；首个公开 SDK 版本为 `1.0.0`。Program 插件需要直接扩展
+  SSH 会话时使用 `net.oomn.jlshell:plugin-api:1.1.0`；扩展宿主 JSON-RPC 方法时另用
+  同版本的 `net.oomn.jlshell:program-api`。两者都必须使用 `provided` scope。
 - 每个插件的 `id()` 必须是稳定且唯一的反向域名，例如 `com.example.deploy-tools`。它同时是能力路由键和私有存储命名空间，发布后不要随意修改。
 - 必须提供名称、版本、描述和宿主兼容范围。兼容范围为空会在插件页显示警告；不在范围内会显示不兼容。
 - 所有可能阻塞的 SSH、文件、网络或计算工作都必须异步执行，不能阻塞 JavaFX UI 线程。
@@ -156,9 +156,45 @@ public final class AgentBridgePlugin implements JlShellProgramPlugin {
 }
 ```
 
-程序插件的 `ProgramPluginContext` 提供全局 `capabilityRegistry()`、`capabilityBus()`、私有 `storage()`、主题/语言/i18n、日志和通知。它**没有 SSH 上下文**；若需要对某个服务器做操作，应由调用方提供 `sessionId`，并通过能力总线调用该会话内已激活的会话插件，或让外部 Agent 使用 `command.run`。
+程序插件的 `ProgramPluginContext` 提供全局 `capabilityRegistry()`、`capabilityBus()`、私有 `storage()`、主题/语言/i18n、日志和通知。Program 插件本体没有固定 SSH 上下文；SDK 1.1.0 起可以通过 `sessionIntegration()` 注册一个会话贡献，由宿主在用户打开该贡献时提供生命周期受控的 `PluginContext` 和 `SshSessionContext`。
 
 程序插件可覆写 `settingsView(ProgramPluginContext)` 返回 JavaFX `Node`，其设置页会展示在“偏好设置 → Plugins”。不要在该方法中执行阻塞操作。
+
+### 4.2 单一 Program 插件扩展 SSH 会话（SDK 1.1.0）
+
+适合同时需要全局后台进程、账号安全存储和 SSH 会话操作的产品插件。用户只安装一个
+Program 插件 JAR；不需要第二个 `JlShellPlugin`、第二个插件 ID 或 Session ServiceLoader。
+
+```java
+private Registration sessionRegistration;
+
+@Override
+public void activate(ProgramPluginContext context) {
+    sessionRegistration = context.sessionIntegration().register(new ProgramSessionContribution() {
+        @Override public String displayName() { return "Agent Bridge"; }
+        @Override public String description() { return "Deploy and connect the remote Agent."; }
+
+        @Override
+        public ProgramSessionController activate(PluginContext sessionContext) {
+            SshSessionContext ssh = sessionContext.sshSession().orElseThrow();
+            sessionContext.openTab("Agent Bridge", buildView(ssh));
+            return () -> stopSessionTasks(ssh.sessionId());
+        }
+    });
+}
+
+@Override
+public void deactivate() {
+    if (sessionRegistration != null) sessionRegistration.close();
+}
+```
+
+宿主保证以下行为：
+
+- 每个 Program 插件最多注册一个会话贡献，插件身份、安装、启停和订阅策略仍只有一份。
+- 同一贡献可同时在多个 SSH 会话中激活，每个会话获得独立上下文和控制器。
+- 会话断开、重连、Program 插件停用/升级或应用退出时，控制器、标签页和会话能力都会回收。
+- 插件只能使用 `SshSessionContext` 门面，不能获得底层 SSHJ 对象；失效上下文不得缓存或继续调用。
 
 ## 5. 插件间能力调用
 
