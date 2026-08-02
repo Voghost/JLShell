@@ -37,6 +37,8 @@ class ProgramPluginManagerTest {
         );
         ProgramPluginDescriptor descriptor = descriptor(manager, plugin);
 
+        assertThat(descriptor.context().sessionIntegration().available()).isTrue();
+
         sessionManager.adoptContext(null, descriptor.id(), (PluginContext) descriptor.context());
         descriptor.instance().activate(descriptor.context());
 
