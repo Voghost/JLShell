@@ -450,8 +450,8 @@ public class AccountService {
     /**
      * 使用宿主保存的账号令牌代发 Link 控制平面请求。
      *
-     * <p>此方法不会返回令牌，且仅允许 Link API 与设备列表端点，避免插件将账号会话
-     * 扩展为任意网站请求代理。</p>
+     * <p>此方法不会返回令牌，且仅允许 Link 数据面、设备、套餐、试用及插件策略端点，
+     * 避免插件将账号会话扩展为任意网站请求代理。</p>
      */
     public CompletableFuture<AuthenticatedResponse> authenticatedLinkRequest(
             String method, String apiPath, String jsonBody) {
@@ -758,13 +758,19 @@ public class AccountService {
         try {
             URI value = URI.create(path == null ? "" : path);
             String rawPath = value.getRawPath();
+            boolean pluginAccess = "/api/v1/account/plugin-access".equals(rawPath)
+                    && value.getRawQuery() != null
+                    && value.getRawQuery().matches("pluginId=[A-Za-z0-9._-]{1,128}&version=[A-Za-z0-9._-]{1,64}&scope=(PROGRAM|SESSION)");
             boolean permitted = rawPath != null && (rawPath.startsWith("/api/v1/link/")
-                    || "/api/v1/account/devices".equals(rawPath));
-            if (value.isAbsolute() || value.getRawAuthority() != null || value.getRawQuery() != null
-                    || value.getRawFragment() != null || !permitted) {
+                    || "/api/v1/account/devices".equals(rawPath)
+                    || "/api/v1/account/entitlements".equals(rawPath)
+                    || "/api/v1/account/trial".equals(rawPath)
+                    || pluginAccess);
+            if (value.isAbsolute() || value.getRawAuthority() != null || value.getRawFragment() != null
+                    || (value.getRawQuery() != null && !pluginAccess) || !permitted) {
                 throw new IllegalArgumentException();
             }
-            return rawPath;
+            return pluginAccess ? rawPath + "?" + value.getRawQuery() : rawPath;
         } catch (RuntimeException error) {
             throw new IllegalArgumentException("Only supported JLShell Link API paths are allowed");
         }
