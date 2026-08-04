@@ -17,6 +17,11 @@
 
     <dependencies>
         <dependency>
+            <groupId>net.oomn.jlshell</groupId>
+            <artifactId>program-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
             <groupId>org.openjfx</groupId>
             <artifactId>javafx-controls</artifactId>
         </dependency>

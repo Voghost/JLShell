@@ -45,11 +45,11 @@
         <module>sftp</module>
         <module>terminal</module>
         <module>data</module>
+        <module>program-api</module>
         <module>plugin-api</module>
         <module>plugin-loader</module>
         <module>program-plugin-loader</module>
         <module>api-server</module>
-        <module>program-api</module>
         <module>ui</module>
     </modules>
 

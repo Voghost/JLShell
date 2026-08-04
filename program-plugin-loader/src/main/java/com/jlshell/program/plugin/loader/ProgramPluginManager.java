@@ -35,6 +35,7 @@ import com.jlshell.plugin.loader.RuntimePluginDirectories;
 import com.jlshell.plugin.loader.store.PluginPackageValidator;
 import com.jlshell.program.api.ProgramApiContext;
 import com.jlshell.program.api.ProgramApiProvider;
+import com.jlshell.program.api.AccountSessionService;
 import javafx.beans.property.ObjectProperty;
 import javafx.beans.property.SimpleObjectProperty;
 import javafx.beans.property.SimpleStringProperty;
@@ -59,6 +60,7 @@ public class ProgramPluginManager {
     private final ProgramSessionIntegrationRegistry sessionIntegrationRegistry;
     private final DefaultProgramPluginContext.Callbacks callbacks;
     private final ProgramApiContext programApiContext;
+    private final AccountSessionService accountSessionService;
     private final List<ProgramPluginDescriptor> plugins = new ArrayList<>();
     private final Map<String, JlShellProgramPlugin> active = new ConcurrentHashMap<>();
     private final java.util.Set<JlShellProgramPlugin> trustedPolicyPlugins =
@@ -111,7 +113,7 @@ public class ProgramPluginManager {
                                 ProjectIntegrationRegistry projectIntegrationRegistry) {
         this(userPluginsDir, hostVersion, pluginManager, globalRegistry, capabilityBus,
                 storageFactory, secureStorageFactory, callbacks, null,
-                new PluginEnablementService(), projectIntegrationRegistry);
+                new PluginEnablementService(), projectIntegrationRegistry, AccountSessionService.unavailable());
     }
 
     public ProgramPluginManager(String userPluginsDir, String hostVersion,
@@ -124,6 +126,22 @@ public class ProgramPluginManager {
                                 ProgramApiContext programApiContext,
                                 PluginEnablementService enablementService,
                                 ProjectIntegrationRegistry projectIntegrationRegistry) {
+        this(userPluginsDir, hostVersion, pluginManager, globalRegistry, capabilityBus, storageFactory,
+                secureStorageFactory, callbacks, programApiContext, enablementService,
+                projectIntegrationRegistry, AccountSessionService.unavailable());
+    }
+
+    public ProgramPluginManager(String userPluginsDir, String hostVersion,
+                                PluginManager pluginManager,
+                                CapabilityRegistryImpl globalRegistry,
+                                CapabilityBus capabilityBus,
+                                Function<String, PluginStorage> storageFactory,
+                                Function<String, SecureStorage> secureStorageFactory,
+                                DefaultProgramPluginContext.Callbacks callbacks,
+                                ProgramApiContext programApiContext,
+                                PluginEnablementService enablementService,
+                                ProjectIntegrationRegistry projectIntegrationRegistry,
+                                AccountSessionService accountSessionService) {
         this.userPluginsDir = userPluginsDir;
         this.hostVersion = hostVersion == null || hostVersion.isBlank() ? DEFAULT_HOST_VERSION : hostVersion;
         this.pluginManager = pluginManager;
@@ -134,6 +152,8 @@ public class ProgramPluginManager {
         this.secureStorageFactory = secureStorageFactory;
         this.callbacks = callbacks;
         this.programApiContext = programApiContext;
+        this.accountSessionService = accountSessionService == null
+                ? AccountSessionService.unavailable() : accountSessionService;
         this.projectIntegrationRegistry = projectIntegrationRegistry == null
                 ? ProjectIntegrationRegistry.shared() : projectIntegrationRegistry;
         this.sessionIntegrationRegistry = new ProgramSessionIntegrationRegistry(pluginManager);
@@ -352,6 +372,7 @@ public class ProgramPluginManager {
                 PluginRuntimeServices.hostEvents("program/" + plugin.id()),
                 sessionIntegrationRegistry.scoped(plugin.id()),
                 pluginManager.accessController(),
+                accountSessionService,
                 callbacks
         );
         ctx.setThemeName(themeName.get());

@@ -32,6 +32,8 @@ public final class DefaultProgramApiProvider implements ProgramApiProvider {
                 params -> commandRun(context, params));
         context.registry().register(ProgramApiCatalog.API_TOKEN,
                 params -> CompletableFuture.completedFuture(new JsonPrimitive(context.apiToken())));
+        context.registry().register(ProgramApiCatalog.ACCOUNT_STATUS,
+                params -> CompletableFuture.supplyAsync(() -> accountStatus(context), context.executor()));
         context.registry().register(ProgramApiCatalog.API_METHODS,
                 params -> CompletableFuture.completedFuture(apiMethods()));
     }
@@ -106,6 +108,20 @@ public final class DefaultProgramApiProvider implements ProgramApiProvider {
         JsonArray methods = new JsonArray();
         ProgramApiCatalog.methodNames().forEach(method -> methods.add(new JsonPrimitive(method)));
         return methods;
+    }
+
+    private static JsonObject accountStatus(ProgramApiContext context) {
+        var account = context.accountSession().snapshot();
+        JsonObject result = new JsonObject();
+        result.addProperty("authenticated", account.authenticated());
+        result.addProperty("baseUrl", account.baseUrl());
+        result.addProperty("deviceId", account.deviceId());
+        result.addProperty("accountId", account.accountId());
+        result.addProperty("username", account.username());
+        result.addProperty("email", account.email());
+        result.addProperty("role", account.role());
+        result.addProperty("expiresAt", account.expiresAt());
+        return result;
     }
 
     private static String stringParam(JsonElement params, String name) {
