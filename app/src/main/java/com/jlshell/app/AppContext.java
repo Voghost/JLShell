@@ -19,6 +19,7 @@ import com.jlshell.core.service.impl.PersistentFontProfileService;
 import com.jlshell.core.shortcut.ShortcutRegistry;
 import com.jlshell.core.support.NamedThreadFactory;
 import com.jlshell.app.api.CoreProgramSessionService;
+import com.jlshell.app.api.HostAccountSessionService;
 import com.jlshell.data.config.CredentialEncryptionProperties;
 import com.jlshell.data.config.DatabaseFactory;
 import com.jlshell.data.crypto.AesGcmCredentialCipher;
@@ -37,6 +38,7 @@ import com.jlshell.program.api.ProgramApiContext;
 import com.jlshell.program.api.ProgramApiProvider;
 import com.jlshell.program.api.ProgramApiRegistry;
 import com.jlshell.program.api.ProgramSessionService;
+import com.jlshell.program.api.AccountSessionService;
 import com.jlshell.sftp.service.SftpService;
 import com.jlshell.sftp.support.SshjSftpService;
 import com.jlshell.ssh.support.EphemeralTrustHostKeyVerifier;
@@ -189,6 +191,7 @@ public class AppContext implements AutoCloseable {
         UpdateService updateService = new UpdateService(appSettingsService, executor);
         this.accountService = new AccountService(appSettingsService,
                 new EncryptedAppSettingsService(appSettingsService, credentialCipher), executor);
+        AccountSessionService accountSessionService = new HostAccountSessionService(accountService);
 
         // 7b. Program API SPI + API server
         ProgramApiRegistry programApiRegistry = new DefaultProgramApiRegistry();
@@ -199,6 +202,7 @@ public class AppContext implements AutoCloseable {
             @Override public ProgramSessionService sessions() { return programSessionService; }
             @Override public String apiToken() { return externalApiToken; }
             @Override public java.util.concurrent.Executor executor() { return executor; }
+            @Override public AccountSessionService accountSession() { return accountSessionService; }
         };
         List<ProgramApiProvider> programApiProviders = ServiceLoader
                 .load(ProgramApiProvider.class, AppContext.class.getClassLoader()).stream()
@@ -222,7 +226,8 @@ public class AppContext implements AutoCloseable {
                 },
                 programApiContext,
                 pluginEnablementService,
-                com.jlshell.program.plugin.loader.ProjectIntegrationRegistry.shared()
+                com.jlshell.program.plugin.loader.ProjectIntegrationRegistry.shared(),
+                accountSessionService
         );
         programPluginManager.setThemeName(themeService.currentThemeProperty().get().name().toLowerCase());
         programPluginManager.setLocale(initialLocale);

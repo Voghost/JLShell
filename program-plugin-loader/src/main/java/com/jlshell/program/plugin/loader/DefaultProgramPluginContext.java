@@ -15,6 +15,7 @@ import com.jlshell.plugin.api.security.PluginAccessPolicy;
 import com.jlshell.plugin.api.session.ProgramSessionIntegration;
 import com.jlshell.plugin.api.storage.PluginStorage;
 import com.jlshell.plugin.api.storage.SecureStorage;
+import com.jlshell.program.api.AccountSessionService;
 import javafx.beans.property.ReadOnlyObjectProperty;
 import javafx.beans.property.ReadOnlyStringProperty;
 import javafx.beans.property.SimpleObjectProperty;
@@ -36,6 +37,7 @@ public class DefaultProgramPluginContext implements ProgramPluginContext, Plugin
     private final HostEvents hostEvents;
     private final ProgramSessionIntegration sessionIntegration;
     private final PluginAccessPolicy accessPolicy;
+    private final AccountSessionService accountSession;
     private final Callbacks callbacks;
     private final StringProperty themeName = new SimpleStringProperty("dark");
     private final SimpleObjectProperty<Locale> locale = new SimpleObjectProperty<>(Locale.getDefault());
@@ -51,6 +53,7 @@ public class DefaultProgramPluginContext implements ProgramPluginContext, Plugin
                                        HostEvents hostEvents,
                                        ProgramSessionIntegration sessionIntegration,
                                        PluginAccessPolicy accessPolicy,
+                                       AccountSessionService accountSession,
                                        Callbacks callbacks) {
         this.pluginId = pluginId;
         this.registry = registry;
@@ -63,6 +66,7 @@ public class DefaultProgramPluginContext implements ProgramPluginContext, Plugin
         this.sessionIntegration = sessionIntegration == null
                 ? ProgramSessionIntegration.unavailable() : sessionIntegration;
         this.accessPolicy = accessPolicy == null ? PluginAccessPolicy.allowAll() : accessPolicy;
+        this.accountSession = accountSession == null ? AccountSessionService.unavailable() : accountSession;
         this.callbacks = callbacks;
     }
 
@@ -72,7 +76,7 @@ public class DefaultProgramPluginContext implements ProgramPluginContext, Plugin
         this(pluginId, registry, capabilityBus, storage,
                 SecureStorage.unavailable(), ProjectIntegration.unavailable(),
                 HostEvents.unavailable(), ProgramSessionIntegration.unavailable(),
-                PluginAccessPolicy.allowAll(), callbacks);
+                PluginAccessPolicy.allowAll(), AccountSessionService.unavailable(), callbacks);
     }
 
     @Override public String themeName() { return themeName.get(); }
@@ -100,6 +104,8 @@ public class DefaultProgramPluginContext implements ProgramPluginContext, Plugin
     @Override public HostEvents hostEvents() { return hostEvents; }
 
     @Override public ProgramSessionIntegration sessionIntegration() { return sessionIntegration; }
+
+    @Override public AccountSessionService accountSession() { return accountSession; }
 
     @Override public PluginAccessPolicy accessPolicy() { return accessPolicy; }
 

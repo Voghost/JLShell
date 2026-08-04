@@ -10,6 +10,7 @@ import com.jlshell.plugin.api.security.PluginAccessPolicy;
 import com.jlshell.plugin.api.session.ProgramSessionIntegration;
 import com.jlshell.plugin.api.storage.PluginStorage;
 import com.jlshell.plugin.api.storage.SecureStorage;
+import com.jlshell.program.api.AccountSessionService;
 import javafx.beans.property.ReadOnlyObjectProperty;
 import javafx.beans.property.ReadOnlyStringProperty;
 
@@ -43,6 +44,13 @@ public interface ProgramPluginContext {
      */
     default ProgramSessionIntegration sessionIntegration() {
         return ProgramSessionIntegration.unavailable();
+    }
+
+    /**
+     * 宿主账号会话网关。令牌保留在宿主的加密存储中；插件仅可读取状态并请求受限同源 API。
+     */
+    default AccountSessionService accountSession() {
+        return AccountSessionService.unavailable();
     }
 
     default PluginAccessPolicy accessPolicy() { return PluginAccessPolicy.allowAll(); }

@@ -57,6 +57,7 @@ public class AccountService {
     private static final String DEFAULT_BASE_URL = JlshellDefaults.accountBaseUrl();
     private static final Duration HEARTBEAT_INTERVAL = Duration.ofMinutes(15);
     private static final Duration REPORT_STATS_INTERVAL = Duration.ofMinutes(5);
+    private static final int MAX_PLUGIN_RESPONSE_BYTES = 1024 * 1024;
 
     private final AppSettingsService appSettings;
     private final SecureSettingsService secureSettings;
@@ -441,6 +442,61 @@ public class AccountService {
                 DEFAULT_BASE_URL);
     }
 
+    /** 稳定的桌面设备 ID；可供宿主插件网关匹配服务器上的设备记录。 */
+    public String deviceId() {
+        return ensureDeviceId();
+    }
+
+    /**
+     * 使用宿主保存的账号令牌代发 Link 控制平面请求。
+     *
+     * <p>此方法不会返回令牌，且仅允许 Link API 与设备列表端点，避免插件将账号会话
+     * 扩展为任意网站请求代理。</p>
+     */
+    public CompletableFuture<AuthenticatedResponse> authenticatedLinkRequest(
+            String method, String apiPath, String jsonBody) {
+        return CompletableFuture.supplyAsync(() -> {
+            String requestMethod = requireLinkMethod(method);
+            String requestPath = requireLinkPath(apiPath);
+            try {
+                String currentToken = token();
+                if (currentToken.isBlank()) {
+                    throw new AccountException("Not signed in", null);
+                }
+                HttpRequest.Builder builder = HttpRequest.newBuilder(endpoint(requestPath))
+                        .timeout(Duration.ofSeconds(20))
+                        .header("Accept", "application/json")
+                        .header("Authorization", "Bearer " + currentToken)
+                        .header("User-Agent", "JLShell/host-account-gateway");
+                if (jsonBody == null) {
+                    builder.method(requestMethod, HttpRequest.BodyPublishers.noBody());
+                } else {
+                    builder.header("Content-Type", "application/json")
+                            .method(requestMethod, HttpRequest.BodyPublishers.ofString(jsonBody));
+                }
+                HttpResponse<byte[]> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofByteArray());
+                if (response.body().length > MAX_PLUGIN_RESPONSE_BYTES) {
+                    throw new IOException("Account API response is too large");
+                }
+                String payload = new String(response.body(), java.nio.charset.StandardCharsets.UTF_8);
+                if (response.statusCode() == 401 || response.statusCode() == 404) {
+                    clearSession();
+                    stopHeartbeat();
+                    stopReportStats();
+                }
+                if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                    throw parseError(response.statusCode(), payload);
+                }
+                return new AuthenticatedResponse(response.statusCode(),
+                        response.headers().firstValue("Content-Type").orElse("application/json"), payload);
+            } catch (AccountException error) {
+                throw error;
+            } catch (Exception error) {
+                throw new AccountException("Host account request failed", error);
+            }
+        }, executor);
+    }
+
     public boolean syncEnabled() {
         return Boolean.parseBoolean(appSettings.get(SETTINGS_SYNC_ENABLED, "false"));
     }
@@ -690,6 +746,30 @@ public class AccountService {
         return URI.create(base + path);
     }
 
+    private static String requireLinkMethod(String method) {
+        String value = method == null ? "" : method.trim().toUpperCase(java.util.Locale.ROOT);
+        if (!java.util.Set.of("GET", "POST", "PUT", "DELETE").contains(value)) {
+            throw new IllegalArgumentException("Unsupported host account request method");
+        }
+        return value;
+    }
+
+    private static String requireLinkPath(String path) {
+        try {
+            URI value = URI.create(path == null ? "" : path);
+            String rawPath = value.getRawPath();
+            boolean permitted = rawPath != null && (rawPath.startsWith("/api/v1/link/")
+                    || "/api/v1/account/devices".equals(rawPath));
+            if (value.isAbsolute() || value.getRawAuthority() != null || value.getRawQuery() != null
+                    || value.getRawFragment() != null || !permitted) {
+                throw new IllegalArgumentException();
+            }
+            return rawPath;
+        } catch (RuntimeException error) {
+            throw new IllegalArgumentException("Only supported JLShell Link API paths are allowed");
+        }
+    }
+
     private static boolean blank(String value) {
         return value == null || value.isBlank();
     }
@@ -759,6 +839,9 @@ public class AccountService {
             int connectionCount, int terminalCount,
             int historicalDeviceCount
     ) {}
+
+    /** 已认证宿主网关的响应；不包含请求令牌。 */
+    public record AuthenticatedResponse(int statusCode, String contentType, String body) {}
 
     /** 验证码挑战。imageBase64 为 data URI（如 "data:image/png;base64,..."），question 为文本验证码（两者互斥）。 */
     public record CaptchaChallenge(boolean required, String token, String question,
