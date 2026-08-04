@@ -87,7 +87,6 @@ public final class AccountDialog {
             completed[0] = true;
             if (error == null) {
                 dialog.close();
-                showInfo(owner, i18n, themeService, i18n.get("account.login.success"));
             } else {
                 status.setText(i18n.get("account.login.web.failed",
                         resolveErrorMessage(error, i18n)));
