@@ -581,7 +581,8 @@ public class PreferencesDialog {
         syncHint.setMaxWidth(Double.MAX_VALUE);
         syncHint.getStyleClass().add("settings-card-description");
 
-        Button loginButton = new Button(i18n.get("account.login.action"));
+        Button webLoginButton = new Button(i18n.get("account.login.web.action"));
+        Button passwordLoginButton = new Button(i18n.get("account.login.password.action"));
         Button registerButton = new Button(i18n.get("account.register.action"));
         Button logoutButton = new Button(i18n.get("account.logout"));
         Button changePasswordButton = new Button(i18n.get("account.changePassword"));
@@ -593,8 +594,10 @@ public class PreferencesDialog {
                 emailValue.setText("-");
                 accountIdValue.setText("-");
                 deviceCountValue.setText("-");
-                loginButton.setVisible(true);
-                loginButton.setManaged(true);
+                webLoginButton.setVisible(true);
+                webLoginButton.setManaged(true);
+                passwordLoginButton.setVisible(true);
+                passwordLoginButton.setManaged(true);
                 registerButton.setVisible(true);
                 registerButton.setManaged(true);
                 logoutButton.setVisible(false);
@@ -609,8 +612,10 @@ public class PreferencesDialog {
             emailValue.setText(session.email().isBlank() ? "-" : session.email());
             accountIdValue.setText(session.id().isBlank() ? "-" : session.id());
             deviceCountValue.setText(String.valueOf(session.historicalDeviceCount()));
-            loginButton.setVisible(false);
-            loginButton.setManaged(false);
+            webLoginButton.setVisible(false);
+            webLoginButton.setManaged(false);
+            passwordLoginButton.setVisible(false);
+            passwordLoginButton.setManaged(false);
             registerButton.setVisible(false);
             registerButton.setManaged(false);
             logoutButton.setVisible(true);
@@ -619,10 +624,15 @@ public class PreferencesDialog {
             changePasswordButton.setManaged(true);
         };
 
-        loginButton.setDisable(accountService == null);
+        webLoginButton.setDisable(accountService == null);
+        passwordLoginButton.setDisable(accountService == null);
         registerButton.setDisable(accountService == null);
         logoutButton.setDisable(accountService == null);
-        loginButton.setOnAction(event -> {
+        webLoginButton.setOnAction(event -> {
+            AccountDialog.showBrowserLogin(owner, i18n, themeService, accountService);
+            refreshAccountState.run();
+        });
+        passwordLoginButton.setOnAction(event -> {
             AccountDialog.showLogin(owner, i18n, themeService, accountService);
             refreshAccountState.run();
         });
@@ -643,7 +653,8 @@ public class PreferencesDialog {
             refreshAccountState.run();
         });
 
-        HBox actions = new HBox(8, loginButton, registerButton, logoutButton, changePasswordButton);
+        HBox actions = new HBox(8, webLoginButton, passwordLoginButton,
+                registerButton, logoutButton, changePasswordButton);
         actions.setAlignment(Pos.CENTER_LEFT);
 
         GridPane identityForm = settingsForm();

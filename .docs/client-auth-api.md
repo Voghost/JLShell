@@ -19,7 +19,37 @@ Authorization: Bearer <token>
 
 The token is a JWT issued by the website backend. Treat it as a secret.
 
-## Login
+## Browser Login (recommended)
+
+The desktop client generates a PKCE S256 verifier/challenge and a random
+`state`, then starts a temporary HTTP listener bound only to `127.0.0.1`.
+It opens the system browser at:
+
+```text
+/desktop/authorize?code_challenge=...&redirect_uri=http%3A%2F%2F127.0.0.1%3APORT%2Fcallback&state=...&device_id=...&device_name=...
+```
+
+The website performs password, captcha, and MFA checks in the browser. After
+the user approves the device, the website redirects a single-use authorization
+code to the exact loopback URI. The client validates `state` and exchanges the
+code with the original verifier:
+
+```http
+POST /api/v1/desktop-token
+Content-Type: application/json
+
+{
+  "code": "single-use-code",
+  "codeVerifier": "original-pkce-verifier",
+  "redirectUri": "http://127.0.0.1:49152/callback"
+}
+```
+
+The response uses the same desktop `AuthResponse` shape documented below.
+Authorization codes expire quickly and cannot be reused. Browser cookies never
+leave the browser, and the desktop client never receives the user's password.
+
+## Password Login (fallback)
 
 ```http
 POST /api/v1/account/login
@@ -80,8 +110,10 @@ Failure:
 
 Client behavior:
 
-- Store `token`, `expiresAt`, and `account` in the local profile.
-- Store the token in the OS secure store when available.
+- Store `expiresAt` and non-sensitive account metadata in the local profile.
+- Store the token only in the AES-GCM encrypted host secure-settings service.
+- Migrate the legacy plain `account.authToken` value once and immediately
+  remove the plain setting.
 - Do not log the token.
 - If login fails, call `/api/v1/account/captcha?username=<username>` and show
   the returned challenge when `required=true`.
@@ -448,12 +480,15 @@ Client handling:
 ```mermaid
 flowchart TD
   A["App starts"] --> B{"Saved token exists?"}
-  B -- "No" --> C["Show login"]
+  B -- "No" --> C["Show Web login (recommended)\nor password fallback"]
   B -- "Yes" --> D["GET /api/v1/account/me"]
   D -- "200" --> E["Enter app and schedule heartbeat"]
   D -- "401/404" --> C
-  C --> F["POST /api/v1/account/login\n(clientType=desktop)"]
-  F -- "200" --> E
+  C --> F{"Login method"}
+  F -- "Web" --> W["Browser Authorization Code + PKCE\nPOST /api/v1/desktop-token"]
+  F -- "Password" --> P["POST /api/v1/account/login\n(clientType=desktop)"]
+  W -- "200" --> E
+  P -- "200" --> E
   E --> G{"Token near expiry or 15 min elapsed?"}
   G -- "Yes" --> H["POST /api/v1/account/heartbeat"]
   H -- "200" --> I["Store fresh token"]

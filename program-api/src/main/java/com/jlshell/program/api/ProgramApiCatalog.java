@@ -15,6 +15,7 @@ public final class ProgramApiCatalog {
     public static final String CAPABILITY_INVOKE = "capability.invoke";
     public static final String API_TOKEN = "api.token";
     public static final String API_METHODS = "api.methods";
+    public static final String ACCOUNT_STATUS = "account.status";
 
     private static final List<ProgramApiDefinition> DEFINITIONS = List.of(
             api(SESSION_CONNECT, "Open a saved connection by id.", false, "sessionId",
@@ -33,6 +34,8 @@ public final class ProgramApiCatalog {
                     "{\"sessionId\":\"<optional-session-id>\",\"pluginId\":\"<plugin-id>\",\"capability\":\"<capability>\",\"args\":{}}",
                     "pluginId", "capability"),
             api(API_TOKEN, "Return current API token.", false, "token", "{}", (String[]) null),
+            api(ACCOUNT_STATUS, "Return the non-sensitive host account session status.", false,
+                    "{authenticated,username,...}", "{}", (String[]) null),
             api(API_METHODS, "List system API method names.", false, "[...]", "{}", (String[]) null)
     );
 

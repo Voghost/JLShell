@@ -12,4 +12,9 @@ public interface ProgramApiContext {
     String apiToken();
 
     Executor executor();
+
+    /** 宿主账号网关；旧 Host 返回不可用实现。 */
+    default AccountSessionService accountSession() {
+        return AccountSessionService.unavailable();
+    }
 }
