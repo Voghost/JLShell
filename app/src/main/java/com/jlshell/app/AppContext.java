@@ -26,6 +26,7 @@ import com.jlshell.data.crypto.CredentialCipher;
 import com.jlshell.data.crypto.FileSystemMasterKeyProvider;
 import com.jlshell.data.service.JdbiAppSettingsService;
 import com.jlshell.data.service.JdbiCustomColorSchemeStore;
+import com.jlshell.data.service.EncryptedAppSettingsService;
 import com.jlshell.data.JdbiPluginStorage;
 import com.jlshell.data.JdbiSecurePluginStorage;
 import com.jlshell.plugin.loader.CapabilityBusImpl;
@@ -186,7 +187,8 @@ public class AppContext implements AutoCloseable {
                 shortcutRegistry);
         memoryReclaimService = new MemoryReclaimService();
         UpdateService updateService = new UpdateService(appSettingsService, executor);
-        this.accountService = new AccountService(appSettingsService, executor);
+        this.accountService = new AccountService(appSettingsService,
+                new EncryptedAppSettingsService(appSettingsService, credentialCipher), executor);
 
         // 7b. Program API SPI + API server
         ProgramApiRegistry programApiRegistry = new DefaultProgramApiRegistry();

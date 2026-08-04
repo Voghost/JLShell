@@ -2,6 +2,7 @@ package com.jlshell.ui.service.account;
 
 import com.google.gson.Gson;
 import com.jlshell.core.service.AppSettingsService;
+import com.jlshell.core.service.SecureSettingsService;
 import com.jlshell.ui.config.JlshellDefaults;
 import com.jlshell.ui.service.update.UpdateService;
 import org.slf4j.Logger;
@@ -22,6 +23,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 
 /**
  * 账号服务：登录、注册、会话验证、心跳续签、在线状态上报、修改密码、登出。
@@ -35,7 +37,8 @@ public class AccountService {
     public static final String SETTINGS_BASE_URL = "account.baseUrl";
     public static final String SETTINGS_SYNC_ENABLED = "account.sync.enabled";
 
-    private static final String SETTINGS_TOKEN = "account.authToken";
+    private static final String SECURE_TOKEN_KEY = "account.authToken";
+    private static final String LEGACY_SETTINGS_TOKEN = "account.authToken";
     private static final String SETTINGS_ACCOUNT_ID = "account.accountId";
     private static final String SETTINGS_USERNAME = "account.username";
     private static final String SETTINGS_EMAIL = "account.email";
@@ -56,39 +59,48 @@ public class AccountService {
     private static final Duration REPORT_STATS_INTERVAL = Duration.ofMinutes(5);
 
     private final AppSettingsService appSettings;
+    private final SecureSettingsService secureSettings;
     private final ExecutorService executor;
     private final HttpClient httpClient;
     private final Gson gson = new Gson();
     private final Duration heartbeatInterval;
     private final Duration reportStatsInterval;
+    private final DesktopBrowserLogin browserLogin;
 
     private final ScheduledThreadPoolExecutor heartbeatScheduler;
     private volatile ScheduledFuture<?> heartbeatTask;
     private volatile ScheduledFuture<?> reportStatsTask;
+    private volatile BrowserLoginAttempt activeBrowserLogin;
 
     /** 当前活跃连接数，由 MainWindow 维护。 */
     private volatile int liveConnectionCount;
 
-    public AccountService(AppSettingsService appSettings, ExecutorService executor) {
-        this(appSettings, executor, HttpClient.newBuilder()
+    public AccountService(AppSettingsService appSettings, SecureSettingsService secureSettings,
+                          ExecutorService executor) {
+        this(appSettings, secureSettings, executor, HttpClient.newBuilder()
                         .connectTimeout(Duration.ofSeconds(10))
                         .executor(executor)
                         .followRedirects(HttpClient.Redirect.NORMAL)
                         .build(),
-                newScheduler(), HEARTBEAT_INTERVAL, REPORT_STATS_INTERVAL);
+                newScheduler(), HEARTBEAT_INTERVAL, REPORT_STATS_INTERVAL,
+                new DesktopBrowserLogin(executor));
     }
 
-    AccountService(AppSettingsService appSettings, ExecutorService executor, HttpClient httpClient,
+    AccountService(AppSettingsService appSettings, SecureSettingsService secureSettings,
+                   ExecutorService executor, HttpClient httpClient,
                    ScheduledThreadPoolExecutor scheduler, Duration heartbeatInterval,
-                   Duration reportStatsInterval) {
+                   Duration reportStatsInterval, DesktopBrowserLogin browserLogin) {
         this.appSettings = Objects.requireNonNull(appSettings);
+        this.secureSettings = Objects.requireNonNull(secureSettings);
         this.executor = Objects.requireNonNull(executor);
         this.httpClient = Objects.requireNonNull(httpClient);
         this.heartbeatScheduler = Objects.requireNonNull(scheduler);
         this.heartbeatInterval = requirePositive(heartbeatInterval, "heartbeatInterval");
         this.reportStatsInterval = requirePositive(reportStatsInterval, "reportStatsInterval");
+        this.browserLogin = Objects.requireNonNull(browserLogin);
         heartbeatScheduler.setRemoveOnCancelPolicy(true);
         heartbeatScheduler.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+        migrateLegacyToken();
     }
 
     private static ScheduledThreadPoolExecutor newScheduler() {
@@ -121,6 +133,32 @@ public class AccountService {
                 captchaToken, captchaAnswer, "desktop",
                 ensureDeviceId(), getDeviceName());
         return authenticate("/api/v1/account/login", body);
+    }
+
+    /** 使用系统浏览器完成 Authorization Code + PKCE 登录。 */
+    public synchronized BrowserLoginAttempt loginWithBrowser() {
+        if (activeBrowserLogin != null && !activeBrowserLogin.completion().isDone()) {
+            return activeBrowserLogin;
+        }
+        try {
+            DesktopBrowserLogin.Attempt transport = browserLogin.start(
+                    URI.create(baseUrl()), ensureDeviceId(), getDeviceName());
+            CompletableFuture<AccountSession> completion = transport.completion()
+                    .thenCompose(exchange -> authenticate("/api/v1/desktop-token",
+                            new DesktopTokenRequest(exchange.code(), exchange.verifier(), exchange.redirectUri())));
+            BrowserLoginAttempt attempt = new BrowserLoginAttempt(
+                    transport.authorizationUri(), transport.browserOpened(), completion,
+                    transport::openBrowser, transport::cancel);
+            activeBrowserLogin = attempt;
+            completion.whenComplete((session, error) -> {
+                synchronized (AccountService.this) {
+                    if (activeBrowserLogin == attempt) activeBrowserLogin = null;
+                }
+            });
+            return attempt;
+        } catch (Exception error) {
+            throw new AccountException("Failed to start browser login", error);
+        }
     }
 
     /** 注册（带邮箱验证码）。 */
@@ -193,7 +231,7 @@ public class AccountService {
     public CompletableFuture<AccountSession> validateSession() {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                String token = appSettings.get(SETTINGS_TOKEN, "");
+                String token = token();
                 if (token.isBlank()) {
                     return null;
                 }
@@ -234,7 +272,7 @@ public class AccountService {
     public CompletableFuture<AccountSession> heartbeat() {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                String token = appSettings.get(SETTINGS_TOKEN, "");
+                String token = token();
                 if (token.isBlank()) {
                     stopHeartbeat();
                     return null;
@@ -275,7 +313,7 @@ public class AccountService {
     public CompletableFuture<AccountSession> reportStats(int connectionCount) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                String token = appSettings.get(SETTINGS_TOKEN, "");
+                String token = token();
                 if (token.isBlank()) {
                     return null;
                 }
@@ -313,7 +351,7 @@ public class AccountService {
     public CompletableFuture<AccountSession> changePassword(String oldPassword, String newPassword) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                String token = appSettings.get(SETTINGS_TOKEN, "");
+                String token = token();
                 if (token.isBlank()) {
                     throw new AccountException("Not signed in", null);
                 }
@@ -348,7 +386,7 @@ public class AccountService {
         stopReportStats();
         return CompletableFuture.runAsync(() -> {
             try {
-                String token = appSettings.get(SETTINGS_TOKEN, "");
+                String token = token();
                 if (!token.isBlank()) {
                     HttpRequest request = HttpRequest.newBuilder(endpoint("/api/v1/account/logout"))
                             .timeout(Duration.ofSeconds(10))
@@ -370,7 +408,7 @@ public class AccountService {
 
     /** 获取当前会话（从本地设置读取，不验证）。 */
     public Optional<AccountSession> currentSession() {
-        String token = appSettings.get(SETTINGS_TOKEN, "");
+        String token = token();
         if (token.isBlank()) {
             return Optional.empty();
         }
@@ -422,12 +460,38 @@ public class AccountService {
 
     /** 关闭调度器。在 AppContext.close() 中调用。 */
     public void shutdown() {
+        BrowserLoginAttempt attempt = activeBrowserLogin;
+        if (attempt != null) attempt.cancel();
         stopHeartbeat();
         stopReportStats();
         heartbeatScheduler.shutdownNow();
     }
 
     // ── 设备 ID ──────────────────────────────────────────────────────────
+
+    private void migrateLegacyToken() {
+        String legacy = appSettings.get(LEGACY_SETTINGS_TOKEN, "");
+        try {
+            if (secureSettings.get(SECURE_TOKEN_KEY).isEmpty() && !legacy.isBlank()) {
+                secureSettings.set(SECURE_TOKEN_KEY, legacy);
+            }
+            if (!legacy.isBlank()) {
+                appSettings.remove(LEGACY_SETTINGS_TOKEN);
+            }
+        } catch (RuntimeException error) {
+            log.warn("Failed to migrate encrypted account token: {}", error.getMessage());
+        }
+    }
+
+    private String token() {
+        try {
+            return secureSettings.get(SECURE_TOKEN_KEY).orElse("");
+        } catch (RuntimeException error) {
+            log.warn("Encrypted account token is unreadable and will be cleared: {}", error.getMessage());
+            secureSettings.remove(SECURE_TOKEN_KEY);
+            return "";
+        }
+    }
 
     /** 获取或生成设备 ID。首次启动时生成 UUID 并持久化，之后永不改变。 */
     private String ensureDeviceId() {
@@ -523,11 +587,11 @@ public class AccountService {
         appSettings.set(SETTINGS_TERM_COUNT, String.valueOf(session.terminalCount()));
         appSettings.set(SETTINGS_HIST_DEVICE_COUNT, String.valueOf(session.historicalDeviceCount()));
         // Token 最后替换；其他字段全部成功写入后，新会话才对读取方可见。
-        appSettings.set(SETTINGS_TOKEN, session.token());
+        secureSettings.set(SECURE_TOKEN_KEY, session.token());
     }
 
     private synchronized boolean replaceSessionIfTokenMatches(String expectedToken, AccountSession session) {
-        if (!expectedToken.equals(appSettings.get(SETTINGS_TOKEN, ""))) {
+        if (!expectedToken.equals(token())) {
             return false;
         }
         persist(session);
@@ -536,7 +600,7 @@ public class AccountService {
 
     /** 统计接口不返回新 Token，始终保留心跳可能刚刚替换的当前 Token。 */
     private synchronized AccountSession updateAccountFromStats(MeResponse me, String expectedAccountId) {
-        String currentToken = appSettings.get(SETTINGS_TOKEN, "");
+        String currentToken = token();
         String currentAccountId = appSettings.get(SETTINGS_ACCOUNT_ID, "");
         if (currentToken.isBlank()
                 || !Objects.equals(expectedAccountId, currentAccountId)
@@ -549,7 +613,8 @@ public class AccountService {
     }
 
     private synchronized void clearSession() {
-        appSettings.remove(SETTINGS_TOKEN);
+        secureSettings.remove(SECURE_TOKEN_KEY);
+        appSettings.remove(LEGACY_SETTINGS_TOKEN);
         appSettings.remove(SETTINGS_ACCOUNT_ID);
         appSettings.remove(SETTINGS_USERNAME);
         appSettings.remove(SETTINGS_EMAIL);
@@ -657,6 +722,8 @@ public class AccountService {
                                 String captchaToken, String captchaAnswer,
                                 String clientType, String deviceId, String deviceName) {}
 
+    private record DesktopTokenRequest(String code, String codeVerifier, String redirectUri) {}
+
     private record RegisterRequest(String username, String email, String password,
                                    String verificationCode) {}
 
@@ -696,6 +763,38 @@ public class AccountService {
     /** 验证码挑战。imageBase64 为 data URI（如 "data:image/png;base64,..."），question 为文本验证码（两者互斥）。 */
     public record CaptchaChallenge(boolean required, String token, String question,
                                    String imageBase64) {}
+
+    /** 正在进行的浏览器登录，可用于重新打开授权页、取消或监听最终账号会话。 */
+    public static final class BrowserLoginAttempt {
+        private final URI authorizationUri;
+        private volatile boolean browserOpened;
+        private final CompletableFuture<AccountSession> completion;
+        private final BooleanSupplier browserOpener;
+        private final Runnable canceller;
+
+        private BrowserLoginAttempt(URI authorizationUri, boolean browserOpened,
+                                    CompletableFuture<AccountSession> completion,
+                                    BooleanSupplier browserOpener, Runnable canceller) {
+            this.authorizationUri = authorizationUri;
+            this.browserOpened = browserOpened;
+            this.completion = completion;
+            this.browserOpener = browserOpener;
+            this.canceller = canceller;
+        }
+
+        public URI authorizationUri() { return authorizationUri; }
+
+        public boolean browserOpened() { return browserOpened; }
+
+        public CompletableFuture<AccountSession> completion() { return completion; }
+
+        public boolean openBrowser() {
+            browserOpened = browserOpener.getAsBoolean() || browserOpened;
+            return browserOpened;
+        }
+
+        public void cancel() { canceller.run(); }
+    }
 
     /** 账号操作通用异常。 */
     public static class AccountException extends RuntimeException {

@@ -17,6 +17,8 @@ import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
+import javafx.scene.input.Clipboard;
+import javafx.scene.input.ClipboardContent;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
@@ -32,6 +34,71 @@ public final class AccountDialog {
     public static void showLogin(Stage owner, I18nService i18n, ThemeService themeService,
                                  AccountService accountService) {
         show(owner, i18n, themeService, accountService, false);
+    }
+
+    public static void showBrowserLogin(Stage owner, I18nService i18n, ThemeService themeService,
+                                        AccountService accountService) {
+        final AccountService.BrowserLoginAttempt attempt;
+        try {
+            attempt = accountService.loginWithBrowser();
+        } catch (RuntimeException error) {
+            showError(owner, i18n, themeService, resolveErrorMessage(error, i18n));
+            return;
+        }
+
+        Dialog<Void> dialog = new Dialog<>();
+        dialog.setTitle(i18n.get("account.login.web.title"));
+        dialog.setHeaderText(null);
+        if (owner != null) dialog.initOwner(owner);
+        themeService.applyToDialog(dialog);
+
+        Label status = new Label(i18n.get(attempt.browserOpened()
+                ? "account.login.web.waiting" : "account.login.web.manual"));
+        status.setWrapText(true);
+        status.setMaxWidth(480);
+        TextField url = new TextField(attempt.authorizationUri().toString());
+        url.setEditable(false);
+        url.setPrefColumnCount(48);
+        VBox content = new VBox(10, status, url);
+        content.setPadding(new Insets(18, 20, 8, 20));
+        dialog.getDialogPane().setContent(content);
+
+        ButtonType reopenType = new ButtonType(i18n.get("account.login.web.reopen"),
+                ButtonBar.ButtonData.LEFT);
+        ButtonType copyType = new ButtonType(i18n.get("account.login.web.copy"),
+                ButtonBar.ButtonData.LEFT);
+        dialog.getDialogPane().getButtonTypes().addAll(reopenType, copyType, ButtonType.CANCEL);
+        Button reopen = (Button) dialog.getDialogPane().lookupButton(reopenType);
+        Button copy = (Button) dialog.getDialogPane().lookupButton(copyType);
+        reopen.addEventFilter(javafx.event.ActionEvent.ACTION, event -> {
+            event.consume();
+            if (!attempt.openBrowser()) status.setText(i18n.get("account.login.web.manual"));
+        });
+        copy.addEventFilter(javafx.event.ActionEvent.ACTION, event -> {
+            event.consume();
+            ClipboardContent clipboard = new ClipboardContent();
+            clipboard.putString(attempt.authorizationUri().toString());
+            Clipboard.getSystemClipboard().setContent(clipboard);
+            status.setText(i18n.get("account.login.web.copied"));
+        });
+
+        boolean[] completed = {false};
+        attempt.completion().whenComplete((session, error) -> Platform.runLater(() -> {
+            completed[0] = true;
+            if (error == null) {
+                dialog.close();
+                showInfo(owner, i18n, themeService, i18n.get("account.login.success"));
+            } else {
+                status.setText(i18n.get("account.login.web.failed",
+                        resolveErrorMessage(error, i18n)));
+                reopen.setDisable(true);
+                copy.setDisable(true);
+            }
+        }));
+        dialog.setOnCloseRequest(event -> {
+            if (!completed[0]) attempt.cancel();
+        });
+        dialog.showAndWait();
     }
 
     public static void showRegister(Stage owner, I18nService i18n, ThemeService themeService,

@@ -584,9 +584,15 @@ public class MainWindow {
             });
             accountMenu.getItems().addAll(signedIn, settings, new SeparatorMenuItem(), logout);
         } else {
-            MenuItem login = new MenuItem(i18nService.get("account.login.action"));
-            login.setDisable(accountService == null);
-            login.setOnAction(event -> {
+            MenuItem webLogin = new MenuItem(i18nService.get("account.login.web.action"));
+            webLogin.setDisable(accountService == null);
+            webLogin.setOnAction(event -> {
+                AccountDialog.showBrowserLogin(stage, i18nService, themeService, accountService);
+                rebuildAccountMenu(accountMenu, stage);
+            });
+            MenuItem passwordLogin = new MenuItem(i18nService.get("account.login.password.action"));
+            passwordLogin.setDisable(accountService == null);
+            passwordLogin.setOnAction(event -> {
                 AccountDialog.showLogin(stage, i18nService, themeService, accountService);
                 rebuildAccountMenu(accountMenu, stage);
             });
@@ -598,7 +604,8 @@ public class MainWindow {
             });
             MenuItem settings = new MenuItem(i18nService.get("account.settings"));
             settings.setOnAction(event -> openPreferences(stage, PreferencesDialog.TAB_ACCOUNT));
-            accountMenu.getItems().addAll(login, register, new SeparatorMenuItem(), settings);
+            accountMenu.getItems().addAll(webLogin, passwordLogin, register,
+                    new SeparatorMenuItem(), settings);
         }
     }
 
