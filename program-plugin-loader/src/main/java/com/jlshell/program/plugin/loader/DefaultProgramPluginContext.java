@@ -8,6 +8,7 @@ import com.jlshell.plugin.api.PluginContext;
 import com.jlshell.plugin.api.ProgramPluginContext;
 import com.jlshell.plugin.api.SshSessionContext;
 import com.jlshell.plugin.api.event.HostEvents;
+import com.jlshell.plugin.api.connection.ProgramConnectionIntegration;
 import com.jlshell.plugin.api.project.ProjectIntegration;
 import com.jlshell.plugin.api.rpc.CapabilityBus;
 import com.jlshell.plugin.api.rpc.CapabilityRegistry;
@@ -36,6 +37,7 @@ public class DefaultProgramPluginContext implements ProgramPluginContext, Plugin
     private final ProjectIntegration projectIntegration;
     private final HostEvents hostEvents;
     private final ProgramSessionIntegration sessionIntegration;
+    private final ProgramConnectionIntegration connectionIntegration;
     private final PluginAccessPolicy accessPolicy;
     private final AccountSessionService accountSession;
     private final Callbacks callbacks;
@@ -52,6 +54,7 @@ public class DefaultProgramPluginContext implements ProgramPluginContext, Plugin
                                        ProjectIntegration projectIntegration,
                                        HostEvents hostEvents,
                                        ProgramSessionIntegration sessionIntegration,
+                                       ProgramConnectionIntegration connectionIntegration,
                                        PluginAccessPolicy accessPolicy,
                                        AccountSessionService accountSession,
                                        Callbacks callbacks) {
@@ -65,6 +68,8 @@ public class DefaultProgramPluginContext implements ProgramPluginContext, Plugin
         this.hostEvents = hostEvents == null ? HostEvents.unavailable() : hostEvents;
         this.sessionIntegration = sessionIntegration == null
                 ? ProgramSessionIntegration.unavailable() : sessionIntegration;
+        this.connectionIntegration = connectionIntegration == null
+                ? ProgramConnectionIntegration.unavailable() : connectionIntegration;
         this.accessPolicy = accessPolicy == null ? PluginAccessPolicy.allowAll() : accessPolicy;
         this.accountSession = accountSession == null ? AccountSessionService.unavailable() : accountSession;
         this.callbacks = callbacks;
@@ -76,6 +81,7 @@ public class DefaultProgramPluginContext implements ProgramPluginContext, Plugin
         this(pluginId, registry, capabilityBus, storage,
                 SecureStorage.unavailable(), ProjectIntegration.unavailable(),
                 HostEvents.unavailable(), ProgramSessionIntegration.unavailable(),
+                ProgramConnectionIntegration.unavailable(),
                 PluginAccessPolicy.allowAll(), AccountSessionService.unavailable(), callbacks);
     }
 
@@ -104,6 +110,8 @@ public class DefaultProgramPluginContext implements ProgramPluginContext, Plugin
     @Override public HostEvents hostEvents() { return hostEvents; }
 
     @Override public ProgramSessionIntegration sessionIntegration() { return sessionIntegration; }
+
+    @Override public ProgramConnectionIntegration connectionIntegration() { return connectionIntegration; }
 
     @Override public AccountSessionService accountSession() { return accountSession; }
 
@@ -138,6 +146,7 @@ public class DefaultProgramPluginContext implements ProgramPluginContext, Plugin
         closeIfNeeded(projectIntegration);
         closeIfNeeded(hostEvents);
         closeIfNeeded(sessionIntegration);
+        closeIfNeeded(connectionIntegration);
     }
 
     private void closeIfNeeded(Object value) {

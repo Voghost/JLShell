@@ -58,6 +58,7 @@ public class ProgramPluginManager {
     private final Function<String, SecureStorage> secureStorageFactory;
     private final ProjectIntegrationRegistry projectIntegrationRegistry;
     private final ProgramSessionIntegrationRegistry sessionIntegrationRegistry;
+    private final ProgramConnectionIntegrationRegistry connectionIntegrationRegistry;
     private final DefaultProgramPluginContext.Callbacks callbacks;
     private final ProgramApiContext programApiContext;
     private final AccountSessionService accountSessionService;
@@ -157,6 +158,7 @@ public class ProgramPluginManager {
         this.projectIntegrationRegistry = projectIntegrationRegistry == null
                 ? ProjectIntegrationRegistry.shared() : projectIntegrationRegistry;
         this.sessionIntegrationRegistry = new ProgramSessionIntegrationRegistry(pluginManager);
+        this.connectionIntegrationRegistry = new ProgramConnectionIntegrationRegistry();
     }
 
     public void ensureLoaded() {
@@ -287,6 +289,7 @@ public class ProgramPluginManager {
             active.remove(descriptor.id(), descriptor.instance());
             pluginManager.accessController().unregister(descriptor.id());
             projectIntegrationRegistry.clearForPlugin(descriptor.id());
+            connectionIntegrationRegistry.clearForPlugin(descriptor.id());
             globalRegistry.clearForPlugin(descriptor.id());
             if (pluginActivated) {
                 try {
@@ -309,6 +312,7 @@ public class ProgramPluginManager {
         } finally {
             pluginManager.accessController().unregister(pluginId);
             projectIntegrationRegistry.clearForPlugin(pluginId);
+            connectionIntegrationRegistry.clearForPlugin(pluginId);
             globalRegistry.clearForPlugin(pluginId);
             plugins.stream()
                     .filter(descriptor -> descriptor.id().equals(pluginId))
@@ -338,6 +342,11 @@ public class ProgramPluginManager {
 
     public ProgramSessionIntegrationRegistry sessionIntegrationRegistry() {
         return sessionIntegrationRegistry;
+    }
+
+    /** Program 插件注册的连接前本地回环路由。 */
+    public ProgramConnectionIntegrationRegistry connectionIntegrationRegistry() {
+        return connectionIntegrationRegistry;
     }
 
     public void setThemeName(String name) {
@@ -371,6 +380,7 @@ public class ProgramPluginManager {
                 projectIntegrationRegistry.scoped(plugin.id()),
                 PluginRuntimeServices.hostEvents("program/" + plugin.id()),
                 sessionIntegrationRegistry.scoped(plugin.id()),
+                connectionIntegrationRegistry.scoped(plugin.id()),
                 pluginManager.accessController(),
                 accountSessionService,
                 callbacks
