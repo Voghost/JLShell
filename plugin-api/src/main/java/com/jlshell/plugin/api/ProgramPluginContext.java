@@ -5,6 +5,7 @@ import java.util.Locale;
 import com.jlshell.plugin.api.rpc.CapabilityBus;
 import com.jlshell.plugin.api.rpc.CapabilityRegistry;
 import com.jlshell.plugin.api.event.HostEvents;
+import com.jlshell.plugin.api.connection.ProgramConnectionIntegration;
 import com.jlshell.plugin.api.project.ProjectIntegration;
 import com.jlshell.plugin.api.security.PluginAccessPolicy;
 import com.jlshell.plugin.api.session.ProgramSessionIntegration;
@@ -44,6 +45,13 @@ public interface ProgramPluginContext {
      */
     default ProgramSessionIntegration sessionIntegration() {
         return ProgramSessionIntegration.unavailable();
+    }
+
+    /**
+     * 注册连接建立前的本地回环路由。宿主不会向插件暴露 SSH 凭据，且只接受回环目标。
+     */
+    default ProgramConnectionIntegration connectionIntegration() {
+        return ProgramConnectionIntegration.unavailable();
     }
 
     /**
