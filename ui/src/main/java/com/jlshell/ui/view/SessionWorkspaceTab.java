@@ -13,6 +13,7 @@ import com.jlshell.terminal.model.TerminalColorScheme;
 import com.jlshell.terminal.service.TerminalViewFactory;
 import com.jlshell.ui.model.ConnectionProfile;
 import com.jlshell.ui.service.ConnectionProfileService;
+import com.jlshell.ui.service.ProgramConnectionRouteService;
 import com.jlshell.plugin.loader.PluginManager;
 import com.jlshell.program.plugin.loader.ProgramSessionIntegrationRegistry;
 import com.jlshell.plugin.api.rpc.CapabilityBus;
@@ -58,6 +59,8 @@ public class SessionWorkspaceTab extends Tab {
     private final ThemeService themeService;
     private final PluginManager pluginManager;
     private final ProgramSessionIntegrationRegistry programSessionRegistry;
+    private final ProgramConnectionRouteService connectionRouteService;
+    private AutoCloseable connectionRouteLease;
     private final CapabilityBus capabilityBus;
     private final java.util.function.Function<String, PluginStorage> storageFactory;
     private final Runnable sessionCountChanged;
@@ -91,6 +94,8 @@ public class SessionWorkspaceTab extends Tab {
             ThemeService themeService,
             PluginManager pluginManager,
             ProgramSessionIntegrationRegistry programSessionRegistry,
+            ProgramConnectionRouteService connectionRouteService,
+            AutoCloseable connectionRouteLease,
             CapabilityBus capabilityBus,
             java.util.function.Function<String, PluginStorage> storageFactory,
             Runnable sessionCountChanged
@@ -109,6 +114,8 @@ public class SessionWorkspaceTab extends Tab {
         this.themeService = themeService;
         this.pluginManager = pluginManager;
         this.programSessionRegistry = programSessionRegistry;
+        this.connectionRouteService = connectionRouteService;
+        this.connectionRouteLease = connectionRouteLease;
         this.capabilityBus = capabilityBus;
         this.storageFactory = storageFactory;
         this.sessionCountChanged = sessionCountChanged == null ? () -> { } : sessionCountChanged;
@@ -211,6 +218,7 @@ public class SessionWorkspaceTab extends Tab {
                 })
                 .thenApply(unused -> (Void) null)
                 .whenComplete((unused, throwable) -> {
+                    releaseConnectionRoute();
                     notifySessionCountChanged();
                     FxThread.run(this::disposeUiReferences);
                 });
@@ -218,6 +226,7 @@ public class SessionWorkspaceTab extends Tab {
 
     private void disposeUiReferences() {
         sshSession.removeDisconnectListener(statsDisconnectListener);
+        releaseConnectionRoute();
         if (sftpPane != null) {
             sftpPane.dispose();
             sftpPane = null;
@@ -309,17 +318,31 @@ public class SessionWorkspaceTab extends Tab {
                             });
                 })
                 .thenCompose(unused -> {
+                    releaseConnectionRoute();
                     // 3. 后台线程：toConnectionRequest 含 DB 查询 + AES 解密
                     log.info("[Reconnect] Re-establishing SSH connection for '{}'", connectionProfile.displayName());
                     return CompletableFuture.supplyAsync(
                                     () -> connectionProfileService.toConnectionRequest(connectionProfile.id()))
-                            .thenCompose(sessionManager::openSession);
+                            .thenCompose(request -> connectionRouteService == null
+                                    ? CompletableFuture.completedFuture(new ProgramConnectionRouteService.RoutedConnection(
+                                            request, () -> { }))
+                                    : connectionRouteService.route(connectionProfile, request))
+                            .thenCompose(routed -> sessionManager.openSession(routed.request())
+                                    .handle((session, error) -> {
+                                        if (error != null) {
+                                            ProgramConnectionRouteService.closeQuietly(routed.lease());
+                                            throw new java.util.concurrent.CompletionException(error);
+                                        }
+                                        return new RoutedSession(session, routed.lease());
+                                    }));
                 })
-                .thenCompose(newSession -> {
+                .thenCompose(routed -> {
+                    com.jlshell.core.session.SshSession newSession = routed.session();
                     log.info("[Reconnect] SSH reconnected for session {}", newSession.sessionId());
                     // 4. 在 FX 线程替换 sshSession 和终端视图
                     return FxThread.supplyAsync(() -> {
                         this.sshSession = newSession;
+                        this.connectionRouteLease = routed.routeLease();
                         this.sshSession.addDisconnectListener(statsDisconnectListener);
                         notifySessionCountChanged();
                         // 创建新的终端视图
@@ -361,6 +384,14 @@ public class SessionWorkspaceTab extends Tab {
         } catch (RuntimeException e) {
             log.warn("Failed to update account connection statistics", e);
         }
+    }
+
+    private void releaseConnectionRoute() {
+        ProgramConnectionRouteService.closeQuietly(connectionRouteLease);
+        connectionRouteLease = null;
+    }
+
+    private record RoutedSession(com.jlshell.core.session.SshSession session, AutoCloseable routeLease) {
     }
 
     private void resetFilePaneAfterReconnect() {

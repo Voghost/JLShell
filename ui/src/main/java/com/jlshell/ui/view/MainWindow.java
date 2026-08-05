@@ -15,6 +15,7 @@ import java.util.stream.Collectors;
 
 import com.jlshell.api.server.ApiServer;
 import com.jlshell.core.model.ConnectionType;
+import com.jlshell.core.model.ConnectionRequest;
 import com.jlshell.core.service.AppSettingsService;
 import com.jlshell.core.service.FontProfileService;
 import com.jlshell.core.service.SessionManager;
@@ -35,6 +36,7 @@ import com.jlshell.ui.service.ConnectionShareService;
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.service.LocalShellLauncher;
 import com.jlshell.ui.service.MemoryReclaimService;
+import com.jlshell.ui.service.ProgramConnectionRouteService;
 import com.jlshell.ui.service.SidebarExpansionStateStore;
 import com.jlshell.ui.service.account.AccountService;
 import com.jlshell.ui.service.account.AccountConnectionCounter;
@@ -132,6 +134,7 @@ public class MainWindow {
     private final ExecutorService executor;
     private final PluginManager pluginManager;
     private final ProgramPluginManager programPluginManager;
+    private final ProgramConnectionRouteService connectionRouteService;
     private final ApiServer apiServer;
     private final CapabilityBus capabilityBus;
     private final VaultService vaultService;
@@ -236,6 +239,7 @@ public class MainWindow {
         this.maxFolderDepth = maxFolderDepth;
         this.pluginManager = pluginManager;
         this.programPluginManager = programPluginManager;
+        this.connectionRouteService = new ProgramConnectionRouteService(programPluginManager);
         this.apiServer = apiServer;
         this.capabilityBus = capabilityBus;
         this.storageFactory = storageFactory;
@@ -2339,8 +2343,16 @@ public class MainWindow {
     private void connectSsh(ConnectionProfile selected) {
         // toConnectionRequest 含 DB 查询 + AES 解密，必须在后台线程执行
         CompletableFuture.supplyAsync(() -> connectionProfileService.toConnectionRequest(selected.id()), executor)
-                .thenCompose(sessionManager::openSession)
-                .whenComplete((sshSession, throwable) -> {
+                .thenCompose(request -> connectionRouteService.route(selected, request))
+                .thenCompose(routed -> sessionManager.openSession(routed.request())
+                        .handle((session, error) -> {
+                            if (error != null) {
+                                ProgramConnectionRouteService.closeQuietly(routed.lease());
+                                throw new java.util.concurrent.CompletionException(error);
+                            }
+                            return new RoutedSshSession(session, routed.lease());
+                        }))
+                .whenComplete((routedSession, throwable) -> {
                     if (throwable != null) {
                         log.error("SSH connection failed for {}", selected.summary(), throwable);
                         FxThread.run(() -> {
@@ -2350,12 +2362,14 @@ public class MainWindow {
                         });
                         return;
                     }
+                    com.jlshell.core.session.SshSession sshSession = routedSession.session();
                     reportAccountStats();
                     log.info("SSH connection future completed for session {}", sshSession.sessionId());
                     FxThread.run(() -> {
                         try {
-                            openWorkspace(selected, sshSession);
+                            openWorkspace(selected, sshSession, routedSession.routeLease());
                         } catch (Throwable t) {
+                            ProgramConnectionRouteService.closeQuietly(routedSession.routeLease());
                             finishConnecting(selected);
                             throw t;
                         }
@@ -2363,7 +2377,8 @@ public class MainWindow {
                 });
     }
 
-    private void openWorkspace(ConnectionProfile profile, com.jlshell.core.session.SshSession sshSession) {
+    private void openWorkspace(ConnectionProfile profile, com.jlshell.core.session.SshSession sshSession,
+                               AutoCloseable routeLease) {
         log.info("Opening workspace for session {}", sshSession.sessionId());
         // recordSessionOpened 含 DB 写入，移到后台线程
         CompletableFuture.supplyAsync(
@@ -2388,6 +2403,8 @@ public class MainWindow {
                     themeService,
                     pluginManager,
                     programPluginManager == null ? null : programPluginManager.sessionIntegrationRegistry(),
+                    connectionRouteService,
+                    routeLease,
                     capabilityBus,
                     storageFactory,
                     this::reportAccountStats
@@ -2430,6 +2447,9 @@ public class MainWindow {
                 }
             }));
         }));
+    }
+
+    private record RoutedSshSession(com.jlshell.core.session.SshSession session, AutoCloseable routeLease) {
     }
 
     private void applyTopBarCollapsedAfterTabAdded(javafx.scene.control.Tab tab) {
