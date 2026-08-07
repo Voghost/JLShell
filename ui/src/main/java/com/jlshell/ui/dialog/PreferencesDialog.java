@@ -75,6 +75,8 @@ import javafx.scene.text.TextAlignment;
 import javafx.stage.Stage;
 import javafx.animation.PauseTransition;
 import javafx.util.Duration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.awt.Canvas;
 import java.awt.FontMetrics;
@@ -97,6 +99,8 @@ import java.util.stream.Collectors;
  * 采用 TabPane 结构，每个 Tab 对应一类配置。
  */
 public class PreferencesDialog {
+
+    private static final Logger log = LoggerFactory.getLogger(PreferencesDialog.class);
 
     public static final int TAB_GENERAL = 0;
     public static final int TAB_ACCOUNT = 1;
@@ -1890,7 +1894,7 @@ public class PreferencesDialog {
         pane.getStyleClass().add("plugin-manager-pane");
 
         ObservableList<PluginDocEntry> installedEntries = FXCollections.observableArrayList(
-                pluginDocEntries(programPluginManager, pluginManager));
+                pluginDocEntries(i18n, programPluginManager, pluginManager));
         TabPane pluginTabs = new TabPane();
         pluginTabs.getStyleClass().add("plugin-manager-tabs");
         pluginTabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
@@ -2090,7 +2094,7 @@ public class PreferencesDialog {
                         }
                         if (result.scope() == com.jlshell.plugin.api.PluginScope.SESSION && pluginManager != null) {
                             pluginManager.reloadPlugins();
-                            installedEntries.setAll(pluginDocEntries(programPluginManager, pluginManager));
+                            installedEntries.setAll(pluginDocEntries(i18n, programPluginManager, pluginManager));
                             status.setText(i18n.get("plugins.store.installedSession"));
                         } else {
                             status.setText(i18n.get("plugins.store.installedProgram"));
@@ -2256,7 +2260,7 @@ public class PreferencesDialog {
                     if (programPluginManager == null) return;
                     programPluginManager.setPluginEnabled(entry.metadata().id(), enable);
                 }
-                entries.setAll(pluginDocEntries(programPluginManager, pluginManager));
+                entries.setAll(pluginDocEntries(i18n, programPluginManager, pluginManager));
                 entries.stream()
                         .filter(item -> item.scope() == entry.scope()
                                 && item.metadata().id().equals(entry.metadata().id()))
@@ -2520,21 +2524,87 @@ public class PreferencesDialog {
         return cause.getMessage() == null ? cause.getClass().getSimpleName() : cause.getMessage();
     }
 
-    private static List<PluginDocEntry> pluginDocEntries(ProgramPluginManager programPluginManager,
+    private static List<PluginDocEntry> pluginDocEntries(I18nService i18n,
+                                                         ProgramPluginManager programPluginManager,
                                                          PluginManager pluginManager) {
         List<PluginDocEntry> entries = new ArrayList<>();
         if (programPluginManager != null) {
-            programPluginManager.getInstalledPlugins().forEach(desc -> {
-                boolean enabled = programPluginManager.isPluginEnabled(desc.id());
-                javafx.scene.Node settings = enabled ? desc.instance().settingsView(desc.context()) : null;
-                entries.add(new PluginDocEntry(desc.metadata(), settings, enabled));
-            });
+            try {
+                for (var desc : programPluginManager.getInstalledPlugins()) {
+                    try {
+                        boolean enabled = programPluginManager.isPluginEnabled(desc.id());
+                        javafx.scene.Node settings = safeProgramPluginSettings(i18n, desc, enabled);
+                        entries.add(new PluginDocEntry(desc.metadata(), settings, enabled));
+                    } catch (Throwable error) {
+                        log.warn("Failed to inspect program plugin {} while building preferences",
+                                safePluginId(desc), error);
+                    }
+                }
+            } catch (Throwable error) {
+                log.warn("Failed to enumerate program plugins while building preferences", error);
+            }
         }
         if (pluginManager != null) {
-            pluginManager.getInstalledPlugins().forEach(desc -> entries.add(
-                    new PluginDocEntry(desc.metadata(), null, pluginManager.isPluginEnabled(desc.id()))));
+            try {
+                for (var desc : pluginManager.getInstalledPlugins()) {
+                    try {
+                        entries.add(new PluginDocEntry(desc.metadata(), null,
+                                pluginManager.isPluginEnabled(desc.id())));
+                    } catch (Throwable error) {
+                        log.warn("Failed to inspect session plugin {} while building preferences",
+                                safePluginId(desc), error);
+                    }
+                }
+            } catch (Throwable error) {
+                log.warn("Failed to enumerate session plugins while building preferences", error);
+            }
         }
         return entries;
+    }
+
+    private static String safePluginId(Object descriptor) {
+        try {
+            if (descriptor instanceof com.jlshell.program.plugin.loader.ProgramPluginDescriptor program) {
+                return program.id();
+            }
+            if (descriptor instanceof com.jlshell.plugin.loader.PluginDescriptor session) {
+                return session.id();
+            }
+        } catch (Throwable ignored) {
+            // 记录原始错误时，插件自身的访问器也不能再次破坏设置页。
+        }
+        return "<unknown>";
+    }
+
+    /**
+     * 插件设置页属于插件代码，必须与宿主设置窗口隔离。
+     * 不兼容的二进制可能抛出 LinkageError，而不只是 RuntimeException，因此这里记录并
+     * 将失败降级为可见提示，避免整个 Preferences 页面无法打开。
+     */
+    private static javafx.scene.Node safeProgramPluginSettings(
+            I18nService i18n,
+            com.jlshell.program.plugin.loader.ProgramPluginDescriptor desc,
+            boolean enabled) {
+        if (!enabled) return null;
+        try {
+            return desc.instance().settingsView(desc.context());
+        } catch (Throwable error) {
+            log.warn("Failed to build settings view for program plugin {} version {}",
+                    desc.id(), desc.version(), error);
+            return pluginSettingsErrorView(i18n, desc);
+        }
+    }
+
+    private static javafx.scene.Node pluginSettingsErrorView(
+            I18nService i18n,
+            com.jlshell.program.plugin.loader.ProgramPluginDescriptor desc) {
+        Label title = new Label(i18n.get("plugins.settingsUnavailable"));
+        title.setWrapText(true);
+        Label detail = new Label(i18n.get("plugins.settingsUnavailableMessage", desc.displayName()));
+        detail.setWrapText(true);
+        VBox box = new VBox(8, title, detail);
+        box.setPadding(new Insets(10));
+        return box;
     }
 
     private record PluginDocEntry(com.jlshell.plugin.api.PluginMetadata metadata,
