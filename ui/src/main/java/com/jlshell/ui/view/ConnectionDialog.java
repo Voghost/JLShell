@@ -21,6 +21,7 @@ import com.jlshell.ui.service.ConnectionShareService;
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.service.VaultKeyService;
 import com.jlshell.ui.service.VaultService;
+import com.jlshell.ui.support.ExceptionMessages;
 import com.jlshell.ui.theme.ThemeService;
 import javafx.application.Platform;
 import javafx.beans.binding.Bindings;
@@ -437,7 +438,7 @@ public final class ConnectionDialog {
                 } catch (Exception ex) {
                     testBtn.setDisable(false);
                     testResult.setTextFill(Color.RED);
-                    testResult.setText(i18n.get("testConnection.failed", ex.getMessage()));
+                    testResult.setText(i18n.get("testConnection.failed", ExceptionMessages.userMessage(ex)));
                     return;
                 }
             } else {
@@ -458,8 +459,7 @@ public final class ConnectionDialog {
                 testBtn.setDisable(false);
                 if (ex != null) {
                     testResult.setTextFill(Color.RED);
-                    String err = ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage();
-                    testResult.setText(i18n.get("testConnection.failed", err));
+                    testResult.setText(i18n.get("testConnection.failed", ExceptionMessages.userMessage(ex)));
                 } else {
                     testResult.setTextFill(Color.web("#16a34a"));
                     testResult.setText(msg != null ? msg : i18n.get("testConnection.success"));
