@@ -43,6 +43,7 @@ import com.jlshell.ui.service.account.AccountConnectionCounter;
 import com.jlshell.ui.service.update.UpdateService;
 import com.jlshell.ui.service.VaultService;
 import com.jlshell.ui.support.FxThread;
+import com.jlshell.ui.support.ExceptionMessages;
 import com.jlshell.ui.theme.AppTheme;
 import com.jlshell.ui.theme.ThemeService;
 import com.jlshell.ui.viewmodel.MainViewModel;
@@ -2360,7 +2361,7 @@ public class MainWindow {
                         log.error("SSH connection failed for {}", selected.summary(), throwable);
                         FxThread.run(() -> {
                             showError(i18nService.get("status.connectionFailed",
-                                    throwable.getCause() == null ? throwable.getMessage() : throwable.getCause().getMessage()));
+                                    ExceptionMessages.userMessage(throwable)));
                             finishConnecting(selected);
                         });
                         return;
