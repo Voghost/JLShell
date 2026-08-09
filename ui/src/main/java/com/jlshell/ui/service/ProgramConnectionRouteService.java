@@ -7,6 +7,7 @@ import com.jlshell.core.model.ConnectionRequest;
 import com.jlshell.core.model.ConnectionTarget;
 import com.jlshell.plugin.api.connection.ConnectionRoute;
 import com.jlshell.plugin.api.connection.ConnectionRouteRequest;
+import com.jlshell.program.plugin.loader.ProgramConnectionIntegrationRegistry;
 import com.jlshell.program.plugin.loader.ProgramPluginManager;
 import com.jlshell.ui.model.ConnectionProfile;
 
@@ -14,22 +15,31 @@ import com.jlshell.ui.model.ConnectionProfile;
 public final class ProgramConnectionRouteService {
 
     private static final AutoCloseable NOOP_LEASE = () -> { };
-    private final ProgramPluginManager programPlugins;
+    private final ProgramConnectionIntegrationRegistry connectionRoutes;
 
     public ProgramConnectionRouteService(ProgramPluginManager programPlugins) {
-        this.programPlugins = programPlugins;
+        this(programPlugins == null ? null : programPlugins.connectionIntegrationRegistry());
+    }
+
+    ProgramConnectionRouteService(ProgramConnectionIntegrationRegistry connectionRoutes) {
+        this.connectionRoutes = connectionRoutes;
     }
 
     public CompletableFuture<RoutedConnection> route(ConnectionProfile profile, ConnectionRequest request) {
         Objects.requireNonNull(profile, "profile");
+        return route(profile.id(), profile.projectId(), profile.displayName(), request);
+    }
+
+    public CompletableFuture<RoutedConnection> route(String connectionId, String projectId,
+                                                      String displayName, ConnectionRequest request) {
         Objects.requireNonNull(request, "request");
-        if (programPlugins == null) {
+        if (connectionRoutes == null) {
             return CompletableFuture.completedFuture(new RoutedConnection(request, NOOP_LEASE));
         }
         ConnectionRouteRequest routeRequest = new ConnectionRouteRequest(
-                profile.id() == null ? "" : profile.id(), profile.projectId(), profile.displayName(),
+                connectionId == null ? "" : connectionId, projectId, displayName == null ? "" : displayName,
                 request.target().host(), request.target().port(), request.target().username());
-        return programPlugins.connectionIntegrationRegistry().route(routeRequest)
+        return connectionRoutes.route(routeRequest)
                 .thenApply(route -> route == null
                         ? new RoutedConnection(request, NOOP_LEASE)
                         : apply(request, route));
