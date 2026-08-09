@@ -5,7 +5,6 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.function.Function;
 
 import com.jlshell.core.model.AuthenticationMethod;
 import com.jlshell.core.model.ConnectionRequest;
@@ -55,11 +54,23 @@ public final class ConnectionDialog {
 
     private ConnectionDialog() {}
 
+    @FunctionalInterface
+    public interface ConnectionTester {
+        CompletableFuture<String> test(ConnectionTestContext context);
+    }
+
+    public record ConnectionTestContext(
+            ConnectionRequest request,
+            String connectionId,
+            String projectId,
+            String displayName
+    ) { }
+
     public static Optional<ConnectionFormData> show(
             Window owner, I18nService i18n, ThemeService themeService, ConnectionFormData initialData,
             List<ProjectProfile> projects, List<FolderProfile> folders,
             VaultService vaultService,
-            Function<ConnectionRequest, CompletableFuture<String>> testConnection,
+            ConnectionTester testConnection,
             int connectTimeoutSeconds) {
         Dialog<ConnectionFormData> dialog = new Dialog<>();
         dialog.initOwner(owner);
@@ -438,7 +449,12 @@ public final class ConnectionDialog {
                         connectTimeoutSeconds);
             }
 
-            testConnection.apply(request).whenComplete((msg, ex) -> Platform.runLater(() -> {
+            ProjectProfile selectedProject = projectBox.getValue();
+            String projectId = selectedProject == null ? null : selectedProject.id();
+            String displayName = displayNameField.getText() == null ? "" : displayNameField.getText().trim();
+            ConnectionTestContext testContext = new ConnectionTestContext(
+                    request, initialData.id(), projectId, displayName);
+            testConnection.test(testContext).whenComplete((msg, ex) -> Platform.runLater(() -> {
                 testBtn.setDisable(false);
                 if (ex != null) {
                     testResult.setTextFill(Color.RED);
