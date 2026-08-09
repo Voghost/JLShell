@@ -2147,12 +2147,15 @@ public class MainWindow {
                 }));
     }
 
-    private CompletableFuture<String> testConnection(com.jlshell.core.model.ConnectionRequest request) {
-        return sessionManager.openSession(request)
-                .thenCompose(session -> sessionManager.closeSession(session.sessionId())
-                        .thenApply(v -> i18nService.get("testConnection.success")))
+    private CompletableFuture<String> testConnection(ConnectionDialog.ConnectionTestContext test) {
+        com.jlshell.core.model.ConnectionRequest request = test.request();
+        return connectionRouteService.route(test.connectionId(), test.projectId(), test.displayName(), request)
+                .thenCompose(routed -> sessionManager.openSession(routed.request())
+                        .thenCompose(session -> sessionManager.closeSession(session.sessionId())
+                                .thenApply(v -> i18nService.get("testConnection.success")))
+                        .whenComplete((msg, ex) -> ProgramConnectionRouteService.closeQuietly(routed.lease())))
                 .whenComplete((msg, ex) -> {
-                    if (ex == null && request.credential() != null) request.credential().clear();
+                    if (request.credential() != null) request.credential().clear();
                 });
     }
 
