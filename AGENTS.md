@@ -46,6 +46,14 @@ directly to `main`. Create release tags only from `main`.
 
 Pull requests should include a concise summary, linked issue when applicable, test evidence, and screenshots or recordings for UI changes. Note database, plugin API, or distribution-script impact explicitly.
 
+## Release Notes Requirements
+
+- Before releasing any `X.Y.Z` version, add `.github/release-notes/X.Y.Z.md` in the same branch as the release changes.
+- The release note must start with `# JLShell vX.Y.Z`, followed by a one-line `> ` summary, and include at least one `## ` section with a list item.
+- Run `.github/scripts/prepare_release_metadata.py` for the target version before triggering the Release workflow. A release must not proceed if this validation fails.
+- Release notes, release code, and the Release workflow invocation must all resolve to commits merged into `main`; never publish a version whose release note exists only on `develop` or a feature branch.
+- Do not overwrite or reuse a release-note file for a version that has already been published.
+
 ## Security & Configuration Tips
 
 Do not commit secrets, local vault files, generated keys, or user data from `~/.jlshell/`. Credential handling must preserve AES-GCM encryption and clear sensitive payloads after use. Plugin storage is namespaced by plugin ID; sensitive plugin values must use `SecureStorage`, which is encrypted in a separate table. Only trusted classpath Program plugins may provide global access policies; external plugin JARs must never become authorization authorities.
