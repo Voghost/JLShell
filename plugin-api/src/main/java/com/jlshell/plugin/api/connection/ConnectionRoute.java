@@ -6,11 +6,16 @@ import java.util.Objects;
  * Program 插件为一次连接创建的本地回环路由及其资源租约。
  *
  * <p>宿主仅接受 {@code 127.0.0.1} 或 {@code ::1}，以避免插件将保存的 SSH 连接
- * 静默改写到另一个远程地址。连接失败或会话关闭时，宿主一定会关闭 {@link #lease()}。</p>
+ * 静默改写到另一个远程地址。新插件应提供稳定的 Agent UUID，供宿主隔离 SSH 主机密钥记录。
+ * 连接失败或会话关闭时，宿主一定会关闭 {@link #lease()}。</p>
  */
-public record ConnectionRoute(String host, int port, AutoCloseable lease) {
+public record ConnectionRoute(String host, int port, AutoCloseable lease, String gatewayId) {
 
     private static final AutoCloseable NOOP_LEASE = () -> { };
+
+    public ConnectionRoute(String host, int port, AutoCloseable lease) {
+        this(host, port, lease, null);
+    }
 
     public ConnectionRoute {
         Objects.requireNonNull(host, "host");
@@ -21,9 +26,20 @@ public record ConnectionRoute(String host, int port, AutoCloseable lease) {
         if (port < 1 || port > 65535) {
             throw new IllegalArgumentException("port must be between 1 and 65535");
         }
+        if (gatewayId != null) {
+            try {
+                gatewayId = java.util.UUID.fromString(gatewayId).toString();
+            } catch (IllegalArgumentException invalid) {
+                throw new IllegalArgumentException("gatewayId must be an Agent UUID", invalid);
+            }
+        }
     }
 
     public static ConnectionRoute loopback(String host, int port, AutoCloseable lease) {
         return new ConnectionRoute(host, port, lease == null ? NOOP_LEASE : lease);
+    }
+
+    public static ConnectionRoute loopback(String host, int port, AutoCloseable lease, String gatewayId) {
+        return new ConnectionRoute(host, port, lease == null ? NOOP_LEASE : lease, gatewayId);
     }
 }
