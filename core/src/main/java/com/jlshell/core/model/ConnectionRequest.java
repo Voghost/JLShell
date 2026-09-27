@@ -12,8 +12,15 @@ public record ConnectionRequest(
         ConnectionTarget target,
         AuthenticationMethod authenticationMethod,
         CredentialPayload credential,
-        HostKeyVerificationMode hostKeyVerificationMode
+        HostKeyVerificationMode hostKeyVerificationMode,
+        HostKeyIdentity hostKeyIdentity
 ) {
+
+    public ConnectionRequest(String displayName, ConnectionTarget target,
+                             AuthenticationMethod authenticationMethod, CredentialPayload credential,
+                             HostKeyVerificationMode hostKeyVerificationMode) {
+        this(displayName, target, authenticationMethod, credential, hostKeyVerificationMode, null);
+    }
 
     public ConnectionRequest {
         // 当 UI 未显式设置显示名时，提供一个稳定可读的默认值。

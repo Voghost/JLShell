@@ -63,6 +63,7 @@ public class AccountService {
     private final SecureSettingsService secureSettings;
     private final ExecutorService executor;
     private final HttpClient httpClient;
+    private final HttpClient linkGatewayHttpClient;
     private final Gson gson = new Gson();
     private final Duration heartbeatInterval;
     private final Duration reportStatsInterval;
@@ -95,6 +96,11 @@ public class AccountService {
         this.secureSettings = Objects.requireNonNull(secureSettings);
         this.executor = Objects.requireNonNull(executor);
         this.httpClient = Objects.requireNonNull(httpClient);
+        this.linkGatewayHttpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(10))
+                .executor(executor)
+                .followRedirects(HttpClient.Redirect.NEVER)
+                .build();
         this.heartbeatScheduler = Objects.requireNonNull(scheduler);
         this.heartbeatInterval = requirePositive(heartbeatInterval, "heartbeatInterval");
         this.reportStatsInterval = requirePositive(reportStatsInterval, "reportStatsInterval");
@@ -242,7 +248,7 @@ public class AccountService {
                         .GET()
                         .build();
                 HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-                if (response.statusCode() == 401 || response.statusCode() == 404) {
+                if (response.statusCode() == 401) {
                     clearSession();
                     return null;
                 }
@@ -457,7 +463,7 @@ public class AccountService {
             String method, String apiPath, String jsonBody) {
         return CompletableFuture.supplyAsync(() -> {
             String requestMethod = requireLinkMethod(method);
-            String requestPath = requireLinkPath(apiPath);
+            String requestPath = requireLinkPath(requestMethod, apiPath);
             try {
                 String currentToken = token();
                 if (currentToken.isBlank()) {
@@ -474,7 +480,8 @@ public class AccountService {
                     builder.header("Content-Type", "application/json")
                             .method(requestMethod, HttpRequest.BodyPublishers.ofString(jsonBody));
                 }
-                HttpResponse<byte[]> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofByteArray());
+                HttpResponse<byte[]> response = linkGatewayHttpClient.send(builder.build(),
+                        HttpResponse.BodyHandlers.ofByteArray());
                 if (response.body().length > MAX_PLUGIN_RESPONSE_BYTES) {
                     throw new IOException("Account API response is too large");
                 }
@@ -754,26 +761,64 @@ public class AccountService {
         return value;
     }
 
-    private static String requireLinkPath(String path) {
+    private static String requireLinkPath(String method, String path) {
         try {
             URI value = URI.create(path == null ? "" : path);
             String rawPath = value.getRawPath();
             boolean pluginAccess = "/api/v1/account/plugin-access".equals(rawPath)
+                    && "GET".equals(method)
                     && value.getRawQuery() != null
                     && value.getRawQuery().matches("pluginId=[A-Za-z0-9._-]{1,128}&version=[A-Za-z0-9._-]{1,64}&scope=(PROGRAM|SESSION)");
-            boolean permitted = rawPath != null && (rawPath.startsWith("/api/v1/link/")
-                    || "/api/v1/account/devices".equals(rawPath)
-                    || "/api/v1/account/entitlements".equals(rawPath)
-                    || "/api/v1/account/trial".equals(rawPath)
+            boolean permitted = rawPath != null && (permittedLegacyLinkPath(method, rawPath)
+                    || permittedV2LinkPath(method, rawPath)
+                    || ("GET".equals(method) && ("/api/v1/account/devices".equals(rawPath)
+                    || "/api/v1/account/entitlements".equals(rawPath)))
+                    || ("POST".equals(method) && "/api/v1/account/trial".equals(rawPath))
                     || pluginAccess);
             if (value.isAbsolute() || value.getRawAuthority() != null || value.getRawFragment() != null
-                    || (value.getRawQuery() != null && !pluginAccess) || !permitted) {
+                    || (value.getRawQuery() != null && !pluginAccess) || !safeApiPath(rawPath) || !permitted) {
                 throw new IllegalArgumentException();
             }
             return pluginAccess ? rawPath + "?" + value.getRawQuery() : rawPath;
         } catch (RuntimeException error) {
             throw new IllegalArgumentException("Only supported JLShell Link API paths are allowed");
         }
+    }
+
+    private static boolean safeApiPath(String path) {
+        if (path == null || !path.startsWith("/") || path.contains("//") || path.contains("\\")
+                || path.contains("%") || path.contains(";") || path.contains("?")) {
+            return false;
+        }
+        for (String segment : path.substring(1).split("/")) {
+            if (segment.isEmpty() || segment.equals(".") || segment.equals("..")) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean permittedLegacyLinkPath(String method, String path) {
+        if ("GET".equals(method) && java.util.Set.of("/api/v1/link/agents", "/api/v1/link/relays",
+                "/api/v1/link/ticket-authority").contains(path)) return true;
+        if ("POST".equals(method) && java.util.Set.of("/api/v1/link/tickets",
+                "/api/v1/link/node-challenges", "/api/v1/link/agents",
+                "/api/v1/link/agent-enrollments").contains(path)) return true;
+        if ("PUT".equals(method) && path.matches("/api/v1/link/devices/[0-9a-fA-F-]{36}/identity")) return true;
+        return ("GET".equals(method) && path.matches("/api/v1/link/agents/[0-9a-fA-F-]{36}/targets"))
+                || ("POST".equals(method) && (path.matches("/api/v1/link/agents/[0-9a-fA-F-]{36}/targets")
+                || path.matches("/api/v1/link/agents/[0-9a-fA-F-]{36}/credentials/rotate")));
+    }
+
+    private static boolean permittedV2LinkPath(String method, String path) {
+        if ("GET".equals(method) && path.equals("/api/v2/link/agents")) return true;
+        if ("GET".equals(method) && path.matches("/api/v2/link/agents/[0-9a-fA-F-]{36}/access-policy")) {
+            return true;
+        }
+        if ("POST".equals(method) && java.util.Set.of("/api/v2/link/control-credentials",
+                "/api/v2/link/enrollments", "/api/v2/link/node-challenges").contains(path)) return true;
+        return "PUT".equals(method)
+                && path.matches("/api/v2/link/devices/[0-9a-fA-F-]{36}/identity");
     }
 
     private static boolean blank(String value) {

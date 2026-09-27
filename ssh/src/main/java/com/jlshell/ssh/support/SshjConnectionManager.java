@@ -59,7 +59,7 @@ public class SshjConnectionManager implements ConnectionManager {
     private SshSession connectBlocking(ConnectionRequest request) {
         SSHClient client = new SSHClient();
         try {
-            configureHostKeyVerification(client, request.hostKeyVerificationMode());
+            configureHostKeyVerification(client, request.hostKeyVerificationMode(), request.hostKeyIdentity());
             client.setConnectTimeout(Math.toIntExact(request.target().connectTimeout().toMillis()));
             configureSocketTimeout(client);
             client.connect(request.target().host(), request.target().port());
@@ -113,7 +113,8 @@ public class SshjConnectionManager implements ConnectionManager {
         log.info("SSH keepalive started after authentication: interval={}s", KEEP_ALIVE_INTERVAL_SECONDS);
     }
 
-    private void configureHostKeyVerification(SSHClient client, HostKeyVerificationMode mode) throws IOException {
+    private void configureHostKeyVerification(SSHClient client, HostKeyVerificationMode mode,
+                                              com.jlshell.core.model.HostKeyIdentity identity) throws IOException {
         if (mode == HostKeyVerificationMode.STRICT) {
             File sshDir = OpenSSHKnownHosts.detectSSHDir();
             File knownHosts;
@@ -130,7 +131,8 @@ public class SshjConnectionManager implements ConnectionManager {
                 }
                 knownHosts.createNewFile();
             }
-            client.addHostKeyVerifier(new InteractiveHostKeyVerifier(knownHosts, hostKeyConfirmationCallback));
+            client.addHostKeyVerifier(new InteractiveHostKeyVerifier(knownHosts, hostKeyConfirmationCallback,
+                    identity));
             return;
         }
         if (mode == HostKeyVerificationMode.ACCEPT_ONCE) {
