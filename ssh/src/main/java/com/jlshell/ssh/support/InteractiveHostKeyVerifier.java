@@ -3,6 +3,9 @@ package com.jlshell.ssh.support;
 import java.io.File;
 import java.io.IOException;
 import java.security.PublicKey;
+import java.util.List;
+
+import com.jlshell.core.model.HostKeyIdentity;
 
 import net.schmizz.sshj.common.KeyType;
 import net.schmizz.sshj.common.SecurityUtils;
@@ -19,10 +22,29 @@ public class InteractiveHostKeyVerifier extends OpenSSHKnownHosts {
     private static final Logger log = LoggerFactory.getLogger(InteractiveHostKeyVerifier.class);
 
     private final HostKeyConfirmationCallback callback;
+    private final HostKeyIdentity identity;
 
     public InteractiveHostKeyVerifier(File khFile, HostKeyConfirmationCallback callback) throws IOException {
+        this(khFile, callback, null);
+    }
+
+    public InteractiveHostKeyVerifier(File khFile, HostKeyConfirmationCallback callback,
+                                      HostKeyIdentity identity) throws IOException {
         super(khFile);
         this.callback = callback;
+        this.identity = identity;
+    }
+
+    @Override
+    public boolean verify(String hostname, int port, PublicKey key) {
+        return identity == null ? super.verify(hostname, port, key)
+                : super.verify(identity.knownHostsName(), identity.targetPort(), key);
+    }
+
+    @Override
+    public List<String> findExistingAlgorithms(String hostname, int port) {
+        return identity == null ? super.findExistingAlgorithms(hostname, port)
+                : super.findExistingAlgorithms(identity.knownHostsName(), identity.targetPort());
     }
 
     @Override
@@ -31,7 +53,8 @@ public class InteractiveHostKeyVerifier extends OpenSSHKnownHosts {
         String keyType = KeyType.fromKey(key).toString();
         log.info("Host key for {} is unknown (type={}, fp={})", hostname, keyType, fingerprint);
 
-        boolean accepted = callback.confirm(hostname, 22, keyType, fingerprint, false);
+        boolean accepted = callback.confirm(identity == null ? hostname : identity.displayName(),
+                identity == null ? 22 : identity.targetPort(), keyType, fingerprint, false);
         if (accepted) {
             try {
                 write(new HostEntry(null, hostname, KeyType.fromKey(key), key));
@@ -49,7 +72,8 @@ public class InteractiveHostKeyVerifier extends OpenSSHKnownHosts {
         String keyType = KeyType.fromKey(key).toString();
         log.warn("Host key for {} has changed (type={}, fp={})", hostname, keyType, fingerprint);
 
-        boolean accepted = callback.confirm(hostname, 22, keyType, fingerprint, true);
+        boolean accepted = callback.confirm(identity == null ? hostname : identity.displayName(),
+                identity == null ? 22 : identity.targetPort(), keyType, fingerprint, true);
         if (accepted) {
             try {
                 write(new HostEntry(null, hostname, KeyType.fromKey(key), key));

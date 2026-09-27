@@ -5,6 +5,7 @@ import java.util.concurrent.CompletableFuture;
 
 import com.jlshell.core.model.ConnectionRequest;
 import com.jlshell.core.model.ConnectionTarget;
+import com.jlshell.core.model.HostKeyIdentity;
 import com.jlshell.plugin.api.connection.ConnectionRoute;
 import com.jlshell.plugin.api.connection.ConnectionRouteRequest;
 import com.jlshell.program.plugin.loader.ProgramConnectionIntegrationRegistry;
@@ -39,18 +40,45 @@ public final class ProgramConnectionRouteService {
         ConnectionRouteRequest routeRequest = new ConnectionRouteRequest(
                 connectionId == null ? "" : connectionId, projectId, displayName == null ? "" : displayName,
                 request.target().host(), request.target().port(), request.target().username());
-        return connectionRoutes.route(routeRequest)
-                .thenApply(route -> route == null
-                        ? new RoutedConnection(request, NOOP_LEASE)
-                        : apply(request, route));
+        CompletableFuture<RoutedConnection> result = new CompletableFuture<>();
+        connectionRoutes.route(routeRequest).whenComplete((route, error) -> {
+            if (error != null) {
+                result.completeExceptionally(error);
+                return;
+            }
+            RoutedConnection routed;
+            try {
+                routed = route == null ? new RoutedConnection(request, NOOP_LEASE)
+                        : apply(request, route, connectionId, projectId);
+            } catch (RuntimeException invalidRoute) {
+                if (route != null) closeQuietly(route.lease());
+                result.completeExceptionally(invalidRoute);
+                return;
+            }
+            if (!result.complete(routed)) {
+                // Cancellation may arrive before a plugin finishes opening its tunnel.
+                closeQuietly(routed.lease());
+            }
+        });
+        return result;
     }
 
-    private static RoutedConnection apply(ConnectionRequest request, ConnectionRoute route) {
+    private static RoutedConnection apply(ConnectionRequest request, ConnectionRoute route,
+                                          String connectionId, String projectId) {
         ConnectionTarget original = request.target();
         ConnectionTarget local = new ConnectionTarget(route.host(), route.port(), original.username(),
                 original.connectTimeout(), original.readTimeout());
+        String gatewayId = route.gatewayId();
+        if (gatewayId == null) {
+            // Existing Program plugins do not supply an Agent ID. Keep their trust separate
+            // from direct SSH and from other projects until they adopt the new SDK field.
+            gatewayId = "legacy-project:" + (projectId == null || projectId.isBlank()
+                    ? "connection:" + connectionId : projectId);
+        }
+        HostKeyIdentity identity = new HostKeyIdentity(gatewayId, original.host(), original.port());
         return new RoutedConnection(new ConnectionRequest(request.displayName(), local,
-                request.authenticationMethod(), request.credential(), request.hostKeyVerificationMode()), route.lease());
+                request.authenticationMethod(), request.credential(), request.hostKeyVerificationMode(), identity),
+                route.lease());
     }
 
     public static void closeQuietly(AutoCloseable lease) {
