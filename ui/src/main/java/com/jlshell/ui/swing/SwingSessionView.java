@@ -4,6 +4,7 @@ import com.jlshell.terminal.service.TerminalViewHandle;
 import com.jlshell.terminal.support.SwingExecutors;
 import com.jlshell.ui.support.FxThread;
 import com.jlshell.ui.theme.ThemeService;
+import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.view.SessionWorkspaceTab;
 import com.jlshell.ui.view.TerminalWorkspaceView;
 import javafx.beans.value.ChangeListener;
@@ -29,7 +30,11 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
     private final JPanel terminal = new JPanel(new BorderLayout());
     private final JPanel terminalBody = new JPanel(new BorderLayout());
     private final JPanel navigation = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
+    private final JPanel toolWindow = new JPanel(new BorderLayout());
     private final JPanel cards = new JPanel(new CardLayout());
+    private final JPanel monitoring = new JPanel(new BorderLayout());
+    private final String monitoringTitle;
+    private Runnable revealToolWindow = () -> {};
     private final SwingFxPanel compatibility;
     private final ThemeService themes;
     private final TabPane model;
@@ -41,17 +46,13 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
     private javafx.collections.ListChangeListener<Tab> tabListListener;
     private final java.util.Map<Tab, ChangeListener<String>> titleListeners = new java.util.IdentityHashMap<>();
     private boolean closed;
-    private boolean docked;
-    private int selectedPage;
-    private final JPanel terminalOverview = new JPanel(new java.awt.GridBagLayout());
     private record Page(Tab tab, String title, boolean closable) {}
 
     /** 从 FX 线程调用。不会同步等待 EDT，也不会改变插件返回的 Node。 */
-    public static CompletableFuture<SwingSessionView> create(SessionWorkspaceTab source, ThemeService themes) {
+    public static CompletableFuture<SwingSessionView> create(SessionWorkspaceTab source, ThemeService themes, I18nService i18n) {
         TabPane model = source.getInnerTabPane();
-        List<String> labels = model.getTabs().stream().map(Tab::getText).toList();
         source.setContent(null);
-        var future = SwingExecutors.supplyOnEdtAsync(() -> new SwingSessionView(model, themes, labels));
+        var future = SwingExecutors.supplyOnEdtAsync(() -> new SwingSessionView(model, themes, i18n.get("workspace.monitoring")));
         NativeTerminalHost host = new NativeTerminalHost() {
             public void attach(TerminalViewHandle handle) { future.thenAccept(view -> view.attach(handle)); }
             public void disconnected(String reason, Runnable reconnect) {
@@ -71,7 +72,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
         model.getTabs().getFirst().contentProperty().addListener(viewListener);
         ChangeListener<Tab> selection = (obs, oldTab, tab) -> {
             int index = model.getTabs().indexOf(tab);
-            future.thenAccept(view -> SwingUtilities.invokeLater(() -> view.selectPage(index)));
+            future.thenAccept(view -> SwingUtilities.invokeLater(() -> view.selectPage(index, true)));
         };
         model.getSelectionModel().selectedItemProperty().addListener(selection);
         future.thenAccept(view -> {
@@ -89,46 +90,38 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
         return future;
     }
 
-    private SwingSessionView(TabPane model, ThemeService themes, List<String> labels) {
+    SwingSessionView(TabPane model, ThemeService themes, String monitoringTitle) {
         super(new BorderLayout());
         this.themes = themes;
         this.model = model;
+        this.monitoringTitle = monitoringTitle;
         compatibility = new SwingFxPanel(themes);
-        terminalOverview.setOpaque(false);
-        JLabel hint = new JLabel(labels.isEmpty() ? "Terminal" : labels.getFirst(),
-                new WorkbenchIcon(WorkbenchIcon.Kind.TERMINAL), JLabel.CENTER);
-        hint.setFont(hint.getFont().deriveFont(20f));
-        hint.setForeground(SwingTheme.color("secondary"));
-        terminalOverview.add(hint);
         terminalBody.add(new JLabel("…", JLabel.CENTER));
         terminal.add(terminalBody, BorderLayout.CENTER);
-        cards.add(terminal, "terminal");
+        // 主终端始终可见，不再从 CardLayout 移出或被文件/插件页覆盖。
+        add(terminal, BorderLayout.CENTER);
+        cards.add(monitoring, "monitoring");
         cards.add(compatibility, "compatibility");
-        ButtonGroup group = new ButtonGroup();
-        for (int i = 0; i < labels.size(); i++) {
-            JToggleButton button = new JToggleButton(labels.get(i));
-            button.putClientProperty("JButton.buttonType", "toolBarButton");
-            button.setFocusable(false);
-            int index = i;
-            button.addActionListener(event -> FxThread.run(() -> model.getSelectionModel().select(index)));
-            group.add(button);
-            navigation.add(button);
-            if (i == 0) button.setSelected(true);
-        }
         navigation.setOpaque(false);
         navigation.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, SwingTheme.color("border")));
-        add(navigation, BorderLayout.NORTH);
-        add(cards, BorderLayout.CENTER);
+        toolWindow.add(navigation, BorderLayout.NORTH);
+        toolWindow.add(cards, BorderLayout.CENTER);
     }
 
-    private void selectPage(int index) {
+    private void selectPage(int index, boolean reveal) {
         if (closed || index < 0) return;
-        selectedPage = index;
-        ((CardLayout) cards.getLayout()).show(cards, index == 0 ? "terminal" : "compatibility");
+        ((CardLayout) cards.getLayout()).show(cards, index == 0 ? "monitoring" : "compatibility");
         if (index < navigation.getComponentCount() && navigation.getComponent(index) instanceof JPanel page) {
             ((JToggleButton) page.getClientProperty("selector")).setSelected(true);
         }
-        if (index == 0 && handle != null) handle.requestFocus();
+        if (reveal) revealToolWindow.run();
+        cards.revalidate(); cards.repaint();
+    }
+
+    public JPanel toolWindow() { return toolWindow; }
+
+    public void setToolWindowRevealAction(Runnable action) {
+        revealToolWindow = action == null ? () -> {} : action;
     }
 
     /** 插件可动态 openTab/closeTab/updateTabTitle，必须同步原有 Tab 模型。FX 线程调用。 */
@@ -154,11 +147,14 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
             for (Page page : pages) {
                 JPanel item = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
                 item.setOpaque(false);
-                JToggleButton selector = new JToggleButton(page.title());
+                JToggleButton selector = new JToggleButton(page.tab() == pages.getFirst().tab() ? monitoringTitle : page.title());
                 selector.putClientProperty("JButton.buttonType", "toolBarButton");
                 selector.setFocusable(false);
                 selector.setBorder(BorderFactory.createEmptyBorder(7, 10, 7, 10));
-                selector.addActionListener(event -> FxThread.run(() -> model.getSelectionModel().select(page.tab())));
+                selector.addActionListener(event -> {
+                    revealToolWindow.run();
+                    FxThread.run(() -> model.getSelectionModel().select(page.tab()));
+                });
                 group.add(selector);
                 item.putClientProperty("selector", selector);
                 item.add(selector);
@@ -178,7 +174,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
                 }
                 navigation.add(item);
             }
-            selectPage(selected);
+            selectPage(selected, false);
             navigation.revalidate();
             navigation.repaint();
         });
@@ -187,7 +183,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
     private void installChrome(Node top, Node bottom) {
         if (closed) return;
         if (toolbar != null) { terminal.remove(toolbar); toolbar.close(); }
-        if (status != null) { terminal.remove(status); status.close(); }
+        if (status != null) { monitoring.remove(status); status.close(); }
         if (top != null) {
             toolbar = new SwingFxPanel(themes);
             toolbar.setPreferredSize(new Dimension(100, 32));
@@ -196,31 +192,16 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
         }
         if (bottom != null) {
             status = new SwingFxPanel(themes);
-            status.setPreferredSize(new Dimension(100, 32));
-            status.setView(bottom);
-            terminal.add(status, BorderLayout.SOUTH);
+            SwingFxPanel monitorPanel = status;
+            // 保留资源采样、悬浮明细和原事件；只调整 UI 布局位置。
+            FxThread.run(() -> {
+                var content = new javafx.scene.layout.BorderPane();
+                content.setTop(bottom);
+                monitorPanel.setView(content);
+            });
+            monitoring.add(status, BorderLayout.CENTER);
         }
         revalidate();
-    }
-
-    /** EDT。工具窗口只是重新挂载终端，原 JavaFX Tab 模型和插件节点保持不变。 */
-    public JPanel dockTerminal() {
-        if (!docked) {
-            docked = true;
-            cards.remove(terminal);
-            cards.add(terminalOverview, "terminal");
-            selectPage(selectedPage);
-        }
-        return terminal;
-    }
-
-    public void restoreTerminal() {
-        if (!docked) return;
-        docked = false;
-        cards.remove(terminalOverview);
-        cards.add(terminal, "terminal");
-        selectPage(selectedPage);
-        cards.revalidate(); cards.repaint();
     }
 
     public void attach(TerminalViewHandle viewHandle) {
@@ -228,7 +209,10 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
             if (closed) return;
             handle = viewHandle;
             terminalBody.removeAll();
-            terminalBody.add(viewHandle.component(), BorderLayout.CENTER);
+            javax.swing.JComponent component = viewHandle.component();
+            component.setVisible(true);
+            terminal.setVisible(true);
+            terminalBody.add(component, BorderLayout.CENTER);
             terminalBody.revalidate();
             terminalBody.repaint();
             viewHandle.requestFocus();
@@ -257,6 +241,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
         if (closed) return;
         closed = true;
         handle = null;
+        revealToolWindow = () -> {};
         terminalBody.removeAll();
         compatibility.close();
         if (toolbar != null) toolbar.close();

@@ -2642,7 +2642,7 @@ public class MainWindow {
             );
             installWorkspaceTabHeader(tab, profile.displayName());
             if (swingWorkbench != null) {
-                com.jlshell.ui.swing.SwingSessionView.create(tab, themeService).thenAccept(surface ->
+                com.jlshell.ui.swing.SwingSessionView.create(tab, themeService, i18nService).thenAccept(surface ->
                         withSwing(view -> {
                             view.addTab(tab, profile.displayName(), surface, () -> FxThread.run(() -> closeTab(tab)));
                             view.selectTab(tab);

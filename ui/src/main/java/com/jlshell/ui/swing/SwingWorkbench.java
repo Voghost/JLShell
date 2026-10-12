@@ -42,7 +42,7 @@ public final class SwingWorkbench implements AutoCloseable {
             "action.connect", "sidebar.toggle", "sidebar.connections", "sidebar.search.prompt", "project.menu.manage",
             "project.label.default", "welcome.title", "welcome.subtitle", "welcome.recentConnections",
             "welcome.favorites", "welcome.noRecentConnections", "welcome.noFavorites", "tab.close",
-            "terminal.toolWindow", "terminal.dock", "terminal.restore", "terminal.empty", "menu.main");
+            "workspace.tools", "workspace.hideTools", "workspace.monitoring", "menu.main");
 
     private final JFrame frame = new JFrame("JLShell");
     private final Actions actions;
@@ -57,7 +57,7 @@ public final class SwingWorkbench implements AutoCloseable {
     private final JPanel recent = new JPanel();
     private final JPanel favorites = new JPanel();
     private final JLabel status = new JLabel(" ");
-        private final JPanel mainToolbar = new JPanel(new BorderLayout()) {
+    private final JPanel mainToolbar = new JPanel(new BorderLayout()) {
         protected void paintComponent(Graphics graphics) {
             Graphics2D g = (Graphics2D) graphics.create();
             try {
@@ -69,19 +69,18 @@ public final class SwingWorkbench implements AutoCloseable {
     };
     private final JPanel root = new JPanel(new BorderLayout());
     private final JSplitPane vertical = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-    private final JPanel terminalDock = new IslandPanel(new BorderLayout(), "canvas");
+    private final JPanel toolDock = new IslandPanel(new BorderLayout(), "canvas");
     private final JPanel dockBody = new JPanel(new BorderLayout());
     private final JLabel dockTitle = new JLabel();
-    private final JButton terminalStripe;
+    private final JButton toolStripe;
     private final JButton projectStripe;
     private final JButton menuButton;
     private final JButton runButton;
     private final JLabel connectionName = new JLabel();
     private final JPanel searchBar = new JPanel(new BorderLayout());
-        private List<JMenu> mainMenus = List.of();
-    private boolean dockEnabled = true;
-    private Component dockedView;
-    private JComponent dockedTerminal;
+    private List<JMenu> mainMenus = List.of();
+    private boolean toolWindowVisible = true;
+    private Component toolWindowOwner;
     private int dockHeight = 250;
     private final Map<Object, JPanel> tabHosts = new LinkedHashMap<>();
     private final JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
@@ -109,7 +108,7 @@ public final class SwingWorkbench implements AutoCloseable {
         if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Workbench requires EDT");
         this.actions = actions;
         this.texts = Map.copyOf(texts);
-        terminalStripe = button(WorkbenchIcon.Kind.TERMINAL, "terminal.toolWindow", this::toggleTerminalDock);
+        toolStripe = button(WorkbenchIcon.Kind.MONITOR, "workspace.tools", this::toggleToolWindow);
         projectStripe = button(WorkbenchIcon.Kind.FOLDER, "sidebar.toggle", () -> actions.toggleSidebar().run());
         menuButton = button(WorkbenchIcon.Kind.MENU, "menu.main", this::showMainMenu);
         runButton = button(WorkbenchIcon.Kind.RUN, "action.connect", this::connectSelection);
@@ -139,7 +138,7 @@ public final class SwingWorkbench implements AutoCloseable {
         split.setBorder(BorderFactory.createEmptyBorder());
         split.setOpaque(false);
         split.setDividerSize(4);
-        buildTerminalDock();
+        buildToolDock();
         vertical.setTopComponent(split);
         vertical.setResizeWeight(1);
         vertical.setContinuousLayout(true);
@@ -161,7 +160,7 @@ public final class SwingWorkbench implements AutoCloseable {
         frame.setLocationRelativeTo(null);
         tabs.addChangeListener(event -> {
             if (!selectingTab) {
-                syncTerminalDock();
+                syncToolWindow();
                 actions.selectTab().accept(viewTabs.get(tabs.getSelectedComponent()));
             }
         });
@@ -297,10 +296,9 @@ public final class SwingWorkbench implements AutoCloseable {
         top.setBorder(BorderFactory.createEmptyBorder(4, 3, 0, 3));
         projectStripe.setSelected(sidebarVisible);
         addStripe(top, projectStripe);
-        addStripe(top, button(WorkbenchIcon.Kind.PROJECT, "project.menu.manage", actions.projects()));
         rail.add(top, BorderLayout.NORTH);
         JPanel bottom = stripeColumn();
-        addStripe(bottom, terminalStripe);
+        addStripe(bottom, toolStripe);
         rail.add(bottom, BorderLayout.SOUTH);
         return rail;
     }
@@ -361,9 +359,10 @@ public final class SwingWorkbench implements AutoCloseable {
         tree.setDragEnabled(true);
         tree.setDropMode(DropMode.ON_OR_INSERT);
         tree.setTransferHandler(new SidebarTransferHandler());
-        tree.setRowHeight(24);
+        updateTreeRowHeight();
         tree.setBorder(BorderFactory.createEmptyBorder(2, 8, 4, 8));
         tree.setCellRenderer(new DefaultTreeCellRenderer() {
+            { putClientProperty("html.disable", true); setIconTextGap(6); }
             private final Icon folderIcon = new WorkbenchIcon(WorkbenchIcon.Kind.FOLDER);
             private final Icon serverIcon = new WorkbenchIcon(WorkbenchIcon.Kind.SERVER);
             private final Icon terminalIcon = new WorkbenchIcon(WorkbenchIcon.Kind.TERMINAL);
@@ -371,6 +370,9 @@ public final class SwingWorkbench implements AutoCloseable {
                                                          boolean leaf, int row, boolean focus) {
                 super.getTreeCellRendererComponent(tree, value, selected, expanded, leaf, row, focus);
                 Object data = ((DefaultMutableTreeNode) value).getUserObject();
+                setFont(tree.getFont());
+                setBorder(BorderFactory.createEmptyBorder(2, 0, 2, 4));
+                setText(""); setIcon(null); setToolTipText(null);
                 if (data instanceof SidebarItem item) {
                     setText(item.displayName());
                     setIcon(item instanceof SidebarItem.FolderItem ? folderIcon
@@ -572,6 +574,14 @@ public final class SwingWorkbench implements AutoCloseable {
         host.setOpaque(false);
         host.add(view);
         tabViews.put(id, view); tabHosts.put(id, host); viewTabs.put(host, id);
+        if (view instanceof SwingSessionView session) {
+            session.setToolWindowRevealAction(() -> {
+                if (Objects.equals(viewTabs.get(tabs.getSelectedComponent()), id)) {
+                    toolWindowVisible = true;
+                    syncToolWindow();
+                }
+            });
+        }
         tabs.addTab(title, host);
         JPanel header = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         header.setOpaque(false);
@@ -595,18 +605,18 @@ public final class SwingWorkbench implements AutoCloseable {
         closeButton.setPreferredSize(new Dimension(18, 18));
         header.add(closeButton);
         tabs.setTabComponentAt(tabs.indexOfComponent(host), header);
-        syncTerminalDock();
+        syncToolWindow();
         ((CardLayout) workspace.getLayout()).show(workspace, "tabs");
     }
 
     public void removeTab(Object id) {
         Component view = tabViews.remove(id);
         if (view == null) return;
-        if (view == dockedView) restoreDockedTerminal();
+        if (view == toolWindowOwner) releaseToolWindow();
         JPanel host = tabHosts.remove(id);
         viewTabs.remove(host);
         tabs.remove(host);
-        syncTerminalDock();
+        syncToolWindow();
         if (view instanceof AutoCloseable closeable) {
             try { closeable.close(); } catch (Exception error) { throw new IllegalStateException(error); }
         }
@@ -618,7 +628,7 @@ public final class SwingWorkbench implements AutoCloseable {
         if (host == null) return;
         selectingTab = true;
         try { tabs.setSelectedComponent(host); } finally { selectingTab = false; }
-        syncTerminalDock();
+        syncToolWindow();
     }
 
     public void reorderTabs(List<Object> order) {
@@ -664,7 +674,14 @@ public final class SwingWorkbench implements AutoCloseable {
     }
     public void setShortcuts(Map<KeyStroke, Runnable> bindings) { shortcuts.clear(); shortcuts.putAll(bindings); }
     public void setEnabled(boolean enabled) { frame.setEnabled(enabled); if (enabled) frame.toFront(); }
-    public void show() { frame.setVisible(true); split.setDividerLocation(sidebarVisible ? sidebarWidth : 0); frame.toFront(); tree.requestFocusInWindow(); }
+    public void show() {
+        frame.setVisible(true);
+        split.setDividerLocation(sidebarVisible ? sidebarWidth : 0);
+        if (vertical.getBottomComponent() != null) {
+            vertical.setDividerLocation(Math.max(150, vertical.getHeight() - dockHeight - 4));
+        }
+        frame.toFront(); tree.requestFocusInWindow();
+    }
     public void hide() { frame.setVisible(false); }
     public JFrame frame() { return frame; }
 
@@ -678,8 +695,13 @@ public final class SwingWorkbench implements AutoCloseable {
         dockTitle.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createMatteBorder(0, 0, 2, 0, UIManager.getColor("Component.focusColor")),
                 BorderFactory.createEmptyBorder(6, 6, 6, 6)));
-        tree.setRowHeight(Math.max(24, fontSize + 10));
+        updateTreeRowHeight();
         frame.revalidate(); frame.repaint();
+    }
+
+    private void updateTreeRowHeight() {
+        // 按实际字体度量行高，避免系统字体回退或用户放大字体后相邻行文字相互覆盖。
+        tree.setRowHeight(Math.max(24, tree.getFontMetrics(tree.getFont()).getHeight() + 8));
     }
 
     private void toggleSearch() {
@@ -705,13 +727,13 @@ public final class SwingWorkbench implements AutoCloseable {
         popup.show(menuButton, 0, menuButton.getHeight());
     }
 
-    private void buildTerminalDock() {
+    private void buildToolDock() {
         JPanel header = new JPanel(new BorderLayout());
         header.setOpaque(false);
         header.setBorder(BorderFactory.createEmptyBorder(0, 10, 0, 4));
         JPanel labels = new JPanel(new FlowLayout(FlowLayout.LEFT, 14, 0));
         labels.setOpaque(false);
-        JLabel name = new JLabel(text("terminal.toolWindow"));
+        JLabel name = new JLabel(text("workspace.tools"));
         name.setFont(name.getFont().deriveFont(Font.BOLD));
         labels.add(name);
         dockTitle.setBorder(BorderFactory.createCompoundBorder(
@@ -721,90 +743,52 @@ public final class SwingWorkbench implements AutoCloseable {
         header.add(labels);
         JPanel tools = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 1));
         tools.setOpaque(false);
-        tools.add(button(WorkbenchIcon.Kind.DOCK, "terminal.restore", this::toggleTerminalDock));
-        tools.add(button(WorkbenchIcon.Kind.HIDE, "terminal.restore", this::toggleTerminalDock));
+        tools.add(button(WorkbenchIcon.Kind.HIDE, "workspace.hideTools", this::toggleToolWindow));
         header.add(tools, BorderLayout.EAST);
-        terminalDock.add(header, BorderLayout.NORTH);
+        toolDock.add(header, BorderLayout.NORTH);
         dockBody.setOpaque(false);
         dockBody.setBorder(BorderFactory.createEmptyBorder(2, 4, 4, 4));
-        terminalDock.add(dockBody);
-        terminalDock.setMinimumSize(new Dimension(0, 120));
+        toolDock.add(dockBody);
+        toolDock.setMinimumSize(new Dimension(0, 120));
     }
 
-    /** 仅重挂载组件；不重开会话、不更换 TtyConnector、不重新激活插件。 */
-    public void toggleTerminalDock() {
-        dockEnabled = !dockEnabled;
-        syncTerminalDock();
+    /** 下方仅承载原有文件、插件及监控页面；终端始终留在主工作区。 */
+    public void toggleToolWindow() {
+        toolWindowVisible = !toolWindowVisible;
+        syncToolWindow();
     }
 
-    private void restoreDockedTerminal() {
-        if (dockedView == null) return;
-        if (terminalDock.getHeight() > 0) dockHeight = Math.max(120, terminalDock.getHeight());
+    private void releaseToolWindow() {
+        if (toolWindowOwner == null) return;
+        if (toolDock.getHeight() > 0) dockHeight = Math.max(120, toolDock.getHeight());
         dockBody.removeAll();
-        if (dockedView instanceof SwingSessionView session) session.restoreTerminal();
-        else {
-            Object id = tabViews.entrySet().stream().filter(entry -> entry.getValue() == dockedView)
-                    .map(Map.Entry::getKey).findFirst().orElse(null);
-            JPanel host = tabHosts.get(id);
-            if (host != null) { host.removeAll(); host.add(dockedTerminal); host.revalidate(); host.repaint(); }
-        }
-        dockedView = null;
-        dockedTerminal = null;
+        toolWindowOwner = null;
     }
 
-    private void syncTerminalDock() {
+    private void syncToolWindow() {
         Object id = viewTabs.get(tabs.getSelectedComponent());
         Component view = tabViews.get(id);
-        boolean terminalView = view instanceof SwingSessionView || view instanceof com.jediterm.terminal.ui.JediTermWidget;
-        if (dockEnabled && terminalView && view == dockedView) return;
-        restoreDockedTerminal();
-        boolean show = dockEnabled && terminalView;
+        boolean supported = view instanceof SwingSessionView;
+        toolStripe.setEnabled(supported);
+        if (toolWindowVisible && supported && view == toolWindowOwner) return;
+        releaseToolWindow();
+        boolean show = toolWindowVisible && supported;
         if (!show) {
-            if (vertical.getBottomComponent() != null) dockHeight = Math.max(120, terminalDock.getHeight());
             vertical.setBottomComponent(null);
             vertical.setDividerSize(0);
         } else {
-            dockedView = view;
-            if (view instanceof SwingSessionView session) dockedTerminal = session.dockTerminal();
-            else {
-                dockedTerminal = (JComponent) view;
-                JPanel host = tabHosts.get(id);
-                host.removeAll();
-                host.add(terminalOverview(tabs.getTitleAt(tabs.getSelectedIndex())));
-                host.revalidate(); host.repaint();
-            }
-            dockBody.add(dockedTerminal);
+            toolWindowOwner = view;
+            JPanel content = ((SwingSessionView) view).toolWindow();
+            content.setVisible(true);
+            dockBody.add(content);
             dockTitle.setText(tabs.getTitleAt(tabs.getSelectedIndex()));
-            vertical.setBottomComponent(terminalDock);
+            vertical.setBottomComponent(toolDock);
             vertical.setDividerSize(4);
             vertical.revalidate();
             vertical.setDividerLocation(Math.max(150, vertical.getHeight() - dockHeight - 4));
         }
-        terminalStripe.setSelected(show);
+        toolStripe.setSelected(show);
         root.revalidate(); root.repaint();
-    }
-
-    private JPanel terminalOverview(String title) {
-        JPanel surface = new JPanel(new GridBagLayout());
-        surface.setOpaque(false);
-        JPanel hints = new JPanel();
-        hints.setOpaque(false);
-        hints.setLayout(new BoxLayout(hints, BoxLayout.Y_AXIS));
-        JLabel name = new JLabel(title);
-        name.setFont(name.getFont().deriveFont(Font.BOLD, 20f));
-        name.setForeground(SwingTheme.color("secondary"));
-        hints.add(name);
-        hints.add(Box.createVerticalStrut(16));
-        JLabel hint = new JLabel(text("terminal.empty"));
-        hint.setForeground(SwingTheme.color("secondary"));
-        hints.add(hint);
-        hints.add(Box.createVerticalStrut(18));
-        JButton expand = new JButton(text("terminal.restore"), new WorkbenchIcon(WorkbenchIcon.Kind.DOCK));
-        expand.putClientProperty("JButton.buttonType", "toolBarButton");
-        expand.addActionListener(event -> toggleTerminalDock());
-        hints.add(expand);
-        surface.add(hints);
-        return surface;
     }
 
     private JPopupMenu popupMenu(List<SwingMenuBridge.Item> specs) {

@@ -905,7 +905,7 @@ public class SftpBrowserPane extends BorderPane {
     private TreeItem<FileNode> findRecentlyExpanded(TreeView<FileNode> tree) {
         // Walk the expanded items to find one with a placeholder child
         for (TreeItem<FileNode> item : tree.getSelectionModel().getSelectedItems()) {
-            if (item.isExpanded() && item.getChildren().size() == 1
+            if (item != null && item.isExpanded() && item.getChildren().size() == 1
                     && item.getChildren().get(0).getValue().name().equals("\0")) {
                 return item;
             }

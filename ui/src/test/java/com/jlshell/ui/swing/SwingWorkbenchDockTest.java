@@ -18,11 +18,11 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** 真正挂载同一个终端；确保停靠、排序和切换插件页不替换终端及缓冲区。 */
+/** 真正挂载同一个终端；确保工具窗显隐、排序和切换插件页不替换主终端及缓冲区。 */
 @EnabledIfSystemProperty(named = "jlshell.ui.smoke", matches = "true")
 class SwingWorkbenchDockTest {
     @Test
-    void retainsNativeTerminalAndBufferAcrossDockingTabReorderAndPluginSelection() throws Exception {
+    void retainsMainTerminalAcrossToolWindowToggleTabReorderAndPluginSelection() throws Exception {
         SwingExecutors.runOnEdtAsync(() -> {
             SwingTheme.install(AppTheme.DARK, "#3574f0", "SansSerif", 13);
             Runnable noop = () -> {};
@@ -40,19 +40,18 @@ class SwingWorkbenchDockTest {
                 String originalScreen = buffer.getScreenLines();
                 assertTrue(originalScreen.contains("history preserved"));
                 view.addTab("first", "First", first, noop);
-                Container dock = first.getParent();
-                assertSame(view.frame(), SwingUtilities.getWindowAncestor(first));
-                view.toggleTerminalDock();
                 Container workspace = first.getParent();
-                assertNotSame(dock, workspace);
-                view.toggleTerminalDock();
-                assertSame(dock, first.getParent());
+                assertSame(view.frame(), SwingUtilities.getWindowAncestor(first));
+                view.toggleToolWindow();
+                assertSame(workspace, first.getParent());
+                view.toggleToolWindow();
+                assertSame(workspace, first.getParent());
                 view.addTab("second", "Second", second, noop);
                 view.selectTab("second");
-                assertSame(dock, second.getParent());
+                assertNotSame(workspace, second.getParent());
                 view.reorderTabs(List.of("second", "first"));
                 view.selectTab("first");
-                assertSame(dock, first.getParent());
+                assertSame(workspace, first.getParent());
                 var plugin = new JPanel();
                 view.addTab("plugin", "Plugin", plugin, noop);
                 view.selectTab("plugin");
@@ -60,7 +59,7 @@ class SwingWorkbenchDockTest {
                 assertSame(view.frame(), SwingUtilities.getWindowAncestor(plugin));
                 view.removeTab("plugin");
                 view.selectTab("first");
-                assertSame(dock, first.getParent());
+                assertSame(workspace, first.getParent());
                 assertSame(buffer, first.getTerminalTextBuffer());
                 assertEquals(originalScreen, buffer.getScreenLines());
                 view.removeTab("first");
