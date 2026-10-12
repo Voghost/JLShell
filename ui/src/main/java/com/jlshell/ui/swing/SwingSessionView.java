@@ -41,6 +41,9 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
     private javafx.collections.ListChangeListener<Tab> tabListListener;
     private final java.util.Map<Tab, ChangeListener<String>> titleListeners = new java.util.IdentityHashMap<>();
     private boolean closed;
+    private boolean docked;
+    private int selectedPage;
+    private final JPanel terminalOverview = new JPanel(new java.awt.GridBagLayout());
     private record Page(Tab tab, String title, boolean closable) {}
 
     /** 从 FX 线程调用。不会同步等待 EDT，也不会改变插件返回的 Node。 */
@@ -91,6 +94,12 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
         this.themes = themes;
         this.model = model;
         compatibility = new SwingFxPanel(themes);
+        terminalOverview.setOpaque(false);
+        JLabel hint = new JLabel(labels.isEmpty() ? "Terminal" : labels.getFirst(),
+                new WorkbenchIcon(WorkbenchIcon.Kind.TERMINAL), JLabel.CENTER);
+        hint.setFont(hint.getFont().deriveFont(20f));
+        hint.setForeground(SwingTheme.color("secondary"));
+        terminalOverview.add(hint);
         terminalBody.add(new JLabel("…", JLabel.CENTER));
         terminal.add(terminalBody, BorderLayout.CENTER);
         cards.add(terminal, "terminal");
@@ -106,6 +115,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
             navigation.add(button);
             if (i == 0) button.setSelected(true);
         }
+        navigation.setOpaque(false);
         navigation.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, SwingTheme.color("border")));
         add(navigation, BorderLayout.NORTH);
         add(cards, BorderLayout.CENTER);
@@ -113,6 +123,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
 
     private void selectPage(int index) {
         if (closed || index < 0) return;
+        selectedPage = index;
         ((CardLayout) cards.getLayout()).show(cards, index == 0 ? "terminal" : "compatibility");
         if (index < navigation.getComponentCount() && navigation.getComponent(index) instanceof JPanel page) {
             ((JToggleButton) page.getClientProperty("selector")).setSelected(true);
@@ -146,6 +157,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
                 JToggleButton selector = new JToggleButton(page.title());
                 selector.putClientProperty("JButton.buttonType", "toolBarButton");
                 selector.setFocusable(false);
+                selector.setBorder(BorderFactory.createEmptyBorder(7, 10, 7, 10));
                 selector.addActionListener(event -> FxThread.run(() -> model.getSelectionModel().select(page.tab())));
                 group.add(selector);
                 item.putClientProperty("selector", selector);
@@ -189,6 +201,26 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
             terminal.add(status, BorderLayout.SOUTH);
         }
         revalidate();
+    }
+
+    /** EDT。工具窗口只是重新挂载终端，原 JavaFX Tab 模型和插件节点保持不变。 */
+    public JPanel dockTerminal() {
+        if (!docked) {
+            docked = true;
+            cards.remove(terminal);
+            cards.add(terminalOverview, "terminal");
+            selectPage(selectedPage);
+        }
+        return terminal;
+    }
+
+    public void restoreTerminal() {
+        if (!docked) return;
+        docked = false;
+        cards.remove(terminalOverview);
+        cards.add(terminal, "terminal");
+        selectPage(selectedPage);
+        cards.revalidate(); cards.repaint();
     }
 
     public void attach(TerminalViewHandle viewHandle) {

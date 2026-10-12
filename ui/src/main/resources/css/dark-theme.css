@@ -1,15 +1,15 @@
 /* IDEA New UI dark: semantic palette, shared geometry in components.css. */
 .root {
     -jl-canvas: #1e1f22;
-    -jl-panel: #2b2d30;
+    -jl-panel: #191a1d;
     -jl-hover: #393b40;
-    -jl-border: #43454a;
+    -jl-border: #33353a;
     -jl-muted: #868a91;
     -jl-secondary: #9da0a8;
-    -jl-text: #dfe1e5;
+    -jl-text: #d1d3da;
     -jl-white: #ffffff;
     -jl-blue: #6b9bfa;
-    -jl-blue-subtle: #2e436e;
+    -jl-blue-subtle: #233657;
     -jl-green: #73bd79;
     -jl-green-subtle: #253627;
     -jl-red: #e37774;
@@ -24,8 +24,8 @@
     -jl-purple-subtle: #2f2936;
     -jl-accent: #3574f0;
     -jl-accent-hover: #467ff2;
-    -jl-accent-subtle: #2e436e;
+    -jl-accent-subtle: #233657;
     -jl-accent-border: #6b9bfa;
-    -jl-tab-accent-bg: #2e436e;
+    -jl-tab-accent-bg: #233657;
     -jl-tab-accent-border: #3574f0;
 }

@@ -10,7 +10,7 @@ import java.awt.geom.Path2D;
 
 /** 独立的 16px 线条图标，使用逻辑坐标，由 Swing 的 HiDPI 变换缩放。 */
 public record WorkbenchIcon(Kind kind) implements Icon {
-    public enum Kind { SERVER, FOLDER, ADD, RUN, REFRESH, SETTINGS, CLOSE, TERMINAL, PROJECT, EDIT, DELETE }
+    public enum Kind { SERVER, FOLDER, ADD, RUN, REFRESH, SETTINGS, CLOSE, TERMINAL, PROJECT, EDIT, DELETE, SEARCH, MORE, HIDE, DOCK, MENU }
     public int getIconWidth() { return 16; }
     public int getIconHeight() { return 16; }
 
@@ -19,12 +19,18 @@ public record WorkbenchIcon(Kind kind) implements Icon {
         try {
             g.translate(x, y);
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g.setStroke(new BasicStroke(1.3f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-            g.setColor(SwingTheme.color(kind == Kind.RUN ? "green" : kind == Kind.FOLDER ? "yellow" : "icon"));
+            g.setStroke(new BasicStroke(1f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            g.setColor(SwingTheme.color(kind == Kind.RUN ? "green" : "icon"));
+            if (IdeaIconShapes.paint(kind, g)) return;
             switch (kind) {
+                case SEARCH -> { g.drawOval(2, 2, 9, 9); g.drawLine(10, 10, 14, 14); }
+                case MORE -> { for (int i = 3; i <= 13; i += 5) g.fillOval(7, i - 1, 2, 2); }
+                case HIDE -> g.drawLine(3, 8, 13, 8);
+                case DOCK -> { g.drawRoundRect(2, 2, 12, 12, 2, 2); g.drawLine(2, 10, 14, 10); }
+                case MENU -> { for (int i = 4; i <= 12; i += 4) g.drawLine(3, i, 13, i); }
                 case ADD -> { g.drawLine(8, 3, 8, 13); g.drawLine(3, 8, 13, 8); }
                 case CLOSE -> { g.drawLine(4, 4, 12, 12); g.drawLine(12, 4, 4, 12); }
-                case RUN -> { Path2D path = new Path2D.Double(); path.moveTo(4, 2); path.lineTo(13, 8); path.lineTo(4, 14); path.closePath(); g.fill(path); }
+                case RUN -> { Path2D path = new Path2D.Double(); path.moveTo(4, 2); path.lineTo(13, 8); path.lineTo(4, 14); path.closePath(); g.draw(path); }
                 case SERVER -> { g.drawRoundRect(2, 2, 12, 5, 2, 2); g.drawRoundRect(2, 9, 12, 5, 2, 2); g.fillOval(4, 4, 2, 2); g.fillOval(4, 11, 2, 2); }
                 case FOLDER, PROJECT -> { g.drawLine(2, 3, 6, 3); g.drawLine(6, 3, 8, 5); g.drawLine(8, 5, 14, 5); g.drawLine(14, 5, 14, 13); g.drawLine(14, 13, 2, 13); g.drawLine(2, 13, 2, 3); }
                 case TERMINAL -> { g.drawRoundRect(1, 2, 14, 12, 2, 2); g.drawLine(4, 5, 7, 8); g.drawLine(7, 8, 4, 11); g.drawLine(9, 11, 12, 11); }

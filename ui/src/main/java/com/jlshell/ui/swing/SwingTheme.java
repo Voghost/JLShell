@@ -45,6 +45,11 @@ public final class SwingTheme {
         // 保留 JediTerm 的自绘终端面板和滚动条 UI；不能让 LAF 遍历重装它们。
         if (component instanceof JediTermWidget || component instanceof javafx.embed.swing.JFXPanel) return;
         if (component instanceof JComponent jc) jc.updateUI();
+        // TreeCellRenderer 不在组件子树中，其缓存颜色也必须随主题更新。
+        if (component instanceof javax.swing.JTree tree && tree.getCellRenderer() instanceof Component renderer) {
+            update(renderer);
+        }
+        if (component instanceof javax.swing.JMenu menu) update(menu.getPopupMenu());
         if (component instanceof Container container) {
             for (Component child : container.getComponents()) update(child);
         }

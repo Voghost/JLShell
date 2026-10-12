@@ -1,4 +1,4 @@
-# Swing / IDEA New UI 界面重构验收
+# Swing / IDEA Islands 界面重构验收
 
 本地分支：`feature/idea-ui-refactor`，基于 `origin/develop` 的 `2b06768`。
 独立工作目录：`JLShell-ui-refactor`。原工作目录、原分支及已安装应用均未切换。
@@ -11,9 +11,32 @@
 - 文件页、原有设置/账号/连接表单和插件内容仍使用 JavaFX，通过 `JFXPanel` 兼容承载。插件工具栏和服务器状态条也保留原视图及事件处理。
 - 业务动作继续调用原控制器。未修改 SSH/SFTP 服务、数据库、账户、更新协议、插件加载器、插件 SDK 或 RPC/会话注册机制。
 
-参考了本地 IDEA 的 `JBUI`、`expUI_dark/light.theme.json`、`JBTerminalWidget`、
-`JBTerminalPanel` 和 `ShellTerminalWidget` 的设计；未复制其平台实现或引入整个 IntelliJ 运行时。
-FlatLaf 的 Apache 2.0 许可证随 UI 资源保留在 `third-party/`。
+依据用户提供的 IDEA 截图，进一步对照本地源码中的 Islands UI：
+
+- `ManyIslandsDark/Light.theme.json`：颜色层级、24px 树行高、工具窗口栏和主工具栏。
+- `IslandsUICustomization.kt`：4px 内容间距、16px 圆角直径及独立工具窗口面板。
+- `IslandsTabPainter.kt`：圆角选中页签的背景和细边框。
+- `MacToolbarFrameHeader.kt`：主工具栏与 macOS 窗口按钮处于同一标题区。
+- `SquareStripeButtonLook.kt`、`ToolWindowHeader.kt`：窄工具栏、工具窗口标题和操作位置。
+- `JBTerminalWidget`、`JBTerminalPanel`、`ShellTerminalWidget`：原生 Swing 终端集成。
+
+文件夹、终端、设置、搜索、更多、新建和关闭图标使用 IDEA 原始 SVG 路径，转为一次初始化的
+Java2D 图形；原始 SVG 和版权头保留在 `icons/idea/`，绘制过程不解析 SVG 或跨 UI 线程。
+IDEA 图标及 FlatLaf 的 Apache 2.0 许可证和来源记录均随 UI 资源保留在 `third-party/`。
+未引入 IntelliJ 平台服务或改变 JLShell 插件契约。
+
+## 窗口结构与终端停靠
+
+顶部使用一体化主工具栏，放置项目选择、连接动作和主菜单入口；macOS 保留原生窗口按钮，
+Windows/Linux 使用 FlatLaf 的窗口装饰和按钮占位。主菜单保留原业务动作及动态启用状态。
+连接面板的搜索按需展开，新建文件夹、编辑、删除、刷新和项目管理可从标题栏更多菜单进入，
+右键操作、拖放移动和快捷键继续保留。
+
+终端默认停靠底部，可以通过左下终端按钮、工具窗口标题按钮或工作区提示展开回主工作区。
+拖动横向分隔调整终端高度，切换会话时保留高度。停靠只移动同一个 JediTerm 组件，
+不会创建新的 shell、替换连接器或重新激活插件。SSH 的文件和插件页面仍通过原 Tab 模型
+在上方工作区显示，底部终端可继续使用；本地会话上方提供展开入口。
+会话切换、排序、插件页选择及关闭都保留原有生命周期。
 
 ## 插件兼容
 
@@ -54,7 +77,7 @@ JAVA_HOME=<JDK21> mvn package -Djlshell.ui.smoke=true
 
 macOS 实际运行使用独立示例数据库，检查了原生本地终端、中文输出、设置窗口和明暗主题，并确认标签排序后两个终端视图都保留。
 在最终打包 JAR 中，用仓库原有 Script Snippets 示例插件完成外部 JAR 的发现、激活、界面交互与停用验证，未修改插件源码。
-完整测试与打包通过：137 个测试，0 失败、0 错误。
+完整测试与打包通过：138 个测试，0 失败、0 错误、0 跳过。新增停靠回归检查同一终端和缓冲区在展开、停靠、会话排序及插件页切换后保持完整。
 预览图片保存在 `ui/target/review/`，包括旧版插件界面。
 
 合并前仍需在 Windows/Linux 进行实际窗口、系统缩放和中文输入法验收，并以真实 SSH/SFTP

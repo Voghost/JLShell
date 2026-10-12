@@ -75,7 +75,7 @@ class WorkbenchUiSmokeTest {
                     assertEquals(0.85, button.getOpacity(), 0.001);
                     assertEquals(2, dialog.getStylesheets().size());
                     assertTrue(dialog.getStylesheets().getFirst().endsWith(selected.stylesheet()));
-                    Color expected = Color.web(selected == AppTheme.DARK ? "#2b2d30" : "#f7f8fa");
+                    Color expected = Color.web(selected == AppTheme.DARK ? "#191a1d" : "#f7f8fa");
                     assertEquals(expected, button.getBackground().getFills().getFirst().getFill());
                     assertTrue(theme.accentStyle().contains("0.28"));
                 }

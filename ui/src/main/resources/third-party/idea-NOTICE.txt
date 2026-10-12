@@ -1,0 +1,13 @@
+IntelliJ IDEA UI icon adaptations
+Copyright 2000-2025 JetBrains s.r.o. and contributors.
+Licensed under the Apache License, Version 2.0.
+License text: third-party/idea-LICENSE.txt
+
+Source: local intellij-community-master checkout.
+Original SVGs and copyright headers retained in icons/idea/.
+IdeaIconShapes.java adapts their path data for native Swing/Java2D painting.
+Palette, rounded tab painting and island geometry reference:
+platform/platform-resources/src/themes/islands/ManyIslandsDark.theme.json
+platform/platform-resources/src/themes/islands/ManyIslandsLight.theme.json
+platform/platform-impl/src/com/intellij/openapi/application/impl/islands/IslandsUICustomization.kt
+platform/platform-impl/src/com/intellij/openapi/application/impl/islands/IslandsTabPainter.kt
