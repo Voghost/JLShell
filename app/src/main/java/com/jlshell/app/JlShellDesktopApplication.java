@@ -99,31 +99,9 @@ public class JlShellDesktopApplication extends Application {
         addStageIcon(stage, "/icons/app_icon_256.png");
         addStageIcon(stage, "/icons/app_icon.png");
 
-        java.awt.Image awtIcon = loadAwtIcon();
-
-        // Ensure AWT toolkit is initialized before registering Desktop handlers.
-        // On macOS, Desktop.setPreferencesHandler() etc. only work after AWT is loaded.
-        java.awt.Toolkit.getDefaultToolkit();
-
-        // Register macOS application-menu handlers (Preferences, About, Quit).
-        // This causes these items to appear in the native JLShell application menu.
-        if (Desktop.isDesktopSupported()) {
-            Desktop desktop = Desktop.getDesktop();
-            if (desktop.isSupported(Desktop.Action.APP_PREFERENCES)) {
-                desktop.setPreferencesHandler(e ->
-                    Platform.runLater(() -> mainWindow.openPreferences(stage)));
-            }
-            if (desktop.isSupported(Desktop.Action.APP_ABOUT)) {
-                desktop.setAboutHandler(e ->
-                    Platform.runLater(() -> showAboutDialog(stage)));
-            }
-            if (desktop.isSupported(Desktop.Action.APP_QUIT_HANDLER)) {
-                desktop.setQuitHandler((e, response) -> {
-                    scheduleShutdown();
-                    response.cancelQuit();
-                });
-            }
-        }
+        // AWT 操作不能在 FX/AppKit 回调中争用 Swing 的 AWTTreeLock。
+        // 系统菜单、托盘及 Swing 窗口全部异步交给 EDT，FX 线程从不等待 EDT。
+        javax.swing.SwingUtilities.invokeLater(() -> registerDesktopHandlers(mainWindow, stage));
 
         stage.setOnCloseRequest(event -> {
             event.consume();
@@ -138,22 +116,25 @@ public class JlShellDesktopApplication extends Application {
                         splash.hide();
                         if (error != null) { showFatalError(error); return; }
                         UpdateActivationMarker.markStartupConfirmed();
-                        installSystemTray(stage, awtIcon);
+                        installSystemTray();
                     }));
         } else {
             stage.show();
             UpdateActivationMarker.markStartupConfirmed();
             splash.hide();
-            installSystemTray(stage, awtIcon);
+            installSystemTray();
         }
     }
 
     private void scheduleShutdown() {
         Platform.runLater(() -> {
             if (appContext != null) appContext.getMainWindow().closeSwingWindow();
-            if (trayIcon != null && SystemTray.isSupported()) {
-                SystemTray.getSystemTray().remove(trayIcon);
-            }
+            javax.swing.SwingUtilities.invokeLater(() -> {
+                if (trayIcon != null && SystemTray.isSupported()) {
+                    SystemTray.getSystemTray().remove(trayIcon);
+                    trayIcon = null;
+                }
+            });
         });
         Thread shutdownThread = new Thread(() -> {
             try {
@@ -229,8 +210,38 @@ public class JlShellDesktopApplication extends Application {
         about.showAndWait();
     }
 
-    private void installSystemTray(Stage stage, java.awt.Image icon) {
+    private void registerDesktopHandlers(MainWindow mainWindow, Stage stage) {
+        if (!javax.swing.SwingUtilities.isEventDispatchThread()) {
+            throw new IllegalStateException("Desktop handlers require EDT");
+        }
+        // Register macOS application-menu handlers (Preferences, About, Quit).
+        // This causes these items to appear in the native JLShell application menu.
+        if (Desktop.isDesktopSupported()) {
+            Desktop desktop = Desktop.getDesktop();
+            if (desktop.isSupported(Desktop.Action.APP_PREFERENCES)) {
+                desktop.setPreferencesHandler(e ->
+                    Platform.runLater(() -> mainWindow.openPreferences(stage)));
+            }
+            if (desktop.isSupported(Desktop.Action.APP_ABOUT)) {
+                desktop.setAboutHandler(e ->
+                    Platform.runLater(() -> showAboutDialog(stage)));
+            }
+            if (desktop.isSupported(Desktop.Action.APP_QUIT_HANDLER)) {
+                desktop.setQuitHandler((e, response) -> {
+                    scheduleShutdown();
+                    response.cancelQuit();
+                });
+            }
+        }
+    }
+
+    private void installSystemTray() {
+        if (!javax.swing.SwingUtilities.isEventDispatchThread()) {
+            javax.swing.SwingUtilities.invokeLater(this::installSystemTray);
+            return;
+        }
         if (!SystemTray.isSupported()) return;
+        java.awt.Image icon = loadAwtIcon();
         try {
             PopupMenu menu = new PopupMenu();
             MenuItem openItem = new MenuItem("Open JLShell");
