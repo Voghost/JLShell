@@ -257,6 +257,10 @@ public class SessionWorkspaceTab extends Tab {
         return innerTabPane;
     }
 
+    public TerminalWorkspaceView getTerminalWorkspaceView() {
+        return terminalWorkspaceView;
+    }
+
     /**
      * 控制内层 TabPane 的 tab-header-area 显隐。
      * CSS 方式对 JavaFX 内部布局不可靠，使用程序化方式直接操作子节点。

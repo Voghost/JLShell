@@ -127,14 +127,12 @@ public class PreferencesDialog {
     private static String readVersion() {
         // 优先从 META-INF/MANIFEST.MF 读取 Implementation-Version（jpackage 打包时写入）
         try {
-            var res = PreferencesDialog.class.getResource("/META-INF/MANIFEST.MF");
-            if (res != null) {
-                String content = new String(res.openStream().readAllBytes());
-                for (String line : content.split("\n")) {
-                    if (line.startsWith("Implementation-Version:")) {
-                        return line.substring("Implementation-Version:".length()).trim();
-                    }
-                }
+            // 只读取承载本类的 JAR，不能把 FlatLaf 等依赖的版本误认为宿主版本。
+            var res = PreferencesDialog.class.getResource("PreferencesDialog.class");
+            if (res != null && res.openConnection() instanceof java.net.JarURLConnection connection) {
+                var manifest = connection.getManifest();
+                String version = manifest == null ? null : manifest.getMainAttributes().getValue("Implementation-Version");
+                if (version != null && !version.isBlank()) return version;
             }
         } catch (Exception ignored) {}
         // 回退到 Maven 生成的 pom.properties（ui 模块）
@@ -142,7 +140,7 @@ public class PreferencesDialog {
             var res = PreferencesDialog.class.getResource("/META-INF/maven/com.jlshell/ui/pom.properties");
             if (res != null) {
                 var props = new java.util.Properties();
-                props.load(res.openStream());
+                try (var stream = res.openStream()) { props.load(stream); }
                 String v = props.getProperty("version");
                 if (v != null && !v.isBlank()) {
                     // 去掉 Maven 的 -SNAPSHOT 后缀，只保留语义版本号
@@ -232,7 +230,7 @@ public class PreferencesDialog {
         themeService.applyToDialog(dialog);
         dialog.setResizable(true);
         dialog.getDialogPane().setPrefSize(1040, 760);
-        dialog.getDialogPane().setMinSize(860, 620);
+        dialog.getDialogPane().setMinSize(640, 480);
 
         FontProfile[] pending = { fontProfileService.activeProfile() };
         String[] pendingLang = { appSettings.get("ui.language", null) };
@@ -273,7 +271,7 @@ public class PreferencesDialog {
         if (initialTabIndex >= 0 && initialTabIndex < tabs.getTabs().size()) {
             tabs.getSelectionModel().select(initialTabIndex);
         }
-        dialog.getDialogPane().setContent(tabs);
+        dialog.getDialogPane().setContent(new com.jlshell.ui.view.SettingsNavigation(tabs));
 
         // Apply 按钮：用 APPLY 类型让 ButtonBar 自动放左侧
         ButtonType applyBtnType = new ButtonType(i18n.get("preferences.apply"), ButtonBar.ButtonData.APPLY);

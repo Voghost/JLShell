@@ -1,0 +1,5 @@
+JLShell UI uses FlatLaf 3.5.4.
+Copyright (c) 2019-2024 FormDev Software GmbH.
+Licensed under the Apache License, Version 2.0.
+Source: https://github.com/JFormDesigner/FlatLaf
+Full license: flatlaf-LICENSE.txt in this directory.

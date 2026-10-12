@@ -130,14 +130,27 @@ public class JlShellDesktopApplication extends Application {
             scheduleShutdown();
         });
 
-        stage.show();
-        UpdateActivationMarker.markStartupConfirmed();
-        splash.hide();
-        installSystemTray(stage, awtIcon);
+        if (!"javafx".equalsIgnoreCase(System.getProperty("jlshell.ui.renderer", "swing"))) {
+            // 本分支默认使用原生 Swing 工作台；保留 JavaFX 渲染入口供对照验收。
+            Platform.setImplicitExit(false);
+            mainWindow.showSwingWindow(stage, this::scheduleShutdown).whenComplete((unused, error) ->
+                    Platform.runLater(() -> {
+                        splash.hide();
+                        if (error != null) { showFatalError(error); return; }
+                        UpdateActivationMarker.markStartupConfirmed();
+                        installSystemTray(stage, awtIcon);
+                    }));
+        } else {
+            stage.show();
+            UpdateActivationMarker.markStartupConfirmed();
+            splash.hide();
+            installSystemTray(stage, awtIcon);
+        }
     }
 
     private void scheduleShutdown() {
         Platform.runLater(() -> {
+            if (appContext != null) appContext.getMainWindow().closeSwingWindow();
             if (trayIcon != null && SystemTray.isSupported()) {
                 SystemTray.getSystemTray().remove(trayIcon);
             }
@@ -224,8 +237,8 @@ public class JlShellDesktopApplication extends Application {
             MenuItem hideItem = new MenuItem("Hide");
             MenuItem exitItem = new MenuItem("Exit");
 
-            openItem.addActionListener(e -> Platform.runLater(() -> { stage.show(); stage.toFront(); }));
-            hideItem.addActionListener(e -> Platform.runLater(stage::hide));
+            openItem.addActionListener(e -> Platform.runLater(() -> appContext.getMainWindow().showMainWindow()));
+            hideItem.addActionListener(e -> Platform.runLater(() -> appContext.getMainWindow().hideMainWindow()));
             exitItem.addActionListener(e -> scheduleShutdown());
 
             menu.add(openItem);
@@ -235,7 +248,7 @@ public class JlShellDesktopApplication extends Application {
 
             trayIcon = new TrayIcon(icon != null ? icon : fallbackAwtIcon(16), "JLShell", menu);
             trayIcon.setImageAutoSize(true);
-            trayIcon.addActionListener(e -> Platform.runLater(() -> { stage.show(); stage.toFront(); }));
+            trayIcon.addActionListener(e -> Platform.runLater(() -> appContext.getMainWindow().showMainWindow()));
             SystemTray.getSystemTray().add(trayIcon);
         } catch (AWTException e) {
             trayIcon = null;

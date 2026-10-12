@@ -54,6 +54,8 @@ public class RefreshableTerminalPanel extends TerminalPanel {
     private final JlshellSettingsProvider jlshellSettings;
     private final Function<String, String> i18n;
     private boolean ignoreNextShiftInsertTyped;
+    private Font lastVisualFont;
+    private float lastVisualLineSpacing;
 
     /**
      * JediTermWidget 在 init 时通过 setCoordAccessor 注入 TerminalCoordinates，
@@ -74,7 +76,13 @@ public class RefreshableTerminalPanel extends TerminalPanel {
     }
 
     public void refreshVisuals() {
-        reinitFontAndResize();
+        Font font = jlshellSettings.getTerminalFont();
+        float spacing = jlshellSettings.getLineSpacing();
+        if (!font.equals(lastVisualFont) || Float.compare(spacing, lastVisualLineSpacing) != 0) {
+            reinitFontAndResize();
+            lastVisualFont = font;
+            lastVisualLineSpacing = spacing;
+        }
         repaint();
     }
 

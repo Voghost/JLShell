@@ -183,6 +183,24 @@ public class TerminalWorkspaceView extends BorderPane {
     private boolean disconnected = false;
     /** 重连回调，由 SessionWorkspaceTab 设置 */
     private Runnable onReconnect;
+    private com.jlshell.ui.swing.NativeTerminalHost nativeTerminalHost;
+
+    public void setNativeTerminalHost(com.jlshell.ui.swing.NativeTerminalHost host) {
+        nativeTerminalHost = host;
+    }
+
+    /** 只移动界面节点，原有插件按钮、状态采样和事件处理仍由本视图维护。 */
+    public Node takeNativeToolbar() {
+        Node node = getTop();
+        setTop(null);
+        return node;
+    }
+
+    public Node takeNativeStatusBar() {
+        Node node = getBottom();
+        setBottom(null);
+        return node;
+    }
 
     public TerminalWorkspaceView(
             String sessionId,
@@ -412,6 +430,12 @@ public class TerminalWorkspaceView extends BorderPane {
 
         long startedAt = System.nanoTime();
         disconnected = true;
+        if (nativeTerminalHost != null) {
+            nativeTerminalHost.disconnected(reasonText, () -> {
+                hideDisconnectOverlay();
+                if (onReconnect != null) onReconnect.run();
+            });
+        }
         stopStatusSampling();
         log.warn("[Terminal] Session {} disconnected, reason={}, handles={}, primaryNode={}",
                 sshSession.sessionId(), reason, handles.size(),
@@ -2056,6 +2080,10 @@ public class TerminalWorkspaceView extends BorderPane {
     }
 
     private Node createEmbeddedTerminalNode(TerminalViewHandle handle) {
+        if (nativeTerminalHost != null) {
+            nativeTerminalHost.attach(handle);
+            return new javafx.scene.layout.Pane();
+        }
         log.info("Attaching SwingNode terminal component for session {}", sshSession.sessionId());
         javax.swing.JComponent component = handle.component();
         SwingNode swingNode = new SwingNode();

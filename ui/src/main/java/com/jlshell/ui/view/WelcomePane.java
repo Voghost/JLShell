@@ -56,7 +56,8 @@ public class WelcomePane extends VBox {
         this.onConnectById = onConnectById;
 
         setSpacing(0);
-        setPadding(new Insets(40));
+        setPadding(new Insets(28));
+        setAlignment(Pos.TOP_CENTER);
         getStyleClass().add("welcome-pane");
 
         buildContent();
@@ -68,7 +69,7 @@ public class WelcomePane extends VBox {
         ImageView iconView = null;
         var iconUrl = WelcomePane.class.getResource("/icons/app_icon.png");
         if (iconUrl != null) {
-            Image icon = new Image(iconUrl.toExternalForm(), 64, 64, true, true);
+            Image icon = new Image(iconUrl.toExternalForm(), 40, 40, true, true);
             iconView = new ImageView(icon);
         }
 
@@ -80,7 +81,7 @@ public class WelcomePane extends VBox {
         subtitle.getStyleClass().add("welcome-subtitle");
 
         VBox header = new VBox(6, title, subtitle);
-        header.setAlignment(Pos.CENTER);
+        header.setAlignment(Pos.CENTER_LEFT);
 
         // Quick start label & buttons
         Label quickStart = new Label(i18n.get("welcome.quickStart"));
@@ -95,7 +96,7 @@ public class WelcomePane extends VBox {
         newFolderBtn.setOnAction(e -> onCreateFolder.run());
 
         HBox actions = new HBox(12, newConnBtn, newFolderBtn);
-        actions.setAlignment(Pos.CENTER);
+        actions.setAlignment(Pos.CENTER_LEFT);
         actions.getStyleClass().add("welcome-actions");
 
         // ── Two-column grid: Recent (left) | Favorites (right) ──
@@ -159,11 +160,15 @@ public class WelcomePane extends VBox {
         // ── Assemble ──
         // Top section (fixed): icon + header + buttons
         VBox topSection = new VBox(12);
-        topSection.setAlignment(Pos.CENTER);
+        topSection.setAlignment(Pos.CENTER_LEFT);
         if (iconView != null) {
-            topSection.getChildren().add(iconView);
+            HBox heading = new HBox(12, iconView, header);
+            heading.setAlignment(Pos.CENTER_LEFT);
+            topSection.getChildren().add(heading);
+        } else {
+            topSection.getChildren().add(header);
         }
-        topSection.getChildren().addAll(header, new Separator(), quickStart, actions);
+        topSection.getChildren().addAll(quickStart, actions);
 
         // Middle section (grows): two-column lists
         VBox middleSection = new VBox(8, new Separator(), columns);

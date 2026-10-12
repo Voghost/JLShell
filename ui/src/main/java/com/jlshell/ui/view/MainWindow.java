@@ -155,6 +155,10 @@ public class MainWindow {
     private SidebarTreeView sidebarTreeView;
     private WelcomePane welcomePane;
     private VBox topArea; // stored for locale rebuild
+    private HBox mainToolbar;
+    private CompletableFuture<com.jlshell.ui.swing.SwingWorkbench> swingWorkbench;
+    private Runnable swingQuitAction;
+    private javafx.collections.ListChangeListener<javafx.stage.Window> swingModalListener;
     private Label sectionLabel;
     private Label projectSwitchLabel;
     private Label statusLabel;
@@ -178,8 +182,8 @@ public class MainWindow {
     private SplitPane centerSplitPane;
     private VBox sidebarVBox;
     private Button revealSidebarBtn;
-    private static final double SIDEBAR_EXPANDED_MIN_WIDTH = 360;
-    private static final double SIDEBAR_EXPANDED_POSITION = 0.26;
+    private static final double SIDEBAR_EXPANDED_MIN_WIDTH = 260;
+    private static final double SIDEBAR_EXPANDED_POSITION = 0.23;
     private static final double SIDEBAR_MAX_POSITION = 1.0 / 3.0;
 
     // ── 顶栏折叠/展开 ──
@@ -383,7 +387,174 @@ public class MainWindow {
         return scene;
     }
 
+    /** 新分支的 Swing 渲染入口；业务动作、会话及插件上下文仍由原控制器维护。 */
+    public CompletableFuture<Void> showSwingWindow(Stage owner, Runnable quit) {
+        swingQuitAction = quit;
+        var texts = com.jlshell.ui.swing.SwingWorkbench.TEXT_KEYS.stream().collect(
+                Collectors.toMap(key -> key, key -> i18nService.get(key)));
+        java.util.function.Function<Runnable, Runnable> fxAction = action -> () -> dispatchSwingAction(action);
+        var actions = new com.jlshell.ui.swing.SwingWorkbench.Actions(
+                fxAction.apply(() -> createConnection(owner)), fxAction.apply(() -> createFolder(owner)),
+                fxAction.apply(() -> editSelectedConnection(owner)), fxAction.apply(this::deleteSelectedConnection),
+                fxAction.apply(this::loadConnections), fxAction.apply(() -> openPreferences(owner)),
+                fxAction.apply(() -> {
+                    ProjectManagerDialog.show(owner, connectionProfileService, i18nService, themeService, vaultService,
+                            activeProjectId, id -> FxThread.run(() -> switchProject(id)));
+                    refreshProjectCombo(); loadConnections();
+                }), fxAction.apply(this::toggleSidebar), fxAction.apply(quit),
+                profile -> FxThread.run(() -> connectProfile(profile)),
+                items -> FxThread.run(() -> {
+                    sidebarTreeView.selectItems(items);
+                    String id = items.stream().filter(SidebarItem.ConnectionItem.class::isInstance)
+                            .map(SidebarItem::id).findFirst().orElse(null);
+                    viewModel.selectedConnectionProperty().set(cachedProfiles.stream()
+                            .filter(profile -> Objects.equals(profile.id(), id)).findFirst().orElse(null));
+                }),
+                project -> dispatchSwingAction(() -> {
+                    switchProjectWithConfirm(project.id() == null ? DEFAULT_PROJECT : project);
+                    publishSwingProjects();
+                }), ids -> FxThread.run(() -> saveSidebarCollapsedFolders(ids)),
+                id -> FxThread.run(() -> { if (id instanceof javafx.scene.control.Tab tab) workspaceTabs.getSelectionModel().select(tab); }),
+                (id, position) -> FxThread.run(() -> {
+                    if (!(id instanceof javafx.scene.control.Tab tab)) return;
+                    int current = workspaceTabs.getTabs().indexOf(tab);
+                    if (current < 0 || current == position) return;
+                    var selected = workspaceTabs.getSelectionModel().getSelectedItem();
+                    workspaceTabs.getTabs().remove(tab);
+                    workspaceTabs.getTabs().add(Math.min(position, workspaceTabs.getTabs().size()), tab);
+                    workspaceTabs.getSelectionModel().select(selected);
+                    List<Object> order = new ArrayList<>(workspaceTabs.getTabs());
+                    withSwing(view -> view.reorderTabs(order));
+                }),
+                (items, folder) -> FxThread.run(() -> sidebarTreeView.moveItems(items, folder)),
+                (item, callback) -> FxThread.run(() -> {
+                    var menu = sidebarTreeView.contextMenuFor(item);
+                    var bar = new MenuBar(new Menu("context"));
+                    bar.getMenus().getFirst().getItems().setAll(menu.getItems());
+                    callback.accept(com.jlshell.ui.swing.SwingMenuBridge.snapshot(bar, this::dispatchSwingAction).getFirst().children());
+                }),
+                (id, callback) -> FxThread.run(() -> {
+                    if (!(id instanceof javafx.scene.control.Tab tab)) return;
+                    var menu = buildTabContextMenu(tab);
+                    javafx.event.Event.fireEvent(menu, new javafx.stage.WindowEvent(menu, javafx.stage.WindowEvent.WINDOW_SHOWING));
+                    var bar = new MenuBar(new Menu("context"));
+                    bar.getMenus().getFirst().getItems().setAll(menu.getItems());
+                    callback.accept(com.jlshell.ui.swing.SwingMenuBridge.snapshot(bar, this::dispatchSwingAction).getFirst().children());
+                }));
+        AppTheme theme = themeService.currentTheme();
+        String accent = themeService.accentColor().color();
+        String family = appSettingsService.get("ui.font.family", null);
+        int fontSize = swingFontSize();
+        MenuBar menuModel = buildMenuBar(owner);
+        menuModel.getMenus().getFirst().getItems().stream()
+                .filter(item -> i18nService.get("action.exit").equals(item.getText()))
+                .forEach(item -> item.setOnAction(event -> quit.run()));
+        var menuSnapshot = com.jlshell.ui.swing.SwingMenuBridge.snapshot(menuModel, this::dispatchSwingAction);
+        swingWorkbench = com.jlshell.terminal.support.SwingExecutors.supplyOnEdtAsync(() -> {
+            com.jlshell.ui.swing.SwingTheme.install(theme, accent, family, fontSize);
+            var view = new com.jlshell.ui.swing.SwingWorkbench(actions, texts);
+            view.setMenuBar(com.jlshell.ui.swing.SwingMenuBridge.create(menuModel, menuSnapshot, this::dispatchSwingAction));
+            view.show();
+            return view;
+        });
+        swingModalListener = change -> updateSwingModality();
+        javafx.stage.Window.getWindows().addListener(swingModalListener);
+        viewModel.statusMessageProperty().addListener((obs, oldValue, value) -> withSwing(view -> view.setStatus(value)));
+        workspaceTabs.getSelectionModel().selectedItemProperty().addListener((obs, oldValue, tab) -> withSwing(view -> view.selectTab(tab)));
+        workspaceTabs.getTabs().addListener((javafx.collections.ListChangeListener<javafx.scene.control.Tab>) change -> {
+            while (change.next()) for (var tab : change.getRemoved()) {
+                // 拖动排序产生 remove/add 同一对象，不触发视图释放。
+                javafx.application.Platform.runLater(() -> {
+                    if (!workspaceTabs.getTabs().contains(tab)) withSwing(view -> view.removeTab(tab));
+                });
+            }
+        });
+        publishSwingProjects();
+        loadConnections();
+        updateWindowTitle();
+        withSwing(view -> view.setSidebarVisible(sidebarVisible));
+        withSwing(view -> view.setFocusMode(topBarCollapsed));
+        installSwingShortcuts(quit);
+        return swingWorkbench.thenApply(unused -> null);
+    }
+
+    private int swingFontSize() {
+        try { return Math.max(10, Math.min(40, Integer.parseInt(appSettingsService.get("ui.font.size", "13")))); }
+        catch (NumberFormatException ignored) { return 13; }
+    }
+
+    private void withSwing(java.util.function.Consumer<com.jlshell.ui.swing.SwingWorkbench> action) {
+        if (swingWorkbench != null) swingWorkbench.thenAccept(view -> javax.swing.SwingUtilities.invokeLater(() -> action.accept(view)));
+    }
+
+    private void dispatchSwingAction(Runnable action) {
+        withSwing(view -> {
+            view.setEnabled(false);
+            FxThread.run(() -> {
+                try { action.run(); }
+                finally { updateSwingModality(); }
+            });
+        });
+    }
+
+    private void updateSwingModality() {
+        boolean blocked = javafx.stage.Window.getWindows().stream().anyMatch(window ->
+                window instanceof Stage stage && stage.isShowing()
+                        && stage.getModality() != javafx.stage.Modality.NONE);
+        withSwing(view -> view.setEnabled(!blocked));
+    }
+
+    private void publishSwingProjects() {
+        if (swingWorkbench == null) return;
+        List<ProjectProfile> choices = List.copyOf(projectCombo.getItems().stream().filter(project -> project != DEFAULT_PROJECT).toList());
+        String active = activeProjectId;
+        withSwing(view -> view.updateProjects(choices, active));
+    }
+
+    private void publishSwingWelcome() {
+        if (swingWorkbench == null) return;
+        CompletableFuture.supplyAsync(() -> connectionProfileService.listRecentSessions(10), executor)
+                .thenAccept(items -> withSwing(view -> {
+                    // 收藏和历史都来自原有服务，数据不在 EDT 查询。
+                    CompletableFuture.supplyAsync(connectionProfileService::listFavoriteProfiles, executor)
+                            .thenAccept(favorites -> withSwing(window -> window.updateWelcome(items, favorites)));
+                }));
+    }
+
+    private void installSwingShortcuts(Runnable quit) {
+        Map<String, Runnable> actions = Map.of("app.newConnection", () -> createConnection(primaryStage),
+                "app.refreshConnections", this::loadConnections, "app.quit", quit,
+                "app.toggleSidebar", this::toggleSidebar, "app.toggleTopBar", this::toggleTopBarCollapse,
+                "app.focusMode", this::toggleFocusMode, "app.preferences", () -> openPreferences(primaryStage));
+        Map<javax.swing.KeyStroke, Runnable> bindings = new java.util.HashMap<>();
+        actions.forEach((id, action) -> {
+            for (String spec : new String[]{shortcutRegistry.getEffectivePrimary(id), shortcutRegistry.getEffectiveSecondary(id)}) {
+                var key = ShortcutConverter.toKeyStroke(spec);
+                if (key != null) bindings.put(key, () -> dispatchSwingAction(action));
+            }
+        });
+        withSwing(view -> view.setShortcuts(bindings));
+    }
+
+    public void showMainWindow() {
+        if (swingWorkbench == null) { primaryStage.show(); primaryStage.toFront(); }
+        else withSwing(com.jlshell.ui.swing.SwingWorkbench::show);
+    }
+
+    public void hideMainWindow() {
+        if (swingWorkbench == null) primaryStage.hide();
+        else withSwing(com.jlshell.ui.swing.SwingWorkbench::hide);
+    }
+
+    public void closeSwingWindow() {
+        FxThread.run(() -> {
+            if (swingModalListener != null) javafx.stage.Window.getWindows().removeListener(swingModalListener);
+            withSwing(com.jlshell.ui.swing.SwingWorkbench::close);
+        });
+    }
+
     private void scheduleAutomaticUpdateCheck(Stage stage) {
+        if (Boolean.getBoolean("jlshell.ui.preview")) return;
         if (updateService == null || !updateService.autoCheckEnabled()) {
             return;
         }
@@ -685,6 +856,7 @@ public class MainWindow {
 
     /** 重新安装所有程序级快捷键（快捷键设置变更后调用）。 */
     public void refreshShortcuts(Scene scene, Stage stage) {
+        if (swingQuitAction != null) installSwingShortcuts(swingQuitAction);
         // 移除旧的过滤器
         for (EventHandler<KeyEvent> filter : installedShortcutFilters) {
             scene.removeEventFilter(KeyEvent.KEY_PRESSED, filter);
@@ -779,10 +951,11 @@ public class MainWindow {
     private void refreshProjectCombo() {
         String saved = activeProjectId;
         projectCombo.getItems().clear();
-        projectCombo.getItems().add(DEFAULT_PROJECT);
+        projectCombo.getItems().setAll(DEFAULT_PROJECT);
         projectCombo.getItems().addAll(connectionProfileService.listProjects());
         activeProjectId = saved;
         selectProjectCombo();
+        publishSwingProjects();
     }
 
     private void selectProjectCombo() {
@@ -968,7 +1141,8 @@ public class MainWindow {
             root.setTop(buildTopArea(stage));
         }
         // Rebuild sidebar and welcome pane to refresh all labels
-        if (root.getCenter() instanceof SplitPane splitPane && splitPane.getItems().size() >= 2) {
+        if (centerSplitPane != null && centerSplitPane.getItems().size() >= 2) {
+            SplitPane splitPane = centerSplitPane;
             String savedSearch = searchField != null ? searchField.getText() : "";
             sidebarVBox = buildSidebar(stage);
             splitPane.getItems().set(0, sidebarVBox);
@@ -1003,7 +1177,7 @@ public class MainWindow {
         }
     }
 
-    private SplitPane buildCenterArea(Stage stage) {
+    private BorderPane buildCenterArea(Stage stage) {
         sidebarVBox = buildSidebar(stage);
         sidebarVBox.setMinWidth(SIDEBAR_EXPANDED_MIN_WIDTH);
         workspaceTabs.getStyleClass().add("workspace-tabs");
@@ -1110,13 +1284,61 @@ public class MainWindow {
         }
 
         centerSplitPane = new SplitPane(sidebarVBox, workspaceStackPane);
+        centerSplitPane.getStyleClass().add("ide-workspace");
+        SplitPane.setResizableWithParent(sidebarVBox, false);
         installSidebarDividerLimit(centerSplitPane);
         if (sidebarVisible) {
             restoreSidebarDividerPosition();
         } else {
             applySidebarVisibility();
         }
-        return centerSplitPane;
+        BorderPane shell = new BorderPane(centerSplitPane);
+        shell.getStyleClass().add("ide-shell");
+        shell.setTop(buildMainToolbar(stage));
+        shell.setLeft(buildToolWindowRail(stage));
+        return shell;
+    }
+
+    private HBox buildMainToolbar(Stage stage) {
+        Label brand = new Label("JLShell");
+        brand.getStyleClass().add("ide-brand");
+        Label project = new Label();
+        project.textProperty().bind(Bindings.createStringBinding(() -> {
+            ProjectProfile selected = projectCombo.getValue();
+            return selected == null || selected == DEFAULT_PROJECT
+                    ? i18nService.get("project.label.default") : selected.name();
+        }, projectCombo.valueProperty(), i18nService.localeProperty()));
+        project.getStyleClass().add("ide-project-name");
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        Button create = svgIconButton("/icons/add.svg", i18nService.get("action.newConnection"),
+                () -> createConnection(stage));
+        Button connect = svgIconButton("/icons/runo24.svg", i18nService.get("action.connect"), this::connectSelected);
+        connect.disableProperty().bind(viewModel.selectedConnectionProperty().isNull());
+        connect.getStyleClass().add("ide-run-button");
+        Button preferences = svgIconButton("/icons/settings.svg", i18nService.get("action.preferences"),
+                () -> openPreferences(stage));
+        mainToolbar = new HBox(8, brand, project, spacer, create, connect, preferences);
+        mainToolbar.setAlignment(Pos.CENTER_LEFT);
+        mainToolbar.getStyleClass().add("ide-main-toolbar");
+        return mainToolbar;
+    }
+
+    private VBox buildToolWindowRail(Stage stage) {
+        Button connections = svgIconButton("/icons/server.svg", i18nService.get("sidebar.toggle"), this::toggleSidebar);
+        Button projects = svgIconButton("/icons/project.svg", i18nService.get("project.menu.manage"), () -> {
+            ProjectManagerDialog.show(stage, connectionProfileService, i18nService, themeService, vaultService,
+                    activeProjectId, projectId -> FxThread.run(() -> switchProject(projectId)));
+            refreshProjectCombo();
+            loadConnections();
+        });
+        Region spacer = new Region();
+        VBox.setVgrow(spacer, Priority.ALWAYS);
+        Button settings = svgIconButton("/icons/settings.svg", i18nService.get("action.preferences"),
+                () -> openPreferences(stage));
+        VBox rail = new VBox(8, connections, projects, spacer, settings);
+        rail.getStyleClass().add("ide-tool-window-rail");
+        return rail;
     }
 
     private void installSidebarDividerLimit(SplitPane splitPane) {
@@ -1206,6 +1428,7 @@ public class MainWindow {
 
     private void updateWindowTitle() {
         String title = buildWindowTitle(workspaceTabs.getSelectionModel().getSelectedItem());
+        withSwing(view -> view.setTitle(title));
         if (primaryStage != null) {
             primaryStage.setTitle(title);
         }
@@ -1371,15 +1594,15 @@ public class MainWindow {
         Button refreshButton   = svgIconButton("/icons/refresh.svg",      i18nService.get("action.refresh"), this::loadConnections);
         Button toggleSidebarBtn = svgIconButton("/icons/sidebar-left.svg", i18nService.get("sidebar.toggle"), this::toggleSidebar);
         Button settingsButton  = svgIconButton("/icons/settings.svg",     i18nService.get("action.preferences"), () -> openPreferences(stage));
-        connectButton.setText(i18nService.get("action.connect"));
-        connectButton.setContentDisplay(javafx.scene.control.ContentDisplay.LEFT);
-        connectButton.getStyleClass().add("icon-btn-primary");
+        connectButton.disableProperty().bind(viewModel.selectedConnectionProperty().isNull());
+        editButton.disableProperty().bind(viewModel.selectedConnectionProperty().isNull());
+        deleteButton.disableProperty().bind(viewModel.selectedConnectionProperty().isNull());
 
         HBox actionBar = new HBox(4, createButton, editButton, deleteButton, newFolderButton,
                 new javafx.scene.layout.Region(), connectButton, refreshButton, toggleSidebarBtn);
         HBox.setHgrow(actionBar.getChildren().get(4), Priority.ALWAYS);
         actionBar.getStyleClass().add("sidebar-action-bar");
-        VBox.setMargin(actionBar, new Insets(0, 6, 10, 6));
+        VBox.setMargin(actionBar, new Insets(0, 0, 0, 0));
 
         // 搜索框 — 放在 sectionLabel 和 TreeView 之间
         searchField = new javafx.scene.control.TextField();
@@ -1391,13 +1614,17 @@ public class MainWindow {
         clearSearchBtn.getStyleClass().add("sidebar-search-clear");
         clearSearchBtn.setVisible(false);
         clearSearchBtn.visibleProperty().bind(searchField.textProperty().isEmpty().not());
+        clearSearchBtn.managedProperty().bind(clearSearchBtn.visibleProperty());
         clearSearchBtn.setOnAction(e -> searchField.clear());
         HBox searchRow = new HBox(4, searchIcon != null ? searchIcon : new Region(), searchField, clearSearchBtn);
         searchRow.getStyleClass().add("sidebar-search-row");
         searchRow.setMaxWidth(420);
         HBox.setHgrow(searchField, Priority.ALWAYS);
-        searchField.textProperty().addListener((obs, oldVal, newVal) ->
-                sidebarTreeView.applyFilter(newVal));
+        SidebarTreeView searchTree = sidebarTreeView;
+        TextField searchInput = searchField;
+        javafx.animation.PauseTransition searchDelay = new javafx.animation.PauseTransition(javafx.util.Duration.millis(140));
+        searchDelay.setOnFinished(event -> searchTree.applyFilter(searchInput.getText()));
+        searchField.textProperty().addListener((obs, oldVal, newVal) -> searchDelay.playFromStart());
 
         sectionLabel = new Label(i18nService.get("sidebar.connections"));
         sectionLabel.getStyleClass().add("sidebar-section-label");
@@ -1419,8 +1646,10 @@ public class MainWindow {
         projectSwitchLabel.getStyleClass().add("sidebar-project-label");
         projectSwitchLabel.setMinWidth(Region.USE_PREF_SIZE);
 
-        projectCombo.getStyleClass().add("sidebar-project-combo");
-        projectCombo.setMinWidth(180);
+        if (!projectCombo.getStyleClass().contains("sidebar-project-combo")) {
+            projectCombo.getStyleClass().add("sidebar-project-combo");
+        }
+        projectCombo.setMinWidth(80);
         projectCombo.setMaxWidth(Double.MAX_VALUE);
         projectCombo.setButtonCell(new ListCell<>() {
             @Override
@@ -1447,11 +1676,14 @@ public class MainWindow {
                 setText(empty ? "" : (item == DEFAULT_PROJECT ? i18nService.get("project.label.default") : item.name()));
             }
         });
-        projectCombo.getItems().add(DEFAULT_PROJECT);
+        projectCombo.getItems().setAll(DEFAULT_PROJECT);
         projectCombo.getItems().addAll(connectionProfileService.listProjects());
         selectProjectCombo();
-        projectCombo.getSelectionModel().selectedItemProperty().addListener((obs, oldVal, newVal) ->
-                switchProjectWithConfirm(newVal));
+        if (!projectCombo.getProperties().containsKey("projectSelectionInstalled")) {
+            projectCombo.getSelectionModel().selectedItemProperty().addListener((obs, oldVal, newVal) ->
+                    switchProjectWithConfirm(newVal));
+            projectCombo.getProperties().put("projectSelectionInstalled", true);
+        }
 
         Button manageProjectBtn = svgIconButton("/icons/project.svg", i18nService.get("project.menu.manage"),
                 () -> {
@@ -1464,14 +1696,14 @@ public class MainWindow {
         HBox.setHgrow(projectCombo, Priority.ALWAYS);
         HBox projectRow = new HBox(8, projectSwitchLabel, projectCombo, manageProjectBtn, settingsButton);
         projectRow.getStyleClass().add("sidebar-project-row");
-        VBox.setMargin(projectRow, new Insets(10, 6, 8, 6));
+        VBox.setMargin(projectRow, new Insets(0));
 
         VBox listPanel = new VBox(0, sectionHeader, searchRow, sidebarTreeView.getTreeView());
         listPanel.getStyleClass().add("sidebar-list-panel");
-        VBox.setMargin(listPanel, new Insets(0, 6, 8, 6));
+        VBox.setMargin(listPanel, new Insets(0));
         VBox.setVgrow(listPanel, Priority.ALWAYS);
 
-        VBox sidebar = new VBox(0, projectRow, listPanel, actionBar);
+        VBox sidebar = new VBox(0, projectRow, actionBar, listPanel);
         sidebar.getStyleClass().add("sidebar");
         VBox.setVgrow(sidebarTreeView.getTreeView(), Priority.ALWAYS);
         return sidebar;
@@ -1518,47 +1750,8 @@ public class MainWindow {
         return button;
     }
 
-    /** 从 SVG 文件提取 path 数据，返回 Region（通过 -fx-shape CSS 显示） */
     private Region loadSvgShape(String resourcePath, double size) {
-        try (var is = MainWindow.class.getResourceAsStream(resourcePath)) {
-            if (is == null) return null;
-            String content = new String(is.readAllBytes());
-            String pathData = extractSvgPath(content);
-            if (pathData == null) return null;
-            Region region = new Region();
-            region.setMinSize(size, size);
-            region.setMaxSize(size, size);
-            region.setPrefSize(size, size);
-            javafx.scene.shape.SVGPath svg = new javafx.scene.shape.SVGPath();
-            svg.setContent(pathData);
-            region.setShape(svg);
-            region.setStyle("-fx-scale-shape:true;");
-            region.getStyleClass().add("action-bar-icon");
-            return region;
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private static String extractSvgPath(String svgContent) {
-        StringBuilder sb = new StringBuilder();
-        int idx = 0;
-        while (idx < svgContent.length()) {
-            int start = svgContent.indexOf("d=\"", idx);
-            if (start == -1) break;
-            // Ensure 'd' is a standalone attribute (preceded by whitespace or start-of-tag)
-            if (start > 0 && Character.isLetterOrDigit(svgContent.charAt(start - 1))) {
-                idx = start + 3;
-                continue;
-            }
-            start += 3;
-            int end = svgContent.indexOf("\"", start);
-            if (end == -1) break;
-            if (sb.length() > 0) sb.append(' ');
-            sb.append(svgContent.substring(start, end));
-            idx = end + 1;
-        }
-        return sb.isEmpty() ? null : sb.toString();
+        return com.jlshell.ui.support.SvgIcons.create(resourcePath, size);
     }
 
     private Button iconButton(String icon, String tooltip, Runnable action) {
@@ -1623,6 +1816,7 @@ public class MainWindow {
     }
 
     private void applySidebarVisibility() {
+        withSwing(view -> view.setSidebarVisible(sidebarVisible));
         if (sidebarVisible) {
             centerSplitPane.getStyleClass().remove("sidebar-collapsed");
             sidebarVBox.setPrefWidth(Region.USE_COMPUTED_SIZE);
@@ -1645,6 +1839,13 @@ public class MainWindow {
 
     /** 应用 UI 字体设置（inline style 覆盖 CSS .root 规则） */
     private void applyUiFontSettings() {
+        if (swingWorkbench != null) {
+            AppTheme theme = themeService.currentTheme();
+            String accent = themeService.accentColor().color();
+            String family = appSettingsService.get("ui.font.family", null);
+            int size = swingFontSize();
+            withSwing(view -> view.applyTheme(theme, accent, family, size));
+        }
         if (primaryStage != null && primaryStage.getScene() != null) {
             primaryStage.getScene().getRoot().setStyle(themeService.uiStyle());
         }
@@ -1665,6 +1866,11 @@ public class MainWindow {
     }
 
     private void applyTopBarCollapsed(boolean collapsed) {
+        withSwing(view -> view.setFocusMode(collapsed));
+        if (mainToolbar != null) {
+            mainToolbar.setVisible(!collapsed);
+            mainToolbar.setManaged(!collapsed);
+        }
         boolean isWindows = System.getProperty("os.name", "").toLowerCase().contains("win");
 
         if (collapsed) {
@@ -1879,6 +2085,9 @@ public class MainWindow {
                 return;
             }
             cachedProfiles = entry.profiles();
+            publishSwingProjects();
+            withSwing(view -> view.updateConnections(entry.folders(), entry.profiles(), entry.collapsedFolderIds()));
+            publishSwingWelcome();
             viewModel.replaceConnections(entry.profiles());
             if (sidebarTreeView != null) {
                 sidebarTreeView.populate(entry.folders(), entry.profiles(), entry.collapsedFolderIds());
@@ -2308,6 +2517,24 @@ public class MainWindow {
         tab.setUserData(profile);
         installWorkspaceTabHeader(tab, profile.displayName());
         tab.setContextMenu(buildTabContextMenu(tab));
+        if (swingWorkbench != null) {
+            tab.setOnCloseRequest(event -> {
+                event.consume();
+                viewHandle.closeAsync().whenComplete((unused, error) -> FxThread.run(() -> {
+                    localShellHandles.remove(viewHandle);
+                    workspaceTabs.getTabs().remove(tab);
+                    afterWorkspaceTabRemoved();
+                }));
+            });
+            withSwing(view -> view.addTab(tab, profile.displayName(), viewHandle.component(),
+                    () -> FxThread.run(() -> closeTab(tab))));
+            workspaceTabs.getTabs().add(tab);
+            workspaceTabs.getSelectionModel().select(tab);
+            withSwing(view -> view.selectTab(tab));
+            viewHandle.requestFocus();
+            viewModel.statusMessageProperty().set(i18nService.get("status.connected", profile.displayName()));
+            return;
+        }
         javax.swing.JComponent component = (javax.swing.JComponent) viewHandle.component();
         javafx.embed.swing.SwingNode swingNode = new javafx.embed.swing.SwingNode();
         swingNode.setFocusTraversable(true);
@@ -2414,6 +2641,13 @@ public class MainWindow {
                     this::reportAccountStats
             );
             installWorkspaceTabHeader(tab, profile.displayName());
+            if (swingWorkbench != null) {
+                com.jlshell.ui.swing.SwingSessionView.create(tab, themeService).thenAccept(surface ->
+                        withSwing(view -> {
+                            view.addTab(tab, profile.displayName(), surface, () -> FxThread.run(() -> closeTab(tab)));
+                            view.selectTab(tab);
+                        }));
+            }
             tab.setContextMenu(buildTabContextMenu(tab));
             tab.setOnCloseRequest(event -> {
                 event.consume();
