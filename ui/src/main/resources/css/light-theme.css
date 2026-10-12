@@ -1,5 +1,6 @@
 /* IDEA New UI light: semantic palette, shared geometry in components.css. */
 .root {
+    -jl-frame: #ffffff;
     -jl-canvas: #ffffff;
     -jl-panel: #f7f8fa;
     -jl-hover: #ebecf0;

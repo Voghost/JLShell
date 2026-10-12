@@ -22,7 +22,7 @@ import java.util.List;
 public final class SwingMenuBridge {
     private SwingMenuBridge() {}
 
-    public record Item(String text, boolean disabled, boolean checked, int kind,
+    public record Item(String text, String shortcut, boolean disabled, boolean checked, int kind,
                        Runnable action, Runnable refresh, List<Item> children) {}
 
     /** 必须在 FX 线程取快照，EDT 不读取 JavaFX 的可变属性。 */
@@ -35,7 +35,7 @@ public final class SwingMenuBridge {
                 : item instanceof RadioMenuItem ? 3 : item instanceof Menu ? 4 : 0;
         boolean checked = item instanceof CheckMenuItem check ? check.isSelected()
                 : item instanceof RadioMenuItem radio && radio.isSelected();
-        return new Item(item.getText(), item.isDisable(), checked, kind, () -> dispatch.accept(() -> {
+        return new Item(item.getText(), item.getAccelerator() == null ? "" : item.getAccelerator().getDisplayText(), item.isDisable(), checked, kind, () -> dispatch.accept(() -> {
             if (item instanceof CheckMenuItem check) check.setSelected(!check.isSelected());
             if (item instanceof RadioMenuItem radio) radio.setSelected(true);
             item.fire();

@@ -454,6 +454,13 @@ public class MainWindow {
             com.jlshell.ui.swing.SwingTheme.install(theme, accent, family, fontSize);
             var view = new com.jlshell.ui.swing.SwingWorkbench(actions, texts);
             view.setMenuBar(com.jlshell.ui.swing.SwingMenuBridge.create(menuModel, menuSnapshot, this::dispatchSwingAction));
+            view.setMenuProvider(reply -> FxThread.run(() -> {
+                for (Menu menu : menuModel.getMenus()) javafx.event.Event.fireEvent(menu, new javafx.event.Event(Menu.ON_SHOWING));
+                reply.accept(com.jlshell.ui.swing.SwingMenuBridge.snapshot(menuModel, this::dispatchSwingAction));
+            }), Map.of(
+                    "plugins", fxAction.apply(() -> openPreferences(owner, PreferencesDialog.TAB_PLUGINS)),
+                    "account", fxAction.apply(() -> openPreferences(owner, PreferencesDialog.TAB_ACCOUNT)),
+                    "shortcuts", fxAction.apply(() -> openPreferences(owner, PreferencesDialog.TAB_SHORTCUTS))));
             view.show();
             return view;
         });
@@ -533,7 +540,11 @@ public class MainWindow {
                 if (key != null) bindings.put(key, () -> dispatchSwingAction(action));
             }
         });
-        withSwing(view -> view.setShortcuts(bindings));
+        String preferencesShortcut = ShortcutConverter.toDisplayText(shortcutRegistry.getEffectivePrimary("app.preferences"));
+        withSwing(view -> {
+            view.setShortcuts(bindings);
+            view.setPreferenceShortcut(preferencesShortcut);
+        });
     }
 
     public void showMainWindow() {

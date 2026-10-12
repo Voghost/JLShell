@@ -42,7 +42,11 @@ public final class SwingWorkbench implements AutoCloseable {
             "action.connect", "sidebar.toggle", "sidebar.connections", "sidebar.search.prompt", "project.menu.manage",
             "project.label.default", "welcome.title", "welcome.subtitle", "welcome.recentConnections",
             "welcome.favorites", "welcome.noRecentConnections", "welcome.noFavorites", "tab.close",
-            "workspace.tools", "workspace.hideTools", "workspace.monitoring", "menu.main");
+            "workspace.tools", "workspace.hideTools", "workspace.monitoring", "menu.main",
+            "project.popup.current", "project.popup.other", "project.popup.defaultDescription",
+            "project.search.prompt", "settings.quick.plugins", "settings.quick.shortcuts", "settings.quick.theme",
+            "settings.quick.view", "settings.quick.account", "menu.help.about", "menu.help.checkUpdates",
+            "menu.view", "menu.account", "theme.dark", "theme.light", "preferences.tab.plugins", "preferences.tab.shortcuts");
 
     private final JFrame frame = new JFrame("JLShell");
     private final Actions actions;
@@ -50,7 +54,13 @@ public final class SwingWorkbench implements AutoCloseable {
     private final JPanel sidebar = new IslandPanel(new BorderLayout(), "panel");
     private final JTree tree = new JTree(new DefaultMutableTreeNode());
     private final JTextField search = new JTextField();
-    private final JComboBox<ProjectProfile> projects = new JComboBox<>();
+    private final JButton projects = new JButton("JLShell  ⌄");
+    private List<ProjectProfile> projectChoices = List.of();
+    private ProjectProfile activeProject;
+    private java.util.function.Consumer<java.util.function.Consumer<List<SwingMenuBridge.Item>>> menuProvider;
+    private Map<String, Runnable> settingsActions = Map.of();
+    private String preferenceShortcut = "";
+    private final JButton settingsButton;
     private final JTabbedPane tabs = new IslandTabbedPane();
     private final JPanel workspace = new IslandPanel(new CardLayout(), "canvas");
     private final JPanel welcome = new JPanel(new BorderLayout());
@@ -112,6 +122,7 @@ public final class SwingWorkbench implements AutoCloseable {
         projectStripe = button(WorkbenchIcon.Kind.FOLDER, "sidebar.toggle", () -> actions.toggleSidebar().run());
         menuButton = button(WorkbenchIcon.Kind.MENU, "menu.main", this::showMainMenu);
         runButton = button(WorkbenchIcon.Kind.RUN, "action.connect", this::connectSelection);
+        settingsButton = button(WorkbenchIcon.Kind.SETTINGS, "action.preferences", this::showSettingsMenu);
         configureWindowHeader();
         KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(shortcutDispatcher);
         frame.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
@@ -211,29 +222,11 @@ public final class SwingWorkbench implements AutoCloseable {
         macButtons.setOpaque(false);
         identity.add(macButtons);
         identity.add(menuButton);
-        JLabel brand = new JLabel("JL", SwingConstants.CENTER);
-        brand.setFont(brand.getFont().deriveFont(Font.BOLD, 11f));
-        brand.setOpaque(true);
-        brand.setBackground(new Color(0x5966e8));
-        brand.setForeground(Color.WHITE);
-        brand.setPreferredSize(new Dimension(20, 20));
-        identity.add(brand);
-        projects.setRenderer(new DefaultListCellRenderer() {
-            public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean selected, boolean focus) {
-                super.getListCellRendererComponent(list, value, index, selected, focus);
-                setText(value instanceof ProjectProfile project ? project.name() : "JLShell");
-                if (index == -1) { setOpaque(false); setBorder(BorderFactory.createEmptyBorder(0, 2, 0, 4)); }
-                return this;
-            }
-        });
-        projects.putClientProperty("JComponent.minimumWidth", 100);
-        projects.putClientProperty("FlatLaf.style", "background: $JLShell.headerTint; buttonBackground: $JLShell.headerTint");
-        projects.setBorder(BorderFactory.createEmptyBorder());
-        projects.setOpaque(false);
-        projects.setPreferredSize(new Dimension(190, 28));
-        projects.addActionListener(event -> {
-            if (!rebuilding && projects.getSelectedItem() instanceof ProjectProfile project) actions.project().accept(project);
-        });
+        projects.putClientProperty("JButton.buttonType", "toolBarButton");
+        projects.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
+        projects.setHorizontalAlignment(SwingConstants.LEFT);
+        projects.setFocusable(false);
+        projects.addActionListener(event -> showProjectPopup());
         identity.add(projects);
         JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 2));
         toolbar.setOpaque(false);
@@ -242,7 +235,7 @@ public final class SwingWorkbench implements AutoCloseable {
         toolbar.add(runButton);
         toolbar.add(button(WorkbenchIcon.Kind.ADD, "action.newConnection", actions.create()));
         toolbar.add(button(WorkbenchIcon.Kind.SEARCH, "sidebar.search.prompt", this::toggleSearch));
-        toolbar.add(button(WorkbenchIcon.Kind.SETTINGS, "action.preferences", actions.preferences()));
+        toolbar.add(settingsButton);
         JPanel windowButtons = new JPanel();
         windowButtons.putClientProperty(com.formdev.flatlaf.FlatClientProperties.FULL_WINDOW_CONTENT_BUTTONS_PLACEHOLDER, "win horizontal");
         windowButtons.setOpaque(false);
@@ -328,13 +321,13 @@ public final class SwingWorkbench implements AutoCloseable {
         tools.add(button(WorkbenchIcon.Kind.ADD, "action.newConnection", actions.create()));
         JButton more = button(WorkbenchIcon.Kind.MORE, "menu.main", () -> {});
         more.addActionListener(event -> {
-            JPopupMenu popup = new JPopupMenu();
-            menuAction(popup, "sidebar.newFolder", actions.folder());
-            menuAction(popup, "action.editConnection", actions.edit());
-            menuAction(popup, "action.deleteConnection", actions.delete());
-            popup.addSeparator();
-            menuAction(popup, "action.refresh", actions.refresh());
-            menuAction(popup, "project.menu.manage", actions.projects());
+            var rows = List.of(
+                    com.jlshell.ui.swing.idea.IdeaListPopup.Row.action(text("sidebar.newFolder"), new WorkbenchIcon(WorkbenchIcon.Kind.FOLDER), "", null, actions.folder()),
+                    com.jlshell.ui.swing.idea.IdeaListPopup.Row.action(text("action.editConnection"), null, "", null, actions.edit()),
+                    com.jlshell.ui.swing.idea.IdeaListPopup.Row.action(text("action.deleteConnection"), null, "", null, actions.delete()),
+                    com.jlshell.ui.swing.idea.IdeaListPopup.Row.action(text("action.refresh"), null, "", "", actions.refresh()),
+                    com.jlshell.ui.swing.idea.IdeaListPopup.Row.action(text("project.menu.manage"), new WorkbenchIcon(WorkbenchIcon.Kind.PROJECT), "", null, actions.projects()));
+            var popup = new com.jlshell.ui.swing.idea.IdeaListPopup(rows, 300, false, "");
             popup.show(more, 0, more.getHeight());
         });
         tools.add(more);
@@ -557,16 +550,37 @@ public final class SwingWorkbench implements AutoCloseable {
     }
 
     public void updateProjects(List<ProjectProfile> choices, String activeId) {
-        rebuilding = true;
-        try {
-            projects.removeAllItems();
-            projects.addItem(new ProjectProfile(null, text("project.label.default"), null));
-            for (var project : choices) projects.addItem(project);
-            for (int i = 0; i < projects.getItemCount(); i++) {
-                ProjectProfile project = projects.getItemAt(i);
-                if (Objects.equals(project.id(), activeId)) { projects.setSelectedIndex(i); break; }
-            }
-        } finally { rebuilding = false; }
+        var all = new ArrayList<ProjectProfile>();
+        all.add(new ProjectProfile(null, text("project.label.default"), text("project.popup.defaultDescription")));
+        all.addAll(choices);
+        projectChoices = List.copyOf(all);
+        activeProject = projectChoices.stream().filter(project -> Objects.equals(project.id(), activeId))
+                .findFirst().orElse(projectChoices.getFirst());
+        projects.setText(activeProject.name() + "  ⌄");
+        projects.setIcon(new ProjectAvatar(activeProject.name(), activeProject.id(), 20));
+    }
+
+    private void showProjectPopup() {
+        var rows = new ArrayList<com.jlshell.ui.swing.idea.IdeaListPopup.Row>();
+        rows.add(com.jlshell.ui.swing.idea.IdeaListPopup.Row.action(text("project.menu.manage"),
+                new WorkbenchIcon(WorkbenchIcon.Kind.PROJECT), "", null, actions.projects()));
+        boolean others = false;
+        for (var project : projectChoices) {
+            if (Objects.equals(project, activeProject)) rows.add(projectRow(project, text("project.popup.current")));
+        }
+        for (var project : projectChoices) {
+            if (Objects.equals(project, activeProject)) continue;
+            rows.add(projectRow(project, others ? null : text("project.popup.other")));
+            others = true;
+        }
+        var popup = new com.jlshell.ui.swing.idea.IdeaListPopup(rows, 420, true, text("project.search.prompt"));
+        popup.show(projects, 0, projects.getHeight() + 4);
+    }
+
+    private com.jlshell.ui.swing.idea.IdeaListPopup.Row projectRow(ProjectProfile project, String group) {
+        return new com.jlshell.ui.swing.idea.IdeaListPopup.Row(project.name(), project.description(),
+                new ProjectAvatar(project.name(), project.id(), 24), Objects.equals(project, activeProject) ? "✓" : "", group,
+                true, List.of(), () -> actions.project().accept(project));
     }
 
     public void addTab(Object id, String title, JComponent view, Runnable close) {
@@ -673,6 +687,7 @@ public final class SwingWorkbench implements AutoCloseable {
         // 不额外占用一整行，避免出现双标题栏。
     }
     public void setShortcuts(Map<KeyStroke, Runnable> bindings) { shortcuts.clear(); shortcuts.putAll(bindings); }
+    public void setPreferenceShortcut(String displayText) { preferenceShortcut = displayText == null ? "" : displayText; }
     public void setEnabled(boolean enabled) { frame.setEnabled(enabled); if (enabled) frame.toFront(); }
     public void show() {
         frame.setVisible(true);
@@ -713,18 +728,61 @@ public final class SwingWorkbench implements AutoCloseable {
         sidebar.revalidate();
     }
 
-    private void menuAction(JPopupMenu menu, String key, Runnable action) {
-        JMenuItem item = new JMenuItem(text(key));
-        item.addActionListener(event -> action.run());
-        menu.add(item);
+    public void setMenuProvider(java.util.function.Consumer<java.util.function.Consumer<List<SwingMenuBridge.Item>>> provider,
+                                Map<String, Runnable> settingsActions) {
+        this.menuProvider = provider;
+        this.settingsActions = Map.copyOf(settingsActions);
     }
 
     private void showMainMenu() {
-        if (mainMenus.isEmpty()) return;
-        JPopupMenu popup = new JPopupMenu();
-        // 重用桥接 JMenu，包含其打开时的状态刷新监听。
-        for (JMenu menu : mainMenus) popup.add(menu);
-        popup.show(menuButton, 0, menuButton.getHeight());
+        requestMenus(specs -> new com.jlshell.ui.swing.idea.IdeaListPopup(menuRows(specs), 330, false, "")
+                .show(menuButton, 0, menuButton.getHeight() + 4));
+    }
+
+    private void requestMenus(java.util.function.Consumer<List<SwingMenuBridge.Item>> reply) {
+        if (menuProvider != null) menuProvider.accept(items -> SwingUtilities.invokeLater(() -> {
+            if (frame.isShowing()) reply.accept(items);
+        }));
+    }
+
+    private void showSettingsMenu() {
+        requestMenus(menus -> {
+            var rows = new ArrayList<com.jlshell.ui.swing.idea.IdeaListPopup.Row>();
+            String shortcut = preferenceShortcut;
+            rows.add(com.jlshell.ui.swing.idea.IdeaListPopup.Row.action(text("project.menu.manage"), new WorkbenchIcon(WorkbenchIcon.Kind.PROJECT), "", null, actions.projects()));
+            rows.add(com.jlshell.ui.swing.idea.IdeaListPopup.Row.action(text("action.preferences"), new WorkbenchIcon(WorkbenchIcon.Kind.SETTINGS), shortcut, null, actions.preferences()));
+            rows.add(com.jlshell.ui.swing.idea.IdeaListPopup.Row.action(text("settings.quick.plugins"), null, "", null, settingsActions.get("plugins")));
+            rows.add(com.jlshell.ui.swing.idea.IdeaListPopup.Row.action(text("settings.quick.account"), null, "", "", settingsActions.get("account")));
+            var view = menus.stream().filter(menu -> text("menu.view").equals(menu.text())).findFirst();
+            List<SwingMenuBridge.Item> viewItems = view.map(SwingMenuBridge.Item::children).orElse(List.of());
+            List<SwingMenuBridge.Item> theme = viewItems.stream().filter(item -> text("theme.dark").equals(item.text()) || text("theme.light").equals(item.text())).toList();
+            rows.add(new com.jlshell.ui.swing.idea.IdeaListPopup.Row(text("settings.quick.theme"), null, null, "", "", true, menuRows(theme), null));
+            rows.add(com.jlshell.ui.swing.idea.IdeaListPopup.Row.action(text("settings.quick.shortcuts"), null, "", null, settingsActions.get("shortcuts")));
+            rows.add(new com.jlshell.ui.swing.idea.IdeaListPopup.Row(text("settings.quick.view"), null, null, "", null, true,
+                    menuRows(viewItems.stream().filter(item -> !theme.contains(item)).toList()), null));
+            for (var menu : menus) for (var item : menu.children()) {
+                if (text("menu.help.about").equals(item.text()) || text("menu.help.checkUpdates").equals(item.text())) {
+                    var converted = menuRows(List.of(item)).getFirst();
+                    rows.add(new com.jlshell.ui.swing.idea.IdeaListPopup.Row(converted.title(), null, converted.icon(), "", "", converted.enabled(), converted.children(), converted.action()));
+                }
+            }
+            var popup = new com.jlshell.ui.swing.idea.IdeaListPopup(rows, 330, false, "");
+            popup.show(settingsButton, settingsButton.getWidth() - 330, settingsButton.getHeight() + 4);
+        });
+    }
+
+    private List<com.jlshell.ui.swing.idea.IdeaListPopup.Row> menuRows(List<SwingMenuBridge.Item> specs) {
+        var rows = new ArrayList<com.jlshell.ui.swing.idea.IdeaListPopup.Row>();
+        String group = null;
+        for (var item : specs) {
+            if (item.kind() == 1) { group = ""; continue; }
+            Icon icon = item.text().equals(text("action.preferences")) ? new WorkbenchIcon(WorkbenchIcon.Kind.SETTINGS)
+                    : item.text().equals(text("action.newConnection")) ? new WorkbenchIcon(WorkbenchIcon.Kind.ADD) : null;
+            rows.add(new com.jlshell.ui.swing.idea.IdeaListPopup.Row(item.text(), null, icon,
+                    item.checked() ? "✓" : item.shortcut(), group, !item.disabled(), menuRows(item.children()), item.action()));
+            group = null;
+        }
+        return rows;
     }
 
     private void buildToolDock() {
@@ -792,15 +850,7 @@ public final class SwingWorkbench implements AutoCloseable {
     }
 
     private JPopupMenu popupMenu(List<SwingMenuBridge.Item> specs) {
-        JPopupMenu popup = new JPopupMenu();
-        for (var spec : specs) {
-            if (spec.kind() == 1) { popup.addSeparator(); continue; }
-            JMenuItem item = new JMenuItem(spec.text());
-            item.setEnabled(!spec.disabled());
-            item.addActionListener(event -> spec.action().run());
-            popup.add(item);
-        }
-        return popup;
+        return new com.jlshell.ui.swing.idea.IdeaListPopup(menuRows(specs), 320, false, "");
     }
 
     public void close() {

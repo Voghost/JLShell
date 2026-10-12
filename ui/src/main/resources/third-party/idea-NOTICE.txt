@@ -1,5 +1,5 @@
-IntelliJ IDEA UI icon adaptations
-Copyright 2000-2025 JetBrains s.r.o. and contributors.
+IntelliJ IDEA UI adaptations
+Copyright 2000-2026 JetBrains s.r.o. and contributors.
 Licensed under the Apache License, Version 2.0.
 License text: third-party/idea-LICENSE.txt
 
@@ -11,3 +11,19 @@ platform/platform-resources/src/themes/islands/ManyIslandsDark.theme.json
 platform/platform-resources/src/themes/islands/ManyIslandsLight.theme.json
 platform/platform-impl/src/com/intellij/openapi/application/impl/islands/IslandsUICustomization.kt
 platform/platform-impl/src/com/intellij/openapi/application/impl/islands/IslandsTabPainter.kt
+
+SelectablePanel.java is a Java port of the Swing-only SelectablePanel.kt below.
+IdeaPopupRenderer.java adapts the grouped separator, icon/text/shortcut columns,
+and ProjectWidgetRenderer two-line project rows; platform actions are replaced
+with JLShell's existing action callbacks and project metadata.
+IdeaListPopup.java and SwingPreferencesDialog.java adapt navigation/layout for
+JLShell without introducing IntelliJ platform services or plugin interfaces.
+
+platform/platform-api/src/com/intellij/ui/popup/list/SelectablePanel.kt
+platform/platform-api/src/com/intellij/ui/popup/list/GroupedItemsListRenderer.java
+platform/platform-api/src/com/intellij/ui/GroupedElementsRenderer.java
+platform/platform-impl/src/com/intellij/openapi/wm/impl/headertoolbar/ProjectToolbarWidgetAction.kt
+platform/platform-impl/src/com/intellij/ide/actions/SettingsEntryPointAction.java
+platform/platform-impl/src/com/intellij/openapi/options/newEditor/SettingsDialog.java
+platform/platform-impl/src/com/intellij/openapi/options/newEditor/SettingsEditor.java
+platform/platform-impl/src/com/intellij/openapi/options/newEditor/SettingsTreeView.java

@@ -271,7 +271,8 @@ public class PreferencesDialog {
         if (initialTabIndex >= 0 && initialTabIndex < tabs.getTabs().size()) {
             tabs.getSelectionModel().select(initialTabIndex);
         }
-        dialog.getDialogPane().setContent(new com.jlshell.ui.view.SettingsNavigation(tabs));
+        boolean swing = !"javafx".equalsIgnoreCase(System.getProperty("jlshell.ui.renderer", "swing"));
+        if (!swing) dialog.getDialogPane().setContent(new com.jlshell.ui.view.SettingsNavigation(tabs));
 
         // Apply 按钮：用 APPLY 类型让 ButtonBar 自动放左侧
         ButtonType applyBtnType = new ButtonType(i18n.get("preferences.apply"), ButtonBar.ButtonData.APPLY);
@@ -328,7 +329,12 @@ public class PreferencesDialog {
             }
         });
 
-        dialog.showAndWait();
+        if (swing) {
+            com.jlshell.ui.swing.SwingPreferencesDialog.showAndWait(tabs, applyButton, i18n, themeService,
+                    () -> dialog.getResultConverter().call(ButtonType.OK));
+        } else {
+            dialog.showAndWait();
+        }
     }
 
     private static void showRestartPrompt(Stage owner, I18nService i18n) {
@@ -521,7 +527,7 @@ public class PreferencesDialog {
 
         Tab terminalTab = new Tab(i18n.get("preferences.tab.terminal"));
         terminalTab.setContent(buildTerminalPane(appSettings, fontProfileService.activeProfile(), i18n, themeService,
-                pending, pendingScheme, pendingScrollbackLines, preferenceChanged));
+                pending, pendingScheme, pendingScrollbackLines, preferenceChanged, owner));
         tabPane.getTabs().add(terminalTab);
 
         Tab importTab = new Tab(i18n.get("preferences.tab.import"));
@@ -954,6 +960,7 @@ public class PreferencesDialog {
         memoryRow.setAlignment(Pos.CENTER_LEFT);
 
         TextField timeoutField = new TextField(pendingConnTimeout[0]);
+        timeoutField.setId("settings-connection-timeout");
         timeoutField.setPrefWidth(72);
         timeoutField.setMaxWidth(72);
         timeoutField.textProperty().addListener((o, ov, nv) -> {
@@ -970,6 +977,7 @@ public class PreferencesDialog {
         timeoutRow.setAlignment(Pos.CENTER_LEFT);
 
         TextField keepAliveField = new TextField(pendingKeepAlive[0]);
+        keepAliveField.setId("settings-connection-keepAlive");
         keepAliveField.setPrefWidth(72);
         keepAliveField.setMaxWidth(72);
         keepAliveField.textProperty().addListener((o, ov, nv) -> {
@@ -1023,22 +1031,8 @@ public class PreferencesDialog {
         VBox updatesCard = settingsCard(i18n.get("preferences.updates.title"),
                 i18n.get("preferences.updates.description"), updatesForm);
 
-        GridPane cards = new GridPane();
+        VBox cards = new VBox(24, appearanceCard, fontCard, connectionCard, systemCard, updatesCard);
         cards.getStyleClass().add("settings-card-grid");
-        cards.setHgap(14);
-        cards.setVgap(14);
-        javafx.scene.layout.ColumnConstraints leftColumn = new javafx.scene.layout.ColumnConstraints();
-        leftColumn.setPercentWidth(50);
-        leftColumn.setHgrow(Priority.ALWAYS);
-        javafx.scene.layout.ColumnConstraints rightColumn = new javafx.scene.layout.ColumnConstraints();
-        rightColumn.setPercentWidth(50);
-        rightColumn.setHgrow(Priority.ALWAYS);
-        cards.getColumnConstraints().addAll(leftColumn, rightColumn);
-        cards.add(appearanceCard, 0, 0);
-        cards.add(fontCard, 1, 0);
-        cards.add(connectionCard, 0, 1);
-        cards.add(systemCard, 1, 1);
-        cards.add(updatesCard, 0, 2, 2, 1);
 
         ScrollPane scroll = new ScrollPane(cards);
         scroll.setFitToWidth(true);
@@ -1060,6 +1054,7 @@ public class PreferencesDialog {
         javafx.scene.layout.ColumnConstraints values = new javafx.scene.layout.ColumnConstraints();
         values.setHgrow(Priority.ALWAYS);
         values.setFillWidth(true);
+        values.setMaxWidth(440);
         form.getColumnConstraints().addAll(labels, values);
         return form;
     }
@@ -1081,7 +1076,12 @@ public class PreferencesDialog {
         Label descriptionLabel = new Label(description);
         descriptionLabel.getStyleClass().add("settings-card-description");
         descriptionLabel.setWrapText(true);
-        VBox card = new VBox(5, titleLabel, descriptionLabel, new Separator(), content);
+        Separator line = new Separator();
+        line.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(line, Priority.ALWAYS);
+        HBox heading = new HBox(12, titleLabel, line);
+        heading.setAlignment(Pos.CENTER_LEFT);
+        VBox card = new VBox(10, heading, descriptionLabel, content);
         card.getStyleClass().add("settings-card");
         card.setMaxWidth(Double.MAX_VALUE);
         VBox.setVgrow(content, Priority.ALWAYS);
@@ -1169,7 +1169,7 @@ public class PreferencesDialog {
                                            ThemeService themeService,
                                            FontProfile[] pending, TerminalColorScheme[] pendingScheme,
                                            String[] pendingScrollbackLines,
-                                           Runnable preferenceChanged) {
+                                           Runnable preferenceChanged, Stage owner) {
         // ── Font section ──
         List<String> monoFonts = loadMonospacedFonts();
 
@@ -1368,7 +1368,7 @@ public class PreferencesDialog {
 
         newBtn.setOnAction(e -> {
             TerminalColorScheme created = ColorSchemeEditDialog.show(
-                    (Stage) schemeList.getScene().getWindow(), themeService, null, true);
+                    owner, themeService, null, true);
             if (created != null) {
                 registry.saveCustomScheme(created);
                 refreshList(allSchemes, filteredSchemes, registry, filterField.getText());
@@ -1388,7 +1388,7 @@ public class PreferencesDialog {
             }
             TerminalColorScheme copy = registry.copyScheme(sel, tryName);
             TerminalColorScheme edited = ColorSchemeEditDialog.show(
-                    (Stage) schemeList.getScene().getWindow(), themeService, copy, true);
+                    owner, themeService, copy, true);
             if (edited != null) {
                 registry.saveCustomScheme(edited);
                 refreshList(allSchemes, filteredSchemes, registry, filterField.getText());
@@ -1400,7 +1400,7 @@ public class PreferencesDialog {
             TerminalColorScheme sel = schemeList.getSelectionModel().getSelectedItem();
             if (sel == null || registry.isBuiltIn(sel.name())) return;
             TerminalColorScheme edited = ColorSchemeEditDialog.show(
-                    (Stage) schemeList.getScene().getWindow(), themeService, sel, false);
+                    owner, themeService, sel, false);
             if (edited != null) {
                 registry.saveCustomScheme(edited);
                 refreshList(allSchemes, filteredSchemes, registry, filterField.getText());
@@ -1444,14 +1444,9 @@ public class PreferencesDialog {
         ScrollPane scroll = new ScrollPane(cards);
         scroll.setFitToWidth(true);
         scroll.getStyleClass().add("settings-scroll-pane");
-        VBox directory = settingsSectionDirectory(i18n, scroll, cards, List.of(
-                new SettingsSectionLink(i18n.get("preferences.terminal.typographySection"), typographyCard),
-                new SettingsSectionLink(i18n.get("preferences.terminal.colorsSection"), colorsCard)));
         BorderPane workspace = new BorderPane();
-        workspace.setLeft(directory);
         workspace.setCenter(scroll);
         workspace.getStyleClass().add("settings-directory-workspace");
-        BorderPane.setMargin(directory, new Insets(16, 0, 16, 18));
         VBox pane = new VBox(workspace);
         pane.getStyleClass().add("settings-page");
         VBox.setVgrow(workspace, Priority.ALWAYS);

@@ -8,7 +8,7 @@
 - 主窗口、菜单、工具窗口栏、项目切换、连接树、欢迎页和会话标签使用 Swing。
 - JediTerm 原生嵌入 Swing，SSH 和本地终端均不再经过 `SwingNode`；JavaFX 对照入口仍保留。
 - Swing 使用 FlatLaf 3.5.4 和统一的 IDEA New UI 语义配色、控件尺寸及 HiDPI 布局。
-- 文件页、原有设置/账号/连接表单和插件内容仍使用 JavaFX，通过 `JFXPanel` 兼容承载。插件工具栏和服务器状态条也保留原视图及事件处理。
+- 设置窗口的搜索树、面包屑、分栏和底部动作栏使用 Swing；文件页、原有设置/账号/连接表单和插件内容通过 `JFXPanel` 兼容承载。插件工具栏和服务器状态条保留原视图及事件处理。
 - 业务动作继续调用原控制器。未修改 SSH/SFTP 服务、数据库、账户、更新协议、插件加载器、插件 SDK 或 RPC/会话注册机制。
 
 依据用户提供的 IDEA 截图，进一步对照本地源码中的 Islands UI：
@@ -24,6 +24,24 @@
 Java2D 图形；原始 SVG 和版权头保留在 `icons/idea/`，绘制过程不解析 SVG 或跨 UI 线程。
 IDEA 图标及 FlatLaf 的 Apache 2.0 许可证和来源记录均随 UI 资源保留在 `third-party/`。
 未引入 IntelliJ 平台服务或改变 JLShell 插件契约。
+
+## 项目弹窗、快捷菜单和设置窗口
+
+进一步读取本地 IDEA 的以下实现，并把可独立运行的 Swing 组件及渲染结构适配到宿主：
+
+- `SelectablePanel.kt`：直接移植为 Java，保留选中区域的内边距、圆角和绘制算法。
+- `GroupedItemsListRenderer.java`、`GroupedElementsRenderer.java`：分组标题/分隔线、图标槽、文字和快捷键列。
+- `ProjectToolbarWidgetAction.kt` 中的 `ProjectWidgetRenderer`：24px 项目图标、名称与次级信息双行条目、搜索列表。
+- `SettingsEntryPointAction.java`：设置快捷列表及主题/视图子菜单的分组结构。
+- `SettingsDialog.java`、`SettingsEditor.java`、`SettingsTreeView.java`：左侧搜索树、150ms 搜索延迟、右侧粗体面包屑、分栏和底部取消/应用/确定。
+
+对应实现位于 `ui/swing/idea/` 与 `SwingPreferencesDialog.java`；完整来源和 Apache 2.0 许可证保留在 `third-party/`。
+项目条目的次级信息读取原项目描述；JLShell 没有 IDEA 的仓库克隆和最近项目业务，不添加虚构动作或路径。
+顶部主菜单、齿轮、项目选择、侧栏更多及右键菜单使用统一列表绘制。支持键盘、搜索、悬停子菜单和父子列表关闭；快捷键显示读取宿主原快捷键设置。
+
+设置保留原来的八个配置页和保存处理，通用页面改为单列分节表单，控件限制宽度并统一边框；终端页面去掉重复的内部目录。
+Swing 与 FX 分别使用嵌套事件循环，设置调用在窗口关闭后才返回，因此原有刷新连接、字体与快捷键的后续动作仍保持原顺序。
+配色编辑等嵌套 FX 弹窗使用传入的宿主 Stage，并在显示期间禁用 Swing 设置窗口，避免嵌入场景没有 Stage 的问题。
 
 ## 窗口结构与会话工具窗口
 
@@ -79,7 +97,8 @@ JAVA_HOME=<JDK21> mvn package -Djlshell.ui.smoke=true
 
 macOS 实际运行使用独立示例数据库，检查了原生本地终端、中文输出、设置窗口和明暗主题，并确认标签排序后两个终端视图都保留。
 在最终打包 JAR 中，用仓库原有 Script Snippets 示例插件完成外部 JAR 的发现、激活、界面交互与停用验证，未修改插件源码。
-完整测试与打包通过：140 个测试，0 失败、0 错误、0 跳过。新增回归检查主终端及缓冲区在工具窗口显隐、会话排序和插件页切换后保持完整。
+完整测试与打包通过：141 个测试，0 失败、0 错误、0 跳过。回归检查主终端及缓冲区在工具窗口显隐、会话排序和插件页切换后保持完整。
+`SettingsUiSmokeTest` 在独立 JVM/数据库中检查真实齿轮菜单的主题子菜单打开/返回、设置搜索切页、应用保存且不关闭、取消丢弃后续修改、确定保存并关闭，以及原配色编辑弹窗打开/取消与父窗口禁用恢复。
 预览图片保存在 `ui/target/review/`，包括旧版插件界面。
 
 合并前仍需在 Windows/Linux 进行实际窗口、系统缩放和中文输入法验收，并以真实 SSH/SFTP

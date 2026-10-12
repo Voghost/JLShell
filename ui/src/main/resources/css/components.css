@@ -3213,3 +3213,24 @@
 .menu-item:focused { -fx-background-color: -jl-accent-subtle; }
 .menu-item:focused .label { -fx-text-fill: -jl-text; }
 .tooltip { -fx-background-color: -jl-panel; -fx-text-fill: -jl-text; -fx-border-color: -jl-border; -fx-font-size: 1em; -fx-padding: 6 8; }
+
+/* SettingsEditor: single-column sections, with the navigation/breadcrumb/footer in Swing. */
+.idea-settings-content { -fx-background-color: -jl-canvas; -fx-font-size: 1em; }
+.idea-settings-content .settings-card-grid { -fx-padding: 0 24 24 24; }
+.idea-settings-content .settings-card { -fx-padding: 0; -fx-border-width: 0; -fx-spacing: 10; }
+.idea-settings-content .settings-card-title { -fx-font-size: 1em; -fx-font-weight: normal; }
+.idea-settings-content .settings-card-description { -fx-text-fill: -jl-secondary; }
+.idea-settings-content .settings-form { -fx-padding: 8 24; -fx-vgap: 14; }
+.idea-settings-content .settings-field-label { -fx-font-size: 1em; }
+.idea-settings-content .settings-card .separator { -fx-padding: 0; }
+.idea-settings-content .settings-card .separator .line { -fx-border-color: -jl-border; }
+.idea-settings-content .combo-box,
+.idea-settings-content .text-field {
+    -fx-background-color: -jl-frame;
+    -fx-border-color: -jl-border;
+    -fx-border-width: 1;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+    -fx-padding: 4 8;
+}
+.idea-settings-content .combo-box .list-cell { -fx-background-color: transparent; -fx-padding: 2 4; }
