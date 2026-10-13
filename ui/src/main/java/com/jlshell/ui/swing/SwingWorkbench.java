@@ -167,7 +167,6 @@ public final class SwingWorkbench implements AutoCloseable {
         root.setBackground(SwingTheme.color("frame"));
         root.add(buildMainToolbar(), BorderLayout.NORTH);
         root.add(buildRail(), BorderLayout.WEST);
-        root.add(buildRightRail(), BorderLayout.EAST);
         buildSidebar();
         workspace.add(buildWelcome(), "welcome");
         workspace.add(workspaceSplits, "tabs");
@@ -374,16 +373,6 @@ public final class SwingWorkbench implements AutoCloseable {
         rail.add(top, BorderLayout.NORTH);
         JPanel bottom = stripeColumn();
         addStripe(bottom, toolStripe);
-        rail.add(bottom, BorderLayout.SOUTH);
-        return rail;
-    }
-
-    private JPanel buildRightRail() {
-        JPanel rail = new JPanel(new BorderLayout());
-        rail.setOpaque(false);
-        rail.setPreferredSize(new Dimension(36, 0));
-        JPanel bottom = stripeColumn();
-        addStripe(bottom, button(WorkbenchIcon.Kind.SETTINGS, "action.preferences", actions.preferences()));
         rail.add(bottom, BorderLayout.SOUTH);
         return rail;
     }
