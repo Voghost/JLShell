@@ -10,7 +10,7 @@ import java.awt.geom.Path2D;
 
 /** 独立的 16px 线条图标，使用逻辑坐标，由 Swing 的 HiDPI 变换缩放。 */
 public record WorkbenchIcon(Kind kind) implements Icon {
-    public enum Kind { SERVER, FOLDER, ADD, RUN, REFRESH, SETTINGS, CLOSE, TERMINAL, PROJECT, EDIT, DELETE, SEARCH, MORE, HIDE, DOCK, MENU, MONITOR, USER, HELP, LAYOUT, SPLIT_RIGHT, SPLIT_DOWN }
+    public enum Kind { SERVER, FOLDER, ADD, RUN, REFRESH, SETTINGS, CLOSE, TERMINAL, PROJECT, EDIT, DELETE, SEARCH, MORE, HIDE, DOCK, MENU, MONITOR, USER, HELP, LAYOUT, SPLIT_RIGHT, SPLIT_DOWN, CHEVRON_DOWN }
     public int getIconWidth() { return 16; }
     public int getIconHeight() { return 16; }
 
@@ -20,9 +20,19 @@ public record WorkbenchIcon(Kind kind) implements Icon {
             g.translate(x, y);
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g.setStroke(new BasicStroke(1f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-            g.setColor(SwingTheme.color(kind == Kind.RUN ? "green" : "icon"));
+            boolean selectedRail = component instanceof javax.swing.AbstractButton button && button.isSelected()
+                    && Boolean.TRUE.equals(button.getClientProperty("JLShell.selectedRail"));
+            g.setColor(selectedRail ? java.awt.Color.WHITE : !component.isEnabled()
+                    ? javax.swing.UIManager.getColor("Label.disabledForeground")
+                    : SwingTheme.color(kind == Kind.RUN ? "green" : kind == Kind.CHEVRON_DOWN ? "secondary" : "icon"));
             if (IdeaIconShapes.paint(kind, g)) return;
             switch (kind) {
+                case CHEVRON_DOWN -> {
+                    // IDEA expui/general/chevronDown.svg：16px、1px 圆角描边。
+                    Path2D arrow = new Path2D.Double();
+                    arrow.moveTo(4.5, 6.25); arrow.lineTo(8, 9.75); arrow.lineTo(11.5, 6.25);
+                    g.draw(arrow);
+                }
                 case SEARCH -> { g.drawOval(2, 2, 9, 9); g.drawLine(10, 10, 14, 14); }
                 case MORE -> { for (int i = 3; i <= 13; i += 5) g.fillOval(7, i - 1, 2, 2); }
                 case HIDE -> g.drawLine(3, 8, 13, 8);

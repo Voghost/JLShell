@@ -40,7 +40,9 @@ public final class SwingWorkbench implements AutoCloseable {
     public static final List<String> TEXT_KEYS = List.of("action.newConnection", "sidebar.newFolder",
             "action.editConnection", "action.deleteConnection", "action.refresh", "action.preferences",
             "action.connect", "sidebar.toggle", "sidebar.connections", "sidebar.search.prompt", "project.menu.manage",
-            "project.label.default", "welcome.title", "welcome.subtitle", "welcome.recentConnections",
+            "project.label.default", "welcome.title", "welcome.subtitle", "welcome.quickStart",
+            "welcome.help.shortcuts", "welcome.help.newConnection", "welcome.help.refreshConnections",
+            "welcome.help.doubleClick", "welcome.help.rightClick", "welcome.recentConnections",
             "welcome.favorites", "welcome.noRecentConnections", "welcome.noFavorites", "tab.close",
             "workspace.tools", "workspace.hideTools", "workspace.monitoring", "menu.main",
             "project.popup.current", "project.popup.other", "project.popup.defaultDescription",
@@ -58,7 +60,7 @@ public final class SwingWorkbench implements AutoCloseable {
     private final JPanel sidebar = new IslandPanel(new BorderLayout(), "panel");
     private final JTree tree = new JTree(new DefaultMutableTreeNode());
     private final JTextField search = new JTextField();
-    private final JButton projects = new JButton("JLShell  ⌄");
+    private final JButton projects = new ChevronButton("JLShell");
     private List<ProjectProfile> projectChoices = List.of();
     private ProjectProfile activeProject;
     private java.util.function.Consumer<java.util.function.Consumer<List<SwingMenuBridge.Item>>> menuProvider;
@@ -100,7 +102,7 @@ public final class SwingWorkbench implements AutoCloseable {
     private final JButton projectStripe;
     private final JButton menuButton;
     private final JButton runButton;
-    private final JButton connectionName = new JButton();
+    private final JButton connectionName = new ChevronButton();
     private final JPanel searchBar = new JPanel(new BorderLayout());
     private List<JMenu> mainMenus = List.of();
     private boolean toolWindowVisible = true;
@@ -149,7 +151,7 @@ public final class SwingWorkbench implements AutoCloseable {
         tabs = createTabGroup();
         workspaceSplits = new WorkspaceSplitLayout(tabs, this::createTabGroup);
         toolStripe = button(WorkbenchIcon.Kind.MONITOR, "workspace.tools", this::toggleToolWindow);
-        projectStripe = button(WorkbenchIcon.Kind.FOLDER, "sidebar.toggle", () -> actions.toggleSidebar().run());
+        projectStripe = railButton(WorkbenchIcon.Kind.FOLDER, "sidebar.toggle", () -> actions.toggleSidebar().run());
         menuButton = button(WorkbenchIcon.Kind.MENU, "menu.main", this::showMainMenu);
         runButton = button(WorkbenchIcon.Kind.RUN, "action.connect", this::connectSelection);
         settingsButton = button(WorkbenchIcon.Kind.SETTINGS, "action.preferences", this::showSettingsMenu);
@@ -293,7 +295,7 @@ public final class SwingWorkbench implements AutoCloseable {
         identity.add(macButtons);
         identity.add(menuButton);
         projects.putClientProperty("JButton.buttonType", "toolBarButton");
-        projects.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
+        projects.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 22));
         projects.setHorizontalAlignment(SwingConstants.LEFT);
         projects.setFocusable(false);
         projects.addActionListener(event -> showProjectPopup());
@@ -304,16 +306,14 @@ public final class SwingWorkbench implements AutoCloseable {
         toolbar.setOpaque(false);
         connectionName.setForeground(SwingTheme.color("secondary"));
         connectionName.putClientProperty("JButton.buttonType", "toolBarButton");
-        connectionName.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
+        connectionName.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 22));
         connectionName.setFocusable(false);
         connectionName.setToolTipText(text("workspace.openSessions"));
         connectionName.getAccessibleContext().setAccessibleName(text("workspace.openSessions"));
         connectionName.addActionListener(event -> showSessionPopup());
-        connectionName.setText(text("workspace.noOpenSessions") + "  ⌄");
+        connectionName.setText(text("workspace.noOpenSessions"));
         connectionName.setEnabled(false);
         toolbar.add(connectionName);
-        toolbar.add(button(WorkbenchIcon.Kind.ADD, "action.newConnection", actions.create()));
-        toolbar.add(button(WorkbenchIcon.Kind.SEARCH, "sidebar.search.prompt", this::toggleSearch));
         toolbar.add(settingsButton);
         JPanel windowButtons = new JPanel();
         windowButtons.putClientProperty(com.formdev.flatlaf.FlatClientProperties.FULL_WINDOW_CONTENT_BUTTONS_PLACEHOLDER, "win horizontal");
@@ -394,8 +394,10 @@ public final class SwingWorkbench implements AutoCloseable {
         JPanel header = new JPanel(new BorderLayout());
         header.setOpaque(false);
         header.setBorder(BorderFactory.createEmptyBorder(0, 10, 0, 4));
-        JLabel heading = new JLabel(text("sidebar.connections") + "  ⌄");
+        JLabel heading = new JLabel(text("sidebar.connections"), new WorkbenchIcon(WorkbenchIcon.Kind.CHEVRON_DOWN), SwingConstants.LEFT);
         heading.setFont(heading.getFont().deriveFont(Font.BOLD));
+        heading.setHorizontalTextPosition(SwingConstants.LEFT);
+        heading.setIconTextGap(2);
         header.add(heading);
         JPanel tools = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 2));
         tools.setOpaque(false);
@@ -509,43 +511,106 @@ public final class SwingWorkbench implements AutoCloseable {
         footer.setBorder(BorderFactory.createEmptyBorder(4, 8, 8, 8));
         runButton.setText(text("action.connect"));
         runButton.setHorizontalAlignment(SwingConstants.LEFT);
-        runButton.setPreferredSize(new Dimension(0, 30));
+        runButton.putClientProperty("JButton.buttonType", "roundRect");
+        runButton.setMargin(new Insets(5, 10, 5, 10));
+        runButton.setPreferredSize(new Dimension(0, 32));
         footer.add(runButton);
         sidebar.add(footer, BorderLayout.SOUTH);
     }
 
     private JPanel buildWelcome() {
-        welcome.setBorder(BorderFactory.createEmptyBorder(40, 40, 32, 40));
-        JPanel header = new JPanel();
-        header.setLayout(new BoxLayout(header, BoxLayout.Y_AXIS));
+        JPanel content = new JPanel(new BorderLayout(0, 18));
+        content.setOpaque(false);
+        JPanel heading = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
+        heading.setOpaque(false);
+        var logo = getClass().getResource("/icons/app_icon.png");
+        if (logo != null) heading.add(new JLabel(new ImageIcon(new ImageIcon(logo).getImage()
+                .getScaledInstance(36, 36, Image.SCALE_SMOOTH))));
+        JPanel titles = new JPanel();
+        titles.setOpaque(false);
+        titles.setLayout(new BoxLayout(titles, BoxLayout.Y_AXIS));
         JLabel title = new JLabel(text("welcome.title"));
-        title.setFont(title.getFont().deriveFont(24f));
-        header.add(title);
-        header.add(Box.createVerticalStrut(8));
+        title.setFont(title.getFont().deriveFont(25f));
+        titles.add(title);
+        titles.add(Box.createVerticalStrut(4));
         JLabel subtitle = new JLabel(text("welcome.subtitle"));
         subtitle.setForeground(SwingTheme.color("secondary"));
-        header.add(subtitle);
-        header.add(Box.createVerticalStrut(20));
+        subtitle.putClientProperty("JLShell.secondaryForeground", true);
+        titles.add(subtitle);
+        heading.add(titles);
+        JPanel top = new JPanel();
+        top.setOpaque(false);
+        top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
+        top.add(heading);
+        top.add(Box.createVerticalStrut(18));
+        top.add(welcomeSectionLabel(text("welcome.quickStart")));
+        top.add(Box.createVerticalStrut(8));
+        JPanel actionsRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        actionsRow.setOpaque(false);
         JButton create = new JButton(text("action.newConnection"), new WorkbenchIcon(WorkbenchIcon.Kind.ADD));
         create.addActionListener(event -> actions.create().run());
-        header.add(create);
-        header.add(Box.createVerticalStrut(32));
-        welcome.add(header, BorderLayout.NORTH);
+        actionsRow.add(create);
+        JButton folder = new JButton(text("sidebar.newFolder"), new WorkbenchIcon(WorkbenchIcon.Kind.FOLDER));
+        folder.addActionListener(event -> actions.folder().run());
+        actionsRow.add(folder);
+        top.add(actionsRow);
+        content.add(top, BorderLayout.NORTH);
+        JPanel middle = new JPanel(new BorderLayout(0, 12));
+        middle.setOpaque(false);
+        middle.add(new JSeparator(), BorderLayout.NORTH);
         JPanel lists = new JPanel(new GridLayout(1, 2, 24, 0));
+        lists.setOpaque(false);
         lists.add(welcomeList(text("welcome.recentConnections"), recent));
         lists.add(welcomeList(text("welcome.favorites"), favorites));
-        welcome.add(lists);
+        middle.add(lists);
+        content.add(middle, BorderLayout.CENTER);
+        JPanel help = new JPanel(new BorderLayout(0, 10));
+        help.setOpaque(false);
+        help.add(new JSeparator(), BorderLayout.NORTH);
+        JPanel helpItems = new JPanel();
+        helpItems.setOpaque(false);
+        helpItems.setLayout(new BoxLayout(helpItems, BoxLayout.Y_AXIS));
+        helpItems.add(welcomeSectionLabel(text("welcome.help.shortcuts")));
+        helpItems.add(Box.createVerticalStrut(8));
+        String mod = com.formdev.flatlaf.util.SystemInfo.isMacOS ? "⌘" : "Ctrl";
+        for (String key : List.of("welcome.help.newConnection", "welcome.help.refreshConnections",
+                "welcome.help.doubleClick", "welcome.help.rightClick")) {
+            JLabel item = welcomeSectionLabel(text(key).replace("{0}", mod));
+            helpItems.add(item);
+            helpItems.add(Box.createVerticalStrut(4));
+        }
+        help.add(helpItems, BorderLayout.CENTER);
+        content.add(help, BorderLayout.SOUTH);
+        JPanel centered = new JPanel(null) {
+            @Override public void doLayout() {
+                int width = Math.min(680, Math.max(0, getWidth() - 56));
+                content.setBounds((getWidth() - width) / 2, 28, width, Math.min(440, Math.max(0, getHeight() - 56)));
+                content.doLayout();
+            }
+        };
+        centered.setOpaque(false);
+        centered.add(content);
+        welcome.add(centered, BorderLayout.CENTER);
         return welcome;
     }
 
-    private JPanel welcomeList(String title, JPanel rows) {
-        JPanel list = new JPanel(new BorderLayout(0, 12));
-        rows.setLayout(new BoxLayout(rows, BoxLayout.Y_AXIS));
-        JLabel label = new JLabel(title);
+    private JLabel welcomeSectionLabel(String value) {
+        JLabel label = new JLabel(value);
         label.setForeground(SwingTheme.color("secondary"));
-        list.add(label, BorderLayout.NORTH);
+        label.putClientProperty("JLShell.secondaryForeground", true);
+        return label;
+    }
+
+    private JPanel welcomeList(String title, JPanel rows) {
+        JPanel list = new JPanel(new BorderLayout(0, 8));
+        list.setOpaque(false);
+        rows.setLayout(new BoxLayout(rows, BoxLayout.Y_AXIS));
+        rows.setOpaque(false);
+        list.add(welcomeSectionLabel(title), BorderLayout.NORTH);
         JScrollPane scroll = new JScrollPane(rows);
         scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
         list.add(scroll);
         return list;
     }
@@ -554,8 +619,8 @@ public final class SwingWorkbench implements AutoCloseable {
         recent.removeAll(); favorites.removeAll();
         for (var session : sessions) recent.add(welcomeRow(session.connectionId(), session.displayName(), session.summary()));
         for (var item : starred) favorites.add(welcomeRow(item.id(), item.displayName(), item.hostInfo()));
-        if (sessions.isEmpty()) recent.add(new JLabel(text("welcome.noRecentConnections")));
-        if (starred.isEmpty()) favorites.add(new JLabel(text("welcome.noFavorites")));
+        if (sessions.isEmpty()) recent.add(welcomeSectionLabel(text("welcome.noRecentConnections")));
+        if (starred.isEmpty()) favorites.add(welcomeSectionLabel(text("welcome.noFavorites")));
         recent.revalidate(); favorites.revalidate(); recent.repaint(); favorites.repaint();
     }
 
@@ -576,6 +641,30 @@ public final class SwingWorkbench implements AutoCloseable {
         button.getAccessibleContext().setAccessibleName(text(tooltip));
         button.setPreferredSize(new Dimension(28, 28));
         button.setFocusable(false);
+        button.addActionListener(event -> action.run());
+        return button;
+    }
+
+    private JButton railButton(WorkbenchIcon.Kind kind, String tooltip, Runnable action) {
+        JButton button = new JButton(new WorkbenchIcon(kind)) {
+            @Override protected void paintComponent(Graphics graphics) {
+                if (isSelected()) {
+                    Graphics2D g = (Graphics2D) graphics.create();
+                    try {
+                        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                        g.setColor(SwingTheme.color("railSelection"));
+                        g.fillRoundRect(1, 1, getWidth() - 2, getHeight() - 2, 8, 8);
+                    } finally { g.dispose(); }
+                }
+                super.paintComponent(graphics);
+            }
+        };
+        button.putClientProperty("JLShell.selectedRail", true);
+        button.setContentAreaFilled(false);
+        button.setBorderPainted(false);
+        button.setFocusPainted(false);
+        button.setToolTipText(text(tooltip));
+        button.getAccessibleContext().setAccessibleName(text(tooltip));
         button.addActionListener(event -> action.run());
         return button;
     }
@@ -644,7 +733,7 @@ public final class SwingWorkbench implements AutoCloseable {
         projectChoices = List.copyOf(all);
         activeProject = projectChoices.stream().filter(project -> Objects.equals(project.id(), activeId))
                 .findFirst().orElse(projectChoices.getFirst());
-        projects.setText(activeProject.name() + "  ⌄");
+        projects.setText(activeProject.name());
         projects.setIcon(new ProjectAvatar(activeProject.name(), activeProject.id(), 20));
     }
 
@@ -777,7 +866,7 @@ public final class SwingWorkbench implements AutoCloseable {
 
     private void updateSessionSelector() {
         int index = tabs.getSelectedIndex();
-        connectionName.setText((index < 0 ? text("workspace.noOpenSessions") : tabs.getTitleAt(index)) + "  ⌄");
+        connectionName.setText(index < 0 ? text("workspace.noOpenSessions") : tabs.getTitleAt(index));
         connectionName.setIcon(index < 0 ? null : new WorkbenchIcon(WorkbenchIcon.Kind.TERMINAL));
         connectionName.setEnabled(!tabViews.isEmpty());
     }

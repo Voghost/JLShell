@@ -75,6 +75,9 @@ public final class SwingTheme {
                 jc.putClientProperty("jlshell.fontStyle", original.getStyle());
             }
             jc.updateUI();
+            if (Boolean.TRUE.equals(jc.getClientProperty("JLShell.secondaryForeground"))) {
+                jc.setForeground(color("secondary"));
+            }
             if (jc.getClientProperty("jlshell.fontScale") instanceof Float scale) {
                 Font base = UIManager.getFont("defaultFont");
                 jc.setFont(base.deriveFont((Integer) jc.getClientProperty("jlshell.fontStyle"), base.getSize2D() * scale));

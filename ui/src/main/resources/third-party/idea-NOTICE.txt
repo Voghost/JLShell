@@ -102,3 +102,10 @@ Original split icons are retained under icons/idea/ and their geometry is adapte
 in WorkbenchIcon.java:
 platform/icons/src/expui/general/splitVertically.svg
 platform/icons/src/expui/general/splitHorizontally.svg
+
+The project/session selector chevron reproduces the 16px path from the
+Apache-2.0 IDEA icon below; the selected tool stripe follows the pressed
+background and rounded arc in SquareStripeButtonLook, drawn with JLShell colors.
+platform/icons/src/expui/general/chevronDown.svg
+platform/platform-impl/src/com/intellij/openapi/wm/impl/SquareStripeButtonLook.kt
+platform/platform-impl/src/com/intellij/openapi/wm/impl/headertoolbar/ProjectToolbarWidgetAction.kt

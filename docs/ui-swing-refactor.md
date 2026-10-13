@@ -305,3 +305,18 @@ Windows/Linux 的系统窗口交互也仍需要各自实机验收。
 
 本轮仅本地修改、构建，没有推送 `preview/ui-refactor`，没有 dispatch Preview
 Actions，也没有修改发布工作流或网站。
+
+## 工作台欢迎页与顶部控件（2026-10-13）
+
+对照原 `ui/view/WelcomePane.java` 的 640px 居中内容、图标、快速开始、
+最近/收藏两列和快捷键说明，Swing 欢迎页改成最多 680px 宽的紧凑区域。
+原新建连接、新建文件夹及最近连接回调保持不变；仅调整显示和排版。
+移除顶部重复的新建连接、搜索按钮，侧边栏入口继续提供这两个动作。
+左侧工具条选中背景参考 IDEA `SquareStripeButtonLook.kt` 改为 8px 圆角；
+项目、会话和侧边栏标题的下拉箭头改用 IDEA 16px `chevronDown.svg` 几何，
+不再用文本字符。侧边栏底部连接按钮使用圆角样式。
+欢迎页次要文字在主题切换时重新取色。IDEA 代码和图标来源补入
+`ui/src/main/resources/third-party/idea-NOTICE.txt`。
+本地 Swing 欢迎页画面已检查；相关的 `WorkbenchUiSmokeTest`、
+`SwingWorkbenchDockTest` 和 `SwingWorkspaceSplitTest` 共 12 项通过，
+`app` 模块打包成功。未触发 Preview Actions。
