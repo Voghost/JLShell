@@ -157,7 +157,6 @@ public class TerminalWorkspaceView extends BorderPane {
     private VBox floatingProcessRows;
     private boolean floatingProcessRefreshInFlight;
     private long floatingProcessGeneration;
-    private Button pluginQuickLaunchBtn;
     private HBox toolbar;
     private Region pluginDivider;
     private final List<HBox> pinnedPluginButtons = new ArrayList<>();
@@ -385,7 +384,6 @@ public class TerminalWorkspaceView extends BorderPane {
         serverClockTimeline = null;
         floatingUsageBars.clear();
         floatingProcessRows = null;
-        pluginQuickLaunchBtn = null;
         pluginDivider = null;
         onReconnect = null;
     }
@@ -529,20 +527,15 @@ public class TerminalWorkspaceView extends BorderPane {
     // ── Toolbar ──────────────────────────────────────────────────────────────
 
     private HBox buildToolbar() {
-        Button fontSettings = iconBtn("/icons/font.svg", i18nService.get("terminal.fontSettings"), this::openFontSettings);
-
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-
-        Button pluginBtn = iconBtn("/icons/add.svg", i18nService.get("workspace.plugins"), this::showPluginPicker);
-        pluginQuickLaunchBtn = pluginBtn;
 
         pluginDivider = new Region();
         pluginDivider.getStyleClass().add("sysinfo-sep-group");
 
         toolbar = new HBox(4, pluginDivider);
         rebuildPinnedPluginButtons();
-        toolbar.getChildren().addAll(spacer, pluginBtn, fontSettings);
+        toolbar.getChildren().add(spacer);
         toolbar.getStyleClass().add("toolbar-strip");
         return toolbar;
     }
@@ -649,6 +642,8 @@ public class TerminalWorkspaceView extends BorderPane {
         if (pluginManager == null) {
             pluginDivider.setVisible(false);
             pluginDivider.setManaged(false);
+            toolbar.setVisible(false);
+            toolbar.setManaged(false);
             return;
         }
 
@@ -679,6 +674,8 @@ public class TerminalWorkspaceView extends BorderPane {
         boolean hasPinned = !pinnedPluginButtons.isEmpty();
         pluginDivider.setVisible(hasPinned);
         pluginDivider.setManaged(hasPinned);
+        toolbar.setVisible(hasPinned);
+        toolbar.setManaged(hasPinned);
 
         // Insert after pluginDivider, before spacer
         int insertIdx = toolbar.getChildren().indexOf(pluginDivider) + 1;
@@ -1898,7 +1895,7 @@ public class TerminalWorkspaceView extends BorderPane {
         return btn;
     }
 
-    private void openFontSettings() {
+    public void openFontSettings() {
         Window owner = getScene() != null ? getScene().getWindow() : null;
         Stage stage = owner instanceof Stage ? (Stage) owner : null;
         // 从终端 Tab 打开偏好设置时没有 ConnectionProfileService 上下文，
@@ -1912,7 +1909,7 @@ public class TerminalWorkspaceView extends BorderPane {
 
     // ── Plugin quick launch ─────────────────────────────────────────────────
 
-    private void showPluginPicker() {
+    public void showPluginPicker() {
         if (pluginManager == null) return;
         List<PluginDescriptor> plugins = pluginManager.getAvailablePlugins();
         if (plugins.isEmpty()) return;
@@ -1962,9 +1959,10 @@ public class TerminalWorkspaceView extends BorderPane {
             rebuildPinnedPluginButtons();
         });
 
-        if (pluginQuickLaunchBtn == null) return;
-        Point2D pos = pluginQuickLaunchBtn.localToScreen(0, pluginQuickLaunchBtn.getHeight() + 4);
-        popup.show(pluginQuickLaunchBtn, pos.getX(), pos.getY());
+        if (toolbar == null || toolbar.getScene() == null) return;
+        Point2D pos = toolbar.localToScreen(0, toolbar.getHeight() + 4);
+        if (pos == null) return;
+        popup.show(toolbar, pos.getX(), pos.getY());
         floatingPopup = popup;
     }
 
@@ -2086,6 +2084,11 @@ public class TerminalWorkspaceView extends BorderPane {
         }
         log.info("Attaching SwingNode terminal component for session {}", sshSession.sessionId());
         javax.swing.JComponent component = handle.component();
+        String appearanceLabel = i18nService.get("terminal.appearanceSettings");
+        String pluginLabel = i18nService.get("plugin.pinToToolbar") + "…";
+        javax.swing.SwingUtilities.invokeLater(() -> com.jlshell.ui.swing.TerminalPopupBridge.install(component,
+                appearanceLabel, () -> FxThread.run(this::openFontSettings),
+                pluginLabel, () -> FxThread.run(this::showPluginPicker)));
         SwingNode swingNode = new SwingNode();
         swingNode.setFocusTraversable(true);
         swingNode.getStyleClass().add(TERMINAL_SWING_NODE_STYLE_CLASS);

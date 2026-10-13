@@ -11,10 +11,18 @@ import java.util.List;
 public final class TerminalPopupBridge {
     private TerminalPopupBridge() {}
     public static void install(Component component) {
-        if (component instanceof RefreshableTerminalPanel panel) panel.setPopupPresenter(TerminalPopupBridge::show);
-        if (component instanceof Container container) for (Component child : container.getComponents()) install(child);
+        install(component, null, null, null, null);
     }
-    private static void show(Component invoker, int x, int y, List<RefreshableTerminalPanel.PopupAction> actions) {
+    public static void install(Component component, String terminalSettingsLabel, Runnable terminalSettings,
+                               String pluginLabel, Runnable pluginSettings) {
+        if (component instanceof RefreshableTerminalPanel panel) panel.setPopupPresenter((invoker, x, y, actions) ->
+                show(invoker, x, y, actions, terminalSettingsLabel, terminalSettings, pluginLabel, pluginSettings));
+        if (component instanceof Container container) for (Component child : container.getComponents())
+            install(child, terminalSettingsLabel, terminalSettings, pluginLabel, pluginSettings);
+    }
+    private static void show(Component invoker, int x, int y, List<RefreshableTerminalPanel.PopupAction> actions,
+                             String terminalSettingsLabel, Runnable terminalSettings,
+                             String pluginLabel, Runnable pluginSettings) {
         List<IdeaListPopup.Row> rows = new ArrayList<>();
         String group = null;
         for (var action : actions) {
@@ -22,6 +30,16 @@ public final class TerminalPopupBridge {
             rows.add(new IdeaListPopup.Row(action.label(), null, null, action.shortcut(), group,
                     action.enabled(), List.of(), action.action()));
             group = null;
+        }
+        if (terminalSettings != null || pluginSettings != null) {
+            group = "";
+            if (terminalSettings != null) {
+                rows.add(new IdeaListPopup.Row(terminalSettingsLabel, null, null, "", group,
+                        true, List.of(), terminalSettings));
+                group = null;
+            }
+            if (pluginSettings != null) rows.add(new IdeaListPopup.Row(pluginLabel, null, null, "", group,
+                    true, List.of(), pluginSettings));
         }
         new IdeaListPopup(rows, 190, false, "").show(invoker, x, y);
     }

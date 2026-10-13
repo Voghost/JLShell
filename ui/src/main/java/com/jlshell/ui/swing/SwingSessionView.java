@@ -37,8 +37,13 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
     private Runnable revealToolWindow = () -> {};
     private final SwingFxPanel compatibility;
     private final ThemeService themes;
+    private TerminalWorkspaceView terminalView;
+    private final String terminalSettingsLabel;
+    private final String pluginSettingsLabel;
     private final TabPane model;
     private SwingFxPanel toolbar;
+    private Node toolbarNode;
+    private ChangeListener<Boolean> toolbarVisibilityListener;
     private SwingFxPanel status;
     private TerminalViewHandle handle;
     private ChangeListener<Tab> selectionListener;
@@ -53,7 +58,11 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
         TabPane model = source.getInnerTabPane();
         model.getStyleClass().add("native-session-tabs");
         source.setContent(null);
-        var future = SwingExecutors.supplyOnEdtAsync(() -> new SwingSessionView(model, themes, i18n.get("workspace.monitoring")));
+        TerminalWorkspaceView initialTerminalView = source.getTerminalWorkspaceView();
+        var future = SwingExecutors.supplyOnEdtAsync(() -> new SwingSessionView(model, themes,
+                i18n.get("workspace.monitoring"), initialTerminalView,
+                i18n.get("terminal.appearanceSettings"),
+                i18n.get("plugin.pinToToolbar") + "…"));
         NativeTerminalHost host = new NativeTerminalHost() {
             public void attach(TerminalViewHandle handle) { future.thenAccept(view -> view.attach(handle)); }
             public void disconnected(String reason, Runnable reconnect) {
@@ -64,9 +73,13 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
             terminalView.setNativeTerminalHost(host);
             Node top = terminalView.takeNativeToolbar();
             Node bottom = terminalView.takeNativeStatusBar();
-            future.thenAccept(view -> SwingUtilities.invokeLater(() -> view.installChrome(top, bottom)));
+            boolean toolbarVisible = top != null && top.isVisible();
+            future.thenAccept(view -> SwingUtilities.invokeLater(() -> {
+                view.terminalView = terminalView;
+                view.installChrome(top, bottom, toolbarVisible);
+            }));
         };
-        configure.accept(source.getTerminalWorkspaceView());
+        configure.accept(initialTerminalView);
         ChangeListener<Node> viewListener = (obs, oldNode, node) -> {
             if (node instanceof TerminalWorkspaceView terminalView) configure.accept(terminalView);
         };
@@ -91,11 +104,15 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
         return future;
     }
 
-    SwingSessionView(TabPane model, ThemeService themes, String monitoringTitle) {
+    SwingSessionView(TabPane model, ThemeService themes, String monitoringTitle,
+                     TerminalWorkspaceView terminalView, String terminalSettingsLabel, String pluginSettingsLabel) {
         super(new BorderLayout());
         this.themes = themes;
         this.model = model;
         this.monitoringTitle = monitoringTitle;
+        this.terminalView = terminalView;
+        this.terminalSettingsLabel = terminalSettingsLabel;
+        this.pluginSettingsLabel = pluginSettingsLabel;
         compatibility = new SwingFxPanel(themes);
         terminalBody.add(new JLabel("…", JLabel.CENTER));
         terminal.add(terminalBody, BorderLayout.CENTER);
@@ -181,15 +198,31 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
         });
     }
 
-    private void installChrome(Node top, Node bottom) {
+    private void installChrome(Node top, Node bottom, boolean toolbarVisible) {
         if (closed) return;
+        if (toolbarNode != null && toolbarVisibilityListener != null) {
+            Node previous = toolbarNode;
+            ChangeListener<Boolean> listener = toolbarVisibilityListener;
+            FxThread.run(() -> previous.visibleProperty().removeListener(listener));
+            toolbarNode = null;
+            toolbarVisibilityListener = null;
+        }
         if (toolbar != null) { terminal.remove(toolbar); toolbar.close(); }
         if (status != null) { monitoring.remove(status); status.close(); }
         if (top != null) {
             toolbar = new SwingFxPanel(themes);
-            toolbar.setPreferredSize(new Dimension(100, 32));
+            toolbar.setPreferredSize(new Dimension(100, toolbarVisible ? 32 : 0));
             toolbar.setView(top);
             terminal.add(toolbar, BorderLayout.NORTH);
+            SwingFxPanel panel = toolbar;
+            toolbarNode = top;
+            toolbarVisibilityListener = (obs, wasVisible, visible) -> SwingUtilities.invokeLater(() -> {
+                if (closed || toolbar != panel) return;
+                panel.setPreferredSize(new Dimension(100, visible ? 32 : 0));
+                terminal.revalidate();
+            });
+            ChangeListener<Boolean> listener = toolbarVisibilityListener;
+            FxThread.run(() -> top.visibleProperty().addListener(listener));
         }
         if (bottom != null) {
             status = new SwingFxPanel(themes);
@@ -211,7 +244,9 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
             handle = viewHandle;
             terminalBody.removeAll();
             javax.swing.JComponent component = viewHandle.component();
-            TerminalPopupBridge.install(component);
+            TerminalPopupBridge.install(component, terminalSettingsLabel,
+                    () -> FxThread.run(terminalView::openFontSettings), pluginSettingsLabel,
+                    () -> FxThread.run(terminalView::showPluginPicker));
             component.setVisible(true);
             terminal.setVisible(true);
             terminalBody.add(component, BorderLayout.CENTER);
@@ -246,6 +281,11 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
         revealToolWindow = () -> {};
         terminalBody.removeAll();
         compatibility.close();
+        if (toolbarNode != null && toolbarVisibilityListener != null) {
+            Node node = toolbarNode;
+            ChangeListener<Boolean> listener = toolbarVisibilityListener;
+            FxThread.run(() -> node.visibleProperty().removeListener(listener));
+        }
         if (toolbar != null) toolbar.close();
         if (status != null) status.close();
         FxThread.run(() -> {

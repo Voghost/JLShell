@@ -1019,6 +1019,7 @@ public final class SwingWorkbench implements AutoCloseable {
     public void setMenuBar(JMenuBar menu) {
         mainMenus = Arrays.stream(menu.getComponents()).filter(JMenu.class::isInstance).map(JMenu.class::cast).toList();
         headerMenus.removeAll();
+        if (com.formdev.flatlaf.util.SystemInfo.isMacOS) menuButton.setVisible(false);
         // 对照 IDEA IdeMenuHelper：Windows/Linux 在同一标题区横向展示菜单。
         if (!com.formdev.flatlaf.util.SystemInfo.isMacOS) {
             for (JMenu source : mainMenus) {
