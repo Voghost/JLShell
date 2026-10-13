@@ -87,3 +87,18 @@ platform/platform-impl/src/com/intellij/ide/plugins/newui/TabbedPaneHeaderCompon
 platform/platform-impl/src/com/intellij/ide/plugins/newui/ListPluginComponent.kt
 platform/platform-impl/src/com/intellij/ide/plugins/newui/PluginDetailsPageComponent.kt
 plugins/svn4idea/src/org/jetbrains/idea/svn/dialogs/ServerSSHDialog.java
+
+Nested editor groups, group-scoped close/split/move/unsplit actions and compact
+tab context-menu columns reference the following sources. Existing JLShell
+terminal/session/plugin components are moved intact; no IntelliJ editor,
+connection service or action-system implementation is included.
+platform/platform-impl/src/com/intellij/openapi/fileEditor/impl/EditorWindow.kt
+platform/platform-impl/src/com/intellij/ide/actions/SplitAction.java
+platform/platform-impl/src/com/intellij/ide/actions/SplitterAction.java
+platform/platform-impl/src/com/intellij/openapi/fileEditor/impl/MoveEditorToOppositeTabGroupAction.kt
+platform/platform-impl/resources/idea/PlatformActions.xml (EditorTabPopupMenu)
+platform/platform-impl/src/com/intellij/ide/ui/laf/darcula/ui/DarculaMenuItemUIBase.java
+Original split icons are retained under icons/idea/ and their geometry is adapted
+in WorkbenchIcon.java:
+platform/icons/src/expui/general/splitVertically.svg
+platform/icons/src/expui/general/splitHorizontally.svg

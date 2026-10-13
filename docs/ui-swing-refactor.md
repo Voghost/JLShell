@@ -262,3 +262,46 @@ Windows/Linux 在一体化顶栏横向展示原有文件、连接、账号、视
 底部只保留 Swing 会话工具导航。宿主内层 TabPane 使用定向 CSS 隐藏旧标签头，规则在
 主题变更和皮肤重建后持续生效；外部插件自己的 TabPane 不受影响。
 应用及启动器依赖模块连同桌面回归共 148 项通过，0 失败、0 错误、0 跳过。
+
+## IDEA 标签组与分屏（2026-10-13）
+
+本轮重新接通 Computer Use，实际在 IDEA 中执行 Split Right、Split Down、
+Change Splitter Orientation 和 Unsplit All，检查嵌套组后恢复原单组布局。
+未编辑 IDEA 当前打开的业务文件。对应读取本地 IDEA 源码：
+
+- `platform/platform-impl/src/com/intellij/openapi/fileEditor/impl/EditorWindow.kt`：
+  `split` 的二叉分屏、初始 50/50 比例、兄弟组查找及 `unsplit/removeFromSplitter`。
+- `platform/platform-impl/src/com/intellij/ide/actions/SplitAction.java`、
+  `SplitterAction.java` 与 `MoveEditorToOppositeTabGroupAction.kt`：动作可用状态、移动与合并。
+- `platform/platform-impl/resources/idea/PlatformActions.xml` 的 `EditorTabPopupMenu`：
+  按组关闭、分屏和合并的菜单分组。
+- `platform/platform-impl/src/com/intellij/ide/ui/laf/darcula/ui/DarculaMenuItemUIBase.java`：
+  紧凑菜单的图标、文字和快捷键列。
+
+`WorkspaceSplitLayout` 用递归 Swing 标签组实现左右/上下嵌套分屏，支持切换方向、
+移动到相邻组、取消当前分屏和全部合并。关闭组的最后一个标签时收起空组。
+分隔条连续布局；原标签拖动动画保留，跨组松手仅提交一次原排序回调。
+
+IDEA 可以为同一文件创建两个编辑器视图。终端承载已有 SSH 会话，因此 JLShell
+分屏移动当前会话视图到新组，不自动复制连接；仅有一个标签时保留空来源组，
+可把另一个已有标签拖进去。终端宿主、缓冲区、插件 Node 与原关闭回调保持不变。
+
+标签菜单采用独立紧凑样式：统一预留 16px 图标列，12px 内侧间距、6px 上下留白，
+按组关闭与分屏动作之间使用分隔线；原明暗菜单边框不叠加第二条描边。
+分屏图标使用 IDEA 原 SVG 几何并保留 Apache-2.0 声明。每组右侧有操作入口，
+支持 Shift+F10/菜单键；关闭快捷键服从用户已有自定义绑定。
+
+回归命令：`mvn -q -pl app,launcher -am test -Djlshell.ui.smoke=true
+'-Dtest=*,!MousePopupUiSmokeTest' -Dsurefire.failIfNoSpecifiedTests=false`。
+149 项通过；随后补充并通过跨组拖放用例，累计 150 个独立用例通过。新增三个
+`SwingWorkspaceSplitTest` 检查嵌套布局、方向切换、移动/合并保留缓冲区和插件组件、
+组内关闭范围以及拖放只提交一次排序。
+
+一次全量回归中的旧 `MousePopupUiSmokeTest` 未通过：系统鼠标选择嵌入主题菜单后
+仍为 Light，期间 Computer Use 同时切换了前台窗口。本轮没有修改该测试或放宽
+断言，不能把它计入通过结果。CUA 已能显示本地验收窗口并检查操作入口位置，
+但后续点击/按键多次没有形成可观察的变化，鼠标完整分屏验收仍未完成。
+Windows/Linux 的系统窗口交互也仍需要各自实机验收。
+
+本轮仅本地修改、构建，没有推送 `preview/ui-refactor`，没有 dispatch Preview
+Actions，也没有修改发布工作流或网站。

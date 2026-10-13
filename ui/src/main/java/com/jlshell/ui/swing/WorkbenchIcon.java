@@ -10,7 +10,7 @@ import java.awt.geom.Path2D;
 
 /** 独立的 16px 线条图标，使用逻辑坐标，由 Swing 的 HiDPI 变换缩放。 */
 public record WorkbenchIcon(Kind kind) implements Icon {
-    public enum Kind { SERVER, FOLDER, ADD, RUN, REFRESH, SETTINGS, CLOSE, TERMINAL, PROJECT, EDIT, DELETE, SEARCH, MORE, HIDE, DOCK, MENU, MONITOR, USER, HELP, LAYOUT }
+    public enum Kind { SERVER, FOLDER, ADD, RUN, REFRESH, SETTINGS, CLOSE, TERMINAL, PROJECT, EDIT, DELETE, SEARCH, MORE, HIDE, DOCK, MENU, MONITOR, USER, HELP, LAYOUT, SPLIT_RIGHT, SPLIT_DOWN }
     public int getIconWidth() { return 16; }
     public int getIconHeight() { return 16; }
 
@@ -29,6 +29,11 @@ public record WorkbenchIcon(Kind kind) implements Icon {
                 case DOCK -> { g.drawRoundRect(2, 2, 12, 12, 2, 2); g.drawLine(2, 10, 14, 10); }
                 case MENU -> { for (int i = 4; i <= 12; i += 4) g.drawLine(3, i, 13, i); }
                 case MONITOR -> { g.drawRoundRect(1, 2, 14, 11, 2, 2); g.drawLine(4, 10, 4, 7); g.drawLine(8, 10, 8, 5); g.drawLine(12, 10, 12, 8); }
+                case SPLIT_RIGHT, SPLIT_DOWN -> {
+                    // IDEA expui/general/splitVertically、splitHorizontally.svg 的 16px 几何。
+                    g.draw(new java.awt.geom.RoundRectangle2D.Double(2.5, 2.5, 11, 11, 3, 3));
+                    if (kind == Kind.SPLIT_RIGHT) g.drawLine(8, 3, 8, 13); else g.drawLine(3, 8, 13, 8);
+                }
                 case ADD -> { g.drawLine(8, 3, 8, 13); g.drawLine(3, 8, 13, 8); }
                 case CLOSE -> { g.drawLine(4, 4, 12, 12); g.drawLine(12, 4, 4, 12); }
                 case RUN -> { Path2D path = new Path2D.Double(); path.moveTo(4, 2); path.lineTo(13, 8); path.lineTo(4, 14); path.closePath(); g.draw(path); }

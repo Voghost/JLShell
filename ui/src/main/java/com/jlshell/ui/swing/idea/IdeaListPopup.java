@@ -11,6 +11,7 @@ import java.util.Locale;
 
 /** ListPopupImpl 的列表选择/分组导航适配，替换 IDEA ActionSystem 为宿主 Runnable。 */
 public final class IdeaListPopup extends JPanel {
+    public enum Style { LIST, CONTEXT }
     public record Row(String title, String detail, Icon icon, String shortcut, String group,
                       boolean enabled, List<Row> children, Runnable action) {
         public static Row action(String title, Icon icon, String shortcut, String group, Runnable action) {
@@ -32,18 +33,22 @@ public final class IdeaListPopup extends JPanel {
     private final Timer hover = new Timer(250, e -> openChild(list.getSelectedIndex(), false));
 
     public IdeaListPopup(List<Row> rows, int width, boolean searchable, String searchPrompt) {
+        this(rows, width, searchable, searchPrompt, Style.LIST);
+    }
+
+    public IdeaListPopup(List<Row> rows, int width, boolean searchable, String searchPrompt, Style style) {
         this.rows = List.copyOf(rows);
         setLayout(new BorderLayout());
         setName("idea.listPopup");
         hover.setRepeats(false);
         setOpaque(false);
         setBackground(SwingTheme.color("popup"));
-        setBorder(BorderFactory.createEmptyBorder(8, 0, 8, 0));
+        setBorder(BorderFactory.createEmptyBorder(style == Style.CONTEXT ? 6 : 8, 0, style == Style.CONTEXT ? 6 : 8, 0));
         list.setModel(model);
         list.setFont(UIManager.getFont("defaultFont").deriveFont(Font.PLAIN));
         list.setBackground(getBackground());
         list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        list.setCellRenderer(new IdeaPopupRenderer(rows.stream().anyMatch(row -> row.icon() != null)));
+        list.setCellRenderer(new IdeaPopupRenderer(style == Style.CONTEXT || rows.stream().anyMatch(row -> row.icon() != null), style));
         list.setFocusable(true);
         list.setName("popup.list");
         JScrollPane scroll = new JScrollPane(list);
@@ -117,6 +122,14 @@ public final class IdeaListPopup extends JPanel {
         target.getInputMap().put(KeyStroke.getKeyStroke(key), key);
         target.getActionMap().put(key, new AbstractAction() {
             public void actionPerformed(ActionEvent e) { run.run(); }
+        });
+    }
+
+    public void bindShortcut(KeyStroke key, Runnable action) {
+        String name = "popup.shortcut." + key;
+        getInputMap(WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(key, name);
+        getActionMap().put(name, new AbstractAction() {
+            public void actionPerformed(ActionEvent event) { setVisible(false); action.run(); }
         });
     }
 

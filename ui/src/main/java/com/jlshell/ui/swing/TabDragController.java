@@ -15,6 +15,7 @@ final class TabDragController extends MouseAdapter implements AutoCloseable {
     private final Consumer<Component> select;
     private final BiConsumer<Component, Integer> commit;
     private final BiConsumer<Component, Integer> move;
+    private final java.util.function.BiPredicate<Component, Point> externalDrop;
     private final Timer animation = new Timer(16, event -> animate());
     private final Map<Component, Motion> motions = new LinkedHashMap<>();
     private final Map<Component, Integer> originalOrder = new LinkedHashMap<>();
@@ -60,7 +61,13 @@ final class TabDragController extends MouseAdapter implements AutoCloseable {
 
     TabDragController(JTabbedPane tabs, Consumer<Component> select, BiConsumer<Component, Integer> commit,
                       BiConsumer<Component, Integer> move) {
+        this(tabs, select, commit, move, (host, point) -> false);
+    }
+
+    TabDragController(JTabbedPane tabs, Consumer<Component> select, BiConsumer<Component, Integer> commit,
+                      BiConsumer<Component, Integer> move, java.util.function.BiPredicate<Component, Point> externalDrop) {
         this.tabs = tabs; this.select = select; this.commit = commit; this.move = move;
+        this.externalDrop = externalDrop;
         overlay.setOpaque(false);
         install(tabs);
         KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(escape);
@@ -69,6 +76,11 @@ final class TabDragController extends MouseAdapter implements AutoCloseable {
     void install(Component component) {
         component.addMouseListener(this);
         component.addMouseMotionListener(this);
+    }
+
+    void uninstall(Component component) {
+        component.removeMouseListener(this);
+        component.removeMouseMotionListener(this);
     }
 
     @Override public void mousePressed(MouseEvent event) {
@@ -141,7 +153,10 @@ final class TabDragController extends MouseAdapter implements AutoCloseable {
         if (!SwingUtilities.isLeftMouseButton(event) || source == null) return;
         if (!dragging) { finish(); return; }
         Point point = SwingUtilities.convertPoint(event.getComponent(), event.getPoint(), tabs);
-        if (point.y < strip.y - 24 || point.y > strip.y + strip.height + 24) { cancel(); return; }
+        if (point.x < 0 || point.x > tabs.getWidth() || point.y < strip.y - 24 || point.y > strip.y + strip.height + 24) {
+            if (externalDrop.test(source, point)) finish(); else cancel();
+            return;
+        }
         int index = tabs.indexOfComponent(source);
         if (index < 0) { finish(); return; }
         if (index != originalIndex) commit.accept(source, index);

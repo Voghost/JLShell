@@ -10,7 +10,9 @@ import java.awt.*;
 /** IDEA 分组、双行项目条目及快捷键列的渲染结构，动作数据由宿主传入。 */
 final class IdeaPopupRenderer implements ListCellRenderer<IdeaListPopup.Row> {
     private final boolean reserveIcons;
-    IdeaPopupRenderer(boolean reserveIcons) { this.reserveIcons = reserveIcons; }
+    private final IdeaListPopup.Style style;
+    IdeaPopupRenderer(boolean reserveIcons) { this(reserveIcons, IdeaListPopup.Style.LIST); }
+    IdeaPopupRenderer(boolean reserveIcons, IdeaListPopup.Style style) { this.reserveIcons = reserveIcons; this.style = style; }
     @Override
     public Component getListCellRendererComponent(JList<? extends IdeaListPopup.Row> list, IdeaListPopup.Row row,
                                                    int index, boolean selected, boolean focus) {
@@ -28,10 +30,11 @@ final class IdeaPopupRenderer implements ListCellRenderer<IdeaListPopup.Row> {
             description.setForeground(SwingTheme.color("secondary"));
             lines.add(description, BorderLayout.SOUTH);
         }
-        JPanel content = new JPanel(new BorderLayout(6, 0));
+        JPanel content = new JPanel(new BorderLayout(style == IdeaListPopup.Style.CONTEXT ? 8 : 6, 0));
         content.setOpaque(false);
-        content.setBorder(BorderFactory.createEmptyBorder(row.detail() == null ? 0 : 6, 16,
-                row.detail() == null ? 0 : 6, 16));
+        int side = style == IdeaListPopup.Style.CONTEXT ? 12 : 16;
+        content.setBorder(BorderFactory.createEmptyBorder(row.detail() == null ? 0 : 6, side,
+                row.detail() == null ? 0 : 6, side));
         JLabel icon = new JLabel(row.icon());
         icon.setPreferredSize(new Dimension(row.detail() == null ? 16 : 24, row.detail() == null ? 16 : 24));
         icon.setVerticalAlignment(row.detail() == null ? SwingConstants.CENTER : SwingConstants.TOP);
@@ -43,9 +46,11 @@ final class IdeaPopupRenderer implements ListCellRenderer<IdeaListPopup.Row> {
         trailing.setBorder(BorderFactory.createEmptyBorder(0, 16, 0, 0));
         content.add(trailing, BorderLayout.EAST);
         SelectablePanel item = SelectablePanel.wrap(content, list.getBackground());
-        if (row.detail() == null) item.preferredHeight = Math.max(24, list.getFontMetrics(list.getFont()).getHeight() + 4);
-        item.selectionArc = 8;
-        item.selectionInsets = new Insets(0, 8, 0, 8);
+        if (row.detail() == null) item.preferredHeight = Math.max(style == IdeaListPopup.Style.CONTEXT ? 22 : 24,
+                list.getFontMetrics(list.getFont()).getHeight() + (style == IdeaListPopup.Style.CONTEXT ? 6 : 4));
+        item.selectionArc = style == IdeaListPopup.Style.CONTEXT ? 6 : 8;
+        item.selectionInsets = new Insets(0, style == IdeaListPopup.Style.CONTEXT ? 6 : 8, 0,
+                style == IdeaListPopup.Style.CONTEXT ? 6 : 8);
         item.selectionColor = selected && row.enabled() ? SwingTheme.color("popupSelection") : null;
         item.getAccessibleContext().setAccessibleName(row.title());
         if (row.group() == null) return item;

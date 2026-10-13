@@ -10,6 +10,15 @@ import java.awt.geom.RoundRectangle2D;
 
 /** 按 IslandsTabPainter 的背景/边框方式绘制；布局、滚动及键盘导航继续交给 FlatLaf。 */
 final class IslandTabbedPane extends JTabbedPane {
+    @Override protected void paintComponent(Graphics graphics) {
+        super.paintComponent(graphics);
+        if (getTabCount() == 0 && getClientProperty("JLShell.emptyGroupText") instanceof String message) {
+            graphics.setColor(SwingTheme.color("secondary"));
+            graphics.setFont(getFont());
+            var metrics = graphics.getFontMetrics();
+            graphics.drawString(message, Math.max(12, (getWidth() - metrics.stringWidth(message)) / 2), getHeight() / 2);
+        }
+    }
     @Override
     public void updateUI() {
         setUI(new FlatTabbedPaneUI() {

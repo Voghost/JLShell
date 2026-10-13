@@ -48,7 +48,9 @@ public final class SwingWorkbench implements AutoCloseable {
             "settings.quick.view", "settings.quick.account", "menu.help.about", "menu.help.checkUpdates",
             "menu.view", "menu.account", "menu.file", "menu.connections", "menu.help", "menu.settings",
             "theme.dark", "theme.light", "preferences.tab.plugins", "preferences.tab.shortcuts",
-            "workspace.openSessions", "workspace.noOpenSessions");
+            "workspace.openSessions", "workspace.noOpenSessions", "tab.closeLeft", "tab.closeRight",
+            "tab.closeOthersInGroup", "tab.closeAllInGroup", "tab.splitRight", "tab.splitDown", "tab.moveToGroup",
+            "tab.changeSplitOrientation", "tab.unsplit", "tab.unsplitAll", "tab.emptyGroup", "tab.duplicateSession", "tab.groupMenu");
 
     private final JFrame frame = new JFrame("JLShell");
     private final Actions actions;
@@ -63,8 +65,16 @@ public final class SwingWorkbench implements AutoCloseable {
     private Map<String, Runnable> settingsActions = Map.of();
     private String preferenceShortcut = "";
     private final JButton settingsButton;
-    private final JTabbedPane tabs = new IslandTabbedPane();
-    private final TabDragController tabDrag;
+    private JTabbedPane tabs;
+    private final WorkspaceSplitLayout workspaceSplits;
+    private final Map<JTabbedPane, TabDragController> tabDrags = new IdentityHashMap<>();
+    private final Map<Object, Runnable> tabCloseActions = new LinkedHashMap<>();
+    private final java.beans.PropertyChangeListener groupFocus = event -> {
+        if (!(event.getNewValue() instanceof Component focused)) return;
+        for (JTabbedPane group : List.copyOf(tabDrags.keySet())) {
+            if (SwingUtilities.isDescendingFrom(focused, group) && group != tabs) { activateGroup(group, true); break; }
+        }
+    };
     private final JPanel headerMenus = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
     private final JPanel workspace = new IslandPanel(new CardLayout(), "canvas");
     private final JPanel welcome = new JPanel(new BorderLayout());
@@ -111,7 +121,22 @@ public final class SwingWorkbench implements AutoCloseable {
     private final KeyEventDispatcher shortcutDispatcher = event -> {
         if (event.getID() != java.awt.event.KeyEvent.KEY_PRESSED || !frame.isActive()) return false;
         Runnable action = shortcuts.get(KeyStroke.getKeyStrokeForEvent(event));
-        if (action == null) return false;
+        if (action == null) {
+            KeyStroke pressed = KeyStroke.getKeyStrokeForEvent(event);
+            if (KeyStroke.getKeyStroke("shift F10").equals(pressed)
+                    || KeyStroke.getKeyStroke("CONTEXT_MENU").equals(pressed)) {
+                Object id = viewTabs.get(tabs.getSelectedComponent());
+                if (id == null) return false;
+                Rectangle bounds = tabs.getBoundsAt(tabs.getSelectedIndex());
+                showTabContext(id, tabs, new Point(bounds.x, bounds.y + bounds.height));
+                event.consume();
+                return true;
+            }
+            KeyStroke closeKey = KeyStroke.getKeyStroke(com.formdev.flatlaf.util.SystemInfo.isMacOS ? "meta W" : "ctrl F4");
+            if (!closeKey.equals(KeyStroke.getKeyStrokeForEvent(event)) || tabs.getSelectedComponent() == null) return false;
+            action = tabCloseActions.get(viewTabs.get(tabs.getSelectedComponent()));
+            if (action == null) return false;
+        }
         action.run();
         event.consume();
         return true;
@@ -121,6 +146,8 @@ public final class SwingWorkbench implements AutoCloseable {
         if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Workbench requires EDT");
         this.actions = actions;
         this.texts = Map.copyOf(texts);
+        tabs = createTabGroup();
+        workspaceSplits = new WorkspaceSplitLayout(tabs, this::createTabGroup);
         toolStripe = button(WorkbenchIcon.Kind.MONITOR, "workspace.tools", this::toggleToolWindow);
         projectStripe = button(WorkbenchIcon.Kind.FOLDER, "sidebar.toggle", () -> actions.toggleSidebar().run());
         menuButton = button(WorkbenchIcon.Kind.MENU, "menu.main", this::showMainMenu);
@@ -141,9 +168,7 @@ public final class SwingWorkbench implements AutoCloseable {
         root.add(buildRightRail(), BorderLayout.EAST);
         buildSidebar();
         workspace.add(buildWelcome(), "welcome");
-        tabs.setOpaque(false);
-        tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
-        workspace.add(tabs, "tabs");
+        workspace.add(workspaceSplits, "tabs");
         split.setLeftComponent(sidebar);
         split.setRightComponent(workspace);
         split.setResizeWeight(0);
@@ -173,28 +198,72 @@ public final class SwingWorkbench implements AutoCloseable {
         Rectangle screen = frame.getGraphicsConfiguration().getBounds();
         frame.setSize(Math.min(1480, (int) (screen.width * .9)), Math.min(920, (int) (screen.height * .9)));
         frame.setLocationRelativeTo(null);
-        tabs.addChangeListener(event -> {
-            if (!selectingTab) {
-                syncToolWindow();
-                updateSessionSelector();
-                actions.selectTab().accept(viewTabs.get(tabs.getSelectedComponent()));
-            }
+        KeyboardFocusManager.getCurrentKeyboardFocusManager().addPropertyChangeListener("permanentFocusOwner", groupFocus);
+
+    }
+
+    private JTabbedPane createTabGroup() {
+        JTabbedPane group = new IslandTabbedPane();
+        group.setOpaque(false);
+        group.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
+        group.setMinimumSize(new Dimension(100, 80));
+        group.putClientProperty("JLShell.emptyGroupText", text("tab.emptyGroup"));
+        JButton more = button(WorkbenchIcon.Kind.MORE, "tab.groupMenu", () -> {
+            Object id = viewTabs.get(group.getSelectedComponent());
+            if (id != null) showTabContext(id, group, new Point(Math.max(0, group.getWidth() - 230), 30));
         });
-        tabDrag = new TabDragController(tabs, host -> {
-            Object id = viewTabs.get(host);
-            selectTab(id);
-            actions.selectTab().accept(id);
-        }, (host, position) -> actions.reorder().accept(viewTabs.get(host), position), this::moveTabLocally);
-        tabs.addMouseListener(new MouseAdapter() {
-            public void mousePressed(MouseEvent event) { popup(event); }
+        JPanel trailing = new JPanel(new BorderLayout());
+        trailing.setOpaque(false);
+        trailing.add(more, BorderLayout.EAST);
+        group.putClientProperty("JTabbedPane.trailingComponent", trailing);
+        group.addChangeListener(event -> { if (!selectingTab) activateGroup(group, true); });
+        var drag = new TabDragController(group, host -> {
+            selectTab(viewTabs.get(host));
+            actions.selectTab().accept(viewTabs.get(host));
+        }, (host, position) -> actions.reorder().accept(viewTabs.get(host), orderedHosts().indexOf(host)),
+                (host, position) -> moveTabLocally(group, host, position), (host, point) -> {
+            JTabbedPane destination = workspaceSplits.groupAt(SwingUtilities.convertPoint(group, point, workspaceSplits));
+            if (destination == null || destination == group) return false;
+            transferTab(host, group, destination);
+            activateGroup(destination, true);
+            pruneEmptyGroup(group);
+            actions.reorder().accept(viewTabs.get(host), orderedHosts().indexOf(host));
+            return true;
+        });
+        tabDrags.put(group, drag);
+        group.addMouseListener(new MouseAdapter() {
+            public void mousePressed(MouseEvent event) {
+                if (SwingUtilities.isLeftMouseButton(event) && group.getTabCount() == 0) activateGroup(group, false);
+                popup(event);
+            }
             public void mouseReleased(MouseEvent event) { popup(event); }
             private void popup(MouseEvent event) {
                 if (!event.isPopupTrigger()) return;
-                int index = tabs.indexAtLocation(event.getX(), event.getY());
-                if (index >= 0) actions.tabContext().accept(viewTabs.get(tabs.getComponentAt(index)),
-                        specs -> SwingUtilities.invokeLater(() -> popupMenu(specs).show(tabs, event.getX(), event.getY())));
+                int index = group.indexAtLocation(event.getX(), event.getY());
+                if (index >= 0) showTabContext(viewTabs.get(group.getComponentAt(index)), group, event.getPoint());
             }
         });
+        return group;
+    }
+
+    private void activateGroup(JTabbedPane group, boolean notify) {
+        tabs = group;
+        if (toolStripe == null) return; // 构造初始空标签组时尚未安装工作台控件。
+        syncToolWindow(); updateSessionSelector();
+        Object id = viewTabs.get(group.getSelectedComponent());
+        if (notify && id != null) actions.selectTab().accept(id);
+    }
+
+    private JTabbedPane groupFor(Component host) {
+        return host == null ? null : (JTabbedPane) SwingUtilities.getAncestorOfClass(JTabbedPane.class, host);
+    }
+
+    private List<Component> orderedHosts() {
+        var order = new ArrayList<Component>();
+        for (JTabbedPane group : workspaceSplits.groups()) {
+            for (int i = 0; i < group.getTabCount(); i++) order.add(group.getComponentAt(i));
+        }
+        return order;
     }
 
     private String text(String key) { return texts.getOrDefault(key, key); }
@@ -607,6 +676,7 @@ public final class SwingWorkbench implements AutoCloseable {
         host.setOpaque(false);
         host.add(view);
         tabViews.put(id, view); tabHosts.put(id, host); viewTabs.put(host, id);
+        tabCloseActions.put(id, close);
         if (view instanceof SwingSessionView session) {
             session.setToolWindowRevealAction(() -> {
                 if (Objects.equals(viewTabs.get(tabs.getSelectedComponent()), id)) {
@@ -620,16 +690,15 @@ public final class SwingWorkbench implements AutoCloseable {
         header.setOpaque(false);
         JLabel label = new JLabel(title, new WorkbenchIcon(WorkbenchIcon.Kind.TERMINAL), SwingConstants.LEFT);
         header.add(label);
-        tabDrag.install(header);
-        tabDrag.install(label);
+        tabDrags.get(tabs).install(header);
+        tabDrags.get(tabs).install(label);
         MouseAdapter context = new MouseAdapter() {
             public void mousePressed(MouseEvent event) { popup(event); }
             public void mouseReleased(MouseEvent event) { popup(event); }
             private void popup(MouseEvent event) {
                 if (!event.isPopupTrigger()) return;
-                Point point = SwingUtilities.convertPoint(event.getComponent(), event.getPoint(), tabs);
-                actions.tabContext().accept(id, specs -> SwingUtilities.invokeLater(() ->
-                        popupMenu(specs).show(tabs, point.x, point.y)));
+                JTabbedPane group = groupFor(host);
+                if (group != null) showTabContext(id, group, SwingUtilities.convertPoint(event.getComponent(), event.getPoint(), group));
             }
         };
         header.addMouseListener(context);
@@ -648,47 +717,61 @@ public final class SwingWorkbench implements AutoCloseable {
         if (view == null) return;
         if (view == toolWindowOwner) releaseToolWindow();
         JPanel host = tabHosts.remove(id);
+        JTabbedPane owner = groupFor(host);
+        tabCloseActions.remove(id);
         viewTabs.remove(host);
-        tabs.remove(host);
+        selectingTab = true;
+        try { if (owner != null) owner.remove(host); } finally { selectingTab = false; }
+        if (owner != null) pruneEmptyGroup(owner);
+        if (!workspaceSplits.groups().contains(tabs)) tabs = workspaceSplits.groups().getFirst();
+        activateGroup(tabs, true);
         syncToolWindow();
         if (view instanceof AutoCloseable closeable) {
             try { closeable.close(); } catch (Exception error) { throw new IllegalStateException(error); }
         }
         updateSessionSelector();
-        if (tabs.getTabCount() == 0) ((CardLayout) workspace.getLayout()).show(workspace, "welcome");
+        if (tabViews.isEmpty()) ((CardLayout) workspace.getLayout()).show(workspace, "welcome");
     }
 
     public void selectTab(Object id) {
         Component host = tabHosts.get(id);
-        if (host == null) return;
+        JTabbedPane owner = groupFor(host);
+        if (owner == null) return;
+        tabs = owner;
         selectingTab = true;
-        try { tabs.setSelectedComponent(host); } finally { selectingTab = false; }
+        try { owner.setSelectedComponent(host); } finally { selectingTab = false; }
         syncToolWindow();
         updateSessionSelector();
     }
 
-    private void moveTabLocally(Component host, Integer target) {
+    private void moveTabLocally(JTabbedPane group, Component host, Integer target) {
         var order = new ArrayList<Object>();
-        for (int i = 0; i < tabs.getTabCount(); i++) order.add(viewTabs.get(tabs.getComponentAt(i)));
+        for (int i = 0; i < group.getTabCount(); i++) order.add(viewTabs.get(group.getComponentAt(i)));
         Object id = viewTabs.get(host);
         if (order.remove(id)) { order.add(Math.min(target, order.size()), id); reorderTabs(order); }
     }
 
     public void reorderTabs(List<Object> order) {
         selectingTab = true;
-        Component selected = tabs.getSelectedComponent();
         try {
-            for (int i = 0; i < order.size(); i++) {
-                Component view = tabHosts.get(order.get(i));
-                int index = tabs.indexOfComponent(view);
-                if (index < 0 || index == i) continue;
-                String title = tabs.getTitleAt(index);
-                Component header = tabs.getTabComponentAt(index);
-                tabs.removeTabAt(index);
-                tabs.insertTab(title, null, view, null, i);
-                tabs.setTabComponentAt(i, header);
+            for (JTabbedPane group : workspaceSplits.groups()) {
+                Component selected = group.getSelectedComponent();
+                int position = 0;
+                for (Object id : order) {
+                    Component host = tabHosts.get(id);
+                    int index = group.indexOfComponent(host);
+                    if (index < 0) continue;
+                    if (index != position) {
+                        String title = group.getTitleAt(index);
+                        Component header = group.getTabComponentAt(index);
+                        group.removeTabAt(index);
+                        group.insertTab(title, null, host, null, position);
+                        group.setTabComponentAt(position, header);
+                    }
+                    position++;
+                }
+                if (selected != null) group.setSelectedComponent(selected);
             }
-            if (selected != null) tabs.setSelectedComponent(selected);
         } finally { selectingTab = false; }
     }
 
@@ -696,21 +779,145 @@ public final class SwingWorkbench implements AutoCloseable {
         int index = tabs.getSelectedIndex();
         connectionName.setText((index < 0 ? text("workspace.noOpenSessions") : tabs.getTitleAt(index)) + "  ⌄");
         connectionName.setIcon(index < 0 ? null : new WorkbenchIcon(WorkbenchIcon.Kind.TERMINAL));
-        connectionName.setEnabled(tabs.getTabCount() > 0);
+        connectionName.setEnabled(!tabViews.isEmpty());
     }
 
     private void showSessionPopup() {
         var rows = new ArrayList<com.jlshell.ui.swing.idea.IdeaListPopup.Row>();
         Component selected = tabs.getSelectedComponent();
-        for (int i = 0; i < tabs.getTabCount(); i++) {
-            Component host = tabs.getComponentAt(i);
+        for (JTabbedPane group : workspaceSplits.groups()) for (int i = 0; i < group.getTabCount(); i++) {
+            Component host = group.getComponentAt(i);
             Object id = viewTabs.get(host);
-            rows.add(com.jlshell.ui.swing.idea.IdeaListPopup.Row.action(tabs.getTitleAt(i),
+            rows.add(com.jlshell.ui.swing.idea.IdeaListPopup.Row.action(group.getTitleAt(i),
                     new WorkbenchIcon(WorkbenchIcon.Kind.TERMINAL), host == selected ? "✓" : "", null,
                     () -> { selectTab(id); actions.selectTab().accept(id); }));
         }
         new com.jlshell.ui.swing.idea.IdeaListPopup(rows, 240, true, text("workspace.openSessions"))
                 .show(connectionName, 0, connectionName.getHeight() + 4);
+    }
+
+    private void rebindHeader(Component header, JTabbedPane source, JTabbedPane destination) {
+        if (header == null) return;
+        var old = tabDrags.get(source);
+        var next = tabDrags.get(destination);
+        old.uninstall(header); next.install(header);
+        if (header instanceof Container parent) for (Component child : parent.getComponents()) {
+            if (child instanceof JLabel) { old.uninstall(child); next.install(child); }
+        }
+    }
+
+    private void transferTab(Component host, JTabbedPane source, JTabbedPane target) {
+        int index = source.indexOfComponent(host);
+        if (index < 0 || source == target) return;
+        String title = source.getTitleAt(index);
+        Component header = source.getTabComponentAt(index);
+        selectingTab = true;
+        try {
+            source.removeTabAt(index);
+            target.addTab(title, host);
+            target.setTabComponentAt(target.indexOfComponent(host), header);
+            rebindHeader(header, source, target);
+            target.setSelectedComponent(host);
+        } finally { selectingTab = false; }
+    }
+
+    private void pruneEmptyGroup(JTabbedPane group) {
+        if (group.getTabCount() == 0 && workspaceSplits.inSplit(group)) {
+            workspaceSplits.removeEmpty(group);
+            var drag = tabDrags.remove(group);
+            if (drag != null) drag.close();
+        }
+    }
+
+    void splitTab(Object id, int orientation) {
+        Component host = tabHosts.get(id);
+        JTabbedPane source = groupFor(host);
+        if (source == null) return;
+        JTabbedPane destination = workspaceSplits.split(source, orientation);
+        transferTab(host, source, destination);
+        // 保留空来源组，可把另一已有会话拖入，不创建/复制 SSH 连接。
+        activateGroup(destination, true);
+        host.requestFocusInWindow();
+    }
+
+    void moveTabToOppositeGroup(Object id) {
+        Component host = tabHosts.get(id);
+        JTabbedPane source = groupFor(host);
+        if (source == null) return;
+        List<JTabbedPane> others = workspaceSplits.siblings(source);
+        if (others.isEmpty()) return;
+        JTabbedPane target = others.getFirst();
+        transferTab(host, source, target);
+        activateGroup(target, true);
+        pruneEmptyGroup(source);
+    }
+
+    void unsplitTab(Object id, boolean all) {
+        Component host = tabHosts.get(id);
+        JTabbedPane target = groupFor(host);
+        if (target == null) return;
+        for (JTabbedPane removed : workspaceSplits.unsplit(target, all, (source, destination) -> {
+            while (source.getTabCount() > 0) transferTab(source.getComponentAt(0), source, destination);
+        })) {
+            var drag = tabDrags.remove(removed);
+            if (drag != null) drag.close();
+        }
+        selectTab(id);
+        actions.selectTab().accept(id);
+    }
+
+    private void showTabContext(Object id, JTabbedPane group, Point point) {
+        actions.tabContext().accept(id, specs -> SwingUtilities.invokeLater(() -> {
+            if (!frame.isShowing() || !group.isShowing() || !tabHosts.containsKey(id) || groupFor(tabHosts.get(id)) != group) return;
+            var rows = tabContextRows(id, specs);
+            var popup = new com.jlshell.ui.swing.idea.IdeaListPopup(rows, 220, false, "",
+                    com.jlshell.ui.swing.idea.IdeaListPopup.Style.CONTEXT);
+            KeyStroke closeKey = KeyStroke.getKeyStroke(com.formdev.flatlaf.util.SystemInfo.isMacOS ? "meta W" : "ctrl F4");
+            if (!shortcuts.containsKey(closeKey)) popup.bindShortcut(closeKey, rows.getFirst().action());
+            popup.show(group, point.x, point.y);
+        }));
+    }
+
+    List<com.jlshell.ui.swing.idea.IdeaListPopup.Row> tabContextRows(Object id, List<SwingMenuBridge.Item> specs) {
+        Component host = tabHosts.get(id);
+        JTabbedPane group = groupFor(host);
+        if (group == null) return List.of();
+        int current = group.indexOfComponent(host);
+        var ids = new ArrayList<Object>();
+        for (int i = 0; i < group.getTabCount(); i++) ids.add(viewTabs.get(group.getComponentAt(i)));
+        var rows = new ArrayList<com.jlshell.ui.swing.idea.IdeaListPopup.Row>();
+        KeyStroke closeKey = KeyStroke.getKeyStroke(com.formdev.flatlaf.util.SystemInfo.isMacOS ? "meta W" : "ctrl F4");
+        rows.add(tabMenuRow("tab.close", null, "", true, () -> tabCloseActions.getOrDefault(id, () -> {}).run(),
+                shortcuts.containsKey(closeKey) ? "" : com.formdev.flatlaf.util.SystemInfo.isMacOS ? "⌘W" : "Ctrl+F4"));
+        rows.add(tabMenuRow("tab.closeOthersInGroup", null, null, ids.size() > 1,
+                () -> ids.stream().filter(other -> !Objects.equals(other, id)).forEach(this::closeExistingTab), ""));
+        rows.add(tabMenuRow("tab.closeAllInGroup", null, null, !ids.isEmpty(), () -> ids.forEach(this::closeExistingTab), ""));
+        rows.add(tabMenuRow("tab.closeLeft", null, null, current > 0,
+                () -> ids.subList(0, current).forEach(this::closeExistingTab), ""));
+        rows.add(tabMenuRow("tab.closeRight", null, null, current < ids.size() - 1,
+                () -> ids.subList(current + 1, ids.size()).forEach(this::closeExistingTab), ""));
+        rows.add(tabMenuRow("tab.splitRight", WorkbenchIcon.Kind.SPLIT_RIGHT, "", true,
+                () -> splitTab(id, JSplitPane.HORIZONTAL_SPLIT), ""));
+        rows.add(tabMenuRow("tab.splitDown", WorkbenchIcon.Kind.SPLIT_DOWN, null, true,
+                () -> splitTab(id, JSplitPane.VERTICAL_SPLIT), ""));
+        boolean split = workspaceSplits.inSplit(group);
+        rows.add(tabMenuRow("tab.moveToGroup", null, null, split, () -> moveTabToOppositeGroup(id), ""));
+        rows.add(tabMenuRow("tab.changeSplitOrientation", null, null, split,
+                () -> workspaceSplits.changeOrientation(group), ""));
+        rows.add(tabMenuRow("tab.unsplit", null, null, split, () -> unsplitTab(id, false), ""));
+        if (workspaceSplits.groups().size() > 2) rows.add(tabMenuRow("tab.unsplitAll", null, null, true,
+                () -> unsplitTab(id, true), ""));
+        specs.stream().filter(item -> item.text().equals(text("tab.duplicateSession"))).findFirst().ifPresent(item ->
+                rows.add(tabMenuRow("tab.duplicateSession", WorkbenchIcon.Kind.TERMINAL, "", !item.disabled(), item.action(), item.shortcut())));
+        return rows;
+    }
+
+    private void closeExistingTab(Object id) { tabCloseActions.getOrDefault(id, () -> {}).run(); }
+
+    private com.jlshell.ui.swing.idea.IdeaListPopup.Row tabMenuRow(String key, WorkbenchIcon.Kind icon, String group,
+                                                                 boolean enabled, Runnable action, String shortcut) {
+        return new com.jlshell.ui.swing.idea.IdeaListPopup.Row(text(key), null,
+                icon == null ? null : new WorkbenchIcon(icon), shortcut, group, enabled, List.of(), action);
     }
 
     public void setSidebarVisible(boolean visible) {
@@ -959,7 +1166,8 @@ public final class SwingWorkbench implements AutoCloseable {
     }
 
     public void close() {
-        tabDrag.close();
+        KeyboardFocusManager.getCurrentKeyboardFocusManager().removePropertyChangeListener("permanentFocusOwner", groupFocus);
+        tabDrags.values().forEach(TabDragController::close);
         KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(shortcutDispatcher);
         for (Object id : List.copyOf(tabViews.keySet())) removeTab(id);
         ToolTipManager.sharedInstance().unregisterComponent(tree);
