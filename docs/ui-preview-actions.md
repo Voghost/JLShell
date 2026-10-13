@@ -16,6 +16,7 @@
 
 版本采用 `0.1.67-preview.<运行序号>.<重试序号>`。
 原生安装器内部使用纯数字 `1.0.<运行序号>`，满足 jpackage/MSI 的版本限制。
+macOS 使用独立 Bundle ID `com.jlshell.preview`，Windows 使用独立 MSI 升级标识。
 macOS 测试包使用临时签名，系统提示时可在系统设置中选择“仍要打开”。
 
 ## 配置和插件
@@ -30,4 +31,5 @@ Preview 默认启用 Swing UI，关闭启动时的自动更新检查。
 Linux JVM 参数覆盖文件使用 `~/.config/jlshell-preview/JLShell.vmoptions`。
 
 工作流先运行应用及启动器依赖模块的测试，再并行生成各平台安装包。
+macOS 还使用安装包实际的 JVM 参数检查 JavaFX 原生菜单桥接的模块访问权限。
 平台构建成功表示打包通过，Windows/Linux 的实际显示和交互仍需在对应系统测试。

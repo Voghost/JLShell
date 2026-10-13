@@ -137,6 +137,7 @@ jobs:
           $JDK/bin/jpackage \
             --type app-image \
             --name JLShellPreview \
+            --mac-package-identifier com.jlshell.preview \
             --app-version "$PKG_VERSION" \
             --input dist/input \
             --main-jar jlshell-launcher.jar \
@@ -153,10 +154,37 @@ jobs:
             --java-options "--add-exports java.desktop/sun.swing=ALL-UNNAMED" \
             --java-options "--add-opens java.desktop/sun.swing=ALL-UNNAMED" \
             --java-options "--add-opens java.desktop/javax.swing=ALL-UNNAMED" \
+            --java-options "--add-exports javafx.graphics/com.sun.javafx.tk=ALL-UNNAMED" \
+            --java-options "--add-exports javafx.controls/com.sun.javafx.scene.control=ALL-UNNAMED" \
             --java-options "-Dapple.laf.useScreenMenuBar=true" \
             --java-options "-Dapple.awt.application.appearance=system" \
             --java-options "-Dapple.awt.application.name=JLShellPreview" \
             --dest dist/mac-work
+
+          # Verify native menu access using the actual jpackage Java options.
+          # Classpath-only preview tests cannot catch missing JavaFX module exports.
+          mkdir -p dist/preview-probe
+          cat > dist/PreviewMenuAccessProbe.java <<'EOF'
+          public class PreviewMenuAccessProbe {
+            public static void main(String[] args) throws Exception {
+              var toolkit = Class.forName("com.sun.javafx.tk.Toolkit").getMethod("getToolkit");
+              var adapter = Class.forName("com.sun.javafx.scene.control.GlobalMenuAdapter")
+                .getMethod("adapt", Class.forName("javafx.scene.control.Menu"));
+              if (!toolkit.canAccess(null) || !adapter.canAccess(null)) {
+                throw new IllegalStateException("Packaged macOS native menu bridge is not accessible");
+              }
+              System.out.println("Packaged JavaFX native menu access verified");
+            }
+          }
+          EOF
+          "$JDK/bin/javac" -d dist/preview-probe dist/PreviewMenuAccessProbe.java
+          PREVIEW_OPTIONS=()
+          while IFS= read -r line; do
+            case "$line" in java-options=*) PREVIEW_OPTIONS+=("${line#java-options=}");; esac
+          done < dist/mac-work/JLShellPreview.app/Contents/app/JLShellPreview.cfg
+          dist/mac-work/JLShellPreview.app/Contents/runtime/Contents/Home/bin/java \
+            "${PREVIEW_OPTIONS[@]}" --add-modules javafx.controls \
+            -cp dist/preview-probe PreviewMenuAccessProbe
 
           # Localize the macOS application menu metadata used by AppKit.
           # JavaFX owns most menu wiring, but these bundle resources allow
