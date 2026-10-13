@@ -2005,11 +2005,11 @@
 
 .project-active-badge {
     -fx-text-fill: -jl-text;
-    -fx-font-size: 0.77em;
+    -fx-font-size: 12px;
     -fx-font-weight: 700;
     -fx-padding: 2 7 2 7;
-    -fx-background-color: -jl-accent;
-    -fx-background-radius: 999;
+    -fx-background-color: -jl-accent-subtle;
+    -fx-background-radius: 4;
     -fx-effect: null;
 }
 
@@ -2018,9 +2018,9 @@
 }
 
 .project-manager-list {
-    -fx-background-color: -jl-text;
+    -fx-background-color: -jl-canvas;
     -fx-background-radius: 4;
-    -fx-border-color: -jl-text;
+    -fx-border-color: -jl-border;
     -fx-border-radius: 4;
     -fx-padding: 4;
     -fx-max-width: 280;
@@ -2029,7 +2029,7 @@
 .project-manager-search {
     -fx-background-color: -jl-canvas;
     -fx-background-radius: 4;
-    -fx-border-color: -jl-text;
+    -fx-border-color: -jl-border;
     -fx-border-radius: 4;
     -fx-padding: 7 10;
 }
@@ -2045,8 +2045,8 @@
 
 .project-manager-list .list-cell:filled:selected .project-manager-item,
 .project-manager-list .list-cell:filled:hover .project-manager-item {
-    -fx-background-color: -jl-text;
-    -fx-border-color: -jl-text;
+    -fx-background-color: -jl-accent-subtle;
+    -fx-border-color: transparent;
 }
 
 .project-manager-item {
@@ -2059,25 +2059,25 @@
 }
 
 .project-manager-item-active {
-    -fx-background-color: -jl-accent-subtle;
-    -fx-border-color: -jl-accent;
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
 }
 
 .project-manager-list .list-cell:filled:selected .project-manager-item-active,
 .project-manager-list .list-cell:filled:hover .project-manager-item-active {
     -fx-background-color: -jl-accent-subtle;
-    -fx-border-color: -jl-accent;
+    -fx-border-color: transparent;
 }
 
 .project-manager-item-name {
     -fx-text-fill: -jl-text;
-    -fx-font-size: 0.94em;
+    -fx-font-size: 1em;
     -fx-font-weight: 700;
 }
 
 .project-manager-item-description {
     -fx-text-fill: -jl-secondary;
-    -fx-font-size: 0.78em;
+    -fx-font-size: 12px;
 }
 
 .project-manager-form {
@@ -2086,7 +2086,7 @@
 
 .project-manager-field-label {
     -fx-text-fill: -jl-text;
-    -fx-font-size: 0.88em;
+    -fx-font-size: 1em;
     -fx-font-weight: 700;
 }
 
@@ -2452,12 +2452,12 @@
 }
 
 .settings-directory-item:hover {
-    -fx-background-color: -jl-text;
+    -fx-background-color: -jl-hover;
 }
 
 .settings-directory-item:selected {
-    -fx-background-color: -jl-blue;
-    -fx-text-fill: -jl-blue;
+    -fx-background-color: -jl-accent-subtle;
+    -fx-text-fill: -jl-text;
 }
 
 .settings-card-title {
@@ -2472,11 +2472,11 @@
 }
 
 .account-status-badge {
-    -fx-padding: 3 9 3 9;
-    -fx-background-color: -jl-blue;
-    -fx-background-radius: 999;
-    -fx-text-fill: -jl-blue;
-    -fx-font-weight: 700;
+    -fx-padding: 3 8;
+    -fx-background-color: -jl-accent-subtle;
+    -fx-background-radius: 4;
+    -fx-text-fill: -jl-text;
+    -fx-font-weight: normal;
 }
 
 .settings-card .separator {
@@ -2490,7 +2490,7 @@
 .about-page,
 .about-scroll-pane,
 .about-scroll-pane > .viewport {
-    -fx-background-color: -jl-hover;
+    -fx-background-color: -jl-canvas;
 }
 
 .about-page {
@@ -2534,13 +2534,14 @@
 .about-tech-stack,
 .about-footer {
     -fx-text-fill: -jl-secondary;
+    -fx-font-size: 1em;
 }
 
 .about-version-badge {
     -fx-padding: 4 9;
-    -fx-background-color: -jl-blue;
-    -fx-background-radius: 999;
-    -fx-text-fill: -jl-blue;
+    -fx-background-color: -jl-accent-subtle;
+    -fx-background-radius: 4;
+    -fx-text-fill: -jl-text;
     -fx-font-weight: 700;
 }
 
@@ -2548,12 +2549,12 @@
     -fx-min-height: 30px;
     -fx-pref-height: 30px;
     -fx-padding: 4 9;
-    -fx-background-color: -jl-blue;
-    -fx-border-color: -jl-blue;
+    -fx-background-color: transparent;
+    -fx-border-color: -jl-border;
     -fx-border-radius: 4;
     -fx-background-radius: 4;
-    -fx-text-fill: -jl-secondary;
-    -fx-font-size: 0.82em;
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 1em;
     -fx-cursor: hand;
 }
 
@@ -2562,23 +2563,23 @@
 }
 
 .about-compact-action:hover {
-    -fx-background-color: -jl-blue;
+    -fx-background-color: -jl-hover;
     -fx-border-color: -jl-accent;
 }
 
 .about-runtime-copy {
-    -fx-min-height: 23px;
-    -fx-pref-height: 23px;
-    -fx-padding: 1 8;
-    -fx-font-size: 0.76em;
+    -fx-min-height: 26px;
+    -fx-pref-height: 26px;
+    -fx-padding: 3 8;
+    -fx-font-size: 1em;
 }
 
 .about-card {
     -fx-padding: 10 14 11 14;
     -fx-spacing: 4;
-    -fx-background-color: -jl-panel;
-    -fx-border-color: -jl-border;
-    -fx-border-width: 1;
+    -fx-background-color: transparent;
+    -fx-border-color: transparent transparent -jl-border transparent;
+    -fx-border-width: 0 0 1 0;
     -fx-border-radius: 4;
     -fx-background-radius: 4;
 }
@@ -2590,7 +2591,7 @@
 }
 
 .about-card-description {
-    -fx-font-size: 0.84em;
+    -fx-font-size: 12px;
 }
 
 .about-card .separator {
@@ -2626,16 +2627,16 @@
 }
 
 .about-link-icon-box {
-    -fx-background-color: -jl-blue;
+    -fx-background-color: transparent;
     -fx-background-radius: 4;
 }
 
 .about-link-icon {
-    -fx-background-color: -jl-secondary;
+    -fx-background-color: -jl-blue;
 }
 
 .about-link-button:hover .about-link-icon-box {
-    -fx-background-color: -jl-blue;
+    -fx-background-color: transparent;
 }
 
 .about-link-button:hover .about-link-icon {
@@ -2652,7 +2653,7 @@
 }
 
 .about-link-description {
-    -fx-font-size: 0.78em;
+    -fx-font-size: 12px;
 }
 
 .about-chip-list {
@@ -2661,34 +2662,34 @@
 
 .about-chip {
     -fx-padding: 3 8;
-    -fx-background-color: -jl-blue;
-    -fx-background-radius: 999;
-    -fx-text-fill: -jl-secondary;
-    -fx-font-size: 0.8em;
+    -fx-background-color: -jl-hover;
+    -fx-background-radius: 4;
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 12px;
 }
 
 .about-tech-stack {
-    -fx-font-size: 0.8em;
+    -fx-font-size: 12px;
 }
 
 .about-info-key {
     -fx-text-fill: -jl-secondary;
-    -fx-font-size: 0.84em;
+    -fx-font-size: 1em;
 }
 
 .about-info-value {
     -fx-text-fill: -jl-text;
-    -fx-font-size: 0.84em;
+    -fx-font-size: 1em;
     -fx-font-weight: 600;
 }
 
 .about-detail-cards > .about-card {
-    -fx-pref-width: 420px;
+    -fx-pref-width: 320px;
 }
 
 .about-footer {
     -fx-padding: 2 0 0 0;
-    -fx-font-size: 0.78em;
+    -fx-font-size: 12px;
     -fx-alignment: center;
 }
 
@@ -3215,12 +3216,13 @@
 .tooltip { -fx-background-color: -jl-panel; -fx-text-fill: -jl-text; -fx-border-color: -jl-border; -fx-font-size: 1em; -fx-padding: 6 8; }
 
 /* SettingsEditor: single-column sections, with the navigation/breadcrumb/footer in Swing. */
+.idea-dialog-root { -jl-canvas: -jl-frame; -jl-panel: -jl-frame; }
 .idea-settings-content { -fx-background-color: -jl-canvas; -fx-font-size: 1em; }
-.idea-settings-content .settings-card-grid { -fx-padding: 0 24 24 24; }
-.idea-settings-content .settings-card { -fx-padding: 0; -fx-border-width: 0; -fx-spacing: 10; }
+.idea-settings-content .settings-card-grid { -fx-padding: 0 20 20 20; }
+.idea-settings-content .settings-card { -fx-padding: 0; -fx-border-width: 0; -fx-spacing: 6; }
 .idea-settings-content .settings-card-title { -fx-font-size: 1em; -fx-font-weight: normal; }
 .idea-settings-content .settings-card-description { -fx-text-fill: -jl-secondary; }
-.idea-settings-content .settings-form { -fx-padding: 8 24; -fx-vgap: 14; }
+.idea-settings-content .settings-form { -fx-padding: 0 12; -fx-vgap: 6; }
 .idea-settings-content .settings-field-label { -fx-font-size: 1em; }
 .idea-settings-content .settings-card .separator { -fx-padding: 0; }
 .idea-settings-content .settings-card .separator .line { -fx-border-color: -jl-border; }
@@ -3231,7 +3233,7 @@
     -fx-border-width: 1;
     -fx-border-radius: 4;
     -fx-background-radius: 4;
-    -fx-padding: 4 8;
+    -fx-padding: 3 6;
 }
 .idea-settings-content .combo-box .list-cell { -fx-background-color: transparent; -fx-padding: 2 4; }
 .idea-settings-content .spinner { -fx-background-color: -jl-frame; -fx-border-color: -jl-border; -fx-border-radius: 4; }

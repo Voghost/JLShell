@@ -58,6 +58,7 @@ public final class SwingPreferencesDialog {
         dialog = new JDialog(owner, i18n.get("preferences.title") + " — JLShell", Dialog.ModalityType.MODELESS);
         dialog.setName("jlshell.settings");
         dialog.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
+        SwingDialogChrome.configure(dialog);
         content = new SwingFxPanel(themes);
         content.setOwnsDialogKeys(true);
         content.setName("settings.content");
@@ -67,7 +68,7 @@ public final class SwingPreferencesDialog {
         search.putClientProperty("JTextField.leadingIcon", new WorkbenchIcon(WorkbenchIcon.Kind.SEARCH));
         search.putClientProperty("JTextField.placeholderText", i18n.get("settings.search"));
         search.putClientProperty("JTextField.showClearButton", true);
-        search.setPreferredSize(new Dimension(280, 32));
+        search.setPreferredSize(new Dimension(240, 30));
         navigation.add(search, BorderLayout.NORTH);
         tree.setName("settings.tree");
         tree.setRootVisible(false);
@@ -81,6 +82,7 @@ public final class SwingPreferencesDialog {
                 super.getTreeCellRendererComponent(t, value, selected, expanded, leaf, row, false);
                 Entry entry = (Entry) ((DefaultMutableTreeNode) value).getUserObject();
                 setIcon(null);
+                setBackgroundNonSelectionColor(SwingTheme.color("frame"));
                 setText(entry.title());
                 putClientProperty("html.disable", true);
                 setFont(t.getFont().deriveFont(entry.page() == null ? Font.BOLD : Font.PLAIN));
@@ -102,14 +104,14 @@ public final class SwingPreferencesDialog {
 
         JPanel editor = new JPanel(new BorderLayout());
         breadcrumb.setName("settings.breadcrumb");
-        breadcrumb.setBorder(BorderFactory.createEmptyBorder(20, 24, 18, 24));
+        breadcrumb.setBorder(BorderFactory.createEmptyBorder(14, 20, 14, 20));
         breadcrumb.setFont(breadcrumb.getFont().deriveFont(Font.BOLD, breadcrumb.getFont().getSize2D() + 1));
         editor.add(breadcrumb, BorderLayout.NORTH);
         editor.add(content);
         JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, navigation, editor);
         split.setBorder(BorderFactory.createEmptyBorder());
         split.setDividerSize(1);
-        split.setDividerLocation(300);
+        split.setDividerLocation(260);
         split.setResizeWeight(0);
         navigation.setMinimumSize(new Dimension(220, 0));
         editor.setMinimumSize(new Dimension(560, 0));
@@ -162,7 +164,7 @@ public final class SwingPreferencesDialog {
         dialog.add(footer, BorderLayout.SOUTH);
         dialog.setMinimumSize(new Dimension(900, 640));
         Rectangle screen = dialog.getGraphicsConfiguration().getBounds();
-        dialog.setSize(Math.min(1180, screen.width - 80), Math.min(800, screen.height - 80));
+        dialog.setSize(Math.min(1060, screen.width - 80), Math.min(760, screen.height - 80));
         dialog.setLocationRelativeTo(owner);
         rebuildTree(initial);
         if (owner instanceof RootPaneContainer host) host.getRootPane().putClientProperty("jlshell.settingsModal", true);
@@ -206,7 +208,7 @@ public final class SwingPreferencesDialog {
         if (selected == page) return;
         selected = page;
         breadcrumb.setText(page.group() == null ? page.title() : page.group() + "  ›  " + page.title());
-        content.setView(page.content());
+        content.setDialogView(page.content());
         FxThread.run(() -> {
             if (content.getScene() == null) return;
             content.getScene().addEventHandler(javafx.scene.input.KeyEvent.KEY_PRESSED, event -> {
@@ -222,6 +224,7 @@ public final class SwingPreferencesDialog {
     private void styleTreeSelection() {
         tree.setRowHeight(Math.max(28, tree.getFontMetrics(tree.getFont()).getHeight() + 10));
         tree.putClientProperty("FlatLaf.style", java.util.Map.of(
+                "background", SwingTheme.color("frame"),
                 "selectionBackground", SwingTheme.color("popupSelection"),
                 "selectionInactiveBackground", SwingTheme.color("popupSelection"),
                 "selectionInsets", new Insets(0, 0, 0, 4), "selectionArc", 0));

@@ -34,10 +34,19 @@ public final class SwingFxPanel extends JFXPanel implements AutoCloseable {
     }
 
     public void setView(Node node) {
+        setView(node, false);
+    }
+
+    public void setDialogView(Node node) {
+        setView(node, true);
+    }
+
+    private void setView(Node node, boolean dialog) {
         FxThread.run(() -> {
             if (closed) return;
             // 宿主主题只作用于包装节点，避免覆盖插件根节点的 inline style。
             Parent root = new BorderPane(node);
+            if (dialog) root.getStyleClass().add("idea-dialog-root");
             Scene scene = new Scene(root);
             themes.apply(scene);
             setScene(scene);

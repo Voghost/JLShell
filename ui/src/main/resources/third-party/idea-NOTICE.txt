@@ -61,3 +61,11 @@ platform/platform-impl/src/com/intellij/application/options/editor/fonts/AppFont
 platform/platform-impl/src/com/intellij/ide/ui/AppearanceConfigurable.kt
 platform/platform-api/src/com/intellij/ui/components/DefaultScrollBarUI.kt
 platform/platform-impl/src/com/intellij/platform/ide/menu/MacNativeActionMenu.kt
+
+Themed dialog title/content integration and compact form spacing reference:
+platform/platform-impl/src/com/intellij/openapi/wm/impl/customFrameDecorations/header/DialogHeader.kt
+platform/platform-impl/src/com/intellij/openapi/ui/impl/DialogWrapperPeerImpl.java
+platform/platform-api/src/com/intellij/ui/dsl/builder/SpacingConfiguration.kt
+platform/platform-impl/src/com/intellij/ide/actions/AboutDialog.java
+SwingDialogChrome and SwingDialogHost use JLShell's existing FX dialog models,
+events and plugin nodes; no IntelliJ services or JBR native APIs are included.

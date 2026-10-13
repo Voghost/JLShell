@@ -661,7 +661,7 @@ public class PreferencesDialog {
             refreshAccountState.run();
         });
 
-        HBox actions = new HBox(8, webLoginButton, passwordLoginButton,
+        FlowPane actions = new FlowPane(8, 6, webLoginButton, passwordLoginButton,
                 registerButton, logoutButton, changePasswordButton);
         actions.setAlignment(Pos.CENTER_LEFT);
 
@@ -684,19 +684,8 @@ public class PreferencesDialog {
         VBox syncCard = settingsCard(i18n.get("preferences.account.syncSection"),
                 i18n.get("preferences.account.syncSection.description"), syncForm);
 
-        GridPane cards = new GridPane();
+        VBox cards = new VBox(20, identityCard, syncCard);
         cards.getStyleClass().add("settings-card-grid");
-        cards.setHgap(14);
-        cards.setVgap(14);
-        javafx.scene.layout.ColumnConstraints profileColumn = new javafx.scene.layout.ColumnConstraints();
-        profileColumn.setPercentWidth(54);
-        profileColumn.setHgrow(Priority.ALWAYS);
-        javafx.scene.layout.ColumnConstraints syncColumn = new javafx.scene.layout.ColumnConstraints();
-        syncColumn.setPercentWidth(46);
-        syncColumn.setHgrow(Priority.ALWAYS);
-        cards.getColumnConstraints().addAll(profileColumn, syncColumn);
-        cards.add(identityCard, 0, 0);
-        cards.add(syncCard, 1, 0);
 
         refreshAccountState.run();
 
@@ -1031,7 +1020,7 @@ public class PreferencesDialog {
         VBox updatesCard = settingsCard(i18n.get("preferences.updates.title"),
                 i18n.get("preferences.updates.description"), updatesForm);
 
-        VBox cards = new VBox(24, appearanceCard, fontCard, connectionCard, systemCard, updatesCard);
+        VBox cards = new VBox(20, appearanceCard, fontCard, connectionCard, systemCard, updatesCard);
         cards.getStyleClass().add("settings-card-grid");
 
         ScrollPane scroll = new ScrollPane(cards);
@@ -1077,14 +1066,14 @@ public class PreferencesDialog {
         GridPane form = new GridPane();
         form.getStyleClass().add("settings-form");
         form.setHgap(14);
-        form.setVgap(12);
+        form.setVgap(6);
         javafx.scene.layout.ColumnConstraints labels = new javafx.scene.layout.ColumnConstraints();
         labels.setMinWidth(95);
         labels.setPrefWidth(115);
         javafx.scene.layout.ColumnConstraints values = new javafx.scene.layout.ColumnConstraints();
         values.setHgrow(Priority.ALWAYS);
         values.setFillWidth(true);
-        values.setMaxWidth(440);
+        values.setMaxWidth(380);
         form.getColumnConstraints().addAll(labels, values);
         return form;
     }
@@ -1097,7 +1086,7 @@ public class PreferencesDialog {
         form.add(key, 0, row);
         form.add(value, 1, row);
         GridPane.setHgrow(value, Priority.ALWAYS);
-        if (value instanceof Region region) region.setMaxWidth(Double.MAX_VALUE);
+        if (value instanceof Region region) region.setMaxWidth(value instanceof Label ? Region.USE_PREF_SIZE : Double.MAX_VALUE);
     }
 
     private static VBox settingsCard(String title, String description, javafx.scene.Node content) {
@@ -3910,9 +3899,9 @@ public class PreferencesDialog {
         links.setHgap(10);
         links.setVgap(10);
         links.setMaxWidth(Double.MAX_VALUE);
-        for (int index = 0; index < 4; index++) {
+        for (int index = 0; index < 2; index++) {
             ColumnConstraints linkColumn = new ColumnConstraints();
-            linkColumn.setPercentWidth(25);
+            linkColumn.setPercentWidth(50);
             linkColumn.setHgrow(Priority.ALWAYS);
             linkColumn.setFillWidth(true);
             links.getColumnConstraints().add(linkColumn);
@@ -3934,24 +3923,12 @@ public class PreferencesDialog {
         );
         for (int index = 0; index < linkButtons.size(); index++) {
             Button linkButton = linkButtons.get(index);
-            links.add(linkButton, index, 0);
+            links.add(linkButton, index % 2, index / 2);
             GridPane.setHgrow(linkButton, Priority.ALWAYS);
             GridPane.setFillWidth(linkButton, true);
         }
         VBox linksCard = aboutCard(i18n.get("preferences.about.resources"),
                 i18n.get("preferences.about.resources.description"), links);
-
-        FlowPane capabilities = new FlowPane(7, 7);
-        capabilities.getStyleClass().add("about-chip-list");
-        List.of("SSH Terminal", "SFTP", i18n.get("preferences.about.capability.connections"),
-                        i18n.get("preferences.about.capability.plugins"), "JSON-RPC API")
-                .forEach(text -> capabilities.getChildren().add(aboutChip(text)));
-        Label tech = new Label("Java 21 · JavaFX 21 · SSHJ · JediTerm · JDBI 3 · SQLite");
-        tech.getStyleClass().add("about-tech-stack");
-        tech.setWrapText(true);
-        VBox capabilitiesBody = new VBox(6, capabilities, tech);
-        VBox capabilitiesCard = aboutCard(i18n.get("preferences.about.capabilities"),
-                i18n.get("preferences.about.capabilities.description"), capabilitiesBody);
 
         VBox projectInfo = new VBox(5,
                 aboutInfoRow(i18n.get("preferences.about.author"), "Voghost"),
@@ -3995,7 +3972,7 @@ public class PreferencesDialog {
         Label footer = new Label(i18n.get("preferences.about.footer"));
         footer.getStyleClass().add("about-footer");
         footer.setMaxWidth(Double.MAX_VALUE);
-        content.getChildren().addAll(hero, linksCard, capabilitiesCard, detailCards, footer);
+        content.getChildren().addAll(hero, linksCard, detailCards, footer);
 
         StackPane wrapper = new StackPane(content);
         wrapper.getStyleClass().add("about-page");
@@ -4004,7 +3981,7 @@ public class PreferencesDialog {
         scroll.getStyleClass().addAll("settings-scroll-pane", "about-scroll-pane");
         scroll.setFitToWidth(true);
         scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
-        scroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        scroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         return scroll;
     }
 
