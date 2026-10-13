@@ -10,7 +10,7 @@ import java.awt.geom.Path2D;
 
 /** 独立的 16px 线条图标，使用逻辑坐标，由 Swing 的 HiDPI 变换缩放。 */
 public record WorkbenchIcon(Kind kind) implements Icon {
-    public enum Kind { SERVER, FOLDER, ADD, RUN, REFRESH, SETTINGS, CLOSE, TERMINAL, PROJECT, EDIT, DELETE, SEARCH, MORE, HIDE, DOCK, MENU, MONITOR, USER, HELP, LAYOUT, SPLIT_RIGHT, SPLIT_DOWN, CHEVRON_DOWN }
+    public enum Kind { SERVER, FOLDER, PLUGIN, ADD, RUN, REFRESH, SETTINGS, CLOSE, CHECK, TERMINAL, PROJECT, EDIT, DELETE, SEARCH, MORE, HIDE, DOCK, PIN, MENU, MONITOR, USER, HELP, LAYOUT, SPLIT_RIGHT, SPLIT_DOWN, CHEVRON_DOWN, FOCUS, EXPAND_ALL, COLLAPSE_ALL }
     public int getIconWidth() { return 16; }
     public int getIconHeight() { return 16; }
 
@@ -19,12 +19,16 @@ public record WorkbenchIcon(Kind kind) implements Icon {
         try {
             g.translate(x, y);
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g.setStroke(new BasicStroke(1f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            g.setStroke(new BasicStroke(kind == Kind.CLOSE || kind == Kind.CHECK ? 1.5f : 1f,
+                    BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
             boolean selectedRail = component instanceof javax.swing.AbstractButton button && button.isSelected()
                     && Boolean.TRUE.equals(button.getClientProperty("JLShell.selectedRail"));
             g.setColor(selectedRail ? java.awt.Color.WHITE : !component.isEnabled()
                     ? javax.swing.UIManager.getColor("Label.disabledForeground")
-                    : SwingTheme.color(kind == Kind.RUN ? "green" : kind == Kind.CHEVRON_DOWN ? "secondary" : "icon"));
+                    : SwingTheme.color(kind == Kind.RUN ? "green"
+                    : kind == Kind.CHEVRON_DOWN || kind == Kind.CHECK
+                    || kind == Kind.CLOSE && !(component instanceof javax.swing.AbstractButton button && button.getModel().isRollover())
+                    ? "secondary" : "icon"));
             if (IdeaIconShapes.paint(kind, g)) return;
             switch (kind) {
                 case CHEVRON_DOWN -> {
@@ -36,7 +40,11 @@ public record WorkbenchIcon(Kind kind) implements Icon {
                 case SEARCH -> { g.drawOval(2, 2, 9, 9); g.drawLine(10, 10, 14, 14); }
                 case MORE -> { for (int i = 3; i <= 13; i += 5) g.fillOval(7, i - 1, 2, 2); }
                 case HIDE -> g.drawLine(3, 8, 13, 8);
+                case FOCUS -> { g.drawOval(2, 2, 12, 12); g.drawOval(6, 6, 4, 4); g.drawLine(8, 0, 8, 3); g.drawLine(8, 13, 8, 15); g.drawLine(0, 8, 3, 8); g.drawLine(13, 8, 15, 8); }
+                case EXPAND_ALL -> { g.drawLine(8, 8, 8, 1); g.drawLine(5, 4, 8, 1); g.drawLine(11, 4, 8, 1); g.drawLine(8, 8, 8, 15); g.drawLine(5, 12, 8, 15); g.drawLine(11, 12, 8, 15); }
+                case COLLAPSE_ALL -> { g.drawLine(8, 1, 8, 8); g.drawLine(5, 5, 8, 8); g.drawLine(11, 5, 8, 8); g.drawLine(8, 15, 8, 8); g.drawLine(5, 11, 8, 8); g.drawLine(11, 11, 8, 8); }
                 case DOCK -> { g.drawRoundRect(2, 2, 12, 12, 2, 2); g.drawLine(2, 10, 14, 10); }
+                case PIN -> { g.drawLine(5, 2, 11, 2); g.drawLine(6, 2, 6, 6); g.drawLine(10, 2, 10, 6); g.drawLine(4, 6, 12, 6); g.drawLine(8, 6, 8, 11); g.drawLine(8, 11, 5, 14); }
                 case MENU -> { for (int i = 4; i <= 12; i += 4) g.drawLine(3, i, 13, i); }
                 case MONITOR -> { g.drawRoundRect(1, 2, 14, 11, 2, 2); g.drawLine(4, 10, 4, 7); g.drawLine(8, 10, 8, 5); g.drawLine(12, 10, 12, 8); }
                 case SPLIT_RIGHT, SPLIT_DOWN -> {
@@ -46,9 +54,22 @@ public record WorkbenchIcon(Kind kind) implements Icon {
                 }
                 case ADD -> { g.drawLine(8, 3, 8, 13); g.drawLine(3, 8, 13, 8); }
                 case CLOSE -> { g.drawLine(4, 4, 12, 12); g.drawLine(12, 4, 4, 12); }
+                case CHECK -> {
+                    Path2D check = new Path2D.Double();
+                    check.moveTo(2.5, 8.25); check.lineTo(6, 11.75); check.lineTo(13.5, 4.25);
+                    g.draw(check);
+                }
                 case RUN -> { Path2D path = new Path2D.Double(); path.moveTo(4, 2); path.lineTo(13, 8); path.lineTo(4, 14); path.closePath(); g.draw(path); }
                 case SERVER -> { g.drawRoundRect(2, 2, 12, 5, 2, 2); g.drawRoundRect(2, 9, 12, 5, 2, 2); g.fillOval(4, 4, 2, 2); g.fillOval(4, 11, 2, 2); }
                 case FOLDER, PROJECT -> { g.drawLine(2, 3, 6, 3); g.drawLine(6, 3, 8, 5); g.drawLine(8, 5, 14, 5); g.drawLine(14, 5, 14, 13); g.drawLine(14, 13, 2, 13); g.drawLine(2, 13, 2, 3); }
+                case PLUGIN -> {
+                    // Outline of a plugin tile with two connector notches.
+                    g.drawRoundRect(3, 3, 10, 10, 2, 2);
+                    g.drawLine(6, 1, 6, 4); g.drawLine(10, 1, 10, 4);
+                    g.drawLine(6, 12, 6, 15); g.drawLine(10, 12, 10, 15);
+                    g.drawLine(1, 6, 4, 6); g.drawLine(1, 10, 4, 10);
+                    g.drawLine(12, 6, 15, 6); g.drawLine(12, 10, 15, 10);
+                }
                 case TERMINAL -> { g.drawRoundRect(1, 2, 14, 12, 2, 2); g.drawLine(4, 5, 7, 8); g.drawLine(7, 8, 4, 11); g.drawLine(9, 11, 12, 11); }
                 case REFRESH -> { g.drawArc(3, 3, 10, 10, 30, 290); g.drawLine(12, 2, 13, 6); g.drawLine(13, 6, 9, 6); }
                 case SETTINGS -> { g.drawOval(3, 3, 10, 10); g.drawOval(6, 6, 4, 4); for (int i = 0; i < 8; i++) { g.drawLine(8, 1, 8, 3); g.rotate(Math.PI / 4, 8, 8); } }

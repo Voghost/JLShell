@@ -3003,6 +3003,15 @@
 .scroll-bar .track { -fx-background-color: transparent; }
 .scroll-bar .thumb { -fx-background-color: -jl-border; -fx-background-radius: 4; }
 .scroll-bar .thumb:hover { -fx-background-color: -jl-muted; }
+
+/* 保留触控板的亚像素滚动增量，避免 ScrollPane/虚拟列表在每帧把视口位置取整后产生跳动。 */
+.scroll-pane,
+.scroll-pane > .viewport,
+.list-view,
+.tree-view,
+.table-view {
+    -fx-snap-to-pixel: false;
+}
 .context-menu { -fx-background-color: -jl-panel; -fx-border-color: -jl-border; -fx-padding: 4; -fx-background-radius: 6; -fx-border-radius: 6; }
 .menu-item { -fx-padding: 5 12; }
 .menu-item:focused { -fx-background-color: -jl-accent-subtle; }

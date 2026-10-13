@@ -82,12 +82,39 @@ public class PluginsTabView extends BorderPane {
                 }
                 Label name = new Label(item.displayName(i18nService.getLocale()));
                 name.getStyleClass().add("plugin-name");
+                name.setWrapText(true);
+                name.setMinWidth(0);
+                name.setMaxWidth(Double.MAX_VALUE);
                 Label description = new Label(item.description(i18nService.getLocale()));
                 description.getStyleClass().add("plugin-desc");
+                description.setWrapText(true);
+                description.setMinWidth(0);
+                description.setMaxWidth(Double.MAX_VALUE);
                 Button open = new Button(i18nService.get("plugin.open"));
                 open.setOnAction(event -> activate(item));
-                HBox row = new HBox(8, new VBox(2, name, description), open);
-                HBox.setHgrow(row.getChildren().getFirst(), Priority.ALWAYS);
+                VBox details = new VBox(3, name, description);
+                details.setMinWidth(0);
+                HBox.setHgrow(details, Priority.ALWAYS);
+                HBox heading = new HBox(8, details, open);
+                heading.setAlignment(javafx.geometry.Pos.TOP_LEFT);
+                heading.setMinWidth(0);
+                HBox openRow = new HBox();
+                openRow.setAlignment(javafx.geometry.Pos.CENTER_RIGHT);
+                VBox row = new VBox(5, heading);
+                row.setMinWidth(0);
+                row.setMaxWidth(Double.MAX_VALUE);
+                row.widthProperty().addListener((obs, oldWidth, width) -> {
+                    boolean narrow = width.doubleValue() < 320;
+                    if (narrow && heading.getChildren().contains(open)) {
+                        heading.getChildren().remove(open);
+                        openRow.getChildren().setAll(open);
+                        row.getChildren().add(openRow);
+                    } else if (!narrow && !heading.getChildren().contains(open)) {
+                        heading.getChildren().add(open);
+                        openRow.getChildren().clear();
+                        row.getChildren().remove(openRow);
+                    }
+                });
                 row.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
                 setGraphic(row);
                 setText(null);

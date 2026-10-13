@@ -41,6 +41,11 @@ public final class SwingTheme {
         if (!(theme == AppTheme.DARK ? FlatDarkLaf.setup() : FlatLightLaf.setup())) {
             throw new IllegalStateException("Unable to install Swing look and feel");
         }
+        // Match IDEA's 1.2s initial tooltip delay and 4s dismiss window.
+        javax.swing.ToolTipManager toolTips = javax.swing.ToolTipManager.sharedInstance();
+        toolTips.setInitialDelay(1200);
+        toolTips.setDismissDelay(4000);
+        toolTips.setReshowDelay(500);
         UIManager.put("Component.focusColor", Color.decode(accent));
         UIManager.put("TabbedPane.underlineColor", Color.decode(accent));
         Font base = UIManager.getFont("defaultFont");

@@ -286,6 +286,28 @@ final class IdeaIconShapes {
             put(WorkbenchIcon.Kind.LAYOUT, new Glyph(p0, true));
         }
         GLYPHS.put(WorkbenchIcon.Kind.PROJECT, GLYPHS.get(WorkbenchIcon.Kind.FOLDER));
+        // IntelliJ IDEA platform/icons/src/expui/general/{autoscrollToSource,expandAll,collapseAll}.svg
+        // Apache-2.0, JetBrains s.r.o.; Java2D coordinates preserve the source 16px geometry.
+        Path2D.Double locate = new Path2D.Double(Path2D.WIND_EVEN_ODD);
+        locate.moveTo(8.5, 5); locate.lineTo(8.5, 2.02054); locate.curveTo(11.4149, 2.26101, 13.739, 4.5851, 13.9795, 7.5);
+        locate.lineTo(11, 7.5); locate.curveTo(10.7239, 7.5, 10.5, 7.72386, 10.5, 8); locate.curveTo(10.5, 8.27614, 10.7239, 8.5, 11, 8.5);
+        locate.lineTo(13.9795, 8.5); locate.curveTo(13.739, 11.4149, 11.4149, 13.739, 8.5, 13.9795); locate.lineTo(8.5, 11);
+        locate.curveTo(8.5, 10.7239, 8.27614, 10.5, 8, 10.5); locate.curveTo(7.72386, 10.5, 7.5, 10.7239, 7.5, 11);
+        locate.lineTo(7.5, 13.9795); locate.curveTo(4.5851, 13.739, 2.26101, 11.4149, 2.02054, 8.5); locate.lineTo(5, 8.5);
+        locate.curveTo(5.27614, 8.5, 5.5, 8.27614, 5.5, 8); locate.curveTo(5.5, 7.72386, 5.27614, 7.5, 5, 7.5);
+        locate.lineTo(2.02054, 7.5); locate.curveTo(2.26101, 4.5851, 4.5851, 2.26101, 7.5, 2.02054); locate.lineTo(7.5, 5);
+        locate.curveTo(7.5, 5.27614, 7.72386, 5.5, 8, 5.5); locate.curveTo(8.27614, 5.5, 8.5, 5.27614, 8.5, 5); locate.closePath();
+        locate.moveTo(1, 8); locate.curveTo(1, 4.13401, 4.13401, 1, 8, 1); locate.curveTo(11.866, 1, 15, 4.13401, 15, 8);
+        locate.curveTo(15, 11.866, 11.866, 15, 8, 15); locate.curveTo(4.13401, 15, 1, 11.866, 1, 8); locate.closePath();
+        put(WorkbenchIcon.Kind.FOCUS, new Glyph(locate, true));
+        Path2D.Double expand = new Path2D.Double();
+        expand.moveTo(4.5, 5.5); expand.lineTo(8, 2); expand.lineTo(11.5, 5.5);
+        expand.moveTo(4.5, 10.5); expand.lineTo(8, 14); expand.lineTo(11.5, 10.5);
+        put(WorkbenchIcon.Kind.EXPAND_ALL, new Glyph(expand, false));
+        Path2D.Double collapse = new Path2D.Double();
+        collapse.moveTo(4.5, 2.5); collapse.lineTo(8, 6); collapse.lineTo(11.5, 2.5);
+        collapse.moveTo(4.5, 13.5); collapse.lineTo(8, 10); collapse.lineTo(11.5, 13.5);
+        put(WorkbenchIcon.Kind.COLLAPSE_ALL, new Glyph(collapse, false));
     }
 
     private static void put(WorkbenchIcon.Kind kind, Glyph glyph) {

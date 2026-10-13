@@ -121,13 +121,68 @@ class SwingWorkbenchDockTest {
                 send(label, tabs, MouseEvent.MOUSE_PRESSED, tabs.getBoundsAt(2), 5, 0);
                 send(label, tabs, MouseEvent.MOUSE_DRAGGED, tabs.getBoundsAt(0), 5, MouseEvent.BUTTON1_DOWN_MASK);
                 assertSame(firstHost.get(), tabs.getComponentAt(0));
-                Rectangle outside = new Rectangle(tabs.getBoundsAt(0));
-                outside.y += 120;
+                Rectangle outside = new Rectangle(-800, -800, 20, 20); // 真正移出整个工作区，不能命中新增的边缘分屏区。
                 send(label, tabs, MouseEvent.MOUSE_RELEASED, outside, 5, 0);
                 assertSame(firstHost.get(), tabs.getComponentAt(2));
                 assertEquals(1, commits.get(), "Dropping outside must preserve the committed order");
             }).get(15, TimeUnit.SECONDS);
         } finally { SwingExecutors.runOnEdtAsync(() -> workbench.get().close()).get(15, TimeUnit.SECONDS); }
+    }
+
+    @Test
+    void rightClickingTabHeaderOpensItsContextMenu() throws Exception {
+        var contexts = new AtomicInteger();
+        var workbench = new AtomicReference<SwingWorkbench>();
+        SwingExecutors.runOnEdtAsync(() -> {
+            SwingTheme.install(AppTheme.DARK, "#3574f0", "SansSerif", 13);
+            Runnable noop = () -> {};
+            var actions = new SwingWorkbench.Actions(noop, noop, noop, noop, noop, noop, noop, noop, noop,
+                    connection -> {}, items -> {}, project -> {}, collapsed -> {}, tab -> {},
+                    (tab, position) -> {}, (items, folder) -> {}, (item, reply) -> reply.accept(List.of()),
+                    (item, reply) -> { contexts.incrementAndGet(); reply.accept(List.of()); });
+            var view = new SwingWorkbench(actions, Map.of());
+            workbench.set(view);
+            view.addTab("one", "One", new JPanel(), noop);
+            view.show();
+            try {
+                var tabs = descendants(view.frame()).stream().filter(javax.swing.JTabbedPane.class::isInstance)
+                        .map(javax.swing.JTabbedPane.class::cast).findFirst().orElseThrow();
+                Component label = ((Container) tabs.getTabComponentAt(0)).getComponent(0);
+                label.dispatchEvent(new MouseEvent(label, MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(),
+                        MouseEvent.BUTTON3_DOWN_MASK, 4, 8, 1, true, MouseEvent.BUTTON3));
+                assertEquals(1, contexts.get(), "A secondary-button press on the tab label must request its context menu");
+            } finally { view.close(); }
+        }).get(15, TimeUnit.SECONDS);
+    }
+
+    @Test
+    void tabContextAndGroupMenuIgnoreSeparatorRowsWithNullText() throws Exception {
+        SwingExecutors.runOnEdtAsync(() -> {
+            SwingTheme.install(AppTheme.DARK, "#3574f0", "SansSerif", 13);
+            Runnable noop = () -> {};
+            var actions = new SwingWorkbench.Actions(noop, noop, noop, noop, noop, noop, noop, noop, noop,
+                    connection -> {}, items -> {}, project -> {}, collapsed -> {}, tab -> {},
+                    (tab, position) -> {}, (items, folder) -> {}, (item, reply) -> reply.accept(List.of()),
+                    (item, reply) -> reply.accept(List.of(new com.jlshell.ui.swing.SwingMenuBridge.Item(
+                            null, "", null, false, false, 1, noop, null, List.of()))));
+            var view = new SwingWorkbench(actions, Map.of());
+            try {
+                view.addTab("one", "One", new JPanel(), noop);
+                var rows = view.tabContextRows("one", List.of(new com.jlshell.ui.swing.SwingMenuBridge.Item(
+                        null, "", null, false, false, 1, noop, null, List.of())));
+                assertFalse(rows.isEmpty());
+                assertTrue(rows.stream().noneMatch(row -> "tab.duplicateSession".equals(row.title())));
+            } finally { view.close(); }
+        }).get(15, TimeUnit.SECONDS);
+    }
+
+    @Test
+    void rightToolDockDefaultsToHalfOfWorkspaceAfterSidebarAndRails() {
+        assertEquals(638, SwingWorkbench.rightDockContentWidth(1600, 280, 36, 8));
+        assertEquals(180, SwingWorkbench.rightDockContentWidth(300, 240, 36, 8));
+        assertEquals(36, SwingWorkbench.rightDockContainerWidth(0, 36),
+                "Closing the tool content must leave its navigation rail visible");
+        assertEquals(674, SwingWorkbench.rightDockContainerWidth(638, 36));
     }
 
     private static void send(Component source, javax.swing.JTabbedPane tabs, int kind, Rectangle bounds, int offset, int modifiers) {

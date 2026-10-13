@@ -8,8 +8,11 @@ import java.awt.RenderingHints;
 
 /** 对照 IDEA ToolbarComboWidgetUI：透明底色上绘制统一的圆角 hover。 */
 class HeaderButton extends JButton {
-    HeaderButton(String text) { super(text); configure(); }
-    HeaderButton(Icon icon) { super(icon); configure(); }
+    private final int hoverArc;
+    HeaderButton(String text) { this(text, 12); }
+    HeaderButton(Icon icon) { this(icon, 12); }
+    HeaderButton(Icon icon, int hoverArc) { super(icon); this.hoverArc = hoverArc; configure(); }
+    private HeaderButton(String text, int hoverArc) { super(text); this.hoverArc = hoverArc; configure(); }
 
     private void configure() {
         setOpaque(false);
@@ -24,7 +27,7 @@ class HeaderButton extends JButton {
             try {
                 g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                 g.setColor(SwingTheme.color(getModel().isPressed() || isSelected() ? "headerPressed" : "headerHover"));
-                g.fillRoundRect(0, 0, getWidth(), getHeight(), 12, 12);
+                g.fillRoundRect(0, 0, getWidth(), getHeight(), hoverArc, hoverArc);
             } finally { g.dispose(); }
         }
         super.paintComponent(graphics);

@@ -20,6 +20,8 @@ import javax.swing.tree.TreePath;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.util.List;
@@ -35,7 +37,23 @@ public final class SwingWorkbench implements AutoCloseable {
                           Consumer<Object> selectTab, java.util.function.BiConsumer<Object, Integer> reorder,
                           java.util.function.BiConsumer<List<SidebarItem>, String> move,
                           java.util.function.BiConsumer<SidebarItem, java.util.function.Consumer<List<SwingMenuBridge.Item>>> context,
-                          java.util.function.BiConsumer<Object, java.util.function.Consumer<List<SwingMenuBridge.Item>>> tabContext) {}
+                          java.util.function.BiConsumer<Object, java.util.function.Consumer<List<SwingMenuBridge.Item>>> tabContext,
+                          java.util.function.BiConsumer<String, String> setSetting,
+                          Runnable focusActiveConnection) {
+        /** Backward-compatible constructor for UI tests and embedders using the original action set. */
+        public Actions(Runnable create, Runnable folder, Runnable edit, Runnable delete, Runnable refresh,
+                       Runnable preferences, Runnable projects, Runnable toggleSidebar, Runnable quit,
+                       Consumer<ConnectionProfile> connect, Consumer<List<SidebarItem>> select,
+                       Consumer<ProjectProfile> project, Consumer<Set<String>> collapsed,
+                       Consumer<Object> selectTab, java.util.function.BiConsumer<Object, Integer> reorder,
+                       java.util.function.BiConsumer<List<SidebarItem>, String> move,
+                       java.util.function.BiConsumer<SidebarItem, Consumer<List<SwingMenuBridge.Item>>> context,
+                       java.util.function.BiConsumer<Object, Consumer<List<SwingMenuBridge.Item>>> tabContext) {
+            this(create, folder, edit, delete, refresh, preferences, projects, toggleSidebar, quit,
+                    connect, select, project, collapsed, selectTab, reorder, move, context, tabContext,
+                    (key, value) -> {}, () -> {});
+        }
+    }
 
     public static final List<String> TEXT_KEYS = List.of("action.newConnection", "sidebar.newFolder",
             "action.editConnection", "action.deleteConnection", "action.refresh", "action.preferences",
@@ -43,8 +61,8 @@ public final class SwingWorkbench implements AutoCloseable {
             "project.label.default", "welcome.title", "welcome.subtitle", "welcome.quickStart",
             "welcome.help.shortcuts", "welcome.help.newConnection", "welcome.help.refreshConnections",
             "welcome.help.doubleClick", "welcome.help.rightClick", "welcome.recentConnections",
-            "welcome.favorites", "welcome.noRecentConnections", "welcome.noFavorites", "tab.close",
-            "workspace.tools", "workspace.hideTools", "workspace.monitoring", "menu.main",
+            "welcome.favorites", "welcome.noRecentConnections", "welcome.noFavorites", "tab.close", "tab.close.tooltip",
+            "workspace.tools", "workspace.hideTools", "workspace.pinRightSidebar", "workspace.monitoring", "menu.main",
             "project.popup.current", "project.popup.other", "project.popup.defaultDescription",
             "project.search.prompt", "settings.quick.plugins", "settings.quick.shortcuts", "settings.quick.theme",
             "settings.quick.view", "settings.quick.account", "menu.help.about", "menu.help.checkUpdates",
@@ -52,11 +70,15 @@ public final class SwingWorkbench implements AutoCloseable {
             "theme.dark", "theme.light", "preferences.tab.plugins", "preferences.tab.shortcuts",
             "workspace.openSessions", "workspace.noOpenSessions", "tab.closeLeft", "tab.closeRight",
             "tab.closeOthersInGroup", "tab.closeAllInGroup", "tab.splitRight", "tab.splitDown", "tab.moveToGroup",
-            "tab.changeSplitOrientation", "tab.unsplit", "tab.unsplitAll", "tab.emptyGroup", "tab.duplicateSession", "tab.groupMenu");
+            "tab.changeSplitOrientation", "tab.unsplit", "tab.unsplitAll", "tab.emptyGroup", "tab.duplicateSession", "tab.groupMenu",
+            "sidebar.sortBy", "sidebar.sort.name", "sidebar.sort.type", "sidebar.sort.modifiedNewest", "sidebar.sort.modifiedOldest",
+            "sidebar.sort.foldersFirst", "sidebar.expandAll", "sidebar.collapseAll", "sidebar.focus");
 
     private final JFrame frame = new JFrame("JLShell");
     private final Actions actions;
     private final Map<String, String> texts;
+    private String sidebarSort = "name";
+    private boolean foldersAlwaysOnTop = true;
     private final JPanel sidebar = new IslandPanel(new BorderLayout(), "panel");
     private final JTree tree = new JTree(new DefaultMutableTreeNode());
     private final JTextField search = new JTextField();
@@ -98,8 +120,16 @@ public final class SwingWorkbench implements AutoCloseable {
     private final JPanel toolDock = new IslandPanel(new BorderLayout(), "canvas");
     private final JPanel dockBody = new JPanel(new BorderLayout());
     private final JLabel dockTitle = new JLabel();
+    private final JPanel toolNavigationHost = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+    private final JPanel rightDockContainer = new JPanel(new BorderLayout());
+    private final JPanel rightToolDock = new IslandPanel(new BorderLayout(), "canvas");
+    private final JPanel rightDockBody = new JPanel(new BorderLayout());
+    private final JLabel rightDockTitle = new JLabel();
+    private final JToggleButton rightDockPin = new JToggleButton(new WorkbenchIcon(WorkbenchIcon.Kind.PIN));
+    private final JPanel rightToolNavigationHost = new JPanel();
     private final JButton toolStripe;
     private final JButton projectStripe;
+    private final JSplitPane mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
     private final JButton menuButton;
     private final JButton runButton;
     private final JButton connectionName = new ChevronButton();
@@ -108,17 +138,23 @@ public final class SwingWorkbench implements AutoCloseable {
     private boolean toolWindowVisible = true;
     private Component toolWindowOwner;
     private int dockHeight = 250;
+    private boolean rightToolWindowVisible;
+    private boolean rightToolWindowPinned;
+    private Component rightToolWindowOwner;
+    private int rightToolPageIndex = -1;
     private final Map<Object, JPanel> tabHosts = new LinkedHashMap<>();
     private final JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
     private final Map<Object, Component> tabViews = new LinkedHashMap<>();
     private final Map<Component, Object> viewTabs = new IdentityHashMap<>();
     private List<ConnectionProfile> profiles = List.of();
     private List<FolderProfile> folders = List.of();
+    private Map<String, java.time.Instant> profileUpdatedAt = Map.of();
     private final Set<String> collapsed = new HashSet<>();
     private boolean rebuilding;
     private boolean selectingTab;
     private boolean sidebarVisible = true;
     private int sidebarWidth = 280;
+    private static final String RIGHT_DOCK_PINNED_KEY = "ui.rightToolWindow.pinned";
     private final Map<KeyStroke, Runnable> shortcuts = new HashMap<>();
     private final KeyEventDispatcher shortcutDispatcher = event -> {
         if (event.getID() != java.awt.event.KeyEvent.KEY_PRESSED || !frame.isActive()) return false;
@@ -148,6 +184,12 @@ public final class SwingWorkbench implements AutoCloseable {
         if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Workbench requires EDT");
         this.actions = actions;
         this.texts = Map.copyOf(texts);
+        rightToolWindowPinned = Boolean.parseBoolean(texts.getOrDefault(RIGHT_DOCK_PINNED_KEY, "false"));
+        String configuredSort = texts.get("ui.sidebar.sort");
+        sidebarSort = configuredSort != null
+                && Set.of("name", "type", "modified-newest", "modified-oldest").contains(configuredSort)
+                ? configuredSort : "name";
+        foldersAlwaysOnTop = !"false".equals(texts.get("ui.sidebar.foldersFirst"));
         tabs = createTabGroup();
         workspaceSplits = new WorkspaceSplitLayout(tabs, this::createTabGroup);
         toolStripe = button(WorkbenchIcon.Kind.MONITOR, "workspace.tools", this::toggleToolWindow);
@@ -184,8 +226,25 @@ public final class SwingWorkbench implements AutoCloseable {
         split.setBorder(BorderFactory.createEmptyBorder());
         split.setOpaque(false);
         split.setDividerSize(4);
+        split.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, event -> {
+            if (!sidebarVisible || split.getDividerLocation() <= 0) return;
+            sidebarWidth = split.getDividerLocation();
+        });
         buildToolDock();
-        vertical.setTopComponent(split);
+        buildRightToolDock();
+        mainSplit.setLeftComponent(split);
+        mainSplit.setRightComponent(rightDockContainer);
+        mainSplit.setResizeWeight(1);
+        mainSplit.setContinuousLayout(true);
+        mainSplit.setBorder(BorderFactory.createEmptyBorder());
+        mainSplit.setOpaque(false);
+        mainSplit.setDividerSize(4);
+        mainSplit.addComponentListener(new ComponentAdapter() {
+            @Override public void componentResized(ComponentEvent event) {
+                if (rightToolWindowVisible) updateRightDockWidth(true);
+            }
+        });
+        vertical.setTopComponent(mainSplit);
         vertical.setResizeWeight(1);
         vertical.setContinuousLayout(true);
         vertical.setBorder(BorderFactory.createEmptyBorder());
@@ -227,24 +286,49 @@ public final class SwingWorkbench implements AutoCloseable {
             selectTab(viewTabs.get(host));
             actions.selectTab().accept(viewTabs.get(host));
         }, (host, position) -> actions.reorder().accept(viewTabs.get(host), orderedHosts().indexOf(host)),
-                (host, position) -> moveTabLocally(group, host, position), (host, point) -> {
-            JTabbedPane destination = workspaceSplits.groupAt(SwingUtilities.convertPoint(group, point, workspaceSplits));
-            if (destination == null || destination == group) return false;
-            transferTab(host, group, destination);
-            activateGroup(destination, true);
-            pruneEmptyGroup(group);
-            actions.reorder().accept(viewTabs.get(host), orderedHosts().indexOf(host));
-            return true;
-        });
+                (host, position) -> moveTabLocally(group, host, position), (host, rootPoint) -> {
+                    Point point = SwingUtilities.convertPoint(frame.getLayeredPane(), rootPoint, workspaceSplits);
+                    WorkspaceSplitLayout.DropLocation drop = workspaceSplits.dropLocation(point);
+                    if (drop == null) return false;
+                    JTabbedPane destination = drop.group();
+                    boolean splitSourceGroup = drop.side() != WorkspaceSplitLayout.DropSide.CENTER && destination == group;
+                    if (drop.side() == WorkspaceSplitLayout.DropSide.CENTER) {
+                        if (destination == group) return false;
+                        transferTab(host, group, destination);
+                    } else {
+                        int orientation = drop.side() == WorkspaceSplitLayout.DropSide.LEFT
+                                || drop.side() == WorkspaceSplitLayout.DropSide.RIGHT
+                                ? JSplitPane.HORIZONTAL_SPLIT : JSplitPane.VERTICAL_SPLIT;
+                        boolean newGroupFirst = drop.side() == WorkspaceSplitLayout.DropSide.LEFT
+                                || drop.side() == WorkspaceSplitLayout.DropSide.TOP;
+                        JTabbedPane splitTarget = workspaceSplits.split(destination, orientation, newGroupFirst);
+                        transferTab(host, group, splitTarget);
+                        destination = splitTarget;
+                    }
+                    activateGroup(destination, true);
+                    // Splitting a group's only tab still leaves the original pane as the other side of the split.
+                    if (!splitSourceGroup) pruneEmptyGroup(group);
+                    actions.reorder().accept(viewTabs.get(host), orderedHosts().indexOf(host));
+                    return true;
+                }, rootPoint -> {
+                    Point point = SwingUtilities.convertPoint(frame.getLayeredPane(), rootPoint, workspaceSplits);
+                    WorkspaceSplitLayout.DropLocation drop = workspaceSplits.dropLocation(point);
+                    if (drop == null || drop.side() == WorkspaceSplitLayout.DropSide.CENTER) return null;
+                    return SwingUtilities.convertRectangle(workspaceSplits, drop.preview(), frame.getLayeredPane());
+                });
         tabDrags.put(group, drag);
         group.addMouseListener(new MouseAdapter() {
+            private boolean popupShown;
             public void mousePressed(MouseEvent event) {
+                popupShown = false;
                 if (SwingUtilities.isLeftMouseButton(event) && group.getTabCount() == 0) activateGroup(group, false);
-                popup(event);
+                if (isPopupRequest(event)) { popup(event); popupShown = true; }
             }
-            public void mouseReleased(MouseEvent event) { popup(event); }
+            public void mouseReleased(MouseEvent event) {
+                if (!popupShown && isPopupRequest(event)) popup(event);
+                popupShown = false;
+            }
             private void popup(MouseEvent event) {
-                if (!event.isPopupTrigger()) return;
                 int index = group.indexAtLocation(event.getX(), event.getY());
                 if (index >= 0) showTabContext(viewTabs.get(group.getComponentAt(index)), group, event.getPoint());
             }
@@ -284,14 +368,14 @@ public final class SwingWorkbench implements AutoCloseable {
             pane.putClientProperty("apple.awt.fullWindowContent", true);
             pane.putClientProperty("apple.awt.transparentTitleBar", true);
             pane.putClientProperty("apple.awt.windowTitleVisible", false);
-            pane.putClientProperty(com.formdev.flatlaf.FlatClientProperties.MACOS_WINDOW_BUTTONS_SPACING, "medium");
+            // Leave spacing unset: FlatLaf's medium/large options add padding around traffic lights.
         }
     }
 
     private JPanel buildMainToolbar() {
-        mainToolbar.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
+        mainToolbar.setBorder(BorderFactory.createEmptyBorder(1, 4, 1, 4));
         mainToolbar.setPreferredSize(new Dimension(0, 34));
-        JPanel identity = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        JPanel identity = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         identity.setOpaque(false);
         JPanel macButtons = new JPanel();
         macButtons.putClientProperty(com.formdev.flatlaf.FlatClientProperties.FULL_WINDOW_CONTENT_BUTTONS_PLACEHOLDER, "mac horizontal");
@@ -307,7 +391,7 @@ public final class SwingWorkbench implements AutoCloseable {
         identity.add(projects);
         headerMenus.setOpaque(false);
         identity.add(headerMenus);
-        JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0));
         toolbar.setOpaque(false);
         connectionName.setForeground(SwingTheme.color("secondary"));
         connectionName.putClientProperty("JButton.buttonType", "toolBarButton");
@@ -396,11 +480,17 @@ public final class SwingWorkbench implements AutoCloseable {
         header.add(heading);
         JPanel tools = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 2));
         tools.setOpaque(false);
-        tools.add(button(WorkbenchIcon.Kind.SEARCH, "sidebar.search.prompt", this::toggleSearch));
-        tools.add(button(WorkbenchIcon.Kind.ADD, "action.newConnection", actions.create()));
-        JButton more = button(WorkbenchIcon.Kind.MORE, "menu.main", () -> {});
+        tools.add(sidebarButton(WorkbenchIcon.Kind.ADD, "action.newConnection", actions.create()));
+        tools.add(sidebarButton(WorkbenchIcon.Kind.FOCUS, "sidebar.focus", this::focusSelection));
+        tools.add(sidebarButton(WorkbenchIcon.Kind.EXPAND_ALL, "sidebar.expandAll", this::expandAll));
+        tools.add(sidebarButton(WorkbenchIcon.Kind.COLLAPSE_ALL, "sidebar.collapseAll", this::collapseAll));
+        JButton more = sidebarButton(WorkbenchIcon.Kind.MORE, "menu.main", () -> {});
         more.addActionListener(event -> {
             var rows = List.of(
+                    new com.jlshell.ui.swing.idea.IdeaListPopup.Row(text("sidebar.sortBy"), null, null, "", null,
+                            true, sortRows(), null),
+                    com.jlshell.ui.swing.idea.IdeaListPopup.Row.action(text("sidebar.search.prompt"),
+                            new WorkbenchIcon(WorkbenchIcon.Kind.SEARCH), "", null, this::toggleSearch),
                     com.jlshell.ui.swing.idea.IdeaListPopup.Row.action(text("sidebar.newFolder"), new WorkbenchIcon(WorkbenchIcon.Kind.FOLDER), "", null, actions.folder()),
                     com.jlshell.ui.swing.idea.IdeaListPopup.Row.action(text("action.editConnection"), null, "", null, actions.edit()),
                     com.jlshell.ui.swing.idea.IdeaListPopup.Row.action(text("action.deleteConnection"), null, "", null, actions.delete()),
@@ -410,7 +500,7 @@ public final class SwingWorkbench implements AutoCloseable {
             popup.show(more, 0, more.getHeight());
         });
         tools.add(more);
-        tools.add(button(WorkbenchIcon.Kind.HIDE, "sidebar.toggle", actions.toggleSidebar()));
+        tools.add(sidebarButton(WorkbenchIcon.Kind.HIDE, "sidebar.toggle", actions.toggleSidebar()));
         header.add(tools, BorderLayout.EAST);
         top.add(header, BorderLayout.NORTH);
         search.putClientProperty("JTextField.placeholderText", text("sidebar.search.prompt"));
@@ -640,6 +730,16 @@ public final class SwingWorkbench implements AutoCloseable {
         return button;
     }
 
+    private JButton sidebarButton(WorkbenchIcon.Kind kind, String tooltip, Runnable action) {
+        JButton button = new HeaderButton(new WorkbenchIcon(kind), 6);
+        button.setToolTipText(text(tooltip));
+        button.getAccessibleContext().setAccessibleName(text(tooltip));
+        button.setPreferredSize(new Dimension(28, 28));
+        button.setFocusable(false);
+        button.addActionListener(event -> action.run());
+        return button;
+    }
+
     private JButton railButton(WorkbenchIcon.Kind kind, String tooltip, Runnable action) {
         JButton button = new JButton(new WorkbenchIcon(kind)) {
             @Override protected void paintComponent(Graphics graphics) {
@@ -676,8 +776,91 @@ public final class SwingWorkbench implements AutoCloseable {
                 profiles.stream().filter(profile -> profile.id().equals(item.id())).findFirst().ifPresent(actions.connect()));
     }
 
+    private List<com.jlshell.ui.swing.idea.IdeaListPopup.Row> sortRows() {
+        return List.of(
+                sortRow("sidebar.sort.name", "name"),
+                sortRow("sidebar.sort.type", "type"),
+                sortRow("sidebar.sort.modifiedNewest", "modified-newest"),
+                sortRow("sidebar.sort.modifiedOldest", "modified-oldest"),
+                new com.jlshell.ui.swing.idea.IdeaListPopup.Row(text("sidebar.sort.foldersFirst"), null,
+                        foldersAlwaysOnTop ? new WorkbenchIcon(WorkbenchIcon.Kind.CHECK) : null,
+                        "", null, true, List.of(), () -> {
+                    foldersAlwaysOnTop = !foldersAlwaysOnTop;
+                    actions.setSetting().accept("ui.sidebar.foldersFirst", Boolean.toString(foldersAlwaysOnTop));
+                    rebuildTree();
+                })
+        );
+    }
+
+    private com.jlshell.ui.swing.idea.IdeaListPopup.Row sortRow(String titleKey, String value) {
+        return new com.jlshell.ui.swing.idea.IdeaListPopup.Row(text(titleKey), null,
+                value.equals(sidebarSort) ? new WorkbenchIcon(WorkbenchIcon.Kind.CHECK) : null,
+                "", null, true, List.of(), () -> setSidebarSort(value));
+    }
+
+    private void setSidebarSort(String value) {
+        sidebarSort = value;
+        actions.setSetting().accept("ui.sidebar.sort", value);
+        rebuildTree();
+    }
+
+    private void expandAll() {
+        collapsed.clear();
+        actions.collapsed().accept(Set.of());
+        rebuilding = true;
+        try { for (int row = 0; row < tree.getRowCount(); row++) tree.expandRow(row); }
+        finally { rebuilding = false; }
+    }
+
+    private void collapseAll() {
+        collapsed.clear();
+        folders.forEach(folder -> collapsed.add(folder.id()));
+        actions.collapsed().accept(Set.copyOf(collapsed));
+        rebuilding = true;
+        try { for (int row = tree.getRowCount() - 1; row >= 0; row--) tree.collapseRow(row); }
+        finally { rebuilding = false; }
+    }
+
+    private void focusSelection() {
+        actions.focusActiveConnection().run();
+        TreePath[] paths = tree.getSelectionPaths();
+        if (paths == null || paths.length == 0) { tree.requestFocusInWindow(); return; }
+        rebuilding = true;
+        try {
+            for (TreePath path : paths) {
+                TreePath parent = path.getParentPath();
+                while (parent != null) { tree.expandPath(parent); parent = parent.getParentPath(); }
+                tree.scrollPathToVisible(path);
+            }
+        } finally { rebuilding = false; }
+        tree.requestFocusInWindow();
+    }
+
+    /** Reveal and select a connection for the currently active session. */
+    public void focusConnection(String profileId) {
+        if (profileId == null) return;
+        var nodes = ((DefaultMutableTreeNode) tree.getModel().getRoot()).preorderEnumeration();
+        while (nodes.hasMoreElements()) {
+            var node = (DefaultMutableTreeNode) nodes.nextElement();
+            if (node.getUserObject() instanceof SidebarItem item && profileId.equals(item.id())) {
+                TreePath path = new TreePath(node.getPath());
+                rebuilding = true;
+                try {
+                    TreePath parent = path.getParentPath();
+                    while (parent != null) { tree.expandPath(parent); parent = parent.getParentPath(); }
+                    tree.setSelectionPath(path);
+                    tree.scrollPathToVisible(path);
+                } finally { rebuilding = false; }
+                tree.requestFocusInWindow();
+                return;
+            }
+        }
+    }
+
     public void updateConnections(List<FolderProfile> folders, List<ConnectionProfile> profiles, Set<String> collapsed) {
         this.folders = List.copyOf(folders); this.profiles = List.copyOf(profiles);
+        this.profileUpdatedAt = profiles.stream().collect(java.util.stream.Collectors.toMap(ConnectionProfile::id,
+                profile -> profile.updatedAt() == null ? java.time.Instant.EPOCH : profile.updatedAt(), (left, right) -> left));
         this.collapsed.clear(); this.collapsed.addAll(collapsed);
         rebuildTree();
     }
@@ -694,6 +877,7 @@ public final class SwingWorkbench implements AutoCloseable {
             for (var folder : folders) directory.getOrDefault(folder.parentId(), root).add(directory.get(folder.id()));
             for (var profile : profiles) directory.getOrDefault(profile.folderId(), root).add(new DefaultMutableTreeNode(
                     new SidebarItem.ConnectionItem(profile.id(), profile.displayName(), profile.connectionType(), profile.summary())));
+            sortTree(root);
             String query = search.getText().strip().toLowerCase(Locale.ROOT);
             if (!query.isBlank()) filter(root, query);
             tree.setModel(new DefaultTreeModel(root));
@@ -709,6 +893,40 @@ public final class SwingWorkbench implements AutoCloseable {
             }
             tree.setSelectionPaths(selected.toArray(TreePath[]::new));
         } finally { rebuilding = false; }
+    }
+
+    private void sortTree(DefaultMutableTreeNode parent) {
+        var children = new ArrayList<DefaultMutableTreeNode>();
+        for (int i = 0; i < parent.getChildCount(); i++) children.add((DefaultMutableTreeNode) parent.getChildAt(i));
+        children.sort((left, right) -> compareTreeItems(left.getUserObject(), right.getUserObject()));
+        parent.removeAllChildren();
+        children.forEach(parent::add);
+        children.stream().filter(node -> node.getUserObject() instanceof SidebarItem.FolderItem).forEach(this::sortTree);
+    }
+
+    private int compareTreeItems(Object left, Object right) {
+        boolean leftFolder = left instanceof SidebarItem.FolderItem;
+        boolean rightFolder = right instanceof SidebarItem.FolderItem;
+        if (leftFolder != rightFolder && foldersAlwaysOnTop) return leftFolder ? -1 : 1;
+        if ("type".equals(sidebarSort) && !leftFolder && !rightFolder) {
+            var leftItem = (SidebarItem.ConnectionItem) left;
+            var rightItem = (SidebarItem.ConnectionItem) right;
+            String leftType = leftItem.connectionType() == null ? "" : leftItem.connectionType().name();
+            String rightType = rightItem.connectionType() == null ? "" : rightItem.connectionType().name();
+            int byType = leftType.compareToIgnoreCase(rightType);
+            if (byType != 0) return byType;
+        }
+        if (sidebarSort.startsWith("modified-") && !leftFolder && !rightFolder) {
+            var leftId = ((SidebarItem.ConnectionItem) left).id();
+            var rightId = ((SidebarItem.ConnectionItem) right).id();
+            var leftUpdated = profileUpdatedAt.getOrDefault(leftId, java.time.Instant.EPOCH);
+            var rightUpdated = profileUpdatedAt.getOrDefault(rightId, java.time.Instant.EPOCH);
+            int byTime = leftUpdated.compareTo(rightUpdated);
+            if (byTime != 0) return "modified-newest".equals(sidebarSort) ? -byTime : byTime;
+        }
+        String leftName = left instanceof SidebarItem item ? item.displayName() : "";
+        String rightName = right instanceof SidebarItem item ? item.displayName() : "";
+        return leftName.compareToIgnoreCase(rightName);
     }
 
     private boolean filter(DefaultMutableTreeNode node, String query) {
@@ -762,11 +980,19 @@ public final class SwingWorkbench implements AutoCloseable {
         tabViews.put(id, view); tabHosts.put(id, host); viewTabs.put(host, id);
         tabCloseActions.put(id, close);
         if (view instanceof SwingSessionView session) {
-            session.setToolWindowRevealAction(() -> {
-                if (Objects.equals(viewTabs.get(tabs.getSelectedComponent()), id)) {
-                    toolWindowVisible = true;
-                    syncToolWindow();
+            session.setToolPageAction(index -> {
+                if (!Objects.equals(viewTabs.get(tabs.getSelectedComponent()), id)) return;
+                toolWindowVisible = true;
+                if (index == 0) {
+                    rightToolWindowVisible = false;
+                } else if (rightToolWindowOwner == view && rightToolWindowVisible
+                        && rightToolPageIndex == index) {
+                    rightToolWindowVisible = rightToolWindowPinned;
+                } else {
+                    rightToolWindowVisible = true;
                 }
+                rightToolPageIndex = index;
+                syncToolWindow();
             });
         }
         tabs.addTab(title, host);
@@ -777,23 +1003,53 @@ public final class SwingWorkbench implements AutoCloseable {
         tabDrags.get(tabs).install(header);
         tabDrags.get(tabs).install(label);
         MouseAdapter context = new MouseAdapter() {
-            public void mousePressed(MouseEvent event) { popup(event); }
-            public void mouseReleased(MouseEvent event) { popup(event); }
+            private boolean popupShown;
+            public void mousePressed(MouseEvent event) {
+                popupShown = false;
+                if (isPopupRequest(event)) { popup(event); popupShown = true; }
+            }
+            public void mouseReleased(MouseEvent event) {
+                if (!popupShown && isPopupRequest(event)) popup(event);
+                popupShown = false;
+            }
             private void popup(MouseEvent event) {
-                if (!event.isPopupTrigger()) return;
                 JTabbedPane group = groupFor(host);
                 if (group != null) showTabContext(id, group, SwingUtilities.convertPoint(event.getComponent(), event.getPoint(), group));
             }
         };
         header.addMouseListener(context);
         label.addMouseListener(context);
-        JButton closeButton = button(WorkbenchIcon.Kind.CLOSE, "tab.close", close);
-        closeButton.setPreferredSize(new Dimension(18, 18));
+        TabCloseButton closeButton = new TabCloseButton(modifiers -> {
+            if ((modifiers & (java.awt.event.ActionEvent.ALT_MASK | java.awt.event.InputEvent.ALT_DOWN_MASK)) != 0) {
+                JTabbedPane owner = groupFor(host);
+                if (owner != null) {
+                    List<Object> otherTabs = new ArrayList<>();
+                    for (int i = 0; i < owner.getTabCount(); i++) {
+                        Object other = viewTabs.get(owner.getComponentAt(i));
+                        if (other != null && !Objects.equals(other, id)) otherTabs.add(other);
+                    }
+                    otherTabs.forEach(this::closeExistingTab);
+                }
+            } else {
+                close.run();
+            }
+        });
+        String closeShortcut = com.formdev.flatlaf.util.SystemInfo.isMacOS ? "⌘W" : "Ctrl+F4";
+        String closeModifier = com.formdev.flatlaf.util.SystemInfo.isMacOS ? "Option" : "Alt";
+        closeButton.setToolTipText(text("tab.close.tooltip").replace("{shortcut}", closeShortcut)
+                .replace("{modifier}", closeModifier));
+        closeButton.getAccessibleContext().setAccessibleName(text("tab.close"));
         header.add(closeButton);
+        closeButton.addMouseListener(context);
         tabs.setTabComponentAt(tabs.indexOfComponent(host), header);
         syncToolWindow();
         updateSessionSelector();
         ((CardLayout) workspace.getLayout()).show(workspace, "tabs");
+    }
+
+    private static boolean isPopupRequest(MouseEvent event) {
+        return event.isPopupTrigger() || SwingUtilities.isRightMouseButton(event)
+                || (event.getModifiersEx() & MouseEvent.BUTTON3_DOWN_MASK) != 0;
     }
 
     public void removeTab(Object id) {
@@ -991,7 +1247,7 @@ public final class SwingWorkbench implements AutoCloseable {
         rows.add(tabMenuRow("tab.unsplit", null, null, split, () -> unsplitTab(id, false), ""));
         if (workspaceSplits.groups().size() > 2) rows.add(tabMenuRow("tab.unsplitAll", null, null, true,
                 () -> unsplitTab(id, true), ""));
-        specs.stream().filter(item -> item.text().equals(text("tab.duplicateSession"))).findFirst().ifPresent(item ->
+        specs.stream().filter(item -> Objects.equals(item.text(), text("tab.duplicateSession"))).findFirst().ifPresent(item ->
                 rows.add(tabMenuRow("tab.duplicateSession", WorkbenchIcon.Kind.TERMINAL, "", !item.disabled(), item.action(), item.shortcut())));
         return rows;
     }
@@ -1195,6 +1451,8 @@ public final class SwingWorkbench implements AutoCloseable {
                 BorderFactory.createMatteBorder(0, 0, 2, 0, UIManager.getColor("Component.focusColor")),
                 BorderFactory.createEmptyBorder(6, 6, 6, 6)));
         labels.add(dockTitle);
+        toolNavigationHost.setOpaque(false);
+        labels.add(toolNavigationHost);
         header.add(labels);
         JPanel tools = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 1));
         tools.setOpaque(false);
@@ -1207,6 +1465,77 @@ public final class SwingWorkbench implements AutoCloseable {
         toolDock.setMinimumSize(new Dimension(0, 120));
     }
 
+    private void buildRightToolDock() {
+        rightDockContainer.setOpaque(false);
+        rightDockContainer.setPreferredSize(new Dimension(36, 0));
+
+        JPanel rail = stripeColumn();
+        rail.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 1, 0, 0, SwingTheme.color("border")),
+                BorderFactory.createEmptyBorder(4, 3, 0, 3)));
+        rail.setOpaque(false);
+        rightToolNavigationHost.setLayout(new BoxLayout(rightToolNavigationHost, BoxLayout.Y_AXIS));
+        rightToolNavigationHost.setOpaque(false);
+        rail.add(rightToolNavigationHost);
+        rightDockContainer.add(rail, BorderLayout.EAST);
+
+        JPanel header = new JPanel(new BorderLayout());
+        header.setOpaque(false);
+        header.setBorder(BorderFactory.createEmptyBorder(0, 10, 0, 4));
+        rightDockTitle.setFont(rightDockTitle.getFont().deriveFont(Font.BOLD));
+        header.add(rightDockTitle, BorderLayout.CENTER);
+        JPanel headerActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        headerActions.setOpaque(false);
+        rightDockPin.putClientProperty("JButton.buttonType", "toolBarButton");
+        rightDockPin.setFocusable(false);
+        rightDockPin.setSelected(rightToolWindowPinned);
+        rightDockPin.putClientProperty("JLShell.selectedRail", Boolean.TRUE);
+        rightDockPin.setToolTipText(text("workspace.pinRightSidebar"));
+        rightDockPin.getAccessibleContext().setAccessibleName(text("workspace.pinRightSidebar"));
+        rightDockPin.addActionListener(event -> {
+            rightToolWindowPinned = rightDockPin.isSelected();
+            actions.setSetting().accept(RIGHT_DOCK_PINNED_KEY, Boolean.toString(rightToolWindowPinned));
+        });
+        headerActions.add(rightDockPin);
+        headerActions.add(button(WorkbenchIcon.Kind.HIDE, "workspace.hideTools", this::toggleRightToolWindow));
+        header.add(headerActions, BorderLayout.EAST);
+        rightToolDock.add(header, BorderLayout.NORTH);
+        rightDockBody.setOpaque(false);
+        rightDockBody.setBorder(BorderFactory.createEmptyBorder(2, 4, 4, 4));
+        rightToolDock.add(rightDockBody, BorderLayout.CENTER);
+        rightToolDock.setMinimumSize(new Dimension(180, 0));
+        rightToolDock.setVisible(false);
+        rightDockContainer.add(rightToolDock, BorderLayout.CENTER);
+    }
+
+    private void toggleRightToolWindow() {
+        rightToolWindowVisible = !rightToolWindowVisible;
+        syncRightToolWindow();
+    }
+
+    private void updateRightDockWidth(boolean open) {
+        int railWidth = 36;
+        rightToolDock.setVisible(open);
+        int contentWidth = open ? rightDockContentWidth(mainSplit.getWidth(), sidebarVisible ? sidebarWidth : 0,
+                railWidth, mainSplit.getDividerSize() + split.getDividerSize()) : 0;
+        // 关闭的是文件/插件内容区；导航轨道始终留在最右侧，供用户再次打开工具窗。
+        rightDockContainer.setPreferredSize(new Dimension(rightDockContainerWidth(contentWidth, railWidth), 0));
+        if (mainSplit.getWidth() > 0) {
+            mainSplit.setDividerLocation(Math.max(240, mainSplit.getWidth()
+                    - rightDockContainer.getPreferredSize().width - mainSplit.getDividerSize()));
+        }
+        mainSplit.revalidate();
+    }
+
+    static int rightDockContentWidth(int mainWidth, int leftSidebarWidth, int railWidth, int dividerWidths) {
+        int workspaceWidth = Math.max(0, mainWidth - leftSidebarWidth - railWidth - dividerWidths);
+        return Math.max(180, workspaceWidth / 2);
+    }
+
+    static int rightDockContainerWidth(int contentWidth, int railWidth) {
+        return Math.max(0, contentWidth) + Math.max(0, railWidth);
+    }
+
     /** 下方仅承载原有文件、插件及监控页面；终端始终留在主工作区。 */
     public void toggleToolWindow() {
         toolWindowVisible = !toolWindowVisible;
@@ -1217,6 +1546,7 @@ public final class SwingWorkbench implements AutoCloseable {
         if (toolWindowOwner == null) return;
         if (toolDock.getHeight() > 0) dockHeight = Math.max(120, toolDock.getHeight());
         dockBody.removeAll();
+        toolNavigationHost.removeAll();
         toolWindowOwner = null;
     }
 
@@ -1225,25 +1555,69 @@ public final class SwingWorkbench implements AutoCloseable {
         Component view = tabViews.get(id);
         boolean supported = view instanceof SwingSessionView;
         toolStripe.setEnabled(supported);
-        if (toolWindowVisible && supported && view == toolWindowOwner) return;
-        releaseToolWindow();
+        if (view != toolWindowOwner) releaseToolWindow();
         boolean show = toolWindowVisible && supported;
         if (!show) {
             vertical.setBottomComponent(null);
             vertical.setDividerSize(0);
+            releaseToolWindow();
         } else {
-            toolWindowOwner = view;
-            JPanel content = ((SwingSessionView) view).toolWindow();
+            SwingSessionView session = (SwingSessionView) view;
+            if (view != toolWindowOwner) {
+                toolWindowOwner = view;
+                toolNavigationHost.removeAll();
+                toolNavigationHost.add(session.monitorNavigation());
+                dockBody.removeAll();
+                dockBody.add(session.toolWindow());
+                dockTitle.setText(tabs.getTitleAt(tabs.getSelectedIndex()));
+            }
+            JPanel content = session.toolWindow();
             content.setVisible(true);
-            dockBody.add(content);
-            dockTitle.setText(tabs.getTitleAt(tabs.getSelectedIndex()));
             vertical.setBottomComponent(toolDock);
             vertical.setDividerSize(4);
             vertical.revalidate();
             vertical.setDividerLocation(Math.max(150, vertical.getHeight() - dockHeight - 4));
         }
         toolStripe.setSelected(show);
+        toolNavigationHost.revalidate();
+        toolNavigationHost.repaint();
+        syncRightToolWindow();
         root.revalidate(); root.repaint();
+    }
+
+    private void syncRightToolWindow() {
+        Object id = viewTabs.get(tabs.getSelectedComponent());
+        Component view = tabViews.get(id);
+        boolean supported = view instanceof SwingSessionView;
+        if (!supported) {
+            rightToolWindowOwner = null;
+            rightToolWindowVisible = false;
+            rightToolNavigationHost.removeAll();
+            rightDockBody.removeAll();
+            rightDockContainer.setVisible(false);
+            updateRightDockWidth(false);
+            return;
+        }
+
+        SwingSessionView session = (SwingSessionView) view;
+        rightDockContainer.setVisible(true);
+        if (view != rightToolWindowOwner) {
+            rightToolWindowOwner = view;
+            rightToolNavigationHost.removeAll();
+            rightToolNavigationHost.add(session.toolNavigation());
+        }
+        int page = session.selectedPageIndex();
+        boolean open = rightToolWindowVisible && page > 0;
+        rightDockBody.removeAll();
+        if (open) {
+            rightDockTitle.setText(session.selectedPageTitle());
+            rightDockBody.add(session.rightToolWindow(), BorderLayout.CENTER);
+        }
+        updateRightDockWidth(open);
+        rightToolNavigationHost.revalidate();
+        rightToolNavigationHost.repaint();
+        rightDockBody.revalidate();
+        rightDockBody.repaint();
     }
 
     private com.jlshell.ui.swing.idea.IdeaListPopup popupMenu(List<SwingMenuBridge.Item> specs) {

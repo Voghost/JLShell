@@ -11,7 +11,6 @@ import javafx.beans.value.ChangeListener;
 import javafx.scene.Node;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
-import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
 import javax.swing.JButton;
 import javax.swing.JLabel;
@@ -19,22 +18,20 @@ import javax.swing.JPanel;
 import javax.swing.JToggleButton;
 import javax.swing.SwingUtilities;
 import java.awt.BorderLayout;
-import java.awt.CardLayout;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.IntConsumer;
 
 /** 原生 Swing 终端；文件及插件页仍使用原始 JavaFX 视图和会话生命周期。 */
 public final class SwingSessionView extends JPanel implements NativeTerminalHost, AutoCloseable {
     private final JPanel terminal = new JPanel(new BorderLayout());
     private final JPanel terminalBody = new JPanel(new BorderLayout());
-    private final JPanel navigation = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
-    private final JPanel toolWindow = new JPanel(new BorderLayout());
-    private final JPanel cards = new JPanel(new CardLayout());
+    private final JPanel navigation = new JPanel();
     private final JPanel monitoring = new JPanel(new BorderLayout());
     private final String monitoringTitle;
-    private Runnable revealToolWindow = () -> {};
+    private IntConsumer showToolPage = index -> {};
     private final SwingFxPanel compatibility;
     private final ThemeService themes;
     private TerminalWorkspaceView terminalView;
@@ -51,7 +48,8 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
     private javafx.collections.ListChangeListener<Tab> tabListListener;
     private final java.util.Map<Tab, ChangeListener<String>> titleListeners = new java.util.IdentityHashMap<>();
     private boolean closed;
-    private record Page(Tab tab, String title, boolean closable) {}
+    private volatile int selectedPageIndex;
+    private record Page(Tab tab, String title) {}
 
     /** 从 FX 线程调用。不会同步等待 EDT，也不会改变插件返回的 Node。 */
     public static CompletableFuture<SwingSessionView> create(SessionWorkspaceTab source, ThemeService themes, I18nService i18n) {
@@ -118,28 +116,46 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
         terminal.add(terminalBody, BorderLayout.CENTER);
         // 主终端始终可见，不再从 CardLayout 移出或被文件/插件页覆盖。
         add(terminal, BorderLayout.CENTER);
-        cards.add(monitoring, "monitoring");
-        cards.add(compatibility, "compatibility");
+        navigation.setLayout(new javax.swing.BoxLayout(navigation, javax.swing.BoxLayout.Y_AXIS));
         navigation.setOpaque(false);
-        navigation.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, SwingTheme.color("border")));
-        toolWindow.add(navigation, BorderLayout.NORTH);
-        toolWindow.add(cards, BorderLayout.CENTER);
     }
 
     private void selectPage(int index, boolean reveal) {
         if (closed || index < 0) return;
-        ((CardLayout) cards.getLayout()).show(cards, index == 0 ? "monitoring" : "compatibility");
-        if (index < navigation.getComponentCount() && navigation.getComponent(index) instanceof JPanel page) {
-            ((JToggleButton) page.getClientProperty("selector")).setSelected(true);
+        selectedPageIndex = index;
+        int navigationIndex = (index - 1) * 2;
+        if (navigationIndex >= 0 && navigationIndex < navigation.getComponentCount()
+                && navigation.getComponent(navigationIndex) instanceof JToggleButton selector) {
+            selector.setSelected(true);
         }
-        if (reveal) revealToolWindow.run();
-        cards.revalidate(); cards.repaint();
+        if (reveal) showToolPage.accept(index);
+        navigation.revalidate(); navigation.repaint();
     }
 
-    public JPanel toolWindow() { return toolWindow; }
+    /** 底部工具窗只保留会话监控；文件和插件页交由右侧工具窗显示。 */
+    public JPanel toolWindow() { return monitoring; }
 
-    public void setToolWindowRevealAction(Runnable action) {
-        revealToolWindow = action == null ? () -> {} : action;
+    java.awt.Component rightToolWindow() { return compatibility; }
+
+    int selectedPageIndex() { return selectedPageIndex; }
+
+    String selectedPageTitle() {
+        int index = selectedPageIndex;
+        return index >= 0 && index < model.getTabs().size() ? model.getTabs().get(index).getText() : "";
+    }
+
+    /** 与会话工具标题合并显示，避免内容区重复占用一整行导航空间。 */
+    JPanel toolNavigation() { return navigation; }
+
+    JPanel monitorNavigation() {
+        JPanel item = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        item.setOpaque(false);
+        item.add(new JLabel(monitoringTitle, new WorkbenchIcon(WorkbenchIcon.Kind.MONITOR), JLabel.LEFT));
+        return item;
+    }
+
+    public void setToolPageAction(IntConsumer action) {
+        showToolPage = action == null ? index -> {} : action;
     }
 
     /** 插件可动态 openTab/closeTab/updateTabTitle，必须同步原有 Tab 模型。FX 线程调用。 */
@@ -156,41 +172,33 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
                 titleListeners.put(tab, listener);
             }
         }
-        List<Page> pages = model.getTabs().stream().map(tab -> new Page(tab, tab.getText(), tab.isClosable())).toList();
+        List<Page> pages = model.getTabs().stream().map(tab -> new Page(tab, tab.getText())).toList();
         int selected = model.getSelectionModel().getSelectedIndex();
         SwingUtilities.invokeLater(() -> {
             if (closed) return;
             navigation.removeAll();
             ButtonGroup group = new ButtonGroup();
-            for (Page page : pages) {
-                JPanel item = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-                item.setOpaque(false);
-                JToggleButton selector = new JToggleButton(page.tab() == pages.getFirst().tab() ? monitoringTitle : page.title());
+            for (int index = 1; index < pages.size(); index++) {
+                Page page = pages.get(index);
+                int pageIndex = index;
+                WorkbenchIcon.Kind iconKind = index == 1 ? WorkbenchIcon.Kind.FOLDER
+                        : index == 2 ? WorkbenchIcon.Kind.PLUGIN : WorkbenchIcon.Kind.LAYOUT;
+                JToggleButton selector = new JToggleButton(new WorkbenchIcon(iconKind));
                 selector.putClientProperty("JButton.buttonType", "toolBarButton");
                 selector.setFocusable(false);
-                selector.setBorder(BorderFactory.createEmptyBorder(7, 10, 7, 10));
+                selector.setPreferredSize(new Dimension(30, 30));
+                selector.setMaximumSize(new Dimension(30, 30));
+                selector.setAlignmentX(java.awt.Component.CENTER_ALIGNMENT);
+                selector.setToolTipText(page.title());
+                selector.getAccessibleContext().setAccessibleName(page.title());
                 selector.addActionListener(event -> {
-                    revealToolWindow.run();
+                    boolean alreadySelected = model.getSelectionModel().getSelectedItem() == page.tab();
                     FxThread.run(() -> model.getSelectionModel().select(page.tab()));
+                    if (alreadySelected) showToolPage.accept(pageIndex);
                 });
                 group.add(selector);
-                item.putClientProperty("selector", selector);
-                item.add(selector);
-                if (page.closable()) {
-                    JButton close = new JButton(new WorkbenchIcon(WorkbenchIcon.Kind.CLOSE));
-                    close.putClientProperty("JButton.buttonType", "toolBarButton");
-                    close.setFocusable(false);
-                    close.addActionListener(event -> FxThread.run(() -> {
-                        javafx.event.Event request = new javafx.event.Event(page.tab(), page.tab(), Tab.TAB_CLOSE_REQUEST_EVENT);
-                        javafx.event.Event.fireEvent(page.tab(), request);
-                        if (!request.isConsumed()) {
-                            model.getTabs().remove(page.tab());
-                            javafx.event.Event.fireEvent(page.tab(), new javafx.event.Event(Tab.CLOSED_EVENT));
-                        }
-                    }));
-                    item.add(close);
-                }
-                navigation.add(item);
+                navigation.add(selector);
+                navigation.add(javax.swing.Box.createVerticalStrut(6));
             }
             selectPage(selected, false);
             navigation.revalidate();
@@ -278,7 +286,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
         if (closed) return;
         closed = true;
         handle = null;
-        revealToolWindow = () -> {};
+        showToolPage = index -> {};
         terminalBody.removeAll();
         compatibility.close();
         if (toolbarNode != null && toolbarVisibilityListener != null) {

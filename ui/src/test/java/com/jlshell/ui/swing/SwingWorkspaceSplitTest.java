@@ -26,6 +26,31 @@ import static org.junit.jupiter.api.Assertions.*;
 @EnabledIfSystemProperty(named = "jlshell.ui.smoke", matches = "true")
 class SwingWorkspaceSplitTest {
     @Test
+    void workspaceDropZonesResolveFourSplitDirectionsAndCenterTransfer() throws Exception {
+        SwingExecutors.runOnEdtAsync(() -> {
+            SwingTheme.install(AppTheme.DARK, "#3574f0", "SansSerif", 13);
+            JTabbedPane group = new JTabbedPane();
+            group.addTab("Session", new JPanel());
+            WorkspaceSplitLayout layout = new WorkspaceSplitLayout(group, JTabbedPane::new);
+            layout.setSize(800, 500);
+            layout.doLayout();
+            group.doLayout();
+            Rectangle bounds = SwingUtilities.convertRectangle(group.getParent(), group.getBounds(), layout);
+            Rectangle content = group.getComponentAt(0).getBounds();
+            assertEquals(WorkspaceSplitLayout.DropSide.LEFT,
+                    layout.dropLocation(new Point(bounds.x + 2, bounds.y + bounds.height / 2)).side());
+            assertEquals(WorkspaceSplitLayout.DropSide.RIGHT,
+                    layout.dropLocation(new Point(bounds.x + bounds.width - 2, bounds.y + bounds.height / 2)).side());
+            assertEquals(WorkspaceSplitLayout.DropSide.TOP,
+                    layout.dropLocation(new Point(bounds.x + bounds.width / 2, bounds.y + content.y + 2)).side());
+            assertEquals(WorkspaceSplitLayout.DropSide.BOTTOM,
+                    layout.dropLocation(new Point(bounds.x + bounds.width / 2, bounds.y + content.y + content.height - 2)).side());
+            assertEquals(WorkspaceSplitLayout.DropSide.CENTER,
+                    layout.dropLocation(new Point(bounds.x + bounds.width / 2, bounds.y + content.y + content.height / 2)).side());
+        }).get(15, TimeUnit.SECONDS);
+    }
+
+    @Test
     void rightClickTabAndClickPopupActionSplitsTheWorkspace() throws Exception {
         var reference = new java.util.concurrent.atomic.AtomicReference<SwingWorkbench>();
         JPanel first = new JPanel();
@@ -115,6 +140,65 @@ class SwingWorkspaceSplitTest {
         } finally {
             if (reference.get() != null) SwingExecutors.runOnEdtAsync(() -> reference.get().close()).get(15, TimeUnit.SECONDS);
         }
+    }
+
+    @Test
+    void draggingTabToWorkspaceEdgesCreatesRightAndTopSplits() throws Exception {
+        var reference = new java.util.concurrent.atomic.AtomicReference<SwingWorkbench>();
+        JPanel first = new JPanel(), second = new JPanel();
+        Runnable noop = () -> {};
+        try {
+            SwingExecutors.runOnEdtAsync(() -> {
+                SwingTheme.install(AppTheme.DARK, "#3574f0", "SansSerif", 13);
+                var actions = new SwingWorkbench.Actions(noop, noop, noop, noop, noop, noop, noop, noop, noop,
+                        connection -> fail("Dropping to split must reuse the open session"), items -> {}, project -> {}, folders -> {}, tab -> {},
+                        (tab, position) -> {}, (items, folder) -> {},
+                        (item, reply) -> reply.accept(List.of()), (tab, reply) -> reply.accept(List.of()));
+                var view = new SwingWorkbench(actions, Map.of());
+                reference.set(view);
+                view.addTab("first", "First", first, noop);
+                view.addTab("second", "Second", second, noop);
+                view.show();
+            }).get(15, TimeUnit.SECONDS);
+
+            SwingExecutors.runOnEdtAsync(() -> {
+                var view = reference.get();
+                view.frame().validate();
+                WorkspaceSplitLayout layout = layout(view.frame());
+                Component firstHost = first.getParent();
+                JTabbedPane initial = group(first);
+                dragToWorkspacePoint(initial, firstHost, initial.getWidth() - 2, initial.getHeight() / 2);
+                assertEquals(2, layout.groups().size());
+                assertEquals(JSplitPane.HORIZONTAL_SPLIT, ((JSplitPane) group(first).getParent()).getOrientation());
+                assertNotSame(group(first), group(second));
+
+                JTabbedPane rightSide = group(first);
+                view.frame().validate();
+                rightSide.doLayout();
+                Rectangle content = firstHost.getBounds();
+                Point topPoint = SwingUtilities.convertPoint(rightSide, rightSide.getWidth() / 2, content.y + 40, layout);
+                assertEquals(WorkspaceSplitLayout.DropSide.TOP, layout.dropLocation(topPoint).side(),
+                        "Expected top-edge point " + topPoint + " using content bounds " + content + " in " + rightSide.getBounds());
+                dragToWorkspacePoint(rightSide, firstHost, rightSide.getWidth() / 2, content.y + 40);
+                assertEquals(3, layout.groups().size());
+                assertEquals(JSplitPane.VERTICAL_SPLIT, ((JSplitPane) group(first).getParent()).getOrientation());
+                assertSame(first.getParent(), group(first).getSelectedComponent());
+            }).get(15, TimeUnit.SECONDS);
+        } finally {
+            if (reference.get() != null) SwingExecutors.runOnEdtAsync(() -> reference.get().close()).get(15, TimeUnit.SECONDS);
+        }
+    }
+
+    private static void dragToWorkspacePoint(JTabbedPane group, Component host, int x, int y) {
+        Component label = ((Container) group.getTabComponentAt(group.indexOfComponent(host))).getComponent(0);
+        long time = System.currentTimeMillis();
+        label.dispatchEvent(new MouseEvent(label, MouseEvent.MOUSE_PRESSED, time, MouseEvent.BUTTON1_DOWN_MASK,
+                8, 8, 1, false, MouseEvent.BUTTON1));
+        Point point = SwingUtilities.convertPoint(group, x, y, label);
+        label.dispatchEvent(new MouseEvent(label, MouseEvent.MOUSE_DRAGGED, time + 1, MouseEvent.BUTTON1_DOWN_MASK,
+                point.x, point.y, 0, false, MouseEvent.NOBUTTON));
+        label.dispatchEvent(new MouseEvent(label, MouseEvent.MOUSE_RELEASED, time + 2, 0,
+                point.x, point.y, 1, false, MouseEvent.BUTTON1));
     }
 
     @Test

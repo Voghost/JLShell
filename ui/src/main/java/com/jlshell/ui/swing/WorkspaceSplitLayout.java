@@ -8,6 +8,9 @@ import java.util.function.Supplier;
 
 /** 参照 IDEA EditorWindow 的 split/removeFromSplitter/unsplit：叶节点是独立标签组。 */
 final class WorkspaceSplitLayout extends JPanel {
+    enum DropSide { CENTER, LEFT, RIGHT, TOP, BOTTOM }
+    record DropLocation(JTabbedPane group, DropSide side, Rectangle preview) {}
+
     private final Supplier<JTabbedPane> factory;
 
     WorkspaceSplitLayout(JTabbedPane initial, Supplier<JTabbedPane> factory) {
@@ -32,6 +35,10 @@ final class WorkspaceSplitLayout extends JPanel {
     }
 
     JTabbedPane split(JTabbedPane source, int orientation) {
+        return split(source, orientation, false);
+    }
+
+    JTabbedPane split(JTabbedPane source, int orientation, boolean newGroupFirst) {
         Container parent = source.getParent();
         boolean first = parent instanceof JSplitPane split && split.getLeftComponent() == source;
         var target = factory.get();
@@ -42,8 +49,8 @@ final class WorkspaceSplitLayout extends JPanel {
         split.setResizeWeight(.5);
         split.setContinuousLayout(true);
         replace(parent, first, split);
-        split.setLeftComponent(source);
-        split.setRightComponent(target);
+        split.setLeftComponent(newGroupFirst ? target : source);
+        split.setRightComponent(newGroupFirst ? source : target);
         revalidate(); repaint();
         SwingUtilities.invokeLater(() -> { if (split.getParent() != null) split.setDividerLocation(.5); });
         return target;
@@ -70,6 +77,38 @@ final class WorkspaceSplitLayout extends JPanel {
             if (bounds.contains(point)) return group;
         }
         return null;
+    }
+
+    /** IDEA-style edge drop zones: the outer 20% of a group creates a split; the center transfers tabs. */
+    DropLocation dropLocation(Point point) {
+        JTabbedPane group = groupAt(point);
+        if (group == null) return null;
+        Rectangle bounds = SwingUtilities.convertRectangle(group.getParent(), group.getBounds(), this);
+        Point local = new Point(point.x - bounds.x, point.y - bounds.y);
+        double edge = .20;
+        double left = local.x / (double) Math.max(1, bounds.width);
+        double right = (bounds.width - local.x) / (double) Math.max(1, bounds.width);
+        Rectangle content = group.getTabCount() == 0 ? new Rectangle(0, 0, bounds.width, bounds.height)
+                : group.getComponentAt(0).getBounds();
+        double top = local.y >= content.y && local.y <= content.y + content.height
+                ? (local.y - content.y) / (double) Math.max(1, content.height) : Double.POSITIVE_INFINITY;
+        double bottom = local.y >= content.y && local.y <= content.y + content.height
+                ? (content.y + content.height - local.y) / (double) Math.max(1, content.height) : Double.POSITIVE_INFINITY;
+        DropSide side = DropSide.CENTER;
+        double nearest = edge;
+        if (left < nearest) { nearest = left; side = DropSide.LEFT; }
+        if (right < nearest) { nearest = right; side = DropSide.RIGHT; }
+        if (top < nearest) { nearest = top; side = DropSide.TOP; }
+        if (bottom < nearest) { side = DropSide.BOTTOM; }
+        Rectangle preview = new Rectangle(bounds);
+        switch (side) {
+            case LEFT -> preview.width = Math.max(1, bounds.width / 2);
+            case RIGHT -> { preview.x += bounds.width / 2; preview.width = bounds.width - bounds.width / 2; }
+            case TOP -> preview.height = Math.max(1, bounds.height / 2);
+            case BOTTOM -> { preview.y += bounds.height / 2; preview.height = bounds.height - bounds.height / 2; }
+            case CENTER -> { }
+        }
+        return new DropLocation(group, side, preview);
     }
 
     boolean inSplit(JTabbedPane group) { return group.getParent() instanceof JSplitPane; }

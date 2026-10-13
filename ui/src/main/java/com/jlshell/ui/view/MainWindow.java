@@ -392,6 +392,9 @@ public class MainWindow {
         swingQuitAction = quit;
         var texts = com.jlshell.ui.swing.SwingWorkbench.TEXT_KEYS.stream().collect(
                 Collectors.toMap(key -> key, key -> i18nService.get(key)));
+        texts.put("ui.sidebar.sort", appSettingsService.get("ui.sidebar.sort", "name"));
+        texts.put("ui.sidebar.foldersFirst", appSettingsService.get("ui.sidebar.foldersFirst", "true"));
+        texts.put("ui.rightToolWindow.pinned", appSettingsService.get("ui.rightToolWindow.pinned", "false"));
         java.util.function.Function<Runnable, Runnable> fxAction = action -> () -> dispatchSwingAction(action);
         var actions = new com.jlshell.ui.swing.SwingWorkbench.Actions(
                 fxAction.apply(() -> createConnection(owner)), fxAction.apply(() -> createFolder(owner)),
@@ -440,6 +443,12 @@ public class MainWindow {
                     var bar = new MenuBar(new Menu("context"));
                     bar.getMenus().getFirst().getItems().setAll(menu.getItems());
                     callback.accept(com.jlshell.ui.swing.SwingMenuBridge.snapshot(bar, this::dispatchSwingAction).getFirst().children());
+                }), (key, value) -> dispatchSwingAction(() -> appSettingsService.set(key, value)),
+                () -> FxThread.run(() -> {
+                    var activeTab = workspaceTabs.getSelectionModel().getSelectedItem();
+                    if (activeTab != null && activeTab.getUserData() instanceof ConnectionProfile profile) {
+                        withSwing(view -> view.focusConnection(profile.id()));
+                    }
                 }));
         AppTheme theme = themeService.currentTheme();
         String accent = themeService.accentColor().color();
