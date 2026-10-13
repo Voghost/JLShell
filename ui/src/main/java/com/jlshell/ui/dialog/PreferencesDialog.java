@@ -1921,6 +1921,8 @@ public class PreferencesDialog {
                 installed.setText(i18n.get("plugins.store.installed", installedEntries.size())));
 
         pluginTabs.getTabs().addAll(marketplace, installed);
+        // IDEA PluginManagerConfigurablePanel 将页签交给设置页的 TopComponent，内容独立切换。
+        pane.getProperties().put("jlshell.headerTabs", pluginTabs);
         VBox.setVgrow(pluginTabs, Priority.ALWAYS);
         pane.getChildren().add(pluginTabs);
         return pane;
@@ -1937,12 +1939,14 @@ public class PreferencesDialog {
 
         TextField query = new TextField();
         query.setPromptText(i18n.get("plugins.store.search"));
+        query.setMinWidth(60);
         query.getStyleClass().add("plugin-search-field");
         ComboBox<String> scope = new ComboBox<>(FXCollections.observableArrayList(
                 i18n.get("plugins.filter.all"), i18n.get("plugins.filter.program"), i18n.get("plugins.filter.session")));
         scope.getSelectionModel().select(0);
         scope.setMinWidth(130);
         Button search = new Button(i18n.get("plugins.store.searchButton"));
+        search.setMinWidth(Region.USE_PREF_SIZE);
         Label status = new Label();
         status.setWrapText(true);
         status.getStyleClass().add("plugin-status");
@@ -1984,6 +1988,10 @@ public class PreferencesDialog {
                 HBox row = new HBox(12, pluginAvatar(item.displayName()), text);
                 row.setAlignment(Pos.CENTER_LEFT);
                 row.getStyleClass().add("plugin-list-cell-content");
+                row.prefWidthProperty().bind(list.widthProperty().subtract(18));
+                text.setMinWidth(0);
+                name.setMinWidth(0);
+                name.setMaxWidth(Double.MAX_VALUE);
                 setText(null);
                 setGraphic(row);
             }
@@ -2127,7 +2135,7 @@ public class PreferencesDialog {
 
         SplitPane split = new SplitPane(left, detailScroll);
         split.getStyleClass().add("plugin-content-split");
-        split.setDividerPositions(0.38);
+        split.setDividerPositions(0.44);
         BorderPane root = new BorderPane(split);
         root.getStyleClass().add("plugin-marketplace-root");
         Platform.runLater(runSearch);
@@ -2147,11 +2155,13 @@ public class PreferencesDialog {
         FilteredList<PluginDocEntry> filtered = new FilteredList<>(entries, item -> true);
         TextField search = new TextField();
         search.setPromptText(i18n.get("plugins.store.searchInstalled"));
+        search.setMinWidth(60);
         ComboBox<String> scope = new ComboBox<>(FXCollections.observableArrayList(
                 i18n.get("plugins.filter.all"), i18n.get("plugins.filter.program"), i18n.get("plugins.filter.session")));
         scope.getSelectionModel().select(0);
         scope.setMinWidth(130);
         Button updates = new Button(i18n.get("plugins.store.checkUpdates"));
+        updates.setMinWidth(Region.USE_PREF_SIZE);
         Label status = new Label();
         status.getStyleClass().add("plugin-status");
         status.setWrapText(true);
@@ -2204,6 +2214,10 @@ public class PreferencesDialog {
                 HBox row = new HBox(12, pluginAvatar(item.metadata().displayName()), text);
                 row.setAlignment(Pos.CENTER_LEFT);
                 row.getStyleClass().add("plugin-list-cell-content");
+                row.prefWidthProperty().bind(list.widthProperty().subtract(18));
+                text.setMinWidth(0);
+                name.setMinWidth(0);
+                name.setMaxWidth(Double.MAX_VALUE);
                 setText(null);
                 setGraphic(row);
             }
@@ -2311,7 +2325,7 @@ public class PreferencesDialog {
 
         SplitPane split = new SplitPane(left, detailScroll);
         split.getStyleClass().add("plugin-content-split");
-        split.setDividerPositions(0.38);
+        split.setDividerPositions(0.44);
         BorderPane root = new BorderPane(split);
         root.getStyleClass().add("plugin-marketplace-root");
         return root;
@@ -2326,13 +2340,15 @@ public class PreferencesDialog {
         author.getStyleClass().add("plugin-detail-author");
         VBox headingText = new VBox(4, name, author);
         HBox.setHgrow(headingText, Priority.ALWAYS);
-        HBox heading = new HBox(12, pluginAvatar(plugin.displayName()), headingText);
+        HBox actions = new HBox(10);
         if (installed) {
-            heading.getChildren().add(pluginStateBadge(
+            actions.getChildren().add(pluginStateBadge(
                     i18n.get("plugins.store.installedBadge"), "plugin-state-installed"));
         }
-        heading.getChildren().add(install);
-        heading.setAlignment(Pos.CENTER_LEFT);
+        actions.getChildren().add(install);
+        actions.setAlignment(Pos.CENTER_LEFT);
+        VBox heading = new VBox(10, headingText, actions);
+        name.setWrapText(true);
 
         Label description = new Label(plugin.description());
         description.setWrapText(true);
@@ -2349,8 +2365,12 @@ public class PreferencesDialog {
         notes.getStyleClass().add("plugin-detail-description");
         Label id = new Label(plugin.pluginId());
         id.getStyleClass().add("plugin-detail-id");
-        return new VBox(18, heading, new Separator(), description, versionTitle, versionText,
-                notesTitle, notes, new Separator(), id);
+        TabPane details = pluginDetailsTabs(i18n,
+                new VBox(12, description, versionTitle, versionText),
+                new VBox(12, notesTitle, notes), new VBox(id));
+        VBox result = new VBox(12, heading, details);
+        VBox.setVgrow(details, Priority.ALWAYS);
+        return result;
     }
 
     private static VBox installedPluginDetail(I18nService i18n, PluginDocEntry entry,
@@ -2373,16 +2393,17 @@ public class PreferencesDialog {
         uninstall.getStyleClass().add("plugin-uninstall-button");
         uninstall.setDisable(!removable);
         uninstall.setOnAction(event -> uninstallAction.run());
-        HBox heading = new HBox(10, pluginAvatar(entry.metadata().displayName()), headingText,
-                state, toggle, uninstall);
-        heading.setAlignment(Pos.CENTER_LEFT);
+        javafx.scene.layout.FlowPane actions = new javafx.scene.layout.FlowPane(10, 6, toggle, uninstall, state);
+        actions.setAlignment(Pos.CENTER_LEFT);
+        VBox heading = new VBox(10, headingText, actions);
+        name.setWrapText(true);
 
         Label description = new Label(entry.metadata().description());
         description.setWrapText(true);
         description.getStyleClass().add("plugin-detail-description");
         GridPane metadata = new GridPane();
         metadata.setHgap(16);
-        metadata.setVgap(9);
+        metadata.setVgap(6);
         addPluginMetadataRow(metadata, 0, i18n.get("plugins.field.id"), entry.metadata().id());
         addPluginMetadataRow(metadata, 1, i18n.get("plugins.field.version"), entry.metadata().version());
         addPluginMetadataRow(metadata, 2, i18n.get("plugins.field.hostRange"), entry.hostRange(i18n));
@@ -2390,19 +2411,34 @@ public class PreferencesDialog {
         addPluginMetadataRow(metadata, 4, i18n.get("plugins.store.runtimeState"),
                 i18n.get(entry.enabled() ? "plugins.store.enabled" : "plugins.store.disabled"));
 
-        VBox result = new VBox(18, heading, new Separator(), description, metadata);
+        VBox overview = new VBox(12, description);
         if (!isBlank(entry.metadata().compatibilityWarning())) {
             Label warning = new Label(entry.metadata().compatibilityWarning());
             warning.setWrapText(true);
             warning.getStyleClass().add("plugin-detail-warning");
-            result.getChildren().add(warning);
+            overview.getChildren().add(warning);
         }
         if (entry.settingsNode() != null) {
             Label settingsTitle = new Label(i18n.get("plugins.settings"));
             settingsTitle.getStyleClass().add("plugin-detail-section-title");
-            result.getChildren().addAll(new Separator(), settingsTitle, entry.settingsNode());
+            overview.getChildren().addAll(new Separator(), settingsTitle, entry.settingsNode());
         }
+        TabPane details = pluginDetailsTabs(i18n, overview, null, metadata);
+        VBox result = new VBox(12, heading, details);
+        VBox.setVgrow(details, Priority.ALWAYS);
         return result;
+    }
+
+    private static TabPane pluginDetailsTabs(I18nService i18n, javafx.scene.Node overview,
+                                            javafx.scene.Node notes, javafx.scene.Node metadata) {
+        TabPane tabs = new TabPane();
+        tabs.getStyleClass().add("plugin-detail-tabs");
+        tabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
+        tabs.getTabs().add(new Tab(i18n.get("plugins.store.overview"), overview));
+        if (notes != null) tabs.getTabs().add(new Tab(i18n.get("plugins.store.releaseNotes"), notes));
+        tabs.getTabs().add(new Tab(i18n.get("plugins.store.additionalInfo"), metadata));
+        tabs.setPrefHeight(380);
+        return tabs;
     }
 
     private static void addPluginMetadataRow(GridPane grid, int row, String key, String value) {
@@ -2427,6 +2463,7 @@ public class PreferencesDialog {
     private static Label pluginStateBadge(String text, String stateStyleClass) {
         Label badge = new Label(text);
         badge.getStyleClass().addAll("plugin-state-badge", stateStyleClass);
+        badge.setMaxWidth(javafx.scene.layout.Region.USE_PREF_SIZE);
         return badge;
     }
 

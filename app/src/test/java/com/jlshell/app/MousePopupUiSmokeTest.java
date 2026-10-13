@@ -120,6 +120,15 @@ class MousePopupUiSmokeTest {
             }
             assertTrue(edt(workbench.frame()::isActive), "Robot must target the foreground test window");
             JButton gear = (JButton) field(workbench, "settingsButton");
+            // 前台激活早于 macOS 一体化标题栏完成布局，先等待实际点击位置稳定。
+            fx(() -> null); edt(() -> null);
+            Point previousGear = edt(() -> center(gear));
+            for (int attempt = 0; attempt < 10; attempt++) {
+                Thread.sleep(150);
+                Point currentGear = edt(() -> center(gear));
+                if (currentGear.equals(previousGear)) break;
+                previousGear = currentGear;
+            }
             mouse(edt(() -> center(gear)));
             IdeaListPopup root = popup();
             mouseRow(root, "主题");
@@ -168,7 +177,9 @@ class MousePopupUiSmokeTest {
             mouse(new Point((int) ((option.getMinX() + option.getMaxX()) / 2), (int) ((option.getMinY() + option.getMaxY()) / 2)));
             assertEquals("Dark", fx(combo::getValue), "Mouse must select the embedded theme option");
             JButton apply = edt(() -> (JButton) named(dialog, "settings.apply"));
+            edt(() -> { assertTrue(dialog.isEnabled()); assertTrue(apply.isEnabled()); return null; });
             mouse(edt(() -> center(apply)));
+            for (int attempt = 0; attempt < 50 && fx(themes::currentTheme) != AppTheme.DARK; attempt++) Thread.sleep(50);
             assertEquals(AppTheme.DARK, fx(themes::currentTheme), "Mouse Apply must update the host theme");
             assertEquals("DARK", fx(() -> persisted.get("ui.theme", "")));
             assertFalse(edt(workbench.frame()::isEnabled), "Apply must preserve settings modality");

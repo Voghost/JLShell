@@ -24,13 +24,14 @@ import java.util.concurrent.atomic.AtomicReference;
  * 搜索树、面包屑、分栏和动作栏遵循 IDEA；现有 FX 配置页与保存动作原样复用。
  */
 public final class SwingPreferencesDialog {
-    private record Page(int index, String title, String group, String searchText, Node content) {}
+    private record Page(int index, String title, String group, String searchText, Node content, TabPane headerTabs) {}
     private record Entry(String title, Page page) { public String toString() { return title; } }
 
     private final JDialog dialog;
     private final JTree tree = new JTree();
     private final JTextField search = new JTextField();
     private final JLabel breadcrumb = new JLabel();
+    private final JPanel pageTabs = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 10));
     private final JButton apply;
     private final JButton ok;
     private final SwingFxPanel content;
@@ -106,7 +107,11 @@ public final class SwingPreferencesDialog {
         breadcrumb.setName("settings.breadcrumb");
         breadcrumb.setBorder(BorderFactory.createEmptyBorder(14, 20, 14, 20));
         breadcrumb.setFont(breadcrumb.getFont().deriveFont(Font.BOLD, breadcrumb.getFont().getSize2D() + 1));
-        editor.add(breadcrumb, BorderLayout.NORTH);
+        JPanel pageHeader = new JPanel(new BorderLayout());
+        pageTabs.setName("settings.pageTabs");
+        pageHeader.add(breadcrumb, BorderLayout.WEST);
+        pageHeader.add(pageTabs, BorderLayout.CENTER);
+        editor.add(pageHeader, BorderLayout.NORTH);
         editor.add(content);
         JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, navigation, editor);
         split.setBorder(BorderFactory.createEmptyBorder());
@@ -209,6 +214,7 @@ public final class SwingPreferencesDialog {
         selected = page;
         breadcrumb.setText(page.group() == null ? page.title() : page.group() + "  ›  " + page.title());
         content.setDialogView(page.content());
+        refreshPageTabs(page);
         FxThread.run(() -> {
             if (content.getScene() == null) return;
             content.getScene().addEventHandler(javafx.scene.input.KeyEvent.KEY_PRESSED, event -> {
@@ -217,6 +223,32 @@ public final class SwingPreferencesDialog {
                     event.consume();
                     SwingUtilities.invokeLater(() -> { if (!busy) dialog.dispose(); });
                 }
+            });
+        });
+    }
+
+    private void refreshPageTabs(Page page) {
+        FxThread.run(() -> {
+            List<String> titles = page.headerTabs() == null ? List.of()
+                    : page.headerTabs().getTabs().stream().map(javafx.scene.control.Tab::getText).toList();
+            int index = page.headerTabs() == null ? -1 : page.headerTabs().getSelectionModel().getSelectedIndex();
+            SwingUtilities.invokeLater(() -> {
+                if (selected != page) return;
+                pageTabs.removeAll();
+                for (int i = 0; i < titles.size(); i++) {
+                    int tabIndex = i;
+                    JToggleButton button = new JToggleButton(titles.get(i), index == i);
+                    button.setName("settings.pluginTab." + i);
+                    button.setBorderPainted(index == i);
+                    button.setContentAreaFilled(index == i);
+                    button.putClientProperty("FlatLaf.style", java.util.Map.of(
+                            "selectedBackground", SwingTheme.color("popupSelection"),
+                            "selectedForeground", UIManager.getColor("Label.foreground"), "arc", 6));
+                    button.addActionListener(event -> FxThread.run(() ->
+                            page.headerTabs().getSelectionModel().select(tabIndex)));
+                    pageTabs.add(button);
+                }
+                pageTabs.revalidate(); pageTabs.repaint();
             });
         });
     }
@@ -278,13 +310,27 @@ public final class SwingPreferencesDialog {
             tab.getContent().getStyleClass().add("idea-settings-content");
             StringBuilder text = new StringBuilder(tab.getText()).append(' ').append(group);
             searchableText(tab.getContent(), text);
-            pages.add(new Page(index, tab.getText(), group, text.toString().toLowerCase(Locale.ROOT), tab.getContent()));
+            TabPane headerTabs = (TabPane) tab.getContent().getProperties().get("jlshell.headerTabs");
+            if (headerTabs != null) headerTabs.getStyleClass().add("plugin-external-tabs");
+            pages.add(new Page(index, tab.getText(), group, text.toString().toLowerCase(Locale.ROOT), tab.getContent(), headerTabs));
         }
         int initial = tabs.getSelectionModel().getSelectedIndex();
         boolean disabled = fxApply.isDisabled();
         Object loop = new Object();
         AtomicReference<SwingPreferencesDialog> view = new AtomicReference<>();
         AtomicReference<Throwable> error = new AtomicReference<>();
+        List<Runnable> removeHeaderListeners = new ArrayList<>();
+        for (Page page : pages) if (page.headerTabs() != null) {
+            ChangeListener<Object> listener = (o, old, value) -> {
+                if (view.get() != null) view.get().refreshPageTabs(page);
+            };
+            page.headerTabs().getSelectionModel().selectedIndexProperty().addListener(listener);
+            removeHeaderListeners.add(() -> page.headerTabs().getSelectionModel().selectedIndexProperty().removeListener(listener));
+            for (var tab : page.headerTabs().getTabs()) {
+                tab.textProperty().addListener(listener);
+                removeHeaderListeners.add(() -> tab.textProperty().removeListener(listener));
+            }
+        }
         ChangeListener<Boolean> applyListener = (o, old, value) -> SwingUtilities.invokeLater(() -> {
             if (view.get() != null) view.get().apply.setEnabled(!value);
         });
@@ -292,6 +338,7 @@ public final class SwingPreferencesDialog {
             if (view.get() != null) {
                 SwingTheme.update(view.get().dialog);
                 view.get().styleTreeSelection();
+                if (view.get().selected != null) view.get().refreshPageTabs(view.get().selected);
             }
         });
         javafx.collections.ListChangeListener<javafx.stage.Window> modalListener = change -> {
@@ -307,6 +354,7 @@ public final class SwingPreferencesDialog {
         themes.accentColorProperty().addListener(themeListener);
         javafx.stage.Window.getWindows().addListener(modalListener);
         Runnable closed = () -> FxThread.run(() -> {
+            removeHeaderListeners.forEach(Runnable::run);
             fxApply.disabledProperty().removeListener(applyListener);
             themes.currentThemeProperty().removeListener(themeListener);
             themes.accentColorProperty().removeListener(themeListener);

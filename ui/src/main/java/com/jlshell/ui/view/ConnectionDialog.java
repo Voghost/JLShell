@@ -84,21 +84,33 @@ public final class ConnectionDialog {
         // Connection type
         ComboBox<ConnectionType> typeBox = new ComboBox<>(FXCollections.observableArrayList(ConnectionType.values()));
         typeBox.setValue(initialData.connectionType());
+        typeBox.setId("connection-type");
+        enumLabels(typeBox, value -> value == ConnectionType.SSH ? "SSH" : i18n.get("connection.type.localShell"));
 
         TextField displayNameField = new TextField(initialData.displayName());
         TextField hostField = new TextField(initialData.host());
         TextField portField = new TextField(String.valueOf(initialData.port()));
         TextField usernameField = new TextField(initialData.username());
+        displayNameField.setId("connection-name");
+        hostField.setId("connection-host");
+        portField.setId("connection-port");
+        usernameField.setId("connection-user");
         ComboBox<AuthenticationType> authTypeBox = new ComboBox<>(FXCollections.observableArrayList(AuthenticationType.values()));
         authTypeBox.setValue(initialData.authenticationType());
+        authTypeBox.setId("connection-auth");
+        enumLabels(authTypeBox, value -> i18n.get("connection.auth." + value.name()));
         PasswordField passwordField = new PasswordField();
         passwordField.setText(initialData.password());
         TextField privateKeyPathField = new TextField(initialData.privateKeyPath());
         PasswordField passphraseField = new PasswordField();
         passphraseField.setText(initialData.passphrase());
+        passwordField.setId("connection-password");
+        privateKeyPathField.setId("connection-key-path");
+        passphraseField.setId("connection-key-passphrase");
         ComboBox<HostKeyVerificationMode> hostKeyBox =
                 new ComboBox<>(FXCollections.observableArrayList(HostKeyVerificationMode.values()));
         hostKeyBox.setValue(initialData.hostKeyVerificationMode());
+        enumLabels(hostKeyBox, value -> i18n.get("connection.hostKey." + value.name()));
         TextField defaultRemotePathField = new TextField(initialData.defaultRemotePath());
         TextArea descriptionArea = new TextArea(initialData.description());
         descriptionArea.setPrefRowCount(3);
@@ -154,6 +166,7 @@ public final class ConnectionDialog {
         ObservableList<VaultEntryProfile> vaultItems = FXCollections.observableArrayList();
         vaultItems.add(noneEntry);
         ComboBox<VaultEntryProfile> vaultBox = new ComboBox<>(vaultItems);
+        vaultBox.setId("connection-vault");
         vaultBox.setCellFactory(lv -> new ListCell<>() {
             @Override protected void updateItem(VaultEntryProfile item, boolean empty) {
                 super.updateItem(item, empty);
@@ -196,7 +209,7 @@ public final class ConnectionDialog {
         reloadVaultEntries.run();
 
         Hyperlink manageVaultLink = new Hyperlink(i18n.get("connection.vaultManage"));
-        manageVaultLink.setStyle("-fx-font-size: 0.85em;");
+        manageVaultLink.setStyle("-fx-font-size: 1em;");
         manageVaultLink.setOnAction(e -> {
             ProjectProfile selectedProject = projectBox.getValue();
             String pid = selectedProject != null ? selectedProject.id() : null;
@@ -215,9 +228,7 @@ public final class ConnectionDialog {
                 // "None (Manual)" — unlock fields
                 vaultEntryIdHolder[0] = null;
                 keyContentHolder[0] = null;
-                passwordField.setDisable(false);
-                privateKeyPathField.setDisable(false);
-                passphraseField.setDisable(false);
+                // 这三个控件的禁用状态由下方绑定负责，不能在选择监听器里再次写绑定属性。
                 authTypeBox.setDisable(false);
             } else {
                 // Vault entry selected — decrypt and fill
@@ -248,17 +259,11 @@ public final class ConnectionDialog {
                     privateKeyPathField.setText(vaultForm.privateKeyPath() != null ? vaultForm.privateKeyPath() : "");
                     keyContentHolder[0] = vaultForm.keyContent();
                     // Lock fields
-                    passwordField.setDisable(true);
-                    privateKeyPathField.setDisable(true);
-                    passphraseField.setDisable(true);
                     authTypeBox.setDisable(true);
                 } catch (Exception ex) {
                     // If vault entry can't be loaded, fall back to manual
                     vaultEntryIdHolder[0] = null;
                     keyContentHolder[0] = null;
-                    passwordField.setDisable(false);
-                    privateKeyPathField.setDisable(false);
-                    passphraseField.setDisable(false);
                     authTypeBox.setDisable(false);
                 }
             }
@@ -273,9 +278,14 @@ public final class ConnectionDialog {
 
         GridPane form = new GridPane();
         form.getStyleClass().add("form-grid");
+        form.getStyleClass().add("connection-form");
         form.setHgap(12);
-        form.setVgap(10);
-        form.setPadding(new Insets(20));
+        form.setVgap(6);
+        form.setPadding(new Insets(12));
+        var labels = new javafx.scene.layout.ColumnConstraints(110);
+        var values = new javafx.scene.layout.ColumnConstraints();
+        values.setHgrow(javafx.scene.layout.Priority.ALWAYS);
+        form.getColumnConstraints().addAll(labels, values);
 
         // SSH-only rows — labels and fields we'll show/hide
         Label hostLabel = new Label(i18n.get("connection.host"));
@@ -299,7 +309,8 @@ public final class ConnectionDialog {
         form.add(portField, 1, row++);
         form.add(usernameLabel, 0, row);
         form.add(usernameField, 1, row++);
-        form.add(new Label(i18n.get("connection.vaultEntry")), 0, row);
+        Label vaultLabel = new Label(i18n.get("connection.vaultEntry"));
+        form.add(vaultLabel, 0, row);
         HBox vaultRow = new HBox(8, vaultBox, manageVaultLink);
         vaultRow.setAlignment(Pos.CENTER_LEFT);
         form.add(vaultRow, 1, row++);
@@ -336,9 +347,25 @@ public final class ConnectionDialog {
             hostKeyLabel.setVisible(isSsh); hostKeyBox.setVisible(isSsh);
             remotePathLabel.setVisible(isSsh); defaultRemotePathField.setVisible(isSsh);
             vaultRow.setVisible(isSsh); vaultRow.setManaged(isSsh);
+            vaultLabel.setVisible(isSsh);
         };
         typeBox.valueProperty().addListener(typeListener);
         typeListener.changed(null, null, typeBox.getValue());
+
+        // 仅呈现当前认证方式的字段；原字段值、凭据绑定和校验规则不变。
+        Runnable updateAuthenticationRows = () -> {
+            boolean ssh = typeBox.getValue() == ConnectionType.SSH;
+            boolean key = authTypeBox.getValue() == AuthenticationType.PRIVATE_KEY;
+            passwordLabel.setVisible(ssh && !key); passwordField.setVisible(ssh && !key);
+            privateKeyLabel.setVisible(ssh && key); privateKeyPathField.setVisible(ssh && key);
+            passphraseLabel.setVisible(ssh && key); passphraseField.setVisible(ssh && key);
+            for (javafx.scene.Node node : form.getChildren()) node.setManaged(node.isVisible());
+        };
+        authTypeBox.valueProperty().addListener((o, old, value) -> updateAuthenticationRows.run());
+        typeBox.valueProperty().addListener((o, old, value) -> {
+            updateAuthenticationRows.run();
+        });
+        updateAuthenticationRows.run();
 
         // Auth type disable binding (only when not locked by vault)
         passwordField.disableProperty().bind(
@@ -366,12 +393,12 @@ public final class ConnectionDialog {
         // Test connection button + result label
         Button testBtn = new Button(i18n.get("action.testConnection"));
         testBtn.getStyleClass().add("button-primary");
-        testBtn.setStyle("-fx-padding:4 12;-fx-font-size: 0.92em;");
+        testBtn.setStyle("-fx-padding:4 12;-fx-font-size: 1em;");
         Button pasteShareBtn = new Button(i18n.get("connection.share.pasteButton"));
         pasteShareBtn.setVisible(initialData.id() == null);
         pasteShareBtn.setManaged(initialData.id() == null);
         Label testResult = new Label();
-        testResult.setStyle("-fx-font-size: 0.85em;");
+        testResult.setStyle("-fx-font-size: 1em;");
 
         Runnable updateTestBtnVisibility = () -> {
             boolean isSsh = typeBox.getValue() == ConnectionType.SSH;
@@ -493,10 +520,15 @@ public final class ConnectionDialog {
         HBox testActions = new HBox(8, testBtn, pasteShareBtn);
         testActions.setAlignment(Pos.CENTER_LEFT);
         VBox testRow = new VBox(4, testActions, testResult);
-        testRow.setPadding(new Insets(4, 20, 8, 20));
+        testRow.setPadding(new Insets(4, 12, 12, 12));
 
         VBox content = new VBox(form, testRow);
-        dialogPane.setContent(content);
+        content.getStyleClass().add("connection-editor");
+        javafx.scene.control.ScrollPane scroll = new javafx.scene.control.ScrollPane(content);
+        scroll.setFitToWidth(true);
+        scroll.setHbarPolicy(javafx.scene.control.ScrollPane.ScrollBarPolicy.NEVER);
+        scroll.getStyleClass().add("connection-scroll");
+        dialogPane.setContent(scroll);
 
         dialogPane.lookupButton(ButtonType.OK).disableProperty().bind(Bindings.createBooleanBinding(
                 () -> {
@@ -537,7 +569,20 @@ public final class ConnectionDialog {
             );
         });
 
-        return dialog.showAndWait();
+        return com.jlshell.ui.swing.SwingDialogHost.enabled()
+                ? com.jlshell.ui.swing.SwingDialogHost.showAndWait(dialog, themeService, i18n, "jlshell.connection", 700, 760)
+                : dialog.showAndWait();
+    }
+
+    private static <T> void enumLabels(ComboBox<T> box, java.util.function.Function<T, String> label) {
+        java.util.function.Supplier<ListCell<T>> cell = () -> new ListCell<>() {
+            @Override protected void updateItem(T item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? null : label.apply(item));
+            }
+        };
+        box.setCellFactory(list -> cell.get());
+        box.setButtonCell(cell.get());
     }
 
     public static Optional<ConnectionFormData> showPasteShareDialog(Window owner, I18nService i18n,

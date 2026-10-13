@@ -69,3 +69,12 @@ platform/platform-api/src/com/intellij/ui/dsl/builder/SpacingConfiguration.kt
 platform/platform-impl/src/com/intellij/ide/actions/AboutDialog.java
 SwingDialogChrome and SwingDialogHost use JLShell's existing FX dialog models,
 events and plugin nodes; no IntelliJ services or JBR native APIs are included.
+
+Plugin page header/content separation, compact rows and independent detail actions
+reference these Apache-2.0 sources. JLShell's existing marketplace client,
+installer, enablement callbacks and external plugin settings Node are retained.
+platform/platform-impl/src/com/intellij/ide/plugins/PluginManagerConfigurablePanel.kt
+platform/platform-impl/src/com/intellij/ide/plugins/newui/TabbedPaneHeaderComponent.java
+platform/platform-impl/src/com/intellij/ide/plugins/newui/ListPluginComponent.kt
+platform/platform-impl/src/com/intellij/ide/plugins/newui/PluginDetailsPageComponent.kt
+plugins/svn4idea/src/org/jetbrains/idea/svn/dialogs/ServerSSHDialog.java

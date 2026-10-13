@@ -2094,300 +2094,94 @@
     -fx-font-size: 1em;
 }
 
-.plugin-scope-badge {
-    -fx-font-size: 0.78em;
-    -fx-font-weight: 700;
-    -fx-padding: 2 7 2 7;
-    -fx-background-radius: 999;
-    -fx-border-radius: 999;
-    -fx-border-width: 1;
-}
-
-.plugin-scope-program {
-    -fx-text-fill: -jl-teal;
-    -fx-background-color: -jl-teal;
-    -fx-border-color: -jl-teal;
-}
-
-.plugin-scope-session {
-    -fx-text-fill: -jl-secondary;
-    -fx-background-color: -jl-blue;
-    -fx-border-color: -jl-secondary;
-}
-
-.plugin-version-label {
-    -fx-font-size: 0.82em;
-    -fx-text-fill: -jl-secondary;
-}
-
-.plugin-manager-pane {
-    -fx-padding: 12 14 8 14;
+/* IDEA TabbedPaneHeaderComponent / ListPluginComponent / PluginDetailsPageComponent.
+   页签和内容分离，列表采用 10px 内边距；不使用卡片轮廓或逐行亮色边框。 */
+.plugin-scope-badge, .plugin-state-badge {
+    -fx-font-size: 12px;
+    -fx-padding: 2 6;
+    -fx-background-radius: 4;
+    -fx-border-width: 0;
+    -fx-text-fill: -jl-text;
     -fx-background-color: -jl-hover;
 }
-
+.plugin-version-label { -fx-font-size: 12px; -fx-text-fill: -jl-secondary; }
+.plugin-manager-pane { -fx-padding: 0; -fx-background-color: -jl-canvas; }
 .plugin-manager-tabs {
     -fx-background-color: -jl-canvas;
-    -fx-border-color: -jl-border;
-    -fx-border-width: 1;
-    -fx-border-radius: 4;
-    -fx-background-radius: 4;
-    -fx-tab-min-height: 32px;
+    -fx-border-width: 0;
+    -fx-tab-min-height: 28px;
 }
-
 .plugin-manager-tabs > .tab-header-area {
-    -fx-padding: 9 14 0 14;
-    -fx-background-color: -jl-panel;
-    -fx-border-color: transparent transparent -jl-hover transparent;
-    -fx-border-width: 0 0 1 0;
-    -fx-background-radius: 8 8 0 0;
+    -fx-padding: 0 12 6 12;
+    -fx-background-color: -jl-canvas;
 }
-
-.plugin-manager-tabs > .tab-header-area > .tab-header-background {
-    -fx-background-color: transparent;
-}
-
+.plugin-manager-tabs > .tab-header-area > .tab-header-background { -fx-background-color: transparent; }
 .plugin-manager-tabs > .tab-header-area .tab {
     -fx-background-color: transparent;
-    -fx-background-radius: 6 6 0 0;
-    -fx-padding: 6 16 7 16;
+    -fx-background-radius: 4;
+    -fx-padding: 4 12;
 }
-
-.plugin-manager-tabs > .tab-header-area .tab:hover {
-    -fx-background-color: -jl-text;
+.plugin-manager-tabs > .tab-header-area .tab:hover { -fx-background-color: -jl-hover; }
+.plugin-manager-tabs > .tab-header-area .tab:selected { -fx-background-color: -jl-blue-subtle; }
+.plugin-manager-tabs > .tab-header-area .tab .tab-label { -fx-text-fill: -jl-text; }
+.plugin-external-tabs > .tab-header-area {
+    -fx-min-height: 0; -fx-pref-height: 0; -fx-max-height: 0; -fx-padding: 0;
 }
-
-.plugin-manager-tabs > .tab-header-area .tab:selected {
-    -fx-background-color: -jl-blue;
+.plugin-manager-tabs > .tab-content-area, .plugin-marketplace-root, .plugin-content-split {
+    -fx-background-color: -jl-canvas; -fx-padding: 0;
 }
-
-.plugin-manager-tabs > .tab-content-area,
-.plugin-marketplace-root,
-.plugin-content-split {
-    -fx-background-color: -jl-canvas;
+.plugin-content-split > .split-pane-divider {
+    -fx-background-color: -jl-border; -fx-padding: 0 0.5;
 }
-
-.plugin-list-pane {
-    -fx-padding: 12;
-    -fx-background-color: -jl-panel;
+.plugin-list-pane { -fx-padding: 0; -fx-background-color: -jl-canvas; }
+.plugin-toolbar { -fx-alignment: center-left; -fx-padding: 4 8; }
+.plugin-toolbar .text-field, .plugin-toolbar .combo-box, .plugin-toolbar .button {
+    -fx-pref-height: 28px; -fx-font-size: 1em;
 }
-
-.plugin-toolbar {
-    -fx-alignment: center-left;
-}
-
-.plugin-search-field {
-    -fx-pref-height: 32px;
-}
-
+.plugin-toolbar .combo-box { -fx-min-width: 112px; -fx-pref-width: 112px; }
+.plugin-search-field { -fx-pref-height: 28px; }
 .plugin-manager-list {
-    -fx-background-color: -jl-canvas;
-    -fx-border-color: -jl-hover;
-    -fx-border-width: 1;
-    -fx-border-radius: 6;
-    -fx-background-radius: 6;
-    -fx-padding: 0;
+    -fx-background-color: -jl-canvas; -fx-border-width: 0; -fx-padding: 0;
 }
-
-.plugin-manager-list .list-cell,
-.plugin-manager-list .list-cell:odd {
-    -fx-padding: 0;
-    -fx-background-color: -jl-canvas;
-    -fx-border-color: transparent;
-    -fx-border-width: 0;
+.plugin-manager-list .list-cell, .plugin-manager-list .list-cell:odd {
+    -fx-padding: 0; -fx-background-color: -jl-canvas; -fx-border-width: 0;
 }
-
-.plugin-manager-list .list-cell:filled,
-.plugin-manager-list .list-cell:filled:odd {
-    -fx-border-color: transparent transparent -jl-text transparent;
-    -fx-border-width: 0 0 1 0;
-}
-
-.plugin-manager-list .list-cell:filled:hover {
-    -fx-background-color: -jl-panel;
-}
-
+.plugin-manager-list .list-cell:filled:hover { -fx-background-color: -jl-hover; }
 .plugin-manager-list .list-cell:filled:selected,
-.plugin-manager-list .list-cell:filled:selected:focused {
-    -fx-background-color: -jl-blue-subtle;
-}
-
-.plugin-list-cell-content {
-    -fx-padding: 12 14 12 14;
-    -fx-min-height: 78px;
-}
-
+.plugin-manager-list .list-cell:filled:selected:focused { -fx-background-color: -jl-blue-subtle; }
+.plugin-list-cell-content { -fx-padding: 10; -fx-min-height: 74px; }
 .plugin-avatar {
-    -fx-min-width: 46px;
-    -fx-pref-width: 46px;
-    -fx-max-width: 46px;
-    -fx-min-height: 46px;
-    -fx-pref-height: 46px;
-    -fx-max-height: 46px;
-    -fx-background-color: -jl-panel;
-    -fx-background-radius: 4;
+    -fx-min-width: 40px; -fx-pref-width: 40px; -fx-max-width: 40px;
+    -fx-min-height: 40px; -fx-pref-height: 40px; -fx-max-height: 40px;
+    -fx-background-color: -jl-blue-subtle; -fx-background-radius: 6;
 }
-
-.plugin-avatar-text {
-    -fx-text-fill: white;
-    -fx-font-size: 1.45em;
-    -fx-font-weight: 800;
-}
-
-.plugin-item-name {
-    -fx-text-fill: -jl-text;
-    -fx-font-size: 1.02em;
-    -fx-font-weight: 700;
-}
-
-.plugin-item-description,
-.plugin-item-meta,
-.plugin-detail-author,
-.plugin-detail-meta,
-.plugin-detail-id {
-    -fx-text-fill: -jl-secondary;
-}
-
-.plugin-item-description {
-    -fx-font-size: 0.88em;
-}
-
-.plugin-item-meta {
-    -fx-font-size: 0.82em;
-}
-
-.plugin-detail-scroll,
-.plugin-detail-scroll > .viewport {
-    -fx-background-color: -jl-canvas;
-}
-
-.plugin-detail-pane {
-    -fx-padding: 26 30 30 30;
-    -fx-spacing: 18;
-    -fx-background-color: -jl-canvas;
-}
-
-.plugin-detail-title {
-    -fx-text-fill: -jl-text;
-    -fx-font-size: 1.45em;
-    -fx-font-weight: 800;
-}
-
-.plugin-detail-description {
-    -fx-text-fill: -jl-text;
-    -fx-font-size: 0.98em;
-    -fx-line-spacing: 3px;
-}
-
-.plugin-detail-section-title {
-    -fx-text-fill: -jl-text;
-    -fx-font-size: 1.02em;
-    -fx-font-weight: 700;
-}
-
-.plugin-detail-meta-key {
-    -fx-text-fill: -jl-muted;
-    -fx-min-width: 110px;
-}
-
-.plugin-detail-meta-value {
-    -fx-text-fill: -jl-text;
-}
-
+.plugin-avatar-text { -fx-text-fill: -jl-text; -fx-font-size: 20px; -fx-font-weight: bold; }
+.plugin-item-name { -fx-text-fill: -jl-text; -fx-font-size: 1em; -fx-font-weight: bold; }
+.plugin-item-description, .plugin-item-meta, .plugin-detail-author,
+.plugin-detail-meta, .plugin-detail-id { -fx-text-fill: -jl-secondary; }
+.plugin-item-description, .plugin-item-meta { -fx-font-size: 12px; }
+.plugin-detail-scroll, .plugin-detail-scroll > .viewport { -fx-background-color: -jl-canvas; }
+.plugin-detail-pane { -fx-padding: 16 20; -fx-spacing: 12; -fx-background-color: -jl-canvas; }
+.plugin-detail-title { -fx-text-fill: -jl-text; -fx-font-size: 20px; -fx-font-weight: bold; }
+.plugin-detail-description { -fx-text-fill: -jl-text; -fx-font-size: 1em; -fx-line-spacing: 2px; }
+.plugin-detail-section-title { -fx-text-fill: -jl-text; -fx-font-size: 1em; -fx-font-weight: bold; }
+.plugin-detail-meta-key { -fx-text-fill: -jl-secondary; -fx-min-width: 100px; }
+.plugin-detail-meta-value { -fx-text-fill: -jl-text; }
 .plugin-detail-warning {
-    -fx-text-fill: -jl-yellow;
-    -fx-background-color: -jl-orange;
-    -fx-background-radius: 6;
-    -fx-padding: 10 12;
+    -fx-text-fill: -jl-text; -fx-background-color: -jl-hover;
+    -fx-background-radius: 4; -fx-padding: 8 10;
 }
-
-.plugin-detail-pane .separator .line {
-    -fx-border-color: -jl-hover;
+.plugin-detail-pane .separator .line { -fx-border-color: -jl-border; }
+.plugin-install-button, .plugin-enable-button, .plugin-disable-button, .plugin-uninstall-button {
+    -fx-text-fill: -jl-text; -fx-background-color: -jl-canvas; -fx-border-color: -jl-border;
+    -fx-border-width: 1; -fx-border-radius: 4; -fx-background-radius: 4;
+    -fx-font-size: 1em; -fx-font-weight: normal; -fx-padding: 4 12;
 }
-
-.plugin-install-button {
-    -fx-text-fill: -jl-green;
-    -fx-background-color: transparent;
-    -fx-border-color: -jl-green;
-    -fx-border-width: 1;
-    -fx-border-radius: 6;
-    -fx-background-radius: 6;
-    -fx-font-weight: 700;
-    -fx-padding: 7 15;
+.plugin-install-button { -fx-text-fill: white; -fx-background-color: -jl-accent; -fx-border-color: -jl-accent; }
+.plugin-install-button:hover { -fx-background-color: -jl-accent; -fx-border-color: -jl-accent-border; }
+.plugin-enable-button:hover, .plugin-disable-button:hover, .plugin-uninstall-button:hover {
+    -fx-text-fill: -jl-text; -fx-background-color: -jl-hover;
 }
-
-.plugin-install-button:hover {
-    -fx-text-fill: white;
-    -fx-background-color: -jl-green;
-}
-
-.plugin-state-badge {
-    -fx-padding: 3 8;
-    -fx-background-radius: 4;
-    -fx-font-size: 0.78em;
-    -fx-font-weight: 700;
-}
-
-.plugin-state-installed,
-.plugin-state-enabled {
-    -fx-text-fill: -jl-green;
-    -fx-background-color: -jl-green;
-    -fx-border-color: -jl-green;
-    -fx-border-radius: 4;
-}
-
-.plugin-state-disabled {
-    -fx-text-fill: -jl-orange;
-    -fx-background-color: -jl-orange;
-    -fx-border-color: -jl-orange;
-    -fx-border-radius: 4;
-}
-
-.plugin-enable-button,
-.plugin-disable-button {
-    -fx-background-color: transparent;
-    -fx-border-width: 1;
-    -fx-border-radius: 6;
-    -fx-background-radius: 6;
-    -fx-font-weight: 700;
-    -fx-padding: 7 15;
-}
-
-.plugin-enable-button {
-    -fx-text-fill: -jl-green;
-    -fx-border-color: -jl-green;
-}
-
-.plugin-enable-button:hover {
-    -fx-text-fill: white;
-    -fx-background-color: -jl-green;
-}
-
-.plugin-disable-button {
-    -fx-text-fill: -jl-orange;
-    -fx-border-color: -jl-orange;
-}
-
-.plugin-disable-button:hover {
-    -fx-text-fill: -jl-canvas;
-    -fx-background-color: -jl-orange;
-}
-
-.plugin-uninstall-button {
-    -fx-text-fill: -jl-red;
-    -fx-background-color: transparent;
-    -fx-border-color: -jl-red;
-    -fx-border-width: 1;
-    -fx-border-radius: 6;
-    -fx-background-radius: 6;
-    -fx-font-weight: 700;
-    -fx-padding: 7 15;
-}
-
-.plugin-uninstall-button:hover {
-    -fx-text-fill: white;
-    -fx-background-color: -jl-red-subtle;
-}
-
 .plugin-install-progress {
     -fx-pref-height: 5;
     -fx-max-height: 5;
@@ -3248,3 +3042,34 @@
 .idea-actions-row .shortcut-key-button { -fx-background-color: transparent; -fx-border-color: transparent; -fx-text-fill: -jl-secondary; -fx-padding: 3 6; }
 .idea-actions-row .shortcut-key-button:hover { -fx-border-color: -jl-border; -fx-background-color: -jl-hover; }
 .idea-actions-row .shortcut-clear-button { -fx-background-color: transparent; -fx-padding: 2 4; }
+
+/* Connection editor uses the same compact, outlined controls as IDEA settings. */
+.connection-editor, .connection-scroll, .connection-scroll > .viewport { -fx-background-color: -jl-canvas; }
+.connection-form .label { -fx-text-fill: -jl-text; -fx-font-size: 1em; }
+.connection-form .text-field, .connection-form .combo-box, .connection-form .text-area {
+    -fx-background-color: -jl-frame;
+    -fx-border-color: -jl-border;
+    -fx-border-width: 1;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+    -fx-font-size: 1em;
+    -fx-padding: 3 6;
+}
+.connection-form .text-field:focused, .connection-form .combo-box:focused, .connection-form .text-area:focused { -fx-border-color: -jl-accent; }
+.connection-form .combo-box .list-cell { -fx-background-color: transparent; -fx-text-fill: -jl-text; -fx-padding: 2 4; }
+.connection-form .text-area .content { -fx-background-color: -jl-frame; -fx-padding: 4; }
+.connection-form .hyperlink { -fx-text-fill: -jl-blue; -fx-font-size: 1em; }
+
+.plugin-detail-tabs { -fx-background-color: transparent; -fx-border-width: 0; }
+.plugin-detail-tabs > .tab-header-area { -fx-padding: 0 0 8 0; }
+.plugin-detail-tabs > .tab-header-area .tab-header-background { -fx-background-color: transparent; }
+.plugin-detail-tabs > .tab-header-area .tab { -fx-padding: 4 10; -fx-background-radius: 4; -fx-border-width: 0; }
+.plugin-detail-tabs > .tab-header-area .tab:selected { -fx-background-color: -jl-blue-subtle; -fx-border-color: -jl-accent; -fx-border-width: 1; -fx-border-radius: 4; }
+.plugin-detail-tabs > .tab-header-area .tab .tab-label { -fx-text-fill: -jl-text; }
+.plugin-detail-tabs > .tab-content-area { -fx-padding: 12 0 0 0; }
+.plugin-manager-pane .plugin-install-button { -fx-background-color: -jl-accent; -fx-border-color: -jl-accent; -fx-text-fill: white; }
+.connection-form .combo-box:disabled { -fx-opacity: 1; }
+.connection-form .combo-box:disabled > .list-cell { -fx-opacity: 0.65; }
+.connection-form .text-field:disabled { -fx-opacity: 0.65; }
+
+.plugin-detail-tabs > .tab-header-area .tab .tab-label { -fx-border-width: 0; -fx-padding: 0; }
