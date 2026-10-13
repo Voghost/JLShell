@@ -46,7 +46,8 @@ public final class SwingWorkbench implements AutoCloseable {
             "project.popup.current", "project.popup.other", "project.popup.defaultDescription",
             "project.search.prompt", "settings.quick.plugins", "settings.quick.shortcuts", "settings.quick.theme",
             "settings.quick.view", "settings.quick.account", "menu.help.about", "menu.help.checkUpdates",
-            "menu.view", "menu.account", "theme.dark", "theme.light", "preferences.tab.plugins", "preferences.tab.shortcuts");
+            "menu.view", "menu.account", "menu.file", "menu.connections", "menu.help", "menu.settings",
+            "theme.dark", "theme.light", "preferences.tab.plugins", "preferences.tab.shortcuts");
 
     private final JFrame frame = new JFrame("JLShell");
     private final Actions actions;
@@ -741,7 +742,7 @@ public final class SwingWorkbench implements AutoCloseable {
     }
 
     private void showMainMenu() {
-        requestMenus(specs -> new com.jlshell.ui.swing.idea.IdeaListPopup(menuRows(specs), 330, false, "")
+        requestMenus(specs -> new com.jlshell.ui.swing.idea.IdeaListPopup(menuRows(specs, true), 144, false, "")
                 .show(menuButton, 0, menuButton.getHeight() + 4));
     }
 
@@ -778,12 +779,25 @@ public final class SwingWorkbench implements AutoCloseable {
     }
 
     private List<com.jlshell.ui.swing.idea.IdeaListPopup.Row> menuRows(List<SwingMenuBridge.Item> specs) {
+        return menuRows(specs, false);
+    }
+
+    private List<com.jlshell.ui.swing.idea.IdeaListPopup.Row> menuRows(List<SwingMenuBridge.Item> specs, boolean topLevel) {
         var rows = new ArrayList<com.jlshell.ui.swing.idea.IdeaListPopup.Row>();
         String group = null;
         for (var item : specs) {
             if (item.kind() == 1) { group = ""; continue; }
             Icon icon = item.text().equals(text("action.preferences")) ? new WorkbenchIcon(WorkbenchIcon.Kind.SETTINGS)
                     : item.text().equals(text("action.newConnection")) ? new WorkbenchIcon(WorkbenchIcon.Kind.ADD) : null;
+            if (topLevel) {
+                WorkbenchIcon.Kind kind = item.text().equals(text("menu.file")) ? WorkbenchIcon.Kind.FOLDER
+                        : item.text().equals(text("menu.connections")) ? WorkbenchIcon.Kind.SERVER
+                        : item.text().equals(text("menu.account")) ? WorkbenchIcon.Kind.USER
+                        : item.text().equals(text("menu.view")) ? WorkbenchIcon.Kind.LAYOUT
+                        : item.text().equals(text("menu.settings")) ? WorkbenchIcon.Kind.SETTINGS
+                        : item.text().equals(text("menu.help")) ? WorkbenchIcon.Kind.HELP : null;
+                if (kind != null) icon = new WorkbenchIcon(kind);
+            }
             rows.add(new com.jlshell.ui.swing.idea.IdeaListPopup.Row(item.text(), null, icon,
                     item.checked() ? "✓" : item.shortcut(), group, !item.disabled(), menuRows(item.children()), item.action()));
             group = null;

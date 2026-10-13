@@ -10,7 +10,7 @@ import java.awt.geom.Path2D;
 
 /** 独立的 16px 线条图标，使用逻辑坐标，由 Swing 的 HiDPI 变换缩放。 */
 public record WorkbenchIcon(Kind kind) implements Icon {
-    public enum Kind { SERVER, FOLDER, ADD, RUN, REFRESH, SETTINGS, CLOSE, TERMINAL, PROJECT, EDIT, DELETE, SEARCH, MORE, HIDE, DOCK, MENU, MONITOR }
+    public enum Kind { SERVER, FOLDER, ADD, RUN, REFRESH, SETTINGS, CLOSE, TERMINAL, PROJECT, EDIT, DELETE, SEARCH, MORE, HIDE, DOCK, MENU, MONITOR, USER, HELP, LAYOUT }
     public int getIconWidth() { return 16; }
     public int getIconHeight() { return 16; }
 
