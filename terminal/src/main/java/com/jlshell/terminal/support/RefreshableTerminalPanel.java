@@ -56,6 +56,12 @@ public class RefreshableTerminalPanel extends TerminalPanel {
     private boolean ignoreNextShiftInsertTyped;
     private Font lastVisualFont;
     private float lastVisualLineSpacing;
+    public record PopupAction(String label, String shortcut, boolean enabled, boolean separator, Runnable action) {}
+    @FunctionalInterface public interface PopupPresenter {
+        void show(java.awt.Component invoker, int x, int y, java.util.List<PopupAction> actions);
+    }
+    private PopupPresenter popupPresenter;
+    public void setPopupPresenter(PopupPresenter presenter) { popupPresenter = presenter; }
 
     /**
      * JediTermWidget 在 init 时通过 setCoordAccessor 注入 TerminalCoordinates，
@@ -160,6 +166,23 @@ public class RefreshableTerminalPanel extends TerminalPanel {
 
     @Override
     protected JPopupMenu createPopupMenu(TerminalActionProvider provider) {
+        if (popupPresenter != null) {
+            java.util.List<PopupAction> actions = new java.util.ArrayList<>();
+            TerminalAction.buildMenu(provider, new com.jediterm.terminal.ui.TerminalActionMenuBuilder() {
+                public void addAction(TerminalAction action) {
+                    if (action == null || action.isHidden()) return;
+                    String raw = action.getName();
+                    actions.add(new PopupAction(ACTION_KEY_MAP.containsKey(raw) ? i18n.apply(ACTION_KEY_MAP.get(raw)) : raw,
+                            shortcutText(action), action.isEnabled(null), false, () -> action.actionPerformed(null)));
+                }
+                public void addSeparator() { actions.add(new PopupAction("", "", false, true, null)); }
+            });
+            return new JPopupMenu() {
+                @Override public void show(java.awt.Component invoker, int x, int y) {
+                    popupPresenter.show(invoker, x, y, java.util.List.copyOf(actions));
+                }
+            };
+        }
         Color bg      = jlshellSettings.backgroundColor();
         Color fg      = jlshellSettings.foregroundColor();
         Color hover   = blend(bg, fg, 0.12f);

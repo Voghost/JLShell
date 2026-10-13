@@ -124,6 +124,7 @@ public final class SwingWorkbench implements AutoCloseable {
         runButton = button(WorkbenchIcon.Kind.RUN, "action.connect", this::connectSelection);
         settingsButton = button(WorkbenchIcon.Kind.SETTINGS, "action.preferences", this::showSettingsMenu);
         configureWindowHeader();
+        frame.getRootPane().putClientProperty("jlshell.workbench", this);
         KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(shortcutDispatcher);
         frame.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
         frame.addWindowListener(new WindowAdapter() {
@@ -688,7 +689,11 @@ public final class SwingWorkbench implements AutoCloseable {
     }
     public void setShortcuts(Map<KeyStroke, Runnable> bindings) { shortcuts.clear(); shortcuts.putAll(bindings); }
     public void setPreferenceShortcut(String displayText) { preferenceShortcut = displayText == null ? "" : displayText; }
-    public void setEnabled(boolean enabled) { frame.setEnabled(enabled); if (enabled) frame.toFront(); }
+    public void setEnabled(boolean enabled) {
+        boolean allowed = enabled && !Boolean.TRUE.equals(frame.getRootPane().getClientProperty("jlshell.settingsModal"));
+        frame.setEnabled(allowed);
+        if (allowed) frame.toFront();
+    }
     public void show() {
         frame.setVisible(true);
         split.setDividerLocation(sidebarVisible ? sidebarWidth : 0);
@@ -701,6 +706,7 @@ public final class SwingWorkbench implements AutoCloseable {
     public JFrame frame() { return frame; }
 
     public void applyTheme(AppTheme theme, String accent, String family, int fontSize) {
+        if (SwingTheme.isCurrent(theme, accent, family, fontSize)) return;
         SwingTheme.install(theme, accent, family, fontSize);
         SwingTheme.update(frame);
         root.setBackground(SwingTheme.color("frame"));
@@ -766,8 +772,8 @@ public final class SwingWorkbench implements AutoCloseable {
                     rows.add(new com.jlshell.ui.swing.idea.IdeaListPopup.Row(converted.title(), null, converted.icon(), "", "", converted.enabled(), converted.children(), converted.action()));
                 }
             }
-            var popup = new com.jlshell.ui.swing.idea.IdeaListPopup(rows, 330, false, "");
-            popup.show(settingsButton, settingsButton.getWidth() - 330, settingsButton.getHeight() + 4);
+            var popup = new com.jlshell.ui.swing.idea.IdeaListPopup(rows, 260, false, "");
+            popup.show(settingsButton, settingsButton.getWidth() - popup.getPreferredSize().width, settingsButton.getHeight() + 4);
         });
     }
 
@@ -849,7 +855,7 @@ public final class SwingWorkbench implements AutoCloseable {
         root.revalidate(); root.repaint();
     }
 
-    private JPopupMenu popupMenu(List<SwingMenuBridge.Item> specs) {
+    private com.jlshell.ui.swing.idea.IdeaListPopup popupMenu(List<SwingMenuBridge.Item> specs) {
         return new com.jlshell.ui.swing.idea.IdeaListPopup(menuRows(specs), 320, false, "");
     }
 

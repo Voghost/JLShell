@@ -22,7 +22,7 @@ import java.util.List;
 public final class SwingMenuBridge {
     private SwingMenuBridge() {}
 
-    public record Item(String text, String shortcut, boolean disabled, boolean checked, int kind,
+    public record Item(String text, String shortcut, javax.swing.KeyStroke accelerator, boolean disabled, boolean checked, int kind,
                        Runnable action, Runnable refresh, List<Item> children) {}
 
     /** 必须在 FX 线程取快照，EDT 不读取 JavaFX 的可变属性。 */
@@ -35,7 +35,12 @@ public final class SwingMenuBridge {
                 : item instanceof RadioMenuItem ? 3 : item instanceof Menu ? 4 : 0;
         boolean checked = item instanceof CheckMenuItem check ? check.isSelected()
                 : item instanceof RadioMenuItem radio && radio.isSelected();
-        return new Item(item.getText(), item.getAccelerator() == null ? "" : item.getAccelerator().getDisplayText(), item.isDisable(), checked, kind, () -> dispatch.accept(() -> {
+        String spec = item.getProperties().get("jlshell.shortcut") instanceof java.util.function.Supplier<?> source
+                ? (String) source.get() : null;
+        var accelerator = spec == null ? null : com.jlshell.core.shortcut.ShortcutConverter.toKeyStroke(spec);
+        String shortcut = spec == null ? item.getAccelerator() == null ? "" : item.getAccelerator().getDisplayText()
+                : com.jlshell.core.shortcut.ShortcutConverter.toDisplayText(spec);
+        return new Item(item.getText(), shortcut, accelerator, item.isDisable(), checked, kind, () -> dispatch.accept(() -> {
             if (item instanceof CheckMenuItem check) check.setSelected(!check.isSelected());
             if (item instanceof RadioMenuItem radio) radio.setSelected(true);
             item.fire();
@@ -79,6 +84,7 @@ public final class SwingMenuBridge {
             }
             JMenuItem item = spec.kind() == 2 ? new JCheckBoxMenuItem(spec.text(), spec.checked())
                     : spec.kind() == 3 ? new JRadioButtonMenuItem(spec.text(), spec.checked()) : new JMenuItem(spec.text());
+            item.setAccelerator(spec.accelerator());
             item.setEnabled(!spec.disabled());
             item.addActionListener(event -> spec.action().run());
             target.add(item);

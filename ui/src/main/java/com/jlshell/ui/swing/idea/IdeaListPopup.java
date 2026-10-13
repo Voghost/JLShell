@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Locale;
 
 /** ListPopupImpl 的列表选择/分组导航适配，替换 IDEA ActionSystem 为宿主 Runnable。 */
-public final class IdeaListPopup extends JPopupMenu {
+public final class IdeaListPopup extends JPanel {
     public record Row(String title, String detail, Icon icon, String shortcut, String group,
                       boolean enabled, List<Row> children, Runnable action) {
         public static Row action(String title, Icon icon, String shortcut, String group, Runnable action) {
@@ -25,32 +25,25 @@ public final class IdeaListPopup extends JPopupMenu {
     private IdeaListPopup child;
     private IdeaListPopup parentPopup;
     private int childIndex = -1;
-    private final Timer hover = new Timer(180, e -> openChild(list.getSelectedIndex(), false));
+    private final IdeaMouseMovementTracker movement = new IdeaMouseMovementTracker();
+    private JWindow popupWindow;
+    private Window owner;
+    private Component invoker;
+    private final Timer hover = new Timer(250, e -> openChild(list.getSelectedIndex(), false));
 
     public IdeaListPopup(List<Row> rows, int width, boolean searchable, String searchPrompt) {
         this.rows = List.copyOf(rows);
         setLayout(new BorderLayout());
         setName("idea.listPopup");
         hover.setRepeats(false);
-        putClientProperty("Popup.borderCornerRadius", 8);
+        setOpaque(false);
         setBackground(SwingTheme.color("popup"));
-        setBorder(new javax.swing.border.AbstractBorder() {
-            public Insets getBorderInsets(Component c) { return new Insets(7, 1, 7, 1); }
-            public Insets getBorderInsets(Component c, Insets i) { i.set(7, 1, 7, 1); return i; }
-            public void paintBorder(Component c, Graphics graphics, int x, int y, int w, int h) {
-                Graphics2D g = (Graphics2D) graphics.create();
-                try {
-                    g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                    g.setColor(SwingTheme.color("popupBorder"));
-                    g.drawRoundRect(x, y, w - 1, h - 1, 8, 8);
-                } finally { g.dispose(); }
-            }
-        });
+        setBorder(BorderFactory.createEmptyBorder(8, 0, 8, 0));
         list.setModel(model);
-        list.setFont(UIManager.getFont("Label.font"));
+        list.setFont(UIManager.getFont("defaultFont").deriveFont(Font.PLAIN));
         list.setBackground(getBackground());
         list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        list.setCellRenderer(new IdeaPopupRenderer());
+        list.setCellRenderer(new IdeaPopupRenderer(rows.stream().anyMatch(row -> row.icon() != null)));
         list.setFocusable(true);
         list.setName("popup.list");
         JScrollPane scroll = new JScrollPane(list);
@@ -81,6 +74,8 @@ public final class IdeaListPopup extends JPopupMenu {
         list.addMouseMotionListener(new MouseMotionAdapter() {
             public void mouseMoved(MouseEvent e) {
                 int index = list.locationToIndex(e.getPoint());
+                if (child != null && child.isShowing() && movement.isMovingTowards(e,
+                        new Rectangle(child.getLocationOnScreen(), child.getSize()))) return;
                 if (index >= 0 && list.getCellBounds(index, index).contains(e.getPoint()) && list.getSelectedIndex() != index) {
                     list.setSelectedIndex(index);
                     if (child != null) { child.setVisible(false); child = null; childIndex = -1; }
@@ -91,7 +86,10 @@ public final class IdeaListPopup extends JPopupMenu {
         list.addMouseListener(new MouseAdapter() {
             public void mouseReleased(MouseEvent e) {
                 int index = list.locationToIndex(e.getPoint());
-                if (SwingUtilities.isLeftMouseButton(e) && index >= 0 && list.getCellBounds(index, index).contains(e.getPoint())) execute(index);
+                if (SwingUtilities.isLeftMouseButton(e) && index >= 0 && list.getCellBounds(index, index).contains(e.getPoint())) {
+                    e.consume();
+                    execute(index);
+                }
             }
         });
         bind(list, "ENTER", () -> execute(list.getSelectedIndex()));
@@ -106,9 +104,13 @@ public final class IdeaListPopup extends JPopupMenu {
         bind(search, "ESCAPE", () -> setVisible(false));
         int height = getInsets().top + getInsets().bottom;
         if (searchable) height += search.getParent().getPreferredSize().height;
-        for (int i = 0; i < model.size(); i++) height += list.getCellRenderer()
-                .getListCellRendererComponent(list, model.get(i), i, false, false).getPreferredSize().height;
-        setPopupSize(width, Math.min(560, height));
+        int preferredWidth = width;
+        for (int i = 0; i < model.size(); i++) {
+            Dimension size = list.getCellRenderer().getListCellRendererComponent(list, model.get(i), i, false, false).getPreferredSize();
+            height += size.height;
+            preferredWidth = Math.max(preferredWidth, size.width);
+        }
+        setPreferredSize(new Dimension(Math.min(600, preferredWidth), Math.min(560, height)));
     }
 
     private void bind(JComponent target, String key, Runnable run) {
@@ -144,7 +146,6 @@ public final class IdeaListPopup extends JPopupMenu {
             IdeaListPopup root = this;
             while (root.parentPopup != null) root = root.parentPopup;
             root.setVisible(false);
-            MenuSelectionManager.defaultManager().clearSelectedPath();
             if (row.action() != null) row.action().run();
         }
     }
@@ -163,46 +164,120 @@ public final class IdeaListPopup extends JPopupMenu {
     }
 
     private void openChild(int index, boolean focus) {
-        if (!isVisible() || index < 0 || index >= model.size()) return;
+        if (!isShowing() || index < 0 || index >= model.size()) return;
         Row row = model.get(index);
         if (!row.enabled() || row.children().isEmpty()) return;
-        if (child != null && childIndex == index) {
+        if (child != null && child.isShowing() && childIndex == index) {
             if (focus) child.list.requestFocusInWindow();
             return;
         }
         if (child != null) child.setVisible(false);
-        child = new IdeaListPopup(row.children(), Math.max(280, getWidth()), false, "");
+        child = new IdeaListPopup(row.children(), 170, false, "");
         child.parentPopup = this;
+        movement.reset();
         childIndex = index;
         Rectangle cell = list.getCellBounds(index, index);
-        child.show(list, getWidth() - 8, cell.y - 6);
+        Point anchor = list.getLocationOnScreen();
+        anchor.translate(getWidth() - 2, cell.y - 8);
+        Rectangle screen = usableScreen(list.getGraphicsConfiguration());
+        if (anchor.x + child.getPreferredSize().width > screen.getMaxX()) {
+            anchor.x = list.getLocationOnScreen().x - child.getPreferredSize().width + 2;
+        }
+        child.showAt(invoker, anchor);
         if (!focus) SwingUtilities.invokeLater(() -> list.requestFocusInWindow());
     }
 
     @Override public void setVisible(boolean visible) {
-        if (visible == isVisible()) return;
-        if (!visible) {
-            if (hover != null) hover.stop();
-            if (child != null) { child.setVisible(false); child = null; childIndex = -1; }
-        }
-        if (parentPopup == null) {
-            super.setVisible(visible);
+        if (visible) {
+            if (popupWindow != null) popupWindow.setVisible(true);
+            super.setVisible(true);
             return;
         }
-        // JPopupMenu 把 JList invoker 视为独立根菜单，会在子菜单打开时关闭父菜单。
-        // 子列表使用同一条 MenuSelectionManager 路径，保留根菜单的外部点击/焦点关闭处理。
-        Component invoker = getInvoker();
-        setInvoker(null);
-        try { super.setVisible(visible); }
-        finally { setInvoker(invoker); }
-        var path = new java.util.ArrayList<MenuElement>();
-        IdeaListPopup current = visible ? this : parentPopup;
-        while (current != null) { path.addFirst(current); current = current.parentPopup; }
-        MenuSelectionManager.defaultManager().setSelectedPath(path.toArray(MenuElement[]::new));
+        hover.stop();
+        if (child != null) { child.setVisible(false); child = null; childIndex = -1; }
+        super.setVisible(false);
+        if (popupWindow != null) { popupWindow.dispose(); popupWindow = null; }
+        if (parentPopup == null) IdeaPopupDispatcher.deactivate(this);
     }
 
-    @Override public void show(Component invoker, int x, int y) {
-        super.show(invoker, x, y);
-        SwingUtilities.invokeLater(() -> { if (search.getParent() != null) search.requestFocusInWindow(); else list.requestFocusInWindow(); });
+    public void show(Component invoker, int x, int y) {
+        Point anchor = invoker.getLocationOnScreen();
+        anchor.translate(x, y);
+        showAt(invoker, anchor);
+    }
+
+    private void showAt(Component component, Point anchor) {
+        invoker = component;
+        owner = parentPopup == null ? SwingUtilities.getWindowAncestor(component) : parentPopup.owner;
+        if (parentPopup == null) IdeaPopupDispatcher.activate(this);
+        popupWindow = new JWindow(owner);
+        popupWindow.addWindowListener(new WindowAdapter() {
+            public void windowClosed(WindowEvent event) {
+                if (popupWindow == event.getWindow()) setVisible(false);
+            }
+        });
+        popupWindow.setName("idea.popupWindow");
+        popupWindow.setType(Window.Type.POPUP);
+        boolean alpha = popupWindow.getGraphicsConfiguration().getDevice()
+                .isWindowTranslucencySupported(GraphicsDevice.WindowTranslucency.PERPIXEL_TRANSLUCENT);
+        if (alpha) popupWindow.setBackground(new Color(0, true));
+        popupWindow.getRootPane().putClientProperty("Window.shadow", false);
+        super.setVisible(true);
+        IdeaPopupSurface surface = new IdeaPopupSurface(this, alpha);
+        popupWindow.setContentPane(surface);
+        popupWindow.pack();
+        Rectangle screen = usableScreen(component.getGraphicsConfiguration());
+        int margin = alpha ? IdeaPopupSurface.SHADOW : 0;
+        int contentWidth = popupWindow.getWidth() - margin * 2;
+        int contentHeight = popupWindow.getHeight() - margin * 2;
+        int x = Math.max(screen.x, Math.min(anchor.x, screen.x + screen.width - contentWidth));
+        int y = Math.max(screen.y, Math.min(anchor.y, screen.y + screen.height - contentHeight));
+        popupWindow.setLocation(x - margin, y - margin);
+        popupWindow.setVisible(true);
+        SwingUtilities.invokeLater(() -> {
+            if (isShowing()) { if (search.getParent() != null) search.requestFocusInWindow(); else list.requestFocusInWindow(); }
+        });
+    }
+
+    private static Rectangle usableScreen(GraphicsConfiguration config) {
+        Rectangle screen = new Rectangle(config.getBounds());
+        Insets insets = Toolkit.getDefaultToolkit().getScreenInsets(config);
+        screen.x += insets.left; screen.y += insets.top;
+        screen.width -= insets.left + insets.right; screen.height -= insets.top + insets.bottom;
+        return screen;
+    }
+
+    boolean containsScreen(Point point) {
+        return isShowing() && new Rectangle(getLocationOnScreen(), getSize()).contains(point)
+                || child != null && child.containsScreen(point);
+    }
+
+    boolean owns(Window window) {
+        return window != null && (window == popupWindow || child != null && child.owns(window));
+    }
+
+    Window ownerWindow() { return owner; }
+
+    boolean dispatchKey(int key) {
+        Component focused = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+        IdeaListPopup target = this;
+        while (target.child != null && target.child.isShowing()) {
+            if (focused != null && SwingUtilities.isDescendingFrom(focused, target)) break;
+            target = target.child;
+        }
+        if (focused == target.search && key != KeyEvent.VK_ESCAPE && key != KeyEvent.VK_DOWN && key != KeyEvent.VK_ENTER) return false;
+        switch (key) {
+            case KeyEvent.VK_DOWN -> { target.list.requestFocusInWindow(); target.navigate(1); }
+            case KeyEvent.VK_UP -> target.navigate(-1);
+            case KeyEvent.VK_ENTER, KeyEvent.VK_RIGHT -> target.execute(target.list.getSelectedIndex());
+            case KeyEvent.VK_ESCAPE, KeyEvent.VK_LEFT -> {
+                if (target.parentPopup != null) {
+                    target.setVisible(false);
+                    target.parentPopup.list.requestFocusInWindow();
+                } else if (key == KeyEvent.VK_ESCAPE) setVisible(false);
+            }
+            default -> { return false; }
+        }
+        return true;
     }
 }

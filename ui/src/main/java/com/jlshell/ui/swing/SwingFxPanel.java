@@ -14,6 +14,15 @@ public final class SwingFxPanel extends JFXPanel implements AutoCloseable {
     private final ThemeService themes;
     private final ChangeListener<Object> themeListener = (obs, oldValue, value) -> refreshTheme();
     private boolean closed;
+    private boolean ownsDialogKeys;
+    public void setOwnsDialogKeys(boolean value) { ownsDialogKeys = value; }
+    @Override protected boolean processKeyBinding(javax.swing.KeyStroke key, java.awt.event.KeyEvent event,
+                                                   int condition, boolean pressed) {
+        // JFXPanel 已先把事件送给 FX；阻止父级 Swing 默认按钮再次执行 Enter/Escape。
+        if (ownsDialogKeys && (event.getKeyCode() == java.awt.event.KeyEvent.VK_ENTER
+                || event.getKeyCode() == java.awt.event.KeyEvent.VK_ESCAPE)) return true;
+        return super.processKeyBinding(key, event, condition, pressed);
+    }
 
     public SwingFxPanel(ThemeService themes) {
         this.themes = themes;

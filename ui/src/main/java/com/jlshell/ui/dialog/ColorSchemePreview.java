@@ -5,6 +5,9 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
+import javafx.scene.layout.Background;
+import javafx.scene.layout.BackgroundFill;
+import javafx.scene.layout.CornerRadii;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Font;
@@ -21,6 +24,9 @@ public class ColorSchemePreview extends VBox {
     private final TextFlow sampleText;
     private final HBox colorRow1;
     private final HBox colorRow2;
+    private final Text prompt = new Text("user@host ~ $ ");
+    private final Text command = new Text("ls");
+    private final Rectangle[] swatches = new Rectangle[16];
 
     public ColorSchemePreview() {
         setSpacing(4);
@@ -28,15 +34,22 @@ public class ColorSchemePreview extends VBox {
 
         terminalBox = new VBox(4);
         terminalBox.setPadding(new Insets(6));
-        terminalBox.setStyle("-fx-background-radius:4;");
 
         sampleText = new TextFlow();
         sampleText.setMaxWidth(Double.MAX_VALUE);
+        prompt.setFont(Font.font("Monospaced", 11));
+        command.setFont(Font.font("Monospaced", 11));
+        sampleText.getChildren().addAll(prompt, command);
 
         colorRow1 = new HBox(2);
         colorRow1.setAlignment(Pos.CENTER_LEFT);
         colorRow2 = new HBox(2);
         colorRow2.setAlignment(Pos.CENTER_LEFT);
+        for (int i = 0; i < swatches.length; i++) {
+            swatches[i] = new Rectangle(16, 12);
+            swatches[i].setStyle("-fx-stroke:derive(-fx-text-fill,40%);-fx-stroke-width:0.5;");
+            (i < 8 ? colorRow1 : colorRow2).getChildren().add(swatches[i]);
+        }
 
         terminalBox.getChildren().addAll(sampleText, colorRow1, colorRow2);
         getChildren().add(terminalBox);
@@ -48,46 +61,21 @@ public class ColorSchemePreview extends VBox {
         Color bg = toFxColor(scheme.background(), scheme.opacity());
         Color fg = toFxColor(scheme.foreground(), 1.0);
 
-        String bgCss = toRgbCss(scheme.background(), scheme.opacity());
-        String fgCss = toRgbCss(scheme.foreground(), 1.0);
-
-        terminalBox.setStyle("-fx-background-color:" + bgCss + ";-fx-background-radius:4;");
+        // 拖动仅更新绘制属性，避免逐帧格式化 CSS 并重新运行样式解析/布局。
+        terminalBox.setBackground(new Background(new BackgroundFill(bg, new CornerRadii(4), Insets.EMPTY)));
 
         // Sample text
-        Text prompt = new Text("user@host ~ $ ");
         prompt.setFill(fg);
-        prompt.setFont(Font.font("Monospaced", 11));
-
-        Text cmd = new Text("ls");
-        cmd.setFill(toFxColor(scheme.green(), 1.0));
-        cmd.setFont(Font.font("Monospaced", 11));
-
-        sampleText.getChildren().setAll(prompt, cmd);
-
-        // 16 ANSI color swatches
-        colorRow1.getChildren().setAll(
-                swatch(scheme.black()), swatch(scheme.red()), swatch(scheme.green()),
-                swatch(scheme.yellow()), swatch(scheme.blue()), swatch(scheme.purple()),
-                swatch(scheme.cyan()), swatch(scheme.white()));
-
-        colorRow2.getChildren().setAll(
-                swatch(scheme.brightBlack()), swatch(scheme.brightRed()), swatch(scheme.brightGreen()),
-                swatch(scheme.brightYellow()), swatch(scheme.brightBlue()), swatch(scheme.brightPurple()),
-                swatch(scheme.brightCyan()), swatch(scheme.brightWhite()));
-    }
-
-    private Rectangle swatch(java.awt.Color c) {
-        Rectangle rect = new Rectangle(16, 12);
-        rect.setFill(toFxColor(c, 1.0));
-        rect.setStyle("-fx-stroke:derive(-fx-text-fill,40%);-fx-stroke-width:0.5;");
-        return rect;
+        command.setFill(toFxColor(scheme.green(), 1.0));
+        java.awt.Color[] colors = {scheme.black(), scheme.red(), scheme.green(), scheme.yellow(), scheme.blue(),
+                scheme.purple(), scheme.cyan(), scheme.white(), scheme.brightBlack(), scheme.brightRed(),
+                scheme.brightGreen(), scheme.brightYellow(), scheme.brightBlue(), scheme.brightPurple(),
+                scheme.brightCyan(), scheme.brightWhite()};
+        for (int i = 0; i < swatches.length; i++) swatches[i].setFill(toFxColor(colors[i], 1.0));
     }
 
     private static Color toFxColor(java.awt.Color c, double opacity) {
         return new Color(c.getRed() / 255.0, c.getGreen() / 255.0, c.getBlue() / 255.0, opacity);
     }
 
-    private static String toRgbCss(java.awt.Color c, double opacity) {
-        return String.format("rgba(%d,%d,%d,%.2f)", c.getRed(), c.getGreen(), c.getBlue(), opacity);
-    }
 }

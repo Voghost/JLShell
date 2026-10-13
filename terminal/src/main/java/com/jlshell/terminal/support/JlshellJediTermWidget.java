@@ -113,7 +113,8 @@ public class JlshellJediTermWidget extends JediTermWidget {
     protected JScrollBar createScrollBar() {
         JScrollBar scrollBar = new JScrollBar();
         scrollBar.setUI(new ThemedScrollBarUI());
-        scrollBar.setOpaque(false);
+        scrollBar.setOpaque(true);
+        scrollBar.setBackground(activeSettingsProvider().backgroundColor());
         scrollBar.setBorder(BorderFactory.createEmptyBorder());
         // TerminalPanel 使用文本选择光标；Swing 子组件未显式设置时会继承该光标。
         // 滚动条需要覆盖为默认箭头，避免轨道和 thumb 上仍显示 I-beam。
@@ -158,8 +159,9 @@ public class JlshellJediTermWidget extends JediTermWidget {
 
         @Override
         protected void paintTrack(Graphics g, JComponent c, Rectangle trackBounds) {
-            // track 透明 — 不绘制背景
-            // 但需要绘制搜索匹配标记
+            // 不透明窄轨道避免 thumb 拖动把脏区域向上扩大到整个终端。
+            g.setColor(activeSettingsProvider().backgroundColor());
+            g.fillRect(trackBounds.x, trackBounds.y, trackBounds.width, trackBounds.height);
             if (terminalPanel == null) return;
             com.jediterm.terminal.ui.TerminalPanel panel = getTerminalPanel();
             com.jediterm.terminal.SubstringFinder.FindResult result = panel.getFindResult();
@@ -475,6 +477,7 @@ public class JlshellJediTermWidget extends JediTermWidget {
         getTerminalPanel().revalidate();
         getTerminalPanel().repaint();
         if (themedScrollBar != null) {
+            themedScrollBar.setBackground(bg);
             themedScrollBar.repaint();
         }
         if (activeSearch != null) activeSearch.applyPalette();

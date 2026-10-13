@@ -27,3 +27,35 @@ platform/platform-impl/src/com/intellij/ide/actions/SettingsEntryPointAction.jav
 platform/platform-impl/src/com/intellij/openapi/options/newEditor/SettingsDialog.java
 platform/platform-impl/src/com/intellij/openapi/options/newEditor/SettingsEditor.java
 platform/platform-impl/src/com/intellij/openapi/options/newEditor/SettingsTreeView.java
+
+IdeaGroupHeaderSeparator.java ports the independent separator geometry.
+IdeaMouseMovementTracker.java ports the mouse tracking/towards-rectangle algorithm.
+IdeaPopupDispatcher.java adapts active root/child chains and outside-click/focus
+dispatch to AWTEventListener/KeyEventDispatcher instead of IdeEventQueue.
+IdeaListPopup.java adapts ListPopupImpl's independent popup-window selection and
+250ms hover behavior. IdeaPopupSurface.java implements the referenced JBR native
+8px outline with OpenJDK translucent windows and a Java2D software shadow;
+it does not include IntelliJ's platform-dependent native window implementation.
+
+platform/platform-api/src/com/intellij/ui/GroupHeaderSeparator.java
+platform/util/ui/src/com/intellij/ui/MouseMovementTracker.java
+platform/util/ui/src/com/intellij/ui/ScreenUtil.java
+platform/util/ui/src/com/intellij/util/ui/JBUI.java
+platform/platform-impl/src/com/intellij/ui/popup/list/ListPopupImpl.java
+platform/platform-impl/src/com/intellij/ui/popup/list/PopupListElementRenderer.java
+platform/platform-impl/src/com/intellij/ui/popup/PopupDispatcher.java
+platform/platform-impl/src/com/intellij/ui/popup/AbstractPopup.java
+platform/platform-impl/src/com/intellij/ui/WindowRoundedCornersManager.java
+platform/util/ui/src/com/intellij/ui/PopupBorder.java
+platform/platform-impl/src/com/intellij/ide/ui/laf/intellij/IdeaPopupMenuUI.java
+
+Settings/font/keymap layout, scrollbar repaint scope and macOS menu model
+separation reference the following sources. Their platform services are not
+copied; original JLShell settings, shortcut recording and terminal actions remain.
+platform/platform-impl/src/com/intellij/openapi/keymap/impl/ui/KeymapPanel.java
+platform/platform-impl/src/com/intellij/openapi/keymap/impl/ui/KeyboardShortcutDialog.java
+platform/platform-impl/src/com/intellij/ui/FontComboBox.java
+platform/platform-impl/src/com/intellij/application/options/editor/fonts/AppFontConfigurable.java
+platform/platform-impl/src/com/intellij/ide/ui/AppearanceConfigurable.kt
+platform/platform-api/src/com/intellij/ui/components/DefaultScrollBarUI.kt
+platform/platform-impl/src/com/intellij/platform/ide/menu/MacNativeActionMenu.kt

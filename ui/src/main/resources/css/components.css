@@ -3234,3 +3234,15 @@
     -fx-padding: 4 8;
 }
 .idea-settings-content .combo-box .list-cell { -fx-background-color: transparent; -fx-padding: 2 4; }
+.idea-settings-content .spinner { -fx-background-color: -jl-frame; -fx-border-color: -jl-border; -fx-border-radius: 4; }
+.idea-settings-content .spinner .text-field { -fx-border-width: 0; -fx-background-color: transparent; }
+.idea-settings-content .spinner .increment-arrow-button,
+.idea-settings-content .spinner .decrement-arrow-button { -fx-background-color: transparent; -fx-border-color: -jl-border; }
+.idea-actions-tree { -fx-background-color: -jl-canvas; -fx-border-color: -jl-border; }
+.idea-actions-tree .tree-cell { -fx-background-color: -jl-canvas; -fx-padding: 0 8; -fx-font-size: 1em; }
+.idea-actions-tree .tree-cell:selected { -fx-background-color: -jl-accent-subtle; }
+.idea-actions-group { -fx-font-weight: bold; -fx-text-fill: -jl-text; }
+.idea-actions-row { -fx-padding: 0; -fx-background-color: transparent; }
+.idea-actions-row .shortcut-key-button { -fx-background-color: transparent; -fx-border-color: transparent; -fx-text-fill: -jl-secondary; -fx-padding: 3 6; }
+.idea-actions-row .shortcut-key-button:hover { -fx-border-color: -jl-border; -fx-background-color: -jl-hover; }
+.idea-actions-row .shortcut-clear-button { -fx-background-color: transparent; -fx-padding: 2 4; }

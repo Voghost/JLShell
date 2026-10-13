@@ -210,6 +210,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
             handle = viewHandle;
             terminalBody.removeAll();
             javax.swing.JComponent component = viewHandle.component();
+            TerminalPopupBridge.install(component);
             component.setVisible(true);
             terminal.setVisible(true);
             terminalBody.add(component, BorderLayout.CENTER);

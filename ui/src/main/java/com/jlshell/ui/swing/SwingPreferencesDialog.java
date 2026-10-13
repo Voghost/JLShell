@@ -32,24 +32,34 @@ public final class SwingPreferencesDialog {
     private final JTextField search = new JTextField();
     private final JLabel breadcrumb = new JLabel();
     private final JButton apply;
+    private final JButton ok;
     private final SwingFxPanel content;
     private final List<Page> pages;
     private final Timer filterTimer;
     private Page selected;
     private boolean busy;
+    private final Window owner;
+    private final boolean ownerWasEnabled;
+    private final ThemeService themes;
 
     private SwingPreferencesDialog(List<Page> pages, int initial, I18nService i18n,
                                    ThemeService themes, boolean applyDisabled,
                                    Runnable applyAction, Runnable okAction, Runnable closed) {
         this.pages = pages;
-        Window owner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getActiveWindow();
-        if (owner == null) for (Frame frame : Frame.getFrames()) {
-            if (frame.isShowing() && frame.getTitle().contains("JLShell")) { owner = frame; break; }
+        this.themes = themes;
+        Window parent = KeyboardFocusManager.getCurrentKeyboardFocusManager().getActiveWindow();
+        if (parent == null) for (Frame frame : Frame.getFrames()) {
+            if (frame.isShowing() && frame.getTitle().contains("JLShell")) { parent = frame; break; }
         }
-        dialog = new JDialog(owner, i18n.get("preferences.title") + " — JLShell", Dialog.ModalityType.APPLICATION_MODAL);
+        owner = parent;
+        ownerWasEnabled = owner != null && owner.isEnabled();
+        // AWT 应用模态过滤器会阻止 JFXPanel 中的 Glass 下拉弹窗接收鼠标。
+        // 使用禁用宿主窗口实现模态，FX 嵌套事件循环仍保持 showAndWait 的调用顺序。
+        dialog = new JDialog(owner, i18n.get("preferences.title") + " — JLShell", Dialog.ModalityType.MODELESS);
         dialog.setName("jlshell.settings");
         dialog.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
         content = new SwingFxPanel(themes);
+        content.setOwnsDialogKeys(true);
         content.setName("settings.content");
         JPanel navigation = new JPanel(new BorderLayout(0, 10));
         navigation.setBorder(BorderFactory.createEmptyBorder(14, 12, 8, 0));
@@ -109,7 +119,7 @@ public final class SwingPreferencesDialog {
         apply = new JButton(i18n.get("preferences.apply"));
         apply.setName("settings.apply");
         apply.setEnabled(!applyDisabled);
-        JButton ok = new JButton(i18n.get("settings.ok"));
+        ok = new JButton(i18n.get("settings.ok"));
         ok.setName("settings.ok");
         ok.putClientProperty("JButton.buttonType", "default");
         dialog.getRootPane().setDefaultButton(ok);
@@ -127,6 +137,8 @@ public final class SwingPreferencesDialog {
             public void windowClosed(WindowEvent e) {
                 filterTimer.stop();
                 content.close();
+                if (owner instanceof RootPaneContainer host) host.getRootPane().putClientProperty("jlshell.settingsModal", null);
+                if (owner != null) owner.setEnabled(ownerWasEnabled);
                 closed.run();
             }
         });
@@ -153,6 +165,8 @@ public final class SwingPreferencesDialog {
         dialog.setSize(Math.min(1180, screen.width - 80), Math.min(800, screen.height - 80));
         dialog.setLocationRelativeTo(owner);
         rebuildTree(initial);
+        if (owner instanceof RootPaneContainer host) host.getRootPane().putClientProperty("jlshell.settingsModal", true);
+        if (owner != null) owner.setEnabled(false);
     }
 
     private void runAction(Runnable action, boolean close) {
@@ -161,7 +175,22 @@ public final class SwingPreferencesDialog {
         dialog.setEnabled(false);
         FxThread.run(() -> {
             boolean succeeded = false;
-            try { action.run(); succeeded = true; }
+            try {
+                action.run();
+                themes.refreshUi();
+                var theme = themes.currentTheme();
+                String accent = themes.accentColor().color(), family = themes.uiFontFamily();
+                int size = themes.uiFontSize();
+                SwingUtilities.invokeLater(() -> {
+                    if (owner instanceof RootPaneContainer host
+                            && host.getRootPane().getClientProperty("jlshell.workbench") instanceof SwingWorkbench workbench) {
+                        workbench.applyTheme(theme, accent, family, size);
+                    }
+                    SwingTheme.update(dialog);
+                    styleTreeSelection();
+                });
+                succeeded = true;
+            }
             finally {
                 boolean dispose = close && succeeded;
                 SwingUtilities.invokeLater(() -> {
@@ -178,9 +207,20 @@ public final class SwingPreferencesDialog {
         selected = page;
         breadcrumb.setText(page.group() == null ? page.title() : page.group() + "  ›  " + page.title());
         content.setView(page.content());
+        FxThread.run(() -> {
+            if (content.getScene() == null) return;
+            content.getScene().addEventHandler(javafx.scene.input.KeyEvent.KEY_PRESSED, event -> {
+                if (event.isConsumed()) return;
+                if (event.getCode() == javafx.scene.input.KeyCode.ESCAPE) {
+                    event.consume();
+                    SwingUtilities.invokeLater(() -> { if (!busy) dialog.dispose(); });
+                }
+            });
+        });
     }
 
     private void styleTreeSelection() {
+        tree.setRowHeight(Math.max(28, tree.getFontMetrics(tree.getFont()).getHeight() + 10));
         tree.putClientProperty("FlatLaf.style", java.util.Map.of(
                 "selectionBackground", SwingTheme.color("popupSelection"),
                 "selectionInactiveBackground", SwingTheme.color("popupSelection"),

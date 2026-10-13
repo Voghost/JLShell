@@ -35,6 +35,7 @@ public class ThemeService {
     private final AppSettingsService appSettings;
     private final ColorSchemeRegistry registry;
     private final Map<DialogPane, Boolean> dialogPanes = new WeakHashMap<>();
+    private final Map<Scene, Boolean> scenes = new WeakHashMap<>();
     private static final String COMPONENT_STYLESHEET = "/css/components.css";
 
     public ThemeService(AppSettingsService appSettings, ColorSchemeRegistry registry, ExecutorService executor) {
@@ -110,8 +111,20 @@ public class ThemeService {
     }
 
     public void apply(Scene scene) {
+        scenes.put(scene, Boolean.TRUE);
         applyStylesheets(scene.getStylesheets());
         applyAccent(scene.getRoot());
+    }
+
+    /** 设置应用后立即刷新已有表单字体；弱引用不延长插件 Scene 的生命周期。 */
+    public void refreshUi() {
+        List.copyOf(scenes.keySet()).forEach(this::apply);
+        refreshDialogs();
+    }
+    public String uiFontFamily() { return appSettings.get("ui.font.family", null); }
+    public int uiFontSize() {
+        try { return Math.max(8, Math.min(24, Integer.parseInt(appSettings.get("ui.font.size", "13")))); }
+        catch (NumberFormatException invalid) { return 13; }
     }
 
     public void applyToDialog(DialogPane pane) {

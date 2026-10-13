@@ -9,6 +9,8 @@ import java.awt.*;
 
 /** IDEA 分组、双行项目条目及快捷键列的渲染结构，动作数据由宿主传入。 */
 final class IdeaPopupRenderer implements ListCellRenderer<IdeaListPopup.Row> {
+    private final boolean reserveIcons;
+    IdeaPopupRenderer(boolean reserveIcons) { this.reserveIcons = reserveIcons; }
     @Override
     public Component getListCellRendererComponent(JList<? extends IdeaListPopup.Row> list, IdeaListPopup.Row row,
                                                    int index, boolean selected, boolean focus) {
@@ -18,7 +20,7 @@ final class IdeaPopupRenderer implements ListCellRenderer<IdeaListPopup.Row> {
         name.putClientProperty("html.disable", true);
         name.setForeground(row.enabled() ? list.getForeground() : SwingTheme.color("secondary"));
         name.setFont(list.getFont());
-        lines.add(name, BorderLayout.NORTH);
+        lines.add(name, row.detail() == null ? BorderLayout.CENTER : BorderLayout.NORTH);
         if (row.detail() != null && !row.detail().isBlank()) {
             JLabel description = new JLabel(row.detail());
             description.putClientProperty("html.disable", true);
@@ -26,14 +28,14 @@ final class IdeaPopupRenderer implements ListCellRenderer<IdeaListPopup.Row> {
             description.setForeground(SwingTheme.color("secondary"));
             lines.add(description, BorderLayout.SOUTH);
         }
-        JPanel content = new JPanel(new BorderLayout(8, 0));
+        JPanel content = new JPanel(new BorderLayout(6, 0));
         content.setOpaque(false);
-        content.setBorder(BorderFactory.createEmptyBorder(row.detail() == null ? 5 : 9, 12,
-                row.detail() == null ? 5 : 9, 12));
+        content.setBorder(BorderFactory.createEmptyBorder(row.detail() == null ? 0 : 6, 16,
+                row.detail() == null ? 0 : 6, 16));
         JLabel icon = new JLabel(row.icon());
-        icon.setPreferredSize(new Dimension(row.detail() == null ? 18 : 24, row.detail() == null ? 18 : 24));
-        icon.setVerticalAlignment(SwingConstants.TOP);
-        content.add(icon, BorderLayout.WEST);
+        icon.setPreferredSize(new Dimension(row.detail() == null ? 16 : 24, row.detail() == null ? 16 : 24));
+        icon.setVerticalAlignment(row.detail() == null ? SwingConstants.CENTER : SwingConstants.TOP);
+        if (reserveIcons || row.icon() != null) content.add(icon, BorderLayout.WEST);
         content.add(lines, BorderLayout.CENTER);
         JLabel trailing = new JLabel(!row.children().isEmpty() ? "›" : row.shortcut());
         trailing.setFont(list.getFont());
@@ -41,18 +43,15 @@ final class IdeaPopupRenderer implements ListCellRenderer<IdeaListPopup.Row> {
         trailing.setBorder(BorderFactory.createEmptyBorder(0, 16, 0, 0));
         content.add(trailing, BorderLayout.EAST);
         SelectablePanel item = SelectablePanel.wrap(content, list.getBackground());
-        item.selectionInsets = new Insets(1, 6, 1, 6);
+        if (row.detail() == null) item.preferredHeight = Math.max(24, list.getFontMetrics(list.getFont()).getHeight() + 4);
+        item.selectionArc = 8;
+        item.selectionInsets = new Insets(0, 8, 0, 8);
         item.selectionColor = selected && row.enabled() ? SwingTheme.color("popupSelection") : null;
         item.getAccessibleContext().setAccessibleName(row.title());
         if (row.group() == null) return item;
         JPanel wrapper = new JPanel(new BorderLayout());
         wrapper.setBackground(list.getBackground());
-        JLabel separator = new JLabel(row.group());
-        separator.setForeground(SwingTheme.color("secondary"));
-        separator.setFont(list.getFont().deriveFont(Font.BOLD));
-        separator.setBorder(BorderFactory.createCompoundBorder(
-                index == 0 ? BorderFactory.createEmptyBorder() : BorderFactory.createMatteBorder(1, 0, 0, 0, SwingTheme.color("popupBorder")),
-                BorderFactory.createEmptyBorder(row.group().isBlank() ? 3 : 9, 16, row.group().isBlank() ? 3 : 7, 12)));
+        var separator = new IdeaGroupHeaderSeparator(row.group(), index == 0, list.getFont());
         wrapper.add(separator, BorderLayout.NORTH);
         wrapper.add(item, BorderLayout.CENTER);
         return wrapper;

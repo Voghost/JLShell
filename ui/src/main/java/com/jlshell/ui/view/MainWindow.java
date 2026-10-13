@@ -446,6 +446,7 @@ public class MainWindow {
         String family = appSettingsService.get("ui.font.family", null);
         int fontSize = swingFontSize();
         MenuBar menuModel = buildMenuBar(owner);
+        if (com.formdev.flatlaf.util.SystemInfo.isMacOS) com.jlshell.ui.swing.MacMenuBridge.install(menuModel);
         menuModel.getMenus().getFirst().getItems().stream()
                 .filter(item -> i18nService.get("action.exit").equals(item.getText()))
                 .forEach(item -> item.setOnAction(event -> quit.run()));
@@ -726,6 +727,18 @@ public class MainWindow {
             menuBar.getMenus().addAll(fileMenu, connectionMenu, accountMenu, viewMenu, settingsMenu, helpMenu);
         }
         installMenuCursorRecovery(menuBar);
+        Map<String, String> menuShortcuts = Map.of(
+                i18nService.get("action.newConnection"), "app.newConnection",
+                i18nService.get("action.preferences"), "app.preferences",
+                i18nService.get("action.exit"), "app.quit",
+                i18nService.get("action.refresh"), "app.refreshConnections",
+                i18nService.get("sidebar.toggle"), "app.toggleSidebar",
+                i18nService.get("focusMode.toggle"), "app.focusMode");
+        for (Menu menu : menuBar.getMenus()) for (MenuItem item : menu.getItems()) {
+            String id = item.getText() == null ? null : menuShortcuts.get(item.getText());
+            if (id != null) item.getProperties().put("jlshell.shortcut",
+                    (java.util.function.Supplier<String>) () -> shortcutRegistry.getEffectivePrimary(id));
+        }
         return menuBar;
     }
 
@@ -891,7 +904,7 @@ public class MainWindow {
 
     private VBox buildTopArea(Stage stage) {
         MenuBar menuBar = buildMenuBar(stage);
-        menuBar.setUseSystemMenuBar(true);
+        menuBar.setUseSystemMenuBar("javafx".equalsIgnoreCase(System.getProperty("jlshell.ui.renderer", "swing")));
 
         // macOS 系统菜单栏下，JavaFX MenuBar 节点高度为 0，
         // 所以不在这里放折叠按钮（折叠按钮放在 workspace overlay 上）
@@ -2537,8 +2550,10 @@ public class MainWindow {
                     afterWorkspaceTabRemoved();
                 }));
             });
-            withSwing(view -> view.addTab(tab, profile.displayName(), viewHandle.component(),
-                    () -> FxThread.run(() -> closeTab(tab))));
+            withSwing(view -> {
+                com.jlshell.ui.swing.TerminalPopupBridge.install(viewHandle.component());
+                view.addTab(tab, profile.displayName(), viewHandle.component(), () -> FxThread.run(() -> closeTab(tab)));
+            });
             workspaceTabs.getTabs().add(tab);
             workspaceTabs.getSelectionModel().select(tab);
             withSwing(view -> view.selectTab(tab));

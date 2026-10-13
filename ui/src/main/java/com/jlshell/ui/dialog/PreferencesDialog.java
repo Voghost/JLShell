@@ -941,7 +941,7 @@ public class PreferencesDialog {
             preferenceChanged.run();
         });
 
-        HBox uiFontSizeRow = new HBox(8, uiFontSizeSlider, uiFontSizeField);
+        HBox uiFontSizeRow = new HBox(8, sizeSpinner(uiFontSizeSlider, 8, 24));
         uiFontSizeRow.setAlignment(Pos.CENTER_LEFT);
 
         Button gcButton = new Button(i18n.get("preferences.general.memoryGc"));
@@ -1041,6 +1041,36 @@ public class PreferencesDialog {
         pane.getStyleClass().add("settings-page");
         VBox.setVgrow(scroll, Priority.ALWAYS);
         return pane;
+    }
+
+    // IDEA 的字体配置使用数值编辑器；保留已有 Slider 模型/监听，避免整数文本回写造成拖动震荡。
+    private static javafx.scene.control.Spinner<Integer> sizeSpinner(Slider model, int min, int max) {
+        return integerSpinner(model, min, max, 1);
+    }
+
+    private static javafx.scene.control.Spinner<Integer> integerSpinner(Slider model, int min, int max, int step) {
+        var spinner = new javafx.scene.control.Spinner<Integer>(min, max, (int) Math.round(model.getValue()), step);
+        spinner.setEditable(true);
+        spinner.setPrefWidth(step == 1 ? 96 : 144);
+        spinner.setMaxWidth(spinner.getPrefWidth());
+        spinner.valueProperty().addListener((o, old, value) -> model.setValue(value));
+        model.valueProperty().addListener((o, old, value) -> {
+            int target = value.intValue();
+            if (spinner.getValue() != target) spinner.getValueFactory().setValue(target);
+        });
+        return spinner;
+    }
+
+    private static javafx.scene.control.Spinner<Double> decimalSpinner(Slider model, double min, double max, double step) {
+        var spinner = new javafx.scene.control.Spinner<Double>(min, max, model.getValue(), step);
+        spinner.setEditable(true);
+        spinner.setPrefWidth(96);
+        spinner.setMaxWidth(96);
+        spinner.valueProperty().addListener((o, old, value) -> model.setValue(value));
+        model.valueProperty().addListener((o, old, value) -> {
+            if (Math.abs(spinner.getValue() - value.doubleValue()) > 0.0001) spinner.getValueFactory().setValue(value.doubleValue());
+        });
+        return spinner;
     }
 
     private static GridPane settingsForm() {
@@ -1228,12 +1258,12 @@ public class PreferencesDialog {
         fontGrid.add(fontCombo, 1, 0, 2, 1);
 
         fontGrid.add(new Label(i18n.get("preferences.terminal.fontSize")), 0, 1);
-        HBox sizeRow = new HBox(8, sizeSlider, sizeField);
+        HBox sizeRow = new HBox(8, sizeSpinner(sizeSlider, 8, 32));
         sizeRow.setAlignment(Pos.CENTER_LEFT);
         fontGrid.add(sizeRow, 1, 1, 2, 1);
 
         fontGrid.add(new Label(i18n.get("preferences.terminal.lineSpacing")), 0, 2);
-        HBox spacingRow = new HBox(8, spacingSlider, spacingField);
+        HBox spacingRow = new HBox(8, decimalSpinner(spacingSlider, 0.8, 2.0, 0.1));
         spacingRow.setAlignment(Pos.CENTER_LEFT);
         fontGrid.add(spacingRow, 1, 2, 2, 1);
 
@@ -1275,7 +1305,7 @@ public class PreferencesDialog {
         });
 
         fontGrid.add(new Label(i18n.get("preferences.terminal.scrollbackLines")), 0, 5);
-        HBox scrollbackRow = new HBox(8, scrollbackSlider, scrollbackField, scrollbackUnit);
+        HBox scrollbackRow = new HBox(8, integerSpinner(scrollbackSlider, TerminalRuntimeSettings.MIN_SCROLLBACK_LINES, TerminalRuntimeSettings.MAX_SCROLLBACK_LINES, 500), scrollbackUnit);
         scrollbackRow.setAlignment(Pos.CENTER_LEFT);
         fontGrid.add(scrollbackRow, 1, 5, 2, 1);
 
@@ -3549,7 +3579,71 @@ public class PreferencesDialog {
         BorderPane.setMargin(directory, new Insets(0, 14, 0, 0));
         VBox.setVgrow(workspace, Priority.ALWAYS);
         pane.getChildren().add(workspace);
+        if (!"javafx".equalsIgnoreCase(System.getProperty("jlshell.ui.renderer", "swing"))) {
+            return shortcutActionsTree(shortcutsList, searchField, resetBtn);
+        }
         return pane;
+    }
+
+    private static VBox shortcutActionsTree(VBox groups, TextField search, Button reset) {
+        var tree = new javafx.scene.control.TreeView<javafx.scene.Node>();
+        tree.setShowRoot(false);
+        tree.setFixedCellSize(34);
+        tree.getStyleClass().add("idea-actions-tree");
+        tree.setCellFactory(view -> new javafx.scene.control.TreeCell<>() {
+            protected void updateItem(javafx.scene.Node item, boolean empty) {
+                if (getGraphic() instanceof Region previous) previous.prefWidthProperty().unbind();
+                super.updateItem(item, empty);
+                setText(null); setGraphic(empty ? null : item);
+                // TreeCell 的宽度包含图形自身的计算宽度；用它反向绑定会随着复用产生增长和裁切。
+                // 为两层缩进、内边距及滚动条预留固定空间，宽度只跟随实际视口。
+                if (item instanceof Region region) {
+                    region.setMinWidth(0);
+                    region.setMaxWidth(Region.USE_PREF_SIZE);
+                    region.prefWidthProperty().bind(tree.widthProperty().subtract(80));
+                }
+            }
+        });
+        Runnable rebuild = () -> {
+            var root = new javafx.scene.control.TreeItem<javafx.scene.Node>();
+            String query = search.getText().strip().toLowerCase(Locale.ROOT);
+            for (javafx.scene.Node group : groups.getChildren()) {
+                if (!(group instanceof VBox card)) continue;
+                HBox heading = (HBox) card.getChildren().get(0);
+                Label category = new Label(((Label) heading.getChildren().get(0)).getText());
+                category.getStyleClass().add("idea-actions-group");
+                var categoryItem = new javafx.scene.control.TreeItem<javafx.scene.Node>(category);
+                VBox rows = (VBox) card.getChildren().get(2);
+                for (javafx.scene.Node row : List.copyOf(rows.getChildren())) {
+                    VBox box = (VBox) row;
+                    HBox content = box.getProperties().get("idea.actions.row") instanceof HBox cached ? cached
+                            : (HBox) box.getChildren().get(0);
+                    box.getProperties().put("idea.actions.row", content);
+                    ShortcutDefinition definition = (ShortcutDefinition) box.getUserData();
+                    String name = ((Label) content.getChildren().get(0)).getText();
+                    if (query.isBlank() || (name + " " + definition.id() + " " + category.getText()).toLowerCase(Locale.ROOT).contains(query)) {
+                        if (!content.getStyleClass().contains("idea-actions-row")) content.getStyleClass().add("idea-actions-row");
+                        ((Label) content.getChildren().get(0)).setMinWidth(0);
+                        categoryItem.getChildren().add(new javafx.scene.control.TreeItem<>(content));
+                    }
+                }
+                if (!categoryItem.getChildren().isEmpty()) { categoryItem.setExpanded(true); root.getChildren().add(categoryItem); }
+            }
+            tree.setRoot(root);
+        };
+        rebuild.run();
+        javafx.animation.PauseTransition filter = new javafx.animation.PauseTransition(javafx.util.Duration.millis(150));
+        filter.setOnFinished(e -> rebuild.run());
+        search.textProperty().addListener((o, old, value) -> filter.playFromStart());
+        var originalReset = reset.getOnAction();
+        reset.setOnAction(event -> { originalReset.handle(event); rebuild.run(); });
+        HBox toolbar = new HBox(12, search, new Region(), reset);
+        HBox.setHgrow(toolbar.getChildren().get(1), Priority.ALWAYS);
+        VBox result = new VBox(12, toolbar, tree);
+        result.getStyleClass().add("idea-shortcuts-page");
+        result.setPadding(new Insets(0, 24, 24, 24));
+        VBox.setVgrow(tree, Priority.ALWAYS);
+        return result;
     }
 
     private static javafx.scene.control.ToggleButton shortcutDirectoryItem(String text, String category,
@@ -4150,7 +4244,10 @@ public class PreferencesDialog {
         preview.setFont(Font.font(family, size));
     }
 
-    private static List<String> loadMonospacedFonts() {
+    private static List<String> cachedMonoFonts;
+
+    private static synchronized List<String> loadMonospacedFonts() {
+        if (cachedMonoFonts != null) return cachedMonoFonts;
         String[] all = GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames();
         List<String> result = PREFERRED_MONO.stream()
                 .filter(f -> Arrays.asList(all).contains(f))
@@ -4159,7 +4256,8 @@ public class PreferencesDialog {
             if (!result.contains(f) && isMonospaced(f)) result.add(f);
         }
         if (result.isEmpty()) result.add("Monospaced");
-        return result;
+        cachedMonoFonts = List.copyOf(result);
+        return cachedMonoFonts;
     }
 
     private static boolean isMonospaced(String family) {
