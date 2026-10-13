@@ -110,10 +110,14 @@ class MousePopupUiSmokeTest {
             @SuppressWarnings("unchecked") SwingWorkbench workbench = ((CompletableFuture<SwingWorkbench>) field(main, "swingWorkbench")).get(10, TimeUnit.SECONDS);
             robot = new Robot(); robot.setAutoDelay(70);
             edt(() -> { workbench.show(); workbench.frame().toFront(); return null; });
-            edt(() -> { Desktop.getDesktop().requestForeground(true); workbench.frame().requestFocus(); return null; });
-            Thread.sleep(500);
-            // macOS 可将首次鼠标按下仅用于激活新进程的窗口，先点击无动作的欢迎区。
-            if (!edt(workbench.frame()::isActive)) mouse(edt(() -> center(workbench.frame().getRootPane())));
+            // macOS 的应用激活/Space 切换是异步的，不能用一次 500ms 等待当作前台就绪。
+            for (int attempt = 0; attempt < 8 && !edt(workbench.frame()::isActive); attempt++) {
+                edt(() -> { Desktop.getDesktop().requestForeground(true); workbench.frame().toFront();
+                    workbench.frame().requestFocus(); return null; });
+                Thread.sleep(400);
+                // 首次按下可能仅用于激活窗口，点击无动作的欢迎区后才开始测试菜单。
+                if (!edt(workbench.frame()::isActive)) mouse(edt(() -> center(workbench.frame().getRootPane())));
+            }
             assertTrue(edt(workbench.frame()::isActive), "Robot must target the foreground test window");
             JButton gear = (JButton) field(workbench, "settingsButton");
             mouse(edt(() -> center(gear)));

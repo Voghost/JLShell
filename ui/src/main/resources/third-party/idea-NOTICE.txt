@@ -47,6 +47,8 @@ platform/platform-impl/src/com/intellij/ui/popup/PopupDispatcher.java
 platform/platform-impl/src/com/intellij/ui/popup/AbstractPopup.java
 platform/platform-impl/src/com/intellij/ui/WindowRoundedCornersManager.java
 platform/util/ui/src/com/intellij/ui/PopupBorder.java
+platform/util/ui/src/com/intellij/ui/paint/RectanglePainter2D.java
+platform/util/ui/src/com/intellij/ui/paint/PaintUtil.java
 platform/platform-impl/src/com/intellij/ide/ui/laf/intellij/IdeaPopupMenuUI.java
 
 Settings/font/keymap layout, scrollbar repaint scope and macOS menu model
