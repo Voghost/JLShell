@@ -41,9 +41,9 @@ public final class BootstrapLauncher {
     private BootstrapLauncher() {}
 
     public static void main(String[] args) {
-        configureMacApplicationName();
-
         try {
+            if (PreviewRuntime.enabled()) PreviewRuntime.configure();
+            configureMacApplicationName();
             if (relaunchWithIsolatedWindowsRuntime(args)) {
                 return;
             }
@@ -95,6 +95,10 @@ public final class BootstrapLauncher {
     }
 
     static List<String> windowsRelaunchCommand(Path javaExecutable, Path launcher, String[] args) {
+        return windowsRelaunchCommand(javaExecutable, launcher, args, PreviewRuntime.enabled());
+    }
+
+    static List<String> windowsRelaunchCommand(Path javaExecutable, Path launcher, String[] args, boolean preview) {
         List<String> command = new ArrayList<>();
         command.add(javaExecutable.toString());
         command.add("-Xms64m");
@@ -103,6 +107,13 @@ public final class BootstrapLauncher {
         command.add("--add-opens=java.base/java.lang=ALL-UNNAMED");
         command.add("--add-opens=java.desktop/sun.awt=ALL-UNNAMED");
         command.add("-D" + ISOLATED_RUNTIME_PROPERTY + "=true");
+        if (preview) {
+            command.add("--add-exports=java.desktop/sun.swing=ALL-UNNAMED");
+            command.add("--add-opens=java.desktop/sun.swing=ALL-UNNAMED");
+            command.add("--add-opens=java.desktop/javax.swing=ALL-UNNAMED");
+            String previewHome = System.getProperty("jlshell.preview.home");
+            if (previewHome != null && !previewHome.isBlank()) command.add("-Djlshell.preview.home=" + previewHome);
+        }
         command.add("-jar");
         command.add(launcher.toString());
         command.addAll(Arrays.asList(args));
@@ -500,8 +511,9 @@ public final class BootstrapLauncher {
     private static void configureMacApplicationName() {
         System.setProperty("apple.laf.useScreenMenuBar", "true");
         System.setProperty("apple.awt.application.appearance", "system");
-        System.setProperty("apple.awt.application.name", "JLShell");
-        System.setProperty("com.apple.mrj.application.apple.menu.about.name", "JLShell");
+        String name = PreviewRuntime.enabled() ? "JLShell Preview" : "JLShell";
+        System.setProperty("apple.awt.application.name", name);
+        System.setProperty("com.apple.mrj.application.apple.menu.about.name", name);
     }
 
     private static String escapeJson(String value) {

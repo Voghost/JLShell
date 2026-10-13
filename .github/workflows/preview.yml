@@ -1,0 +1,605 @@
+name: Preview
+run-name: UI preview · ${{ github.ref_name }} · ${{ github.run_number }}.${{ github.run_attempt }}
+
+on:
+  push:
+    branches: ['preview/**']
+  workflow_dispatch:
+    inputs:
+      base_version:
+        description: 'Version label only; no release or website publishing'
+        required: true
+        default: '0.1.67'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BASE_VERSION: ${{ inputs.base_version || '0.1.67' }}
+  VERSION: ${{ inputs.base_version || '0.1.67' }}-preview.${{ github.run_number }}.${{ github.run_attempt }}
+  PACKAGE_VERSION: 1.0.${{ github.run_number }}
+  MODULES: "java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.management.rmi,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.transaction.xa,java.xml,java.xml.crypto,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.httpserver,jdk.jfr,jdk.localedata,jdk.management,jdk.naming.dns,jdk.net,jdk.unsupported,jdk.unsupported.desktop,jdk.zipfs,javafx.base,javafx.controls,javafx.fxml,javafx.graphics,javafx.swing"
+
+jobs:
+  validate-preview:
+    name: Validate test-only preview and run tests
+    if: startsWith(github.ref, 'refs/heads/preview/')
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate version label
+        shell: bash
+        run: |
+          [[ "$BASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Invalid base version'; exit 1; }
+          [[ "$GITHUB_RUN_NUMBER" -le 65535 ]] || { echo 'Installer build number exceeds MSI limit'; exit 1; }
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21.0.11'
+          distribution: 'liberica'
+          java-package: 'jdk+fx'
+          cache: maven
+      - name: Test existing application and preview isolation
+        run: mvn -B -pl app,launcher -am test
+      - name: Write preview provenance
+        shell: bash
+        run: |
+          mkdir -p preview-info
+          printf 'Preview: %s\nSource: %s\nCommit: %s\nAction: https://github.com/%s/actions/runs/%s\n' \
+            "$VERSION" "$GITHUB_REF_NAME" "$GITHUB_SHA" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > preview-info/BUILD.txt
+          cat > preview-info/README.txt <<'EOF'
+          Test-only UI preview. No GitHub Release/tag, OSS upload or Website notification.
+          Install/app name: JLShellPreview. Stable JLShell installation is separate.
+          Configuration and plugins: ~/.jlshell-preview/.jlshell/
+          Automatic update check is disabled. Copy only test plugin JARs into the preview plugin folders.
+          macOS preview is ad-hoc signed; use Open Anyway if Gatekeeper prompts.
+          EOF
+          cat preview-info/BUILD.txt >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: preview-info-${{ env.VERSION }}
+          path: preview-info/
+          if-no-files-found: error
+          retention-days: 14
+
+  # ── macOS ───────────────────────────────────────────────────────────────────
+  build-mac:
+    name: Build macOS (${{ matrix.arch }})
+    needs: [validate-preview]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            arch: arm64
+          - os: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21.0.11'
+          distribution: 'liberica'
+          java-package: 'jdk+fx'
+          cache: maven
+
+      - name: Set version from input
+        run: |
+          mkdir -p launcher/src/main/resources/META-INF
+          printf 'version=%s\ncommit=%s\n' "$VERSION" "$GITHUB_SHA" > launcher/src/main/resources/META-INF/jlshell-preview.properties
+          mvn versions:set "-DnewVersion=$VERSION" -DgenerateBackupPoms=false -q
+
+      - name: Build
+        run: |
+          mvn package -DskipTests -pl launcher,app -am -q
+
+          # Discover the built jar dynamically (no hardcoded version)
+          JAR=$(ls app/target/jlshell-app-*.jar | head -1)
+          LAUNCHER_JAR=$(ls launcher/target/jlshell-launcher-*.jar | head -1)
+          echo "JAR=$JAR" >> $GITHUB_ENV
+          echo "LAUNCHER_JAR=$LAUNCHER_JAR" >> $GITHUB_ENV
+
+          JDK=$JAVA_HOME
+
+          # jlink a custom JRE
+          $JDK/bin/jlink \
+            --module-path $JDK/jmods \
+            --add-modules $MODULES \
+            --output dist/jre \
+            --strip-debug --no-man-pages --no-header-files --compress zip-6
+
+          # Build AppIcon.icns (needed by jpackage)
+          ICON_PNG=app/src/main/resources/icons/app_icon.png
+          ICONSET=dist/AppIcon.iconset
+          mkdir -p "$ICONSET"
+          for size in 16 32 128 256 512; do
+            sips -z $size $size "$ICON_PNG" --out "$ICONSET/icon_${size}x${size}.png" &>/dev/null
+            sips -z $((size*2)) $((size*2)) "$ICON_PNG" --out "$ICONSET/icon_${size}x${size}@2x.png" &>/dev/null
+          done
+          iconutil -c icns "$ICONSET" -o dist/AppIcon.icns
+          rm -rf "$ICONSET"
+
+          # Use jpackage to create a proper .app bundle with a native launcher.
+          # The preview has a separate bundle name; the launcher configures its app menu.
+          PKG_VERSION="$PACKAGE_VERSION"
+
+          mkdir -p dist/input
+          mkdir -p dist/input/app
+          cp "$LAUNCHER_JAR" dist/input/jlshell-launcher.jar
+          cp "$JAR" dist/input/app/jlshell-app-bundled.jar
+
+          $JDK/bin/jpackage \
+            --type app-image \
+            --name JLShellPreview \
+            --app-version "$PKG_VERSION" \
+            --input dist/input \
+            --main-jar jlshell-launcher.jar \
+            --main-class com.jlshell.launcher.BootstrapLauncher \
+            --runtime-image dist/jre \
+            --icon dist/AppIcon.icns \
+            --vendor JLShell \
+            --description "JLShell UI Preview - Test Only" \
+            --java-options "-Xms64m" \
+            --java-options "-Xmx512m" \
+            --java-options "-XX:+ExplicitGCInvokesConcurrent" \
+            --java-options "--add-opens java.base/java.lang=ALL-UNNAMED" \
+            --java-options "--add-opens java.desktop/sun.awt=ALL-UNNAMED" \
+            --java-options "--add-exports java.desktop/sun.swing=ALL-UNNAMED" \
+            --java-options "--add-opens java.desktop/sun.swing=ALL-UNNAMED" \
+            --java-options "--add-opens java.desktop/javax.swing=ALL-UNNAMED" \
+            --java-options "-Dapple.laf.useScreenMenuBar=true" \
+            --java-options "-Dapple.awt.application.appearance=system" \
+            --java-options "-Dapple.awt.application.name=JLShellPreview" \
+            --dest dist/mac-work
+
+          # Localize the macOS application menu metadata used by AppKit.
+          # JavaFX owns most menu wiring, but these bundle resources allow
+          # system-generated app-menu labels to follow macOS language fallback.
+          /usr/libexec/PlistBuddy -c "Delete :NSRequiresAquaSystemAppearance" \
+            dist/mac-work/JLShellPreview.app/Contents/Info.plist >/dev/null 2>&1 || true
+          /usr/libexec/PlistBuddy -c "Add :NSRequiresAquaSystemAppearance bool false" \
+            dist/mac-work/JLShellPreview.app/Contents/Info.plist
+          mkdir -p dist/mac-work/JLShellPreview.app/Contents/Resources/zh-Hans.lproj
+          cat > dist/mac-work/JLShellPreview.app/Contents/Resources/zh-Hans.lproj/InfoPlist.strings <<'EOF'
+          "CFBundleDisplayName" = "JLShell Preview";
+          "CFBundleName" = "JLShell Preview";
+          "NSHumanReadableCopyright" = "版权所有";
+          EOF
+
+          APP_BUNDLE="dist/mac-work/JLShellPreview.app"
+          codesign --force --deep --sign - "$APP_BUNDLE"
+          codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
+
+          ditto -c -k --keepParent "$APP_BUNDLE" dist/JLShell-${VERSION}-mac-${{ matrix.arch }}.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          if-no-files-found: error
+          retention-days: 14
+          name: preview-mac-${{ matrix.arch }}-${{ env.VERSION }}
+          path: dist/JLShell-${{ env.VERSION }}-mac-${{ matrix.arch }}.zip
+
+  # ── Linux ───────────────────────────────────────────────────────────────────
+  build-linux:
+    name: Build Linux (tar.gz + deb + AppImage)
+    needs: [validate-preview]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21.0.11'
+          distribution: 'liberica'
+          java-package: 'jdk+fx'
+          cache: maven
+
+      - name: Install tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y fakeroot dpkg-dev imagemagick
+
+      - name: Set version from input
+        run: |
+          mkdir -p launcher/src/main/resources/META-INF
+          printf 'version=%s\ncommit=%s\n' "$VERSION" "$GITHUB_SHA" > launcher/src/main/resources/META-INF/jlshell-preview.properties
+          mvn versions:set "-DnewVersion=$VERSION" -DgenerateBackupPoms=false -q
+
+      - name: Build fat jar + jlink runtime
+        run: |
+          mvn package -DskipTests -pl launcher,app -am -q
+
+          # Discover the built jar dynamically (no hardcoded version)
+          JAR=$(ls app/target/jlshell-app-*.jar | head -1)
+          LAUNCHER_JAR=$(ls launcher/target/jlshell-launcher-*.jar | head -1)
+          echo "JAR=$JAR" >> $GITHUB_ENV
+          echo "LAUNCHER_JAR=$LAUNCHER_JAR" >> $GITHUB_ENV
+
+          JDK=$JAVA_HOME
+          mkdir -p dist
+          $JDK/bin/jlink \
+            --module-path $JDK/jmods \
+            --add-modules $MODULES \
+            --output dist/runtime \
+            --strip-debug --no-man-pages --no-header-files --compress zip-6
+
+          cp "$LAUNCHER_JAR" dist/jlshell-launcher.jar
+          mkdir -p dist/app
+          cp "$JAR" dist/app/jlshell-app-bundled.jar
+          cp "$JAR" "dist/jlshell-app-${VERSION}.jar"
+
+      # ── tar.gz ──────────────────────────────────────────────────────────────
+      - name: Package tar.gz
+        run: |
+          mkdir -p dist/linux-work/JLShellPreview
+          cp -r dist/runtime dist/linux-work/JLShellPreview/
+          cp dist/jlshell-launcher.jar dist/linux-work/JLShellPreview/
+          cp -r dist/app dist/linux-work/JLShellPreview/
+          cat > dist/linux-work/JLShellPreview/JLShell.vmoptions <<'EOF'
+          # JLShell JVM options. One option per line.
+          # User override path on Linux: ~/.config/jlshell-preview/JLShell.vmoptions
+          -Xms64m
+          -Xmx512m
+          -XX:+ExplicitGCInvokesConcurrent
+          EOF
+
+          cat > dist/linux-work/JLShellPreview/JLShell.sh <<'EOF'
+          #!/bin/bash
+          DIR="$(cd "$(dirname "$0")" && pwd)"
+          DEFAULT_VM_OPTS=(-Xms64m -Xmx512m -XX:+ExplicitGCInvokesConcurrent)
+          USER_VMOPTIONS="${XDG_CONFIG_HOME:-$HOME/.config}/jlshell-preview/JLShell.vmoptions"
+          BUNDLED_VMOPTIONS="$DIR/JLShell.vmoptions"
+          VMOPTIONS_FILE=""
+          if [[ -f "$USER_VMOPTIONS" ]]; then
+            VMOPTIONS_FILE="$USER_VMOPTIONS"
+          elif [[ -f "$BUNDLED_VMOPTIONS" ]]; then
+            VMOPTIONS_FILE="$BUNDLED_VMOPTIONS"
+          fi
+          VM_OPTS=("${DEFAULT_VM_OPTS[@]}")
+          if [[ -n "$VMOPTIONS_FILE" ]]; then
+            CUSTOM_VM_OPTS=()
+            while IFS= read -r line || [[ -n "$line" ]]; do
+              line="${line%%#*}"
+              line="$(echo "$line" | xargs)"
+              [[ -z "$line" ]] && continue
+              CUSTOM_VM_OPTS+=("$line")
+            done < "$VMOPTIONS_FILE"
+            if [[ ${#CUSTOM_VM_OPTS[@]} -gt 0 ]] && "$DIR/runtime/bin/java" "${CUSTOM_VM_OPTS[@]}" -version >/dev/null 2>&1; then
+              VM_OPTS=("${CUSTOM_VM_OPTS[@]}")
+            fi
+          fi
+          exec "$DIR/runtime/bin/java" "${VM_OPTS[@]}" \
+            --add-opens java.base/java.lang=ALL-UNNAMED \
+            --add-opens java.desktop/sun.awt=ALL-UNNAMED \
+            --add-exports java.desktop/sun.swing=ALL-UNNAMED \
+            --add-opens java.desktop/sun.swing=ALL-UNNAMED \
+            --add-opens java.desktop/javax.swing=ALL-UNNAMED \
+            -jar "$DIR/jlshell-launcher.jar" "$@"
+          EOF
+          chmod +x dist/linux-work/JLShellPreview/JLShell.sh
+
+          cd dist/linux-work && tar czf ../JLShell-${VERSION}-linux-x64.tar.gz JLShellPreview
+
+      # ── .deb ────────────────────────────────────────────────────────────────
+      - name: Package .deb
+        run: |
+          PKG=dist/deb-work
+          mkdir -p $PKG/opt/jlshell-preview
+          mkdir -p $PKG/usr/share/applications
+          mkdir -p $PKG/usr/share/pixmaps
+          mkdir -p $PKG/usr/bin
+          mkdir -p $PKG/DEBIAN
+
+          cp -r dist/runtime $PKG/opt/jlshell-preview/
+          cp dist/jlshell-launcher.jar $PKG/opt/jlshell-preview/
+          cp -r dist/app $PKG/opt/jlshell-preview/
+          cat > $PKG/opt/jlshell-preview/JLShell.vmoptions <<'EOF'
+          # JLShell JVM options. One option per line.
+          # User override path on Linux: ~/.config/jlshell-preview/JLShell.vmoptions
+          -Xms64m
+          -Xmx512m
+          -XX:+ExplicitGCInvokesConcurrent
+          EOF
+
+          cat > $PKG/opt/jlshell-preview/JLShell.sh <<'EOF'
+          #!/bin/bash
+          DIR="$(cd "$(dirname "$0")" && pwd)"
+          DEFAULT_VM_OPTS=(-Xms64m -Xmx512m -XX:+ExplicitGCInvokesConcurrent)
+          USER_VMOPTIONS="${XDG_CONFIG_HOME:-$HOME/.config}/jlshell-preview/JLShell.vmoptions"
+          BUNDLED_VMOPTIONS="$DIR/JLShell.vmoptions"
+          VMOPTIONS_FILE=""
+          if [[ -f "$USER_VMOPTIONS" ]]; then
+            VMOPTIONS_FILE="$USER_VMOPTIONS"
+          elif [[ -f "$BUNDLED_VMOPTIONS" ]]; then
+            VMOPTIONS_FILE="$BUNDLED_VMOPTIONS"
+          fi
+          VM_OPTS=("${DEFAULT_VM_OPTS[@]}")
+          if [[ -n "$VMOPTIONS_FILE" ]]; then
+            CUSTOM_VM_OPTS=()
+            while IFS= read -r line || [[ -n "$line" ]]; do
+              line="${line%%#*}"
+              line="$(echo "$line" | xargs)"
+              [[ -z "$line" ]] && continue
+              CUSTOM_VM_OPTS+=("$line")
+            done < "$VMOPTIONS_FILE"
+            if [[ ${#CUSTOM_VM_OPTS[@]} -gt 0 ]] && "$DIR/runtime/bin/java" "${CUSTOM_VM_OPTS[@]}" -version >/dev/null 2>&1; then
+              VM_OPTS=("${CUSTOM_VM_OPTS[@]}")
+            fi
+          fi
+          exec "$DIR/runtime/bin/java" "${VM_OPTS[@]}" \
+            --add-opens java.base/java.lang=ALL-UNNAMED \
+            --add-opens java.desktop/sun.awt=ALL-UNNAMED \
+            --add-exports java.desktop/sun.swing=ALL-UNNAMED \
+            --add-opens java.desktop/sun.swing=ALL-UNNAMED \
+            --add-opens java.desktop/javax.swing=ALL-UNNAMED \
+            -jar "$DIR/jlshell-launcher.jar" "$@"
+          EOF
+          chmod +x $PKG/opt/jlshell-preview/JLShell.sh
+
+          # Symlink in /usr/bin
+          ln -s /opt/jlshell-preview/JLShell.sh $PKG/usr/bin/jlshell-preview
+
+          # .desktop
+          cat > $PKG/usr/share/applications/jlshell-preview.desktop <<EOF
+          [Desktop Entry]
+          Name=JLShell Preview
+          Comment=SSH Client
+          Exec=/opt/jlshell-preview/JLShell.sh
+          Icon=jlshell-preview
+          Terminal=false
+          Type=Application
+          Categories=Network;System;
+          EOF
+
+          # Icon — use actual app icon from source (replace app_icon.png to customize)
+          convert app/src/main/resources/icons/app_icon.png \
+            -resize 64x64 $PKG/usr/share/pixmaps/jlshell-preview.png
+
+          # DEBIAN/control
+          INSTALLED_SIZE=$(du -sk $PKG/opt/jlshell-preview | cut -f1)
+          cat > $PKG/DEBIAN/control <<EOF
+          Package: jlshell-preview
+          Version: ${VERSION}
+          Architecture: amd64
+          Maintainer: JLShell <noreply@jlshell.com>
+          Installed-Size: ${INSTALLED_SIZE}
+          Description: JLShell SSH Client
+           A modern SSH client with SFTP browser and plugin support.
+          Section: net
+          Priority: optional
+          EOF
+
+          fakeroot dpkg-deb --build $PKG dist/JLShell-${VERSION}-linux-x64.deb
+
+      # ── AppImage ─────────────────────────────────────────────────────────────
+      - name: Package AppImage
+        run: |
+          # Download appimagetool and extract it (GitHub Actions runners lack FUSE)
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage \
+            -O /tmp/appimagetool.AppImage
+          chmod +x /tmp/appimagetool.AppImage
+          /tmp/appimagetool.AppImage --appimage-extract 2>/dev/null
+          APPIMAGETOOL="$(pwd)/squashfs-root/AppRun"
+
+          APPDIR=dist/appimage-work/JLShellPreview.AppDir
+          mkdir -p $APPDIR/usr/{bin,lib,share/applications,share/pixmaps}
+
+          cp -r dist/runtime $APPDIR/usr/
+          cp dist/jlshell-launcher.jar $APPDIR/usr/
+          cp -r dist/app $APPDIR/usr/
+          cat > $APPDIR/usr/JLShell.vmoptions <<'EOF'
+          # JLShell JVM options. One option per line.
+          # User override path on Linux: ~/.config/jlshell-preview/JLShell.vmoptions
+          -Xms64m
+          -Xmx512m
+          -XX:+ExplicitGCInvokesConcurrent
+          EOF
+
+          # AppRun
+          cat > $APPDIR/AppRun <<'EOF'
+          #!/bin/bash
+          HERE="$(cd "$(dirname "$0")" && pwd)"
+          DEFAULT_VM_OPTS=(-Xms64m -Xmx512m -XX:+ExplicitGCInvokesConcurrent)
+          USER_VMOPTIONS="${XDG_CONFIG_HOME:-$HOME/.config}/jlshell-preview/JLShell.vmoptions"
+          BUNDLED_VMOPTIONS="$HERE/usr/JLShell.vmoptions"
+          VMOPTIONS_FILE=""
+          if [[ -f "$USER_VMOPTIONS" ]]; then
+            VMOPTIONS_FILE="$USER_VMOPTIONS"
+          elif [[ -f "$BUNDLED_VMOPTIONS" ]]; then
+            VMOPTIONS_FILE="$BUNDLED_VMOPTIONS"
+          fi
+          VM_OPTS=("${DEFAULT_VM_OPTS[@]}")
+          if [[ -n "$VMOPTIONS_FILE" ]]; then
+            CUSTOM_VM_OPTS=()
+            while IFS= read -r line || [[ -n "$line" ]]; do
+              line="${line%%#*}"
+              line="$(echo "$line" | xargs)"
+              [[ -z "$line" ]] && continue
+              CUSTOM_VM_OPTS+=("$line")
+            done < "$VMOPTIONS_FILE"
+            if [[ ${#CUSTOM_VM_OPTS[@]} -gt 0 ]] && "$HERE/usr/runtime/bin/java" "${CUSTOM_VM_OPTS[@]}" -version >/dev/null 2>&1; then
+              VM_OPTS=("${CUSTOM_VM_OPTS[@]}")
+            fi
+          fi
+          exec "$HERE/usr/runtime/bin/java" "${VM_OPTS[@]}" \
+            --add-opens java.base/java.lang=ALL-UNNAMED \
+            --add-opens java.desktop/sun.awt=ALL-UNNAMED \
+            --add-exports java.desktop/sun.swing=ALL-UNNAMED \
+            --add-opens java.desktop/sun.swing=ALL-UNNAMED \
+            --add-opens java.desktop/javax.swing=ALL-UNNAMED \
+            -jar "$HERE/usr/jlshell-launcher.jar" "$@"
+          EOF
+          chmod +x $APPDIR/AppRun
+
+          # .desktop (required by AppImage)
+          printf '[Desktop Entry]\nName=JLShell Preview\nExec=AppRun\nIcon=jlshell-preview\nType=Application\nCategories=Network;\n' > $APPDIR/jlshell-preview.desktop
+
+          # Icon (required by AppImage)
+          cp dist/deb-work/usr/share/pixmaps/jlshell-preview.png $APPDIR/jlshell-preview.png
+
+          ARCH=x86_64 "$APPIMAGETOOL" --no-appstream $APPDIR \
+            dist/JLShell-${VERSION}-linux-x86_64.AppImage 2>&1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          if-no-files-found: error
+          retention-days: 14
+          name: preview-linux-packages-${{ env.VERSION }}
+          path: |
+            dist/JLShell-${{ env.VERSION }}-linux-x64.tar.gz
+            dist/JLShell-${{ env.VERSION }}-linux-x64.deb
+            dist/JLShell-${{ env.VERSION }}-linux-x86_64.AppImage
+
+  # ── Windows ─────────────────────────────────────────────────────────────────
+  build-windows:
+    name: Build Windows (zip + msi)
+    needs: [validate-preview]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21.0.11'
+          distribution: 'liberica'
+          java-package: 'jdk+fx'
+          cache: maven
+
+      - name: Install Python for ICO conversion
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install Pillow
+        run: pip install Pillow
+
+      - name: Install WiX Toolset
+        run: choco install wixtoolset --no-progress -y
+
+      - name: Set version from input
+        shell: bash
+        run: |
+          mkdir -p launcher/src/main/resources/META-INF
+          printf 'version=%s\ncommit=%s\n' "$VERSION" "$GITHUB_SHA" > launcher/src/main/resources/META-INF/jlshell-preview.properties
+          mvn versions:set "-DnewVersion=$VERSION" -DgenerateBackupPoms=false -q
+
+      - name: Create app_icon.ico from PNG
+        shell: python
+        run: |
+          from PIL import Image
+          img = Image.open('app/src/main/resources/icons/app_icon.png')
+          # Windows Shell commonly requests 20px/40px at non-100% display
+          # scaling. Save the ICO from the 512px source, not a 16px thumbnail,
+          # so every embedded size remains sharp in Start and the taskbar.
+          sizes = [(16,16),(20,20),(24,24),(32,32),(40,40),(48,48),(64,64),(128,128),(256,256)]
+          img.save('app/src/main/resources/icons/app_icon.ico', format='ICO', sizes=sizes)
+
+      - name: Build fat jar + jlink runtime
+        shell: bash
+        run: |
+          mvn package -DskipTests -pl launcher,app -am -P dist -q
+
+          JAR=$(ls app/target/jlshell-app-*.jar | head -1)
+          LAUNCHER_JAR=$(ls launcher/target/jlshell-launcher-*.jar | head -1)
+          echo "JAR=$JAR" >> $GITHUB_ENV
+          echo "LAUNCHER_JAR=$LAUNCHER_JAR" >> $GITHUB_ENV
+
+          JDK=$JAVA_HOME
+          rm -rf dist/runtime
+          "$JDK/bin/jlink" \
+            --module-path "$JDK/jmods" \
+            --add-modules $MODULES \
+            --output dist/runtime \
+            --strip-debug --no-man-pages --no-header-files --compress zip-6
+
+      - name: Package Windows app image and installer
+        shell: bash
+        run: |
+          JDK=$JAVA_HOME
+          PKG_VERSION="$PACKAGE_VERSION"
+
+          rm -rf dist/win-input dist/win-image dist/win-installer dist/win-jpackage-temp
+          mkdir -p dist/win-input
+          mkdir -p dist/win-input/app
+          cp "$LAUNCHER_JAR" dist/win-input/jlshell-launcher.jar
+          cp "$JAR" dist/win-input/app/jlshell-app-bundled.jar
+
+          "$JDK/bin/jpackage" \
+            --type app-image \
+            --name JLShellPreview \
+            --app-version "$PKG_VERSION" \
+            --input dist/win-input \
+            --main-jar jlshell-launcher.jar \
+            --main-class com.jlshell.launcher.BootstrapLauncher \
+            --runtime-image dist/runtime \
+            --icon app/src/main/resources/icons/app_icon.ico \
+            --vendor JLShell \
+            --description "JLShell UI Preview - Test Only" \
+            --java-options "-Xms64m" \
+            --java-options "-Xmx512m" \
+            --java-options "-XX:+ExplicitGCInvokesConcurrent" \
+            --java-options "--add-opens java.base/java.lang=ALL-UNNAMED" \
+            --java-options "--add-opens java.desktop/sun.awt=ALL-UNNAMED" \
+            --java-options "--add-exports java.desktop/sun.swing=ALL-UNNAMED" \
+            --java-options "--add-opens java.desktop/sun.swing=ALL-UNNAMED" \
+            --java-options "--add-opens java.desktop/javax.swing=ALL-UNNAMED" \
+            --dest dist/win-image
+
+          # plugins directory — drop plugin JARs here to install them
+          mkdir -p dist/win-image/JLShellPreview/plugins
+          cat > dist/win-image/JLShellPreview/plugins/README.txt <<'EOF'
+          Place plugin JAR files (*.jar) in this directory.
+          JLShell will automatically discover and load them on startup.
+          EOF
+
+          cd dist/win-image && 7z a -tzip "../JLShell-${VERSION}-win-x64.zip" JLShellPreview && cd ../..
+
+          # jpackage 21 always invokes WiX with the en-us culture. The
+          # resource directory intentionally provides its Chinese strings
+          # as MsiInstallerStrings_en.wxl so that culture is overridden.
+          "$JDK/bin/jpackage" \
+            --type msi \
+            --name JLShellPreview \
+            --app-version "$PKG_VERSION" \
+            --input dist/win-input \
+            --main-jar jlshell-launcher.jar \
+            --main-class com.jlshell.launcher.BootstrapLauncher \
+            --runtime-image dist/runtime \
+            --icon app/src/main/resources/icons/app_icon.ico \
+            --vendor JLShell \
+            --description "JLShell UI Preview - Test Only" \
+            --java-options "-Xms64m" \
+            --java-options "-Xmx512m" \
+            --java-options "-XX:+ExplicitGCInvokesConcurrent" \
+            --java-options "--add-opens java.base/java.lang=ALL-UNNAMED" \
+            --java-options "--add-opens java.desktop/sun.awt=ALL-UNNAMED" \
+            --java-options "--add-exports java.desktop/sun.swing=ALL-UNNAMED" \
+            --java-options "--add-opens java.desktop/sun.swing=ALL-UNNAMED" \
+            --java-options "--add-opens java.desktop/javax.swing=ALL-UNNAMED" \
+            --win-dir-chooser \
+            --win-menu \
+            --win-menu-group JLShellPreview \
+            --win-shortcut \
+            --win-upgrade-uuid "55d36379-0091-4fae-b0d1-71ae336a658f" \
+            --resource-dir app/src/main/resources/msi \
+            --temp dist/win-jpackage-temp \
+            --verbose \
+            --dest dist/win-installer
+
+          cp dist/win-installer/*.msi "dist/JLShell-${VERSION}-win-x64.msi"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          if-no-files-found: error
+          retention-days: 14
+          name: preview-win-packages-${{ env.VERSION }}
+          path: |
+            dist/JLShell-${{ env.VERSION }}-win-x64.zip
+            dist/JLShell-${{ env.VERSION }}-win-x64.msi
+
