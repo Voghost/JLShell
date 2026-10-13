@@ -106,6 +106,7 @@ class SwingWorkbenchDockTest {
             send(label, tabs, MouseEvent.MOUSE_DRAGGED, tabs.getBoundsAt(2), 30, MouseEvent.BUTTON1_DOWN_MASK);
             assertSame(firstHost.get(), tabs.getComponentAt(2));
             assertSame(firstHost.get(), first.getParent());
+            assertTrue(label.isShowing(), "The pressed label must retain its native mouse event target during drag");
             assertEquals(0, commits.get(), "Dragging must not flood the FX session model");
             send(label, tabs, MouseEvent.MOUSE_RELEASED, tabs.getBoundsAt(2), 30, 0);
             assertEquals(1, commits.get());

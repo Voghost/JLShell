@@ -105,7 +105,8 @@ final class TabDragController extends MouseAdapter implements AutoCloseable {
             strip = new Rectangle(0, strip.y, tabs.getWidth(), strip.height);
             overlay.setBounds(SwingUtilities.convertRectangle(tabs, strip, tabs.getRootPane().getLayeredPane()));
             tabs.getRootPane().getLayeredPane().add(overlay, JLayeredPane.DRAG_LAYER);
-            if (header != null) header.setVisible(false);
+            // 覆盖层不拦截鼠标，保留原控件的鼠标捕获与焦点。
+            // 不在拖动中隐藏按下的标签，避免丢失后续拖动/松手事件。
             dragging = true;
         }
         int current = tabs.indexOfComponent(source);
@@ -178,7 +179,6 @@ final class TabDragController extends MouseAdapter implements AutoCloseable {
         animation.stop();
         motions.forEach((item, motion) -> item.setLocation(motion.to));
         motions.clear();
-        if (header != null) header.setVisible(true);
         if (overlay.getParent() != null) {
             Container parent = overlay.getParent();
             Rectangle bounds = overlay.getBounds();
