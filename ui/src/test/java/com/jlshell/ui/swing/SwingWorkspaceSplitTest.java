@@ -13,6 +13,8 @@ import javax.swing.*;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Point;
+import java.awt.Rectangle;
+import java.awt.Window;
 import java.awt.event.MouseEvent;
 import java.util.List;
 import java.util.Map;
@@ -23,6 +25,51 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @EnabledIfSystemProperty(named = "jlshell.ui.smoke", matches = "true")
 class SwingWorkspaceSplitTest {
+    @Test
+    void rightClickTabAndClickPopupActionSplitsTheWorkspace() throws Exception {
+        var reference = new java.util.concurrent.atomic.AtomicReference<SwingWorkbench>();
+        JPanel first = new JPanel();
+        Runnable noop = () -> {};
+        try {
+            SwingExecutors.runOnEdtAsync(() -> {
+                SwingTheme.install(AppTheme.DARK, "#3574f0", "SansSerif", 13);
+                var actions = new SwingWorkbench.Actions(noop, noop, noop, noop, noop, noop, noop, noop, noop,
+                        connection -> fail("Splitting must not create a connection"), items -> {}, project -> {}, folders -> {}, tab -> {},
+                        (tab, position) -> {}, (items, folder) -> {},
+                        (item, reply) -> reply.accept(List.of()), (tab, reply) -> reply.accept(List.of()));
+                var view = new SwingWorkbench(actions, Map.of());
+                reference.set(view);
+                view.addTab("a", "First", first, noop);
+                view.addTab("b", "Second", new JPanel(), noop);
+                view.show();
+                JTabbedPane group = group(first);
+                Component label = ((Container) group.getTabComponentAt(0)).getComponent(0);
+                label.dispatchEvent(new MouseEvent(label, MouseEvent.MOUSE_RELEASED, System.currentTimeMillis(), 0,
+                        8, 8, 1, true, MouseEvent.BUTTON3));
+            }).get(15, TimeUnit.SECONDS);
+            // 右键回调在下一轮 EDT 打开弹窗，沿用户的鼠标释放路径执行菜单项。
+            SwingExecutors.runOnEdtAsync(() -> {
+                Window popup = java.util.Arrays.stream(Window.getWindows())
+                        .filter(window -> "idea.popupWindow".equals(window.getName()) && window.isShowing())
+                        .findFirst().orElseThrow();
+                JList<?> list = findList(popup);
+                int split = -1;
+                for (int i = 0; i < list.getModel().getSize(); i++) {
+                    Object row = list.getModel().getElementAt(i);
+                    if (row instanceof com.jlshell.ui.swing.idea.IdeaListPopup.Row item
+                            && item.title().equals("tab.splitRight")) { split = i; break; }
+                }
+                assertTrue(split >= 0, "The tab context menu must expose Split Right");
+                Rectangle cell = list.getCellBounds(split, split);
+                list.dispatchEvent(new MouseEvent(list, MouseEvent.MOUSE_RELEASED, System.currentTimeMillis(), 0,
+                        cell.x + 12, cell.y + cell.height / 2, 1, false, MouseEvent.BUTTON1));
+                assertEquals(2, layout(reference.get().frame()).groups().size());
+            }).get(15, TimeUnit.SECONDS);
+        } finally {
+            if (reference.get() != null) SwingExecutors.runOnEdtAsync(() -> reference.get().close()).get(15, TimeUnit.SECONDS);
+        }
+    }
+
     @Test
     void draggingAnExistingTabAcrossGroupsCommitsOnceAndKeepsItsView() throws Exception {
         var reference = new java.util.concurrent.atomic.AtomicReference<SwingWorkbench>();
@@ -159,6 +206,17 @@ class SwingWorkspaceSplitTest {
 
     private static JTabbedPane group(Component view) {
         return (JTabbedPane) SwingUtilities.getAncestorOfClass(JTabbedPane.class, view);
+    }
+
+    private static JList<?> findList(Container parent) {
+        for (Component child : parent.getComponents()) {
+            if (child instanceof JList<?> list) return list;
+            if (child instanceof Container container) {
+                JList<?> found = findList(container);
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 
     private static WorkspaceSplitLayout layout(Container parent) {

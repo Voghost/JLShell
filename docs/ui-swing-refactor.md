@@ -293,9 +293,9 @@ IDEA 可以为同一文件创建两个编辑器视图。终端承载已有 SSH �
 
 回归命令：`mvn -q -pl app,launcher -am test -Djlshell.ui.smoke=true
 '-Dtest=*,!MousePopupUiSmokeTest' -Dsurefire.failIfNoSpecifiedTests=false`。
-149 项通过；随后补充并通过跨组拖放用例，累计 150 个独立用例通过。新增三个
-`SwingWorkspaceSplitTest` 检查嵌套布局、方向切换、移动/合并保留缓冲区和插件组件、
-组内关闭范围以及拖放只提交一次排序。
+149 项通过；随后补充并通过跨组拖放和右键菜单点击用例，累计 151 个独立用例通过。
+`SwingWorkspaceSplitTest` 的四个用例检查嵌套布局、方向切换、移动/合并保留缓冲区和插件组件、
+组内关闭范围、拖放只提交一次排序，以及从标签右键弹窗点击“向右分屏”后的布局变化。
 
 一次全量回归中的旧 `MousePopupUiSmokeTest` 未通过：系统鼠标选择嵌入主题菜单后
 仍为 Light，期间 Computer Use 同时切换了前台窗口。本轮没有修改该测试或放宽
