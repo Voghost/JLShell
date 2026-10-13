@@ -47,7 +47,8 @@ public final class SwingWorkbench implements AutoCloseable {
             "project.search.prompt", "settings.quick.plugins", "settings.quick.shortcuts", "settings.quick.theme",
             "settings.quick.view", "settings.quick.account", "menu.help.about", "menu.help.checkUpdates",
             "menu.view", "menu.account", "menu.file", "menu.connections", "menu.help", "menu.settings",
-            "theme.dark", "theme.light", "preferences.tab.plugins", "preferences.tab.shortcuts");
+            "theme.dark", "theme.light", "preferences.tab.plugins", "preferences.tab.shortcuts",
+            "workspace.openSessions", "workspace.noOpenSessions");
 
     private final JFrame frame = new JFrame("JLShell");
     private final Actions actions;
@@ -63,6 +64,8 @@ public final class SwingWorkbench implements AutoCloseable {
     private String preferenceShortcut = "";
     private final JButton settingsButton;
     private final JTabbedPane tabs = new IslandTabbedPane();
+    private final TabDragController tabDrag;
+    private final JPanel headerMenus = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
     private final JPanel workspace = new IslandPanel(new CardLayout(), "canvas");
     private final JPanel welcome = new JPanel(new BorderLayout());
     private final JPanel recent = new JPanel();
@@ -87,7 +90,7 @@ public final class SwingWorkbench implements AutoCloseable {
     private final JButton projectStripe;
     private final JButton menuButton;
     private final JButton runButton;
-    private final JLabel connectionName = new JLabel();
+    private final JButton connectionName = new JButton();
     private final JPanel searchBar = new JPanel(new BorderLayout());
     private List<JMenu> mainMenus = List.of();
     private boolean toolWindowVisible = true;
@@ -104,7 +107,6 @@ public final class SwingWorkbench implements AutoCloseable {
     private boolean selectingTab;
     private boolean sidebarVisible = true;
     private int sidebarWidth = 280;
-    private Object draggingTab;
     private final Map<KeyStroke, Runnable> shortcuts = new HashMap<>();
     private final KeyEventDispatcher shortcutDispatcher = event -> {
         if (event.getID() != java.awt.event.KeyEvent.KEY_PRESSED || !frame.isActive()) return false;
@@ -174,21 +176,18 @@ public final class SwingWorkbench implements AutoCloseable {
         tabs.addChangeListener(event -> {
             if (!selectingTab) {
                 syncToolWindow();
+                updateSessionSelector();
                 actions.selectTab().accept(viewTabs.get(tabs.getSelectedComponent()));
             }
         });
+        tabDrag = new TabDragController(tabs, host -> {
+            Object id = viewTabs.get(host);
+            selectTab(id);
+            actions.selectTab().accept(id);
+        }, (host, position) -> actions.reorder().accept(viewTabs.get(host), position), this::moveTabLocally);
         tabs.addMouseListener(new MouseAdapter() {
-            public void mousePressed(MouseEvent event) {
-                int index = tabs.indexAtLocation(event.getX(), event.getY());
-                draggingTab = index < 0 ? null : viewTabs.get(tabs.getComponentAt(index));
-                popup(event);
-            }
-            public void mouseReleased(MouseEvent event) {
-                popup(event);
-                int index = tabs.indexAtLocation(event.getX(), event.getY());
-                if (draggingTab != null && index >= 0 && !event.isPopupTrigger()) actions.reorder().accept(draggingTab, index);
-                draggingTab = null;
-            }
+            public void mousePressed(MouseEvent event) { popup(event); }
+            public void mouseReleased(MouseEvent event) { popup(event); }
             private void popup(MouseEvent event) {
                 if (!event.isPopupTrigger()) return;
                 int index = tabs.indexAtLocation(event.getX(), event.getY());
@@ -230,11 +229,20 @@ public final class SwingWorkbench implements AutoCloseable {
         projects.setFocusable(false);
         projects.addActionListener(event -> showProjectPopup());
         identity.add(projects);
+        headerMenus.setOpaque(false);
+        identity.add(headerMenus);
         JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 2));
         toolbar.setOpaque(false);
         connectionName.setForeground(SwingTheme.color("secondary"));
+        connectionName.putClientProperty("JButton.buttonType", "toolBarButton");
+        connectionName.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
+        connectionName.setFocusable(false);
+        connectionName.setToolTipText(text("workspace.openSessions"));
+        connectionName.getAccessibleContext().setAccessibleName(text("workspace.openSessions"));
+        connectionName.addActionListener(event -> showSessionPopup());
+        connectionName.setText(text("workspace.noOpenSessions") + "  ⌄");
+        connectionName.setEnabled(false);
         toolbar.add(connectionName);
-        toolbar.add(runButton);
         toolbar.add(button(WorkbenchIcon.Kind.ADD, "action.newConnection", actions.create()));
         toolbar.add(button(WorkbenchIcon.Kind.SEARCH, "sidebar.search.prompt", this::toggleSearch));
         toolbar.add(settingsButton);
@@ -244,6 +252,9 @@ public final class SwingWorkbench implements AutoCloseable {
         toolbar.add(windowButtons);
         mainToolbar.add(identity, BorderLayout.WEST);
         mainToolbar.add(toolbar, BorderLayout.EAST);
+        mainToolbar.addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override public void componentResized(java.awt.event.ComponentEvent event) { updateHeaderMenuVisibility(); }
+        });
         // 控件仍可点击；空白区域拖动窗口。最大化窗口不做手动移动。
         mainToolbar.addMouseListener(new MouseAdapter() {
             public void mouseClicked(MouseEvent event) {
@@ -381,8 +392,6 @@ public final class SwingWorkbench implements AutoCloseable {
         tree.addTreeSelectionListener(event -> {
             List<SidebarItem> selection = selectedItems();
             actions.select().accept(selection);
-            connectionName.setText(selection.stream().filter(SidebarItem.ConnectionItem.class::isInstance)
-                    .findFirst().map(SidebarItem::displayName).orElse(""));
             runButton.setEnabled(selection.stream().anyMatch(SidebarItem.ConnectionItem.class::isInstance));
         });
         runButton.setEnabled(false);
@@ -426,6 +435,14 @@ public final class SwingWorkbench implements AutoCloseable {
         JScrollPane scroll = new JScrollPane(tree);
         scroll.setBorder(BorderFactory.createEmptyBorder());
         sidebar.add(scroll, BorderLayout.CENTER);
+        JPanel footer = new JPanel(new BorderLayout());
+        footer.setOpaque(false);
+        footer.setBorder(BorderFactory.createEmptyBorder(4, 8, 8, 8));
+        runButton.setText(text("action.connect"));
+        runButton.setHorizontalAlignment(SwingConstants.LEFT);
+        runButton.setPreferredSize(new Dimension(0, 30));
+        footer.add(runButton);
+        sidebar.add(footer, BorderLayout.SOUTH);
     }
 
     private JPanel buildWelcome() {
@@ -603,25 +620,26 @@ public final class SwingWorkbench implements AutoCloseable {
         header.setOpaque(false);
         JLabel label = new JLabel(title, new WorkbenchIcon(WorkbenchIcon.Kind.TERMINAL), SwingConstants.LEFT);
         header.add(label);
-        MouseAdapter drag = new MouseAdapter() {
-            public void mousePressed(MouseEvent event) { if (SwingUtilities.isLeftMouseButton(event)) draggingTab = id; }
-            public void mouseReleased(MouseEvent event) {
+        tabDrag.install(header);
+        tabDrag.install(label);
+        MouseAdapter context = new MouseAdapter() {
+            public void mousePressed(MouseEvent event) { popup(event); }
+            public void mouseReleased(MouseEvent event) { popup(event); }
+            private void popup(MouseEvent event) {
+                if (!event.isPopupTrigger()) return;
                 Point point = SwingUtilities.convertPoint(event.getComponent(), event.getPoint(), tabs);
-                int index = tabs.indexAtLocation(point.x, point.y);
-                if (event.isPopupTrigger()) actions.tabContext().accept(id,
-                        specs -> SwingUtilities.invokeLater(() -> popupMenu(specs).show(tabs, point.x, point.y)));
-                else if (draggingTab != null && index >= 0) actions.reorder().accept(id, index);
-                draggingTab = null;
+                actions.tabContext().accept(id, specs -> SwingUtilities.invokeLater(() ->
+                        popupMenu(specs).show(tabs, point.x, point.y)));
             }
-            public void mouseClicked(MouseEvent event) { if (SwingUtilities.isLeftMouseButton(event)) actions.selectTab().accept(id); }
         };
-        header.addMouseListener(drag);
-        label.addMouseListener(drag);
+        header.addMouseListener(context);
+        label.addMouseListener(context);
         JButton closeButton = button(WorkbenchIcon.Kind.CLOSE, "tab.close", close);
         closeButton.setPreferredSize(new Dimension(18, 18));
         header.add(closeButton);
         tabs.setTabComponentAt(tabs.indexOfComponent(host), header);
         syncToolWindow();
+        updateSessionSelector();
         ((CardLayout) workspace.getLayout()).show(workspace, "tabs");
     }
 
@@ -636,6 +654,7 @@ public final class SwingWorkbench implements AutoCloseable {
         if (view instanceof AutoCloseable closeable) {
             try { closeable.close(); } catch (Exception error) { throw new IllegalStateException(error); }
         }
+        updateSessionSelector();
         if (tabs.getTabCount() == 0) ((CardLayout) workspace.getLayout()).show(workspace, "welcome");
     }
 
@@ -645,6 +664,14 @@ public final class SwingWorkbench implements AutoCloseable {
         selectingTab = true;
         try { tabs.setSelectedComponent(host); } finally { selectingTab = false; }
         syncToolWindow();
+        updateSessionSelector();
+    }
+
+    private void moveTabLocally(Component host, Integer target) {
+        var order = new ArrayList<Object>();
+        for (int i = 0; i < tabs.getTabCount(); i++) order.add(viewTabs.get(tabs.getComponentAt(i)));
+        Object id = viewTabs.get(host);
+        if (order.remove(id)) { order.add(Math.min(target, order.size()), id); reorderTabs(order); }
     }
 
     public void reorderTabs(List<Object> order) {
@@ -663,6 +690,27 @@ public final class SwingWorkbench implements AutoCloseable {
             }
             if (selected != null) tabs.setSelectedComponent(selected);
         } finally { selectingTab = false; }
+    }
+
+    private void updateSessionSelector() {
+        int index = tabs.getSelectedIndex();
+        connectionName.setText((index < 0 ? text("workspace.noOpenSessions") : tabs.getTitleAt(index)) + "  ⌄");
+        connectionName.setIcon(index < 0 ? null : new WorkbenchIcon(WorkbenchIcon.Kind.TERMINAL));
+        connectionName.setEnabled(tabs.getTabCount() > 0);
+    }
+
+    private void showSessionPopup() {
+        var rows = new ArrayList<com.jlshell.ui.swing.idea.IdeaListPopup.Row>();
+        Component selected = tabs.getSelectedComponent();
+        for (int i = 0; i < tabs.getTabCount(); i++) {
+            Component host = tabs.getComponentAt(i);
+            Object id = viewTabs.get(host);
+            rows.add(com.jlshell.ui.swing.idea.IdeaListPopup.Row.action(tabs.getTitleAt(i),
+                    new WorkbenchIcon(WorkbenchIcon.Kind.TERMINAL), host == selected ? "✓" : "", null,
+                    () -> { selectTab(id); actions.selectTab().accept(id); }));
+        }
+        new com.jlshell.ui.swing.idea.IdeaListPopup(rows, 240, true, text("workspace.openSessions"))
+                .show(connectionName, 0, connectionName.getHeight() + 4);
     }
 
     public void setSidebarVisible(boolean visible) {
@@ -685,8 +733,44 @@ public final class SwingWorkbench implements AutoCloseable {
     public void setTitle(String title) { frame.setTitle(title); }
     public void setMenuBar(JMenuBar menu) {
         mainMenus = Arrays.stream(menu.getComponents()).filter(JMenu.class::isInstance).map(JMenu.class::cast).toList();
-        // 所有原菜单仍经 SwingMenuBridge 动态同步，入口放入主工具栏。
-        // 不额外占用一整行，避免出现双标题栏。
+        headerMenus.removeAll();
+        // 对照 IDEA IdeMenuHelper：Windows/Linux 在同一标题区横向展示菜单。
+        if (!com.formdev.flatlaf.util.SystemInfo.isMacOS) {
+            for (JMenu source : mainMenus) {
+                JButton button = new JButton(source.getText());
+                button.putClientProperty("JButton.buttonType", "toolBarButton");
+                button.setFocusable(false);
+                button.setMargin(new Insets(4, 7, 4, 7));
+                int mnemonic = source.getText().equals(text("menu.file")) ? 'F'
+                        : source.getText().equals(text("menu.connections")) ? 'C'
+                        : source.getText().equals(text("menu.account")) ? 'A'
+                        : source.getText().equals(text("menu.view")) ? 'V'
+                        : source.getText().equals(text("menu.settings")) ? 'S'
+                        : source.getText().equals(text("menu.help")) ? 'H' : 0;
+                if (mnemonic != 0) button.setMnemonic(mnemonic);
+                button.addActionListener(event -> requestMenus(specs -> specs.stream()
+                        .filter(item -> item.text().equals(source.getText())).findFirst().ifPresent(item ->
+                                new com.jlshell.ui.swing.idea.IdeaListPopup(menuRows(item.children()), 220, false, "")
+                                        .show(button, 0, button.getHeight() + 4))));
+                headerMenus.add(button);
+            }
+            menuButton.setVisible(false);
+        }
+        headerMenus.revalidate();
+        headerMenus.repaint();
+        SwingUtilities.invokeLater(this::updateHeaderMenuVisibility);
+    }
+
+    private void updateHeaderMenuVisibility() {
+        if (com.formdev.flatlaf.util.SystemInfo.isMacOS || mainMenus.isEmpty()) return;
+        int menuWidth = Arrays.stream(headerMenus.getComponents()).mapToInt(component -> component.getPreferredSize().width).sum();
+        Component right = ((BorderLayout) mainToolbar.getLayout()).getLayoutComponent(BorderLayout.EAST);
+        boolean fits = mainToolbar.getWidth() >= menuWidth + projects.getPreferredSize().width + right.getPreferredSize().width + 70;
+        if (headerMenus.isVisible() != fits) {
+            headerMenus.setVisible(fits);
+            menuButton.setVisible(!fits);
+            mainToolbar.revalidate();
+        }
     }
     public void setShortcuts(Map<KeyStroke, Runnable> bindings) { shortcuts.clear(); shortcuts.putAll(bindings); }
     public void setPreferenceShortcut(String displayText) { preferenceShortcut = displayText == null ? "" : displayText; }
@@ -718,6 +802,7 @@ public final class SwingWorkbench implements AutoCloseable {
                 BorderFactory.createMatteBorder(0, 0, 2, 0, UIManager.getColor("Component.focusColor")),
                 BorderFactory.createEmptyBorder(6, 6, 6, 6)));
         updateTreeRowHeight();
+        updateHeaderMenuVisibility();
         frame.revalidate(); frame.repaint();
     }
 
@@ -874,6 +959,7 @@ public final class SwingWorkbench implements AutoCloseable {
     }
 
     public void close() {
+        tabDrag.close();
         KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(shortcutDispatcher);
         for (Object id : List.copyOf(tabViews.keySet())) removeTab(id);
         ToolTipManager.sharedInstance().unregisterComponent(tree);

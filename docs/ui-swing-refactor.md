@@ -242,3 +242,23 @@ Swing 主窗口显示、系统托盘加载、FX/EDT 响应和正常退出。该�
 原 SVG 路径；二级菜单的宽度、定位、边框及动作均未修改。明暗实际主菜单检查
 均为 144 逻辑宽度、5 个分类图标；现有 SettingsUiSmokeTest 菜单导航验证通过。
 截图位于 `ui/target/review/main-menu-compact-dark/light.png`，预览包已更新。
+
+## Windows Preview 布局反馈
+
+进一步阅读 IDEA `platform/platform-api/src/com/intellij/ui/tabs/impl/DragHelper.java`
+与 `platform/platform-impl/src/com/intellij/openapi/wm/impl/customFrameDecorations/header/toolbar/IdeMenuHelper.kt`。
+工作台标签在按下时锁定来源，拖动超过阈值后按抓取偏移跟随鼠标，越过邻近标签中点
+即时调整预览顺序。仅重绘标签带，按设备缩放渲染拖动影像；邻近标签和松手归位使用
+160ms 缓动。松手只向原 FX 模型提交一次排序，Esc 或拖到栏外还原原顺序。
+不替换会话视图、连接器、终端缓冲区或插件节点。
+
+Windows/Linux 在一体化顶栏横向展示原有文件、连接、账号、视图、帮助等菜单，菜单
+动作及动态启用状态仍来自原 FX 模型，支持 Alt 字母入口。窄窗口恢复紧凑菜单入口，
+避免挤占窗口按钮；macOS 继续使用已有系统菜单。
+
+顶部会话名改为可搜索的已打开会话选择器，当前会话带勾选标记，同名会话按各自对象
+切换，不调用连接动作。原连接按钮移动到连接列表底部，仍使用原有侧栏选择和连接回调。
+
+底部只保留 Swing 会话工具导航。宿主内层 TabPane 使用定向 CSS 隐藏旧标签头，规则在
+主题变更和皮肤重建后持续生效；外部插件自己的 TabPane 不受影响。
+应用及启动器依赖模块连同桌面回归共 148 项通过，0 失败、0 错误、0 跳过。

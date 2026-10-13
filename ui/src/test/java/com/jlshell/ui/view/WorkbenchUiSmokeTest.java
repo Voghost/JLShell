@@ -117,6 +117,33 @@ class WorkbenchUiSmokeTest {
     }
 
     @Test
+    void nativeSessionNavigationHidesOnlyLegacyHeaderAcrossThemesAndSkinReplacement() throws Exception {
+        onFx(() -> {
+            try (var executor = Executors.newSingleThreadExecutor()) {
+                ThemeService themes = theme(executor);
+                TabPane pluginTabs = new TabPane(new Tab("插件自己的页", new Label("内容")));
+                Tab plugin = new Tab("插件", pluginTabs);
+                TabPane model = new TabPane(new Tab("终端", new Label("终端")), plugin);
+                model.getStyleClass().add("native-session-tabs");
+                BorderPane root = new BorderPane(model);
+                Scene scene = new Scene(root, 700, 400);
+                for (AppTheme selected : List.of(AppTheme.DARK, AppTheme.LIGHT, AppTheme.DARK)) {
+                    themes.setTheme(selected); themes.apply(scene);
+                    model.setSkin(new javafx.scene.control.skin.TabPaneSkin(model));
+                    model.getSelectionModel().select(plugin);
+                    root.applyCss(); root.layout();
+                    javafx.scene.Node header = model.getChildrenUnmodifiable().stream()
+                            .filter(node -> node.getStyleClass().contains("tab-header-area")).findFirst().orElseThrow();
+                    assertEquals(0, header.getBoundsInParent().getHeight(), .1);
+                    assertSame(pluginTabs, plugin.getContent());
+                    assertTrue(pluginTabs.lookup(".tab-header-area").getBoundsInParent().getHeight() > 10,
+                            "An external plugin's own tabs must remain visible");
+                }
+            }
+        });
+    }
+
+    @Test
     void settingsNavigationRetainsOriginalTabSelectionAndContent() throws Exception {
         onFx(() -> {
             Tab general = new Tab("常规", new Label("常规设置"));

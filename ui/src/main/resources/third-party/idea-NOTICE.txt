@@ -16,6 +16,11 @@ platform/platform-resources/src/themes/islands/ManyIslandsLight.theme.json
 platform/platform-impl/src/com/intellij/openapi/application/impl/islands/IslandsUICustomization.kt
 platform/platform-impl/src/com/intellij/openapi/application/impl/islands/IslandsTabPainter.kt
 
+TabDragController.java and the integrated desktop menu layout reference:
+platform/platform-api/src/com/intellij/ui/tabs/impl/DragHelper.java
+platform/platform-impl/src/com/intellij/openapi/wm/impl/customFrameDecorations/header/toolbar/IdeMenuHelper.kt
+IntelliJ services are replaced with the host's existing session callbacks.
+
 SelectablePanel.java is a Java port of the Swing-only SelectablePanel.kt below.
 IdeaPopupRenderer.java adapts the grouped separator, icon/text/shortcut columns,
 and ProjectWidgetRenderer two-line project rows; platform actions are replaced

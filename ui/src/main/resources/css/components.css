@@ -3073,3 +3073,13 @@
 .connection-form .text-field:disabled { -fx-opacity: 0.65; }
 
 .plugin-detail-tabs > .tab-header-area .tab .tab-label { -fx-border-width: 0; -fx-padding: 0; }
+
+/* Swing 会话导航是唯一入口；CSS 在 Scene/skin 重建及主题切换后持续生效。
+   仅针对宿主内层 TabPane，插件自己的 TabPane 不受影响。 */
+.native-session-tabs > .tab-header-area {
+    -fx-padding: 0;
+    -fx-min-height: 0;
+    -fx-pref-height: 0;
+    -fx-max-height: 0;
+    -fx-opacity: 0;
+}

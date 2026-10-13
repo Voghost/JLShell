@@ -51,6 +51,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
     /** 从 FX 线程调用。不会同步等待 EDT，也不会改变插件返回的 Node。 */
     public static CompletableFuture<SwingSessionView> create(SessionWorkspaceTab source, ThemeService themes, I18nService i18n) {
         TabPane model = source.getInnerTabPane();
+        model.getStyleClass().add("native-session-tabs");
         source.setContent(null);
         var future = SwingExecutors.supplyOnEdtAsync(() -> new SwingSessionView(model, themes, i18n.get("workspace.monitoring")));
         NativeTerminalHost host = new NativeTerminalHost() {
