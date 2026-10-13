@@ -154,7 +154,12 @@ public final class SwingWorkbench implements AutoCloseable {
         projectStripe = railButton(WorkbenchIcon.Kind.FOLDER, "sidebar.toggle", () -> actions.toggleSidebar().run());
         menuButton = button(WorkbenchIcon.Kind.MENU, "menu.main", this::showMainMenu);
         runButton = button(WorkbenchIcon.Kind.RUN, "action.connect", this::connectSelection);
-        settingsButton = button(WorkbenchIcon.Kind.SETTINGS, "action.preferences", this::showSettingsMenu);
+        settingsButton = new HeaderButton(new WorkbenchIcon(WorkbenchIcon.Kind.SETTINGS));
+        settingsButton.setPreferredSize(new Dimension(28, 28));
+        settingsButton.setFocusable(false);
+        settingsButton.setToolTipText(text("action.preferences"));
+        settingsButton.getAccessibleContext().setAccessibleName(text("action.preferences"));
+        settingsButton.addActionListener(event -> showSettingsMenu());
         configureWindowHeader();
         frame.getRootPane().putClientProperty("jlshell.workbench", this);
         KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(shortcutDispatcher);
@@ -285,8 +290,8 @@ public final class SwingWorkbench implements AutoCloseable {
 
     private JPanel buildMainToolbar() {
         mainToolbar.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
-        mainToolbar.setPreferredSize(new Dimension(0, 40));
-        JPanel identity = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
+        mainToolbar.setPreferredSize(new Dimension(0, 34));
+        JPanel identity = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         identity.setOpaque(false);
         JPanel macButtons = new JPanel();
         macButtons.putClientProperty(com.formdev.flatlaf.FlatClientProperties.FULL_WINDOW_CONTENT_BUTTONS_PLACEHOLDER, "mac horizontal");
@@ -296,12 +301,13 @@ public final class SwingWorkbench implements AutoCloseable {
         projects.putClientProperty("JButton.buttonType", "toolBarButton");
         projects.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 22));
         projects.setHorizontalAlignment(SwingConstants.LEFT);
+        projects.setIconTextGap(6);
         projects.setFocusable(false);
         projects.addActionListener(event -> showProjectPopup());
         identity.add(projects);
         headerMenus.setOpaque(false);
         identity.add(headerMenus);
-        JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 2));
+        JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
         toolbar.setOpaque(false);
         connectionName.setForeground(SwingTheme.color("secondary"));
         connectionName.putClientProperty("JButton.buttonType", "toolBarButton");
@@ -1011,7 +1017,7 @@ public final class SwingWorkbench implements AutoCloseable {
 
     public void setFocusMode(boolean focused) {
         // 一体化栏承载窗口按钮，折叠时仍保留原生标题栏所需高度。
-        mainToolbar.setPreferredSize(new Dimension(0, focused ? 30 : 40));
+        mainToolbar.setPreferredSize(new Dimension(0, focused ? 32 : 34));
         mainToolbar.revalidate();
     }
     public void setStatus(String message) { status.setText(message == null ? " " : message); }
