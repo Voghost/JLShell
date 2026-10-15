@@ -10,7 +10,7 @@ import java.awt.geom.Path2D;
 
 /** 独立的 16px 线条图标，使用逻辑坐标，由 Swing 的 HiDPI 变换缩放。 */
 public record WorkbenchIcon(Kind kind) implements Icon {
-    public enum Kind { SERVER, SSH, FOLDER, PLUGIN, ADD, RUN, REFRESH, SETTINGS, CLOSE, CHECK, TERMINAL, PROJECT, EDIT, DELETE, SEARCH, MORE, HIDE, DOCK, PIN, MENU, MONITOR, USER, HELP, INFO, LAYOUT, SPLIT_RIGHT, SPLIT_DOWN, CHEVRON_DOWN, FOCUS, EXPAND_ALL, COLLAPSE_ALL }
+    public enum Kind { SERVER, SSH, FOLDER, PLUGIN, ADD, RUN, REFRESH, SETTINGS, CLOSE, CHECK, TERMINAL, PROJECT, EDIT, DELETE, SEARCH, MORE, HIDE, MAXIMIZE, RESTORE, DOCK, PIN, MENU, MONITOR, USER, HELP, INFO, LAYOUT, SPLIT_RIGHT, SPLIT_DOWN, CHEVRON_DOWN, FOCUS, EXPAND_ALL, COLLAPSE_ALL }
     public int getIconWidth() { return 16; }
     public int getIconHeight() { return 16; }
 
@@ -46,6 +46,17 @@ public record WorkbenchIcon(Kind kind) implements Icon {
                 case SEARCH -> { g.drawOval(2, 2, 9, 9); g.drawLine(10, 10, 14, 14); }
                 case MORE -> { for (int i = 3; i <= 13; i += 5) g.fillOval(7, i - 1, 2, 2); }
                 case HIDE -> g.drawLine(3, 8, 13, 8);
+                case MAXIMIZE -> {
+                    g.drawLine(2, 6, 2, 2); g.drawLine(2, 2, 6, 2);
+                    g.drawLine(10, 2, 14, 2); g.drawLine(14, 2, 14, 6);
+                    g.drawLine(14, 10, 14, 14); g.drawLine(14, 14, 10, 14);
+                    g.drawLine(6, 14, 2, 14); g.drawLine(2, 14, 2, 10);
+                }
+                case RESTORE -> {
+                    g.drawRoundRect(2, 5, 9, 9, 1, 1);
+                    g.drawLine(5, 2, 14, 2); g.drawLine(14, 2, 14, 11);
+                    g.drawLine(5, 2, 5, 3); g.drawLine(13, 11, 14, 11);
+                }
                 case FOCUS -> { g.drawOval(2, 2, 12, 12); g.drawOval(6, 6, 4, 4); g.drawLine(8, 0, 8, 3); g.drawLine(8, 13, 8, 15); g.drawLine(0, 8, 3, 8); g.drawLine(13, 8, 15, 8); }
                 case EXPAND_ALL -> { g.drawLine(8, 8, 8, 1); g.drawLine(5, 4, 8, 1); g.drawLine(11, 4, 8, 1); g.drawLine(8, 8, 8, 15); g.drawLine(5, 12, 8, 15); g.drawLine(11, 12, 8, 15); }
                 case COLLAPSE_ALL -> { g.drawLine(8, 1, 8, 8); g.drawLine(5, 5, 8, 8); g.drawLine(11, 5, 8, 8); g.drawLine(8, 15, 8, 8); g.drawLine(5, 11, 8, 8); g.drawLine(11, 11, 8, 8); }

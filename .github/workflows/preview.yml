@@ -548,7 +548,7 @@ jobs:
         shell: bash
         run: >-
           mvn -B -pl app -am
-          -Dtest=WindowsWorkbenchPolishTest,IdeaPopupRenderingTest,SwingPluginPageTest,PluginIconsTest,SwingModalDialogTest,SwingPreferencesLoadingTest,UncaughtExceptionReporterTest
+          -Dtest=WindowsWorkbenchPolishTest,IdeaPopupRenderingTest,SwingPluginPageTest,PluginIconsTest,SwingModalDialogTest,SwingPreferencesLoadingTest,SwingToolWindowMaximizeTest,UncaughtExceptionReporterTest
           -Dsurefire.failIfNoSpecifiedTests=false
           -Djlshell.ui.smoke=true
           "-DargLine=--add-exports=java.desktop/sun.swing=ALL-UNNAMED --add-opens=java.desktop/sun.swing=ALL-UNNAMED --add-opens=java.desktop/javax.swing=ALL-UNNAMED"

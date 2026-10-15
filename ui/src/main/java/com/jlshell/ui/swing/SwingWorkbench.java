@@ -63,7 +63,7 @@ public final class SwingWorkbench implements AutoCloseable {
             "welcome.help.shortcuts", "welcome.help.newConnection", "welcome.help.refreshConnections",
             "welcome.help.doubleClick", "welcome.help.rightClick", "welcome.recentConnections",
             "welcome.favorites", "welcome.noRecentConnections", "welcome.noFavorites", "tab.close", "tab.close.tooltip",
-            "workspace.tools", "workspace.hideTools", "workspace.monitoring", "menu.main",
+            "workspace.tools", "workspace.hideTools", "workspace.maximizeTool", "workspace.restoreTool", "workspace.monitoring", "menu.main",
             "project.popup.current", "project.popup.other", "project.popup.defaultDescription",
             "project.search.prompt", "settings.quick.plugins", "settings.quick.shortcuts", "settings.quick.theme",
             "settings.quick.view", "settings.quick.account", "menu.help.about", "menu.help.checkUpdates",
@@ -157,6 +157,11 @@ public final class SwingWorkbench implements AutoCloseable {
     private final JButton projectStripe;
     private final JSplitPane mainSplit = new ResizeSplitPane(JSplitPane.HORIZONTAL_SPLIT);
     private final JPanel horizontalDock = new JPanel(new BorderLayout());
+    private final JPanel workspaceCards = new JPanel(new CardLayout());
+    private final JPanel maximizedWorkspace = new JPanel(new BorderLayout());
+    private JButton maximizeToolButton;
+    private boolean rightToolMaximized;
+    private int rightDockRestoreDivider = -1;
     private final JButton menuButton;
     private final JButton runButton;
     private final JButton connectionName = new ChevronButton();
@@ -284,7 +289,11 @@ public final class SwingWorkbench implements AutoCloseable {
         JPanel islands = new JPanel(new BorderLayout());
         islands.setOpaque(false);
         islands.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
-        islands.add(vertical);
+        workspaceCards.setOpaque(false);
+        maximizedWorkspace.setOpaque(false);
+        workspaceCards.add(vertical, "normal");
+        workspaceCards.add(maximizedWorkspace, "maximizedTool");
+        islands.add(workspaceCards);
         root.add(islands, BorderLayout.CENTER);
         status.setBorder(BorderFactory.createEmptyBorder(3, 12, 3, 12));
         status.setForeground(SwingTheme.color("secondary"));
@@ -1550,6 +1559,9 @@ public final class SwingWorkbench implements AutoCloseable {
         header.add(rightDockTitle, BorderLayout.CENTER);
         JPanel headerActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
         headerActions.setOpaque(false);
+        maximizeToolButton = button(WorkbenchIcon.Kind.MAXIMIZE, "workspace.maximizeTool", this::toggleMaximizedTool);
+        maximizeToolButton.setName("workspace.maximizeTool");
+        headerActions.add(maximizeToolButton);
         headerActions.add(button(WorkbenchIcon.Kind.HIDE, "workspace.hideTools", this::toggleRightToolWindow));
         header.add(headerActions, BorderLayout.EAST);
         rightToolDock.add(header, BorderLayout.NORTH);
@@ -1567,8 +1579,32 @@ public final class SwingWorkbench implements AutoCloseable {
         syncRightToolWindow();
     }
 
+    private void toggleMaximizedTool() {
+        if (!rightToolWindowVisible) return;
+        if (!rightToolMaximized) rightDockRestoreDivider = mainSplit.getDividerLocation();
+        rightToolMaximized = !rightToolMaximized;
+        updateRightDockWidth(true);
+        root.revalidate(); root.repaint();
+    }
+
     private void updateRightDockWidth(boolean open) {
         int railWidth = 36;
+        if (open && rightToolMaximized) {
+            if (rightDockContainer.getParent() != maximizedWorkspace) {
+                mainSplit.setRightComponent(null);
+                horizontalDock.remove(rightDockContainer);
+                maximizedWorkspace.add(rightDockContainer, BorderLayout.CENTER);
+            }
+            rightToolDock.setVisible(true);
+            ((CardLayout) workspaceCards.getLayout()).show(workspaceCards, "maximizedTool");
+            updateMaximizeToolButton();
+            return;
+        }
+        boolean restoring = rightDockContainer.getParent() == maximizedWorkspace;
+        if (restoring) maximizedWorkspace.remove(rightDockContainer);
+        rightToolMaximized = false;
+        ((CardLayout) workspaceCards.getLayout()).show(workspaceCards, "normal");
+        updateMaximizeToolButton();
         rightToolDock.setVisible(open);
         // 收起时导航轨道在分割布局外独立占位，彻底移除可拖开的右侧空白区。
         if (open) {
@@ -1587,11 +1623,19 @@ public final class SwingWorkbench implements AutoCloseable {
         // 关闭的是文件/插件内容区；导航轨道始终留在最右侧，供用户再次打开工具窗。
         rightDockContainer.setPreferredSize(new Dimension(rightDockContainerWidth(contentWidth, railWidth), 0));
         if (open && mainSplit.getWidth() > 0) {
-            mainSplit.setDividerLocation(Math.max(240, mainSplit.getWidth()
-                    - rightDockContainer.getPreferredSize().width - mainSplit.getDividerSize()));
+            int location = restoring && rightDockRestoreDivider >= 0 ? rightDockRestoreDivider
+                    : mainSplit.getWidth() - rightDockContainer.getPreferredSize().width - mainSplit.getDividerSize();
+            mainSplit.setDividerLocation(Math.max(240, Math.min(location, mainSplit.getWidth() - 220)));
         }
         mainSplit.revalidate();
         horizontalDock.revalidate();
+    }
+
+    private void updateMaximizeToolButton() {
+        maximizeToolButton.setIcon(new WorkbenchIcon(rightToolMaximized ? WorkbenchIcon.Kind.RESTORE : WorkbenchIcon.Kind.MAXIMIZE));
+        String label = text(rightToolMaximized ? "workspace.restoreTool" : "workspace.maximizeTool");
+        maximizeToolButton.setToolTipText(label);
+        maximizeToolButton.getAccessibleContext().setAccessibleName(label);
     }
 
     static int rightDockContentWidth(int mainWidth, int leftSidebarWidth, int railWidth, int dividerWidths, boolean pluginList) {
@@ -1683,6 +1727,8 @@ public final class SwingWorkbench implements AutoCloseable {
         SwingSessionView session = (SwingSessionView) view;
         rightDockContainer.setVisible(true);
         if (view != rightToolWindowOwner) {
+            if (rightToolMaximized && rightToolWindowOwner instanceof SwingSessionView previous)
+                session.followToolPage(previous);
             rightToolWindowOwner = view;
             rightToolNavigationHost.removeAll();
             rightToolNavigationHost.add(session.toolNavigation());
@@ -1690,11 +1736,13 @@ public final class SwingWorkbench implements AutoCloseable {
         int page = session.selectedPageIndex();
         rightToolPageIndex = page;
         boolean open = rightToolWindowVisible && page > 0;
-        rightDockBody.removeAll();
         if (open) {
             rightDockTitle.setText(session.selectedPageTitle());
-            rightDockBody.add(session.rightToolWindow(), BorderLayout.CENTER);
-        }
+            if (session.rightToolWindow().getParent() != rightDockBody) {
+                rightDockBody.removeAll();
+                rightDockBody.add(session.rightToolWindow(), BorderLayout.CENTER);
+            }
+        } else rightDockBody.removeAll();
         updateRightDockWidth(open);
         rightToolNavigationHost.revalidate();
         rightToolNavigationHost.repaint();

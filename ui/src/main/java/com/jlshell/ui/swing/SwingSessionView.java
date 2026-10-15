@@ -40,6 +40,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
     private java.util.Map<Tab, SwingPluginPage.Prepared> nativePrepared = java.util.Map.of();
     private List<Tab> pageTabs = List.of();
     private List<String> pageTitles = List.of();
+    private List<String> pagePluginIds = List.of();
     private final JPanel rightHost = new JPanel(new java.awt.CardLayout());
     private java.util.function.Supplier<SwingSftpBrowser> filesFactory;
     private SwingSftpBrowser files;
@@ -55,6 +56,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
     private final java.util.Map<Tab, ChangeListener<String>> titleListeners = new java.util.IdentityHashMap<>();
     private boolean closed;
     private volatile int selectedPageIndex;
+    private boolean followingToolSelection; // 仅由 FX 线程访问。
     private record Page(Tab tab, String title, String pluginId) {}
     private javafx.collections.ObservableList<PluginsTabView.PinnedShortcut> pinnedShortcuts;
     private javafx.collections.ListChangeListener<PluginsTabView.PinnedShortcut> pinnedListener;
@@ -92,7 +94,10 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
         model.getTabs().getFirst().contentProperty().addListener(viewListener);
         ChangeListener<Tab> selection = (obs, oldTab, tab) -> {
             int index = model.getTabs().indexOf(tab);
-            future.thenAccept(view -> SwingUtilities.invokeLater(() -> view.selectPage(index, true)));
+            future.thenAccept(view -> {
+                boolean reveal = !view.followingToolSelection;
+                SwingUtilities.invokeLater(() -> view.selectPage(index, reveal));
+            });
         };
         model.getSelectionModel().selectedItemProperty().addListener(selection);
         future.thenAccept(view -> {
@@ -136,7 +141,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
         navigation.setOpaque(false);
     }
 
-    private void selectPage(int index, boolean reveal) {
+    void selectPage(int index, boolean reveal) {
         if (closed || index < 0) return;
         selectedPageIndex = index;
         if (index == 1 && files == null && filesFactory != null) {
@@ -176,6 +181,28 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
         selectPage(selectedPageIndex, false);
     }
 
+    /** 铺满状态切换会话时沿用工具种类，插件按 ID 匹配，未打开则回到插件列表。EDT 调用。 */
+    void followToolPage(SwingSessionView previous) {
+        int previousIndex = previous.selectedPageIndex;
+        int index = previousIndex == 1 ? 1 : 2;
+        if (previousIndex >= 3 && previousIndex < previous.pagePluginIds.size()) {
+            String pluginId = previous.pagePluginIds.get(previousIndex);
+            if (pluginId != null) {
+                int matched = pagePluginIds.indexOf(pluginId);
+                if (matched >= 3) index = matched;
+            }
+        }
+        if (index >= pageTabs.size()) return;
+        Tab tab = pageTabs.get(index);
+        selectPage(index, false);
+        FxThread.run(() -> {
+            if (closed || !model.getTabs().contains(tab)) return;
+            followingToolSelection = true;
+            try { model.getSelectionModel().select(tab); }
+            finally { followingToolSelection = false; }
+        });
+    }
+
     int selectedPageIndex() { return selectedPageIndex; }
 
     String selectedPageTitle() {
@@ -198,7 +225,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
     }
 
     /** 插件可动态 openTab/closeTab/updateTabTitle，必须同步原有 Tab 模型。FX 线程调用。 */
-    private void publishPages() {
+    void publishPages() {
         titleListeners.entrySet().removeIf(entry -> {
             if (model.getTabs().contains(entry.getKey())) return false;
             entry.getKey().textProperty().removeListener(entry.getValue());
@@ -242,6 +269,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
             if (closed) return;
             pageTabs = tabs;
             pageTitles = pages.stream().map(Page::title).toList();
+            pagePluginIds = pages.stream().map(Page::pluginId).toList();
             pluginPages.forEach((tab, page) -> { int index = tabs.indexOf(tab); if (index >= 0) page.updateTitle(pageTitles.get(index)); });
             // 使用独立快照，EDT 不遍历 FX 集合。
             nativePrepared = prepared;
@@ -358,14 +386,14 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
         filesFactory = null;
         if (status != null) status.close();
         FxThread.run(() -> {
-            model.getTabs().removeListener(tabListListener);
+            if (tabListListener != null) model.getTabs().removeListener(tabListListener);
             if (pinnedShortcuts != null && pinnedListener != null) pinnedShortcuts.removeListener(pinnedListener);
             titleListeners.forEach((tab, listener) -> tab.textProperty().removeListener(listener));
             titleListeners.clear();
             contentListeners.forEach((tab, listener) -> tab.contentProperty().removeListener(listener)); contentListeners.clear();
             preparedPages.values().forEach(page -> page.releaseModel().run()); preparedPages.clear();
-            model.getSelectionModel().selectedItemProperty().removeListener(selectionListener);
-            if (!model.getTabs().isEmpty()) model.getTabs().getFirst().contentProperty().removeListener(terminalViewListener);
+            if (selectionListener != null) model.getSelectionModel().selectedItemProperty().removeListener(selectionListener);
+            if (terminalViewListener != null && !model.getTabs().isEmpty()) model.getTabs().getFirst().contentProperty().removeListener(terminalViewListener);
         });
     }
 }
