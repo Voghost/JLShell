@@ -41,54 +41,5 @@ class IdeaPopupRenderingTest {
             } finally {popup.setVisible(false);owner.dispose();}
         }).get(15,TimeUnit.SECONDS);
     }
-    @Test
-    @org.junit.jupiter.api.condition.EnabledOnOs(org.junit.jupiter.api.condition.OS.WINDOWS)
-    void capturesActualWindowsPopupForVisualReview() throws Exception {
-        var owner = new java.util.concurrent.atomic.AtomicReference<JFrame>();
-        var popup = new java.util.concurrent.atomic.AtomicReference<IdeaListPopup>();
-        try {
-            SwingExecutors.runOnEdtAsync(() -> {
-                SwingTheme.install(AppTheme.DARK, "#3574f0", null, 13);
-                JFrame frame = new JFrame("Windows popup rendering");
-                JButton anchor = new JButton("Menu font: " + UIManager.getFont("defaultFont").getFontName());
-                frame.add(anchor); frame.setSize(480, 120); frame.setLocation(100, 100); frame.setVisible(true); owner.set(frame);
-                frame.toFront();
-                frame.requestFocus();
-            }).get(15, TimeUnit.SECONDS);
-            Robot robot = new Robot();
-            robot.waitForIdle();
-            // Let the owner finish its initial move/resize/activation events before
-            // opening the popup. The popup dispatcher intentionally closes menus
-            // when their owner moves or resizes.
-            robot.delay(250);
-            SwingExecutors.runOnEdtAsync(() -> {
-                JFrame frame = owner.get();
-                JButton anchor = (JButton) frame.getContentPane().getComponent(0);
-                var menu = new IdeaListPopup(List.of(
-                        IdeaListPopup.Row.action("Find 查找", null, "Ctrl+F", null, () -> {}),
-                        IdeaListPopup.Row.action("Copy 复制", null, "Ctrl+C", null, () -> {}),
-                        IdeaListPopup.Row.action("Paste 粘贴", null, "Ctrl+V", null, () -> {}),
-                        IdeaListPopup.Row.action("Select All 全选", null, "Ctrl+A", null, () -> {}),
-                        IdeaListPopup.Row.action("Font and Color Settings 字体与配色", null, "", "", () -> {})
-                ), 300, false, "", IdeaListPopup.Style.CONTEXT);
-                popup.set(menu);
-                menu.show(anchor, 0, anchor.getHeight());
-            }).get(15, TimeUnit.SECONDS);
-            robot.waitForIdle();
-            robot.delay(150);
-            Rectangle bounds = SwingExecutors.supplyOnEdtAsync(() -> {
-                Window window = SwingUtilities.getWindowAncestor(popup.get());
-                return new Rectangle(window.getLocationOnScreen(), window.getSize());
-            }).get(10, TimeUnit.SECONDS);
-            var directory = java.nio.file.Path.of("target", "ui-smoke");
-            java.nio.file.Files.createDirectories(directory);
-            javax.imageio.ImageIO.write(robot.createScreenCapture(bounds), "png", directory.resolve("windows-popup.png").toFile());
-        } finally {
-            SwingExecutors.runOnEdtAsync(() -> {
-                if (popup.get() != null) popup.get().setVisible(false);
-                if (owner.get() != null) owner.get().dispose();
-            }).get(10, TimeUnit.SECONDS);
-        }
-    }
     private static Component descendant(Container c,Class<?> type){for(Component child:c.getComponents()){if(type.isInstance(child))return child;if(child instanceof Container container){Component found=descendant(container,type);if(found!=null)return found;}}return null;}
 }
