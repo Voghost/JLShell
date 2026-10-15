@@ -9,7 +9,7 @@
 | 项目 | 优化前 | 优化后 | 说明 |
 | --- | ---: | ---: | --- |
 | 应用 fat JAR | 52.4 MiB | 33.2 MiB | 清理不支持的平台本地库、重复品牌资源，ZIP 最高压缩 |
-| macOS ARM64 安装包内应用 JAR | 52.4 MiB | 22.4 MiB | 仅自身平台本地库，JavaFX 类及资源由内置模块提供 |
+| macOS ARM64 安装包内应用 JAR | 52.4 MiB | 22.1 MiB | 仅自身平台本地库，JavaFX 类及资源由内置模块提供 |
 | 内置运行时（磁盘占用） | 67 MiB | 56 MiB | 收紧根模块、仅中英文 locale、jlink ZIP 9 |
 
 整套 Windows ZIP/MSI、macOS ZIP、Linux tar.gz/deb/AppImage 的最终大小以 GitHub Actions 产物为准。不能将应用 JAR 大小当作完整安装包大小。跨平台 JAR 保留支持平台的 SQLite/JNA/PTY 等原生资源；JavaFX 图形本地库仍受构建平台影响，本版必须使用完整安装包。
@@ -49,4 +49,5 @@
 - Python 资源裁剪矩阵测试、发布说明与变更范围校验、工作流 YAML / shell / 内嵌 Python 语法检查。
 - 使用精简运行时和精简 JAR 验证模块化 JavaFX、SQLite 内存建表、Bouncy Castle、JNA 与真实 PTY 子进程。
 - 使用相同精简运行时和 JAR（不添加 Maven 依赖类路径）冷启动真实 Launcher，验证数据库初始化、窗口显示、FX/EDT 响应、托盘及正常关闭。
+- 工作流提供 `build_only=true`：只构建可下载的 Actions 产物，不创建版本标签、不上传 OSS、不通知网站。
 - CI 三平台分别执行自己的打包运行时 smoke，任一平台失败均不进入 Release/OSS 发布。

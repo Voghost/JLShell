@@ -7,6 +7,11 @@ on:
         description: 'Release version (e.g. 1.0.0)'
         required: true
         default: '0.1.0'
+      build_only:
+        description: 'Build and validate all packages without creating a Release, uploading OSS, or notifying the website'
+        required: true
+        default: false
+        type: boolean
       previous_tag:
         description: 'Optional change-audit baseline tag (e.g. v0.1.56; default: latest reachable release tag)'
         required: false
@@ -704,6 +709,7 @@ jobs:
   # ── Create GitHub Release ────────────────────────────────────────────────────
   release:
     name: Create Release
+    if: ${{ github.event.inputs.build_only != 'true' }}
     needs: [build-mac, build-linux, build-windows]
     runs-on: ubuntu-latest
     permissions:
