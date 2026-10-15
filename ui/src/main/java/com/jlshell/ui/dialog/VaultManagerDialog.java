@@ -48,7 +48,7 @@ public class VaultManagerDialog {
         Dialog<Void> dialog = new Dialog<>();
         dialog.setTitle(i18n.get("vault.manager.title"));
         dialog.setHeaderText(null);
-        if (owner != null) dialog.initOwner(owner);
+        if (owner != null && owner.getScene() != null) dialog.initOwner(owner);
         themeService.applyToDialog(dialog);
         dialog.getDialogPane().setPrefWidth(560);
         dialog.getDialogPane().setPrefHeight(560);
@@ -82,23 +82,23 @@ public class VaultManagerDialog {
             } else if (keyService.isCustomKeyConfigured()) {
                 // Unlock: prompt for password
                 PasswordDialog pwdDialog = new PasswordDialog(
-                        (Stage) dialog.getDialogPane().getScene().getWindow(),
+                        owner,
                         i18n, themeService, i18n.get("vault.unlock.title"), false);
-                pwdDialog.showAndWait().ifPresent(pwd -> {
+                pwdDialog.showNativeAndWait().ifPresent(pwd -> {
                     if (keyService.unlock(pwd)) {
                         updateLockUI.run();
                     } else {
                         Alert alert = new Alert(Alert.AlertType.ERROR, i18n.get("vault.unlock.failed"));
                         themeService.applyToDialog(alert);
-                        alert.showAndWait();
+                        com.jlshell.ui.swing.SwingAlerts.showAndWait(alert, themeService, i18n);
                     }
                 });
             } else {
                 // First time: set master password
                 PasswordDialog pwdDialog = new PasswordDialog(
-                        (Stage) dialog.getDialogPane().getScene().getWindow(),
+                        owner,
                         i18n, themeService, i18n.get("vault.setMasterPwd.title"), true);
-                pwdDialog.showAndWait().ifPresent(pwd -> {
+                pwdDialog.showNativeAndWait().ifPresent(pwd -> {
                     keyService.setupMasterPassword(pwd);
                     updateLockUI.run();
                 });
@@ -280,7 +280,7 @@ public class VaultManagerDialog {
         importKeyBtn.setOnAction(e -> {
             FileChooser fc = new FileChooser();
             fc.setTitle(i18n.get("vault.action.importKey"));
-            File file = fc.showOpenDialog(dialog.getDialogPane().getScene().getWindow());
+            File file = fc.showOpenDialog(owner);
             if (file != null) {
                 String projectId = projectBox.getValue() != null ? projectBox.getValue().id() : null;
                 VaultEntryFormData imported = vaultService.importKeyFile(file.getAbsolutePath(), projectId);
@@ -324,7 +324,7 @@ public class VaultManagerDialog {
             if (mode == VaultEncryptionMode.CUSTOM && !keyService.isUnlocked()) {
                 Alert alert = new Alert(Alert.AlertType.WARNING, i18n.get("vault.hint.needUnlock"));
                 themeService.applyToDialog(alert);
-                alert.showAndWait();
+                com.jlshell.ui.swing.SwingAlerts.showAndWait(alert, themeService, i18n);
                 return;
             }
             VaultEntryFormData formData = new VaultEntryFormData(
@@ -344,7 +344,7 @@ public class VaultManagerDialog {
                 Alert alert = new Alert(Alert.AlertType.ERROR,
                         i18n.get("vault.status.saveFailed", ex.getMessage()));
                 themeService.applyToDialog(alert);
-                alert.showAndWait();
+                com.jlshell.ui.swing.SwingAlerts.showAndWait(alert, themeService, i18n);
             }
         });
 
@@ -355,7 +355,7 @@ public class VaultManagerDialog {
                     i18n.get("vault.action.deleteConfirm").replace("{0}", selected.name()),
                     ButtonType.YES, ButtonType.NO);
             themeService.applyToDialog(confirm);
-            confirm.showAndWait().filter(b -> b == ButtonType.YES).ifPresent(b -> {
+            com.jlshell.ui.swing.SwingAlerts.showAndWait(confirm, themeService, i18n).filter(b -> b == ButtonType.YES).ifPresent(b -> {
                 vaultService.delete(selected.id());
                 reloadList.run();
                 nameField.clear();
@@ -367,7 +367,7 @@ public class VaultManagerDialog {
             });
         });
 
-        // Layout
+        // IDEA master/detail layout: a narrow credential list next to an aligned native editor.
         HBox scopeRow = new HBox(8, new Label(i18n.get("vault.label.projectScope")), scopeBox);
         scopeRow.setAlignment(Pos.CENTER_LEFT);
         scopeRow.setPadding(new Insets(0, 0, 4, 0));
@@ -404,13 +404,51 @@ public class VaultManagerDialog {
         GridPane.setHgrow(keyContentArea, Priority.ALWAYS);
         GridPane.setHgrow(passphraseField, Priority.ALWAYS);
 
-        HBox editButtons = new HBox(8, newBtn, saveBtn, deleteBtn);
-        VBox content = new VBox(8, lockBar, scopeRow, listView, form, editButtons);
-        content.setPadding(new Insets(12));
+        nameField.setId("vault-name"); authTypeBox.setId("vault-auth");
+        encryptionModeBox.setId("vault-encryption"); passwordField.setId("vault-password");
+        keyContentArea.setId("vault-key-content"); keyPathField.setId("vault-key-path");
+        passphraseField.setId("vault-passphrase"); listView.setId("vault-list");
+        saveBtn.setId("vault-save"); newBtn.setId("vault-new"); deleteBtn.setId("vault-delete");
+        scopeBox.setId("vault-scope"); projectBox.setId("vault-project");
+        form.getColumnConstraints().add(new javafx.scene.layout.ColumnConstraints(110));
+        var valueColumn = new javafx.scene.layout.ColumnConstraints(); valueColumn.setHgrow(Priority.ALWAYS);
+        form.getColumnConstraints().add(valueColumn);
+        // Collapse labels together with the matching credential fields.
+        for (javafx.scene.Node label : form.getChildren()) {
+            if (!(label instanceof Label)) continue;
+            Integer labelRow = GridPane.getRowIndex(label);
+            javafx.scene.Node field = switch (labelRow == null ? -1 : labelRow) {
+                case 3 -> passwordField;
+                case 4 -> keyContentArea;
+                case 5 -> keyPathRow;
+                case 6 -> passphraseField;
+                default -> null;
+            };
+            if (field != null) { label.visibleProperty().bind(field.visibleProperty()); label.managedProperty().bind(label.visibleProperty()); }
+        }
+        keyPathRow.visibleProperty().bind(keyPathField.visibleProperty());
+        keyPathRow.managedProperty().bind(keyPathRow.visibleProperty());
+        saveBtn.disableProperty().bind(nameField.textProperty().isEmpty());
+        VBox listColumn = new VBox(10, scopeRow, listView, new HBox(8, newBtn, deleteBtn));
+        listColumn.setPrefWidth(225); VBox.setVgrow(listView, Priority.ALWAYS);
+        javafx.scene.control.ScrollPane formScroll = new javafx.scene.control.ScrollPane(form);
+        formScroll.setFitToWidth(true);
+        Region saveSpacer = new Region(); HBox.setHgrow(saveSpacer, Priority.ALWAYS);
+        HBox saveRow = new HBox(8, saveSpacer, saveBtn);
+        VBox editor = new VBox(12, formScroll, saveRow); VBox.setVgrow(formScroll, Priority.ALWAYS);
+        HBox.setHgrow(editor, Priority.ALWAYS);
+        HBox body = new HBox(24, listColumn, editor);
+        VBox.setVgrow(body, Priority.ALWAYS);
+        VBox content = new VBox(16, lockBar, new javafx.scene.control.Separator(), body);
+        content.setPadding(new Insets(16, 20, 16, 20));
         dialog.getDialogPane().setContent(content);
-
+        authTypeBox.setValue(AuthenticationType.PASSWORD);
+        encryptionModeBox.setValue(VaultEncryptionMode.SYSTEM);
+        projectBox.setValue(scopeBox.getValue());
         updateAuthFields.run();
-        dialog.showAndWait();
+        if (com.jlshell.ui.swing.SwingDialogHost.enabled()) {
+            com.jlshell.ui.swing.SwingDialogHost.showNativeAndWait(dialog, themeService, i18n, "jlshell.vault", 900, 610);
+        } else dialog.showAndWait();
 
         if (onVaultChanged != null) onVaultChanged.run();
     }
@@ -418,10 +456,21 @@ public class VaultManagerDialog {
     // ── Password input dialog ─────────────────────────────────────────
 
     public static class PasswordDialog extends Dialog<char[]> {
+        private final I18nService i18n;
+        private final ThemeService themes;
+
+        public java.util.Optional<char[]> showNativeAndWait() {
+            return com.jlshell.ui.swing.SwingDialogHost.enabled()
+                    ? com.jlshell.ui.swing.SwingDialogHost.showNativeAndWait(this, themes, i18n, "jlshell.vault.password", 520, 240)
+                    : showAndWait();
+        }
+
         public PasswordDialog(Stage owner, I18nService i18n, ThemeService themeService, String title, boolean confirm) {
+            this.i18n = i18n;
+            this.themes = themeService;
             setTitle(title);
             setHeaderText(null);
-            if (owner != null) initOwner(owner);
+            if (owner != null && owner.getScene() != null) initOwner(owner);
             themeService.applyToDialog(this);
             getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
 
@@ -446,7 +495,7 @@ public class VaultManagerDialog {
 
             if (confirm) {
                 getDialogPane().lookupButton(ButtonType.OK).disableProperty().bind(
-                        pwdField.textProperty().isEmpty().or(confirmField.textProperty().isEmpty()));
+                        pwdField.textProperty().isEmpty().or(pwdField.textProperty().isNotEqualTo(confirmField.textProperty())));
             } else {
                 getDialogPane().lookupButton(ButtonType.OK).disableProperty().bind(pwdField.textProperty().isEmpty());
             }

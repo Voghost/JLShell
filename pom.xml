@@ -260,6 +260,11 @@
     </build>
 
     <profiles>
+        <!-- 同一 reactor 验证宿主 SDK 与仓库插件，独立 plugins/pom.xml 仍使用发布 SDK。 -->
+        <profile>
+            <id>with-plugins</id>
+            <modules><module>plugins</module></modules>
+        </profile>
         <profile>
             <id>central-release</id>
             <build>

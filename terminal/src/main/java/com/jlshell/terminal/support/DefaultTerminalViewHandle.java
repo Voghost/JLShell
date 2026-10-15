@@ -71,14 +71,14 @@ public class DefaultTerminalViewHandle implements TerminalViewHandle {
     public CompletableFuture<Void> updateFontProfile(FontProfile fontProfile) {
         Objects.requireNonNull(fontProfile, "fontProfile must not be null");
         settingsProvider.updateFontProfile(fontProfile);
-        return SwingExecutors.runOnEdtAsync(widget::refreshVisuals);
+        return widget.requestVisualRefresh();
     }
 
     @Override
     public CompletableFuture<Void> updateColorScheme(TerminalColorScheme colorScheme) {
         Objects.requireNonNull(colorScheme, "colorScheme must not be null");
         settingsProvider.updateColorScheme(colorScheme);
-        return SwingExecutors.runOnEdtAsync(widget::refreshVisuals);
+        return widget.requestVisualRefresh();
     }
 
     @Override

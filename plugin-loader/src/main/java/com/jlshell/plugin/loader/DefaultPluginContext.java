@@ -41,6 +41,10 @@ public class DefaultPluginContext implements PluginContext {
 
     public interface Callbacks {
         void openTab(String title, Node content);
+        default boolean supportsSwingViews() { return false; }
+        default void openSwingTab(String title, java.util.function.Supplier<javax.swing.JComponent> content) {
+            throw new UnsupportedOperationException("Swing views unavailable");
+        }
         void closeTab();
         void updateTabTitle(String title);
         String resolveI18n(String key, String fallback);
@@ -178,6 +182,11 @@ public class DefaultPluginContext implements PluginContext {
     @Override
     public void openTab(String title, Node content) {
         callbacks.openTab(title, content);
+    }
+
+    @Override public boolean supportsSwingViews() { return callbacks.supportsSwingViews(); }
+    @Override public void openSwingTab(String title, java.util.function.Supplier<javax.swing.JComponent> content) {
+        callbacks.openSwingTab(title, content);
     }
 
     @Override

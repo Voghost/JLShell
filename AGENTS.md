@@ -42,7 +42,14 @@ Recent history uses Conventional Commit prefixes such as `feat:` and `fix:`. Kee
 
 Base daily work and feature branches on `develop`. Merge stable changes with a
 GitHub Pull Request from `develop` to `main`; do not push development commits
-directly to `main`. Create release tags only from `main`.
+directly to `main`. Stable release tags are created only from `main`.
+
+Beta releases use the independent `beta` integration branch. Create `beta` from
+`develop`, merge candidate changes into `beta` through a GitHub PR, and dispatch
+the Release workflow on `beta` with `channel=beta`. Beta tags may point to
+commits merged into `beta`; mark them as GitHub Pre-releases and publish only
+to the website Beta channel. Merge into `main` only after the user confirms the
+Beta is ready, following the stable PR process.
 
 Pull requests should include a concise summary, linked issue when applicable, test evidence, and screenshots or recordings for UI changes. Note database, plugin API, or distribution-script impact explicitly.
 
@@ -51,7 +58,7 @@ Pull requests should include a concise summary, linked issue when applicable, te
 - Before releasing any `X.Y.Z` version, add `.github/release-notes/X.Y.Z.md` in the same branch as the release changes.
 - The release note must start with `# JLShell vX.Y.Z`, followed by a one-line `> ` summary, and include at least one `## ` section with a list item.
 - Run `.github/scripts/prepare_release_metadata.py` for the target version before triggering the Release workflow. A release must not proceed if this validation fails.
-- Release notes, release code, and the Release workflow invocation must all resolve to commits merged into `main`; never publish a version whose release note exists only on `develop` or a feature branch.
+- Stable release notes, release code, and workflow invocations must resolve to commits merged into `main`. Beta equivalents must resolve to commits merged into `beta`. Never publish directly from an unmerged feature branch.
 - Do not overwrite or reuse a release-note file for a version that has already been published.
 
 ## Security & Configuration Tips

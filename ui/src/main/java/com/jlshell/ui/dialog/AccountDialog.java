@@ -97,7 +97,8 @@ public final class AccountDialog {
         dialog.setOnCloseRequest(event -> {
             if (!completed[0]) attempt.cancel();
         });
-        dialog.showAndWait();
+        if(com.jlshell.ui.swing.SwingDialogHost.enabled())com.jlshell.ui.swing.SwingDialogHost.showNativeAndWait(dialog,themeService,i18n,"jlshell.account",560,500);
+        else dialog.showAndWait();
     }
 
     public static void showRegister(Stage owner, I18nService i18n, ThemeService themeService,
@@ -301,7 +302,8 @@ public final class AccountDialog {
             refreshCaptcha.run();
         }
 
-        dialog.showAndWait();
+        if(com.jlshell.ui.swing.SwingDialogHost.enabled())com.jlshell.ui.swing.SwingDialogHost.showNativeAndWait(dialog,themeService,i18n,"jlshell.account",560,500);
+        else dialog.showAndWait();
     }
 
     /** 获取验证码并显示（支持图片验证码和文本验证码）。 */
@@ -430,7 +432,7 @@ public final class AccountDialog {
         alert.setHeaderText(null);
         if (owner != null) alert.initOwner(owner);
         themeService.applyToDialog(alert);
-        alert.showAndWait();
+        com.jlshell.ui.swing.SwingAlerts.showAndWait(alert, themeService, i18n);
     }
 
     private static void showInfo(Stage owner, I18nService i18n, ThemeService themeService, String message) {
@@ -450,7 +452,8 @@ public final class AccountDialog {
         content.setPadding(new Insets(18, 20, 8, 20));
         dialog.getDialogPane().setContent(content);
         dialog.getDialogPane().getButtonTypes().add(ButtonType.OK);
-        dialog.showAndWait();
+        if(com.jlshell.ui.swing.SwingDialogHost.enabled())com.jlshell.ui.swing.SwingDialogHost.showNativeAndWait(dialog,themeService,i18n,"jlshell.account",560,500);
+        else dialog.showAndWait();
     }
 
     private static String rootMessage(Throwable error) {

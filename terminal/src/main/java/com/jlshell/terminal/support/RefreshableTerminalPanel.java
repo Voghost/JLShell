@@ -54,6 +54,14 @@ public class RefreshableTerminalPanel extends TerminalPanel {
     private final JlshellSettingsProvider jlshellSettings;
     private final Function<String, String> i18n;
     private boolean ignoreNextShiftInsertTyped;
+    private Font lastVisualFont;
+    private float lastVisualLineSpacing;
+    public record PopupAction(String label, String shortcut, boolean enabled, boolean separator, Runnable action) {}
+    @FunctionalInterface public interface PopupPresenter {
+        void show(java.awt.Component invoker, int x, int y, java.util.List<PopupAction> actions);
+    }
+    private PopupPresenter popupPresenter;
+    public void setPopupPresenter(PopupPresenter presenter) { popupPresenter = presenter; }
 
     /**
      * JediTermWidget 在 init 时通过 setCoordAccessor 注入 TerminalCoordinates，
@@ -73,8 +81,19 @@ public class RefreshableTerminalPanel extends TerminalPanel {
         this.i18n = i18n;
     }
 
+    @Override
+    public java.awt.im.InputMethodRequests getInputMethodRequests() {
+        return new TerminalInputMethodRequests(super.getInputMethodRequests());
+    }
+
     public void refreshVisuals() {
-        reinitFontAndResize();
+        Font font = jlshellSettings.getTerminalFont();
+        float spacing = jlshellSettings.getLineSpacing();
+        if (!font.equals(lastVisualFont) || Float.compare(spacing, lastVisualLineSpacing) != 0) {
+            reinitFontAndResize();
+            lastVisualFont = font;
+            lastVisualLineSpacing = spacing;
+        }
         repaint();
     }
 
@@ -152,6 +171,23 @@ public class RefreshableTerminalPanel extends TerminalPanel {
 
     @Override
     protected JPopupMenu createPopupMenu(TerminalActionProvider provider) {
+        if (popupPresenter != null) {
+            java.util.List<PopupAction> actions = new java.util.ArrayList<>();
+            TerminalAction.buildMenu(provider, new com.jediterm.terminal.ui.TerminalActionMenuBuilder() {
+                public void addAction(TerminalAction action) {
+                    if (action == null || action.isHidden()) return;
+                    String raw = action.getName();
+                    actions.add(new PopupAction(ACTION_KEY_MAP.containsKey(raw) ? i18n.apply(ACTION_KEY_MAP.get(raw)) : raw,
+                            shortcutText(action), action.isEnabled(null), false, () -> action.actionPerformed(null)));
+                }
+                public void addSeparator() { actions.add(new PopupAction("", "", false, true, null)); }
+            });
+            return new JPopupMenu() {
+                @Override public void show(java.awt.Component invoker, int x, int y) {
+                    popupPresenter.show(invoker, x, y, java.util.List.copyOf(actions));
+                }
+            };
+        }
         Color bg      = jlshellSettings.backgroundColor();
         Color fg      = jlshellSettings.foregroundColor();
         Color hover   = blend(bg, fg, 0.12f);
@@ -544,8 +580,8 @@ public class RefreshableTerminalPanel extends TerminalPanel {
     }
 
     /**
-     * CJK 字体回退：当终端主字体无法渲染中文字符时，
-     * 自动切换到系统 CJK 字体，避免显示方框。
+     * 中文及中文标点优先使用用户指定的中文字体；留空或缺少字形时回退系统 CJK 字体。
+     * 英文保留主字体、终端网格宽度和粗斜体样式。
      * <ul>
      *   <li>Windows → "Microsoft YaHei"</li>
      *   <li>macOS   → "PingFang SC"</li>
@@ -555,42 +591,15 @@ public class RefreshableTerminalPanel extends TerminalPanel {
     @Override
     protected @NotNull Font getFontToDisplay(char[] text, int start, int end, @NotNull TextStyle style) {
         Font baseFont = super.getFontToDisplay(text, start, end, style);
-        for (int i = start; i < end; i++) {
-            if (text[i] != CharUtils.DWC && !baseFont.canDisplay(text[i])) {
-                return new Font(cjkFallbackFamily(), baseFont.getStyle(), baseFont.getSize());
-            }
+        if (jlshellSettings == null) return baseFont;
+        for (int i = start; i < end;) {
+            int codePoint = Character.codePointAt(text, i, end);
+            if (codePoint != CharUtils.DWC && (TerminalFontResolver.isChinese(codePoint) || !baseFont.canDisplay(codePoint)))
+                return jlshellSettings.getTerminalFontFor(codePoint, baseFont.getStyle());
+            i += Character.charCount(codePoint);
         }
         return baseFont;
     }
-
-    /** 返回当前平台的 CJK 回退字体族名，惰性计算一次后缓存 */
-    private static String cjkFallbackFamily() {
-        if (cjkFallback != null) return cjkFallback;
-        String os = System.getProperty("os.name", "").toLowerCase();
-        String family;
-        if (os.contains("win")) {
-            family = "Microsoft YaHei";
-        } else if (os.contains("mac")) {
-            family = "PingFang SC";
-        } else {
-            // Linux: 尝试常见 CJK 字体
-            family = firstAvailable("Noto Sans CJK SC", "WenQuanYi Micro Hei", "Droid Sans Fallback");
-        }
-        cjkFallback = family;
-        return family;
-    }
-
-    /** 从候选列表中返回第一个 AWT 可识别的字体族名，都找不到则回退到 Dialog */
-    private static String firstAvailable(String... candidates) {
-        java.awt.GraphicsEnvironment ge = java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment();
-        java.util.Set<String> available = java.util.Set.of(ge.getAvailableFontFamilyNames());
-        for (String c : candidates) {
-            if (available.contains(c)) return c;
-        }
-        return Font.DIALOG;
-    }
-
-    private static volatile String cjkFallback;
 
     private static boolean isWindows() {
         return System.getProperty("os.name", "").toLowerCase().contains("win");

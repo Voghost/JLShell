@@ -106,7 +106,6 @@ public class ShortcutRegistry {
             new ShortcutDefinition("app.refreshConnections",   "app", "shortcut.app.refreshConnections",   "meta R",       null),
             new ShortcutDefinition("app.quit",                 "app", "shortcut.app.quit",                 "meta Q",       null),
             new ShortcutDefinition("app.toggleSidebar",        "app", "shortcut.app.toggleSidebar",        "meta B",       null),
-            new ShortcutDefinition("app.toggleTopBar",         "app", "shortcut.app.toggleTopBar",         "meta T",       null),
             new ShortcutDefinition("app.focusMode",            "app", "shortcut.app.focusMode",            "meta shift F", null),
             new ShortcutDefinition("app.preferences",          "app", "shortcut.app.preferences",          "meta COMMA",   null),
 

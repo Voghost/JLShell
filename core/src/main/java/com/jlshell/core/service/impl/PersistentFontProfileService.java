@@ -14,6 +14,7 @@ import com.jlshell.core.service.FontProfileService;
  * <p>使用的 key：
  * <ul>
  *   <li>{@code terminal.font.family}</li>
+ *   <li>{@code terminal.font.chineseFamily}（空字符串为自动回退）</li>
  *   <li>{@code terminal.font.size}</li>
  *   <li>{@code terminal.font.lineSpacing}</li>
  *   <li>{@code terminal.font.ligatures}</li>
@@ -22,6 +23,7 @@ import com.jlshell.core.service.FontProfileService;
 public class PersistentFontProfileService implements FontProfileService {
 
     private static final String KEY_FAMILY      = "terminal.font.family";
+    private static final String KEY_CHINESE = "terminal.font.chineseFamily";
     private static final String KEY_SIZE        = "terminal.font.size";
     private static final String KEY_SPACING     = "terminal.font.lineSpacing";
     private static final String KEY_LIGATURES   = "terminal.font.ligatures";
@@ -49,6 +51,7 @@ public class PersistentFontProfileService implements FontProfileService {
     @Override
     public void updateActiveProfile(FontProfile profile) {
         settings.set(KEY_FAMILY,    profile.family());
+        settings.set(KEY_CHINESE,   profile.chineseFamily());
         settings.set(KEY_SIZE,      String.valueOf(profile.size()));
         settings.set(KEY_SPACING,   String.valueOf(profile.lineSpacing()));
         settings.set(KEY_LIGATURES, String.valueOf(profile.ligaturesEnabled()));
@@ -60,7 +63,7 @@ public class PersistentFontProfileService implements FontProfileService {
         double size     = parseDouble(settings.get(KEY_SIZE,    null), DEFAULT.size());
         double spacing  = parseDouble(settings.get(KEY_SPACING, null), DEFAULT.lineSpacing());
         boolean ligatures = Boolean.parseBoolean(settings.get(KEY_LIGATURES, String.valueOf(DEFAULT.ligaturesEnabled())));
-        return new FontProfile(family, size, ligatures, spacing);
+        return new FontProfile(family, size, ligatures, spacing, settings.get(KEY_CHINESE, ""));
     }
 
     private static double parseDouble(String value, double fallback) {

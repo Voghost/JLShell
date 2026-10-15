@@ -27,40 +27,43 @@ public class JlShellDesktopApplication extends Application {
 
     private AppContext appContext;
     private TrayIcon trayIcon;
-    private SplashStage splash;
+    private final StartupSplash splash = Launcher.startupSplash();
+    private Throwable initializationFailure;
+    private boolean fatalErrorShown;
 
     public static void main(String[] args) {
         // 全局未捕获异常处理：记录到日志，避免 Windows 闪退时看不到任何信息
-        Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
-            // JavaFX SwingNode resize 时 JLightweightFrame 会产生
-            // "Width (xxx) and height (-N) cannot be <= 0" 的 IllegalArgumentException。
-            // 这是 JavaFX/Swing 嵌入层的已知 bug，无害，过滤掉避免日志噪音。
-            if (throwable instanceof IllegalArgumentException
-                    && throwable.getMessage() != null
-                    && throwable.getMessage().contains("cannot be <= 0")
-                    && thread.getName().startsWith("AWT-EventQueue")) {
-                return; // 静默忽略
-            }
-            System.err.println("Uncaught exception in thread [" + thread.getName() + "]");
-            throwable.printStackTrace(System.err);
-            LoggerFactory.getLogger(JlShellDesktopApplication.class)
-                    .error("Uncaught exception in thread [{}]", thread.getName(), throwable);
-        });
+        Thread.setDefaultUncaughtExceptionHandler(new UncaughtExceptionReporter(System.err,
+                (thread, throwable) -> log.error("Uncaught exception in thread [{}]", thread.getName(), throwable)));
+        // 兼容直接调用 Application.main 的入口；正常 Launcher 路径已绘制过首帧。
+        Launcher.showStartupBeforeJavaFx();
         StartupDiagnostics.logBeforeJavaFxLaunch();
         launch(args);
     }
 
     @Override
     public void init() {
-        BundledFontLoader.load();
-        // AppContext 里 305 主题 JSON / 4.7MB 插件 JAR / 2MB AWT 字体都已延迟加载，
-        // 所以 init() 阶段很快；splash 在 start() 显示遮盖 JavaFX 冷启动。
-        splash = new SplashStage();
+        try {
+            BundledFontLoader.load();
+        } catch (Exception | LinkageError failure) {
+            initializationFailure = failure;
+        }
     }
 
     @Override
     public void start(Stage stage) {
-        splash.show();
+        Platform.setImplicitExit(false);
+        if (initializationFailure != null) { showFatalError(initializationFailure); return; }
+        try {
+            startApplication(stage);
+        } catch (Exception | LinkageError failure) {
+            log.error("Failed to start JLShell", failure);
+            showFatalError(failure);
+        }
+    }
+
+    private void startApplication(Stage stage) {
+        splash.updateStatus("正在加载连接与偏好设置", "Loading connections and preferences");
 
         try {
             appContext = new AppContext();
@@ -70,6 +73,7 @@ public class JlShellDesktopApplication extends Application {
             return;
         }
 
+        splash.updateStatus("正在打开工作空间", "Opening your workspace");
         MainWindow mainWindow = appContext.getMainWindow();
 
         // On Windows, use TRANSPARENT stage style so the window background is
@@ -97,50 +101,44 @@ public class JlShellDesktopApplication extends Application {
         addStageIcon(stage, "/icons/app_icon_32.png");
         addStageIcon(stage, "/icons/app_icon_48.png");
         addStageIcon(stage, "/icons/app_icon_256.png");
-        addStageIcon(stage, "/icons/app_icon.png");
+        addStageIcon(stage, "/icons/brand/jlshell.png");
 
-        java.awt.Image awtIcon = loadAwtIcon();
-
-        // Ensure AWT toolkit is initialized before registering Desktop handlers.
-        // On macOS, Desktop.setPreferencesHandler() etc. only work after AWT is loaded.
-        java.awt.Toolkit.getDefaultToolkit();
-
-        // Register macOS application-menu handlers (Preferences, About, Quit).
-        // This causes these items to appear in the native JLShell application menu.
-        if (Desktop.isDesktopSupported()) {
-            Desktop desktop = Desktop.getDesktop();
-            if (desktop.isSupported(Desktop.Action.APP_PREFERENCES)) {
-                desktop.setPreferencesHandler(e ->
-                    Platform.runLater(() -> mainWindow.openPreferences(stage)));
-            }
-            if (desktop.isSupported(Desktop.Action.APP_ABOUT)) {
-                desktop.setAboutHandler(e ->
-                    Platform.runLater(() -> showAboutDialog(stage)));
-            }
-            if (desktop.isSupported(Desktop.Action.APP_QUIT_HANDLER)) {
-                desktop.setQuitHandler((e, response) -> {
-                    scheduleShutdown();
-                    response.cancelQuit();
-                });
-            }
-        }
+        // AWT 操作不能在 FX/AppKit 回调中争用 Swing 的 AWTTreeLock。
+        // 系统菜单、托盘及 Swing 窗口全部异步交给 EDT，FX 线程从不等待 EDT。
+        javax.swing.SwingUtilities.invokeLater(() -> registerDesktopHandlers(mainWindow, stage));
 
         stage.setOnCloseRequest(event -> {
             event.consume();
             scheduleShutdown();
         });
 
-        stage.show();
-        UpdateActivationMarker.markStartupConfirmed();
-        splash.hide();
-        installSystemTray(stage, awtIcon);
+        if (!"javafx".equalsIgnoreCase(System.getProperty("jlshell.ui.renderer", "swing"))) {
+            // 本分支默认使用原生 Swing 工作台；保留 JavaFX 渲染入口供对照验收。
+            Platform.setImplicitExit(false);
+            mainWindow.showSwingWindow(stage, this::scheduleShutdown).whenComplete((unused, error) ->
+                    Platform.runLater(() -> {
+                        splash.hide();
+                        if (error != null) { showFatalError(error); return; }
+                        UpdateActivationMarker.markStartupConfirmed();
+                        installSystemTray();
+                    }));
+        } else {
+            stage.show();
+            UpdateActivationMarker.markStartupConfirmed();
+            splash.hide();
+            installSystemTray();
+        }
     }
 
     private void scheduleShutdown() {
         Platform.runLater(() -> {
-            if (trayIcon != null && SystemTray.isSupported()) {
-                SystemTray.getSystemTray().remove(trayIcon);
-            }
+            if (appContext != null) appContext.getMainWindow().closeSwingWindow();
+            javax.swing.SwingUtilities.invokeLater(() -> {
+                if (trayIcon != null && SystemTray.isSupported()) {
+                    SystemTray.getSystemTray().remove(trayIcon);
+                    trayIcon = null;
+                }
+            });
         });
         Thread shutdownThread = new Thread(() -> {
             try {
@@ -181,21 +179,23 @@ public class JlShellDesktopApplication extends Application {
 
     /** 显示致命错误对话框（AppContext 初始化失败时调用） */
     private void showFatalError(Throwable t) {
+        if (fatalErrorShown) return;
+        fatalErrorShown = true;
         splash.hide();
-        String msg = t.getMessage() != null ? t.getMessage() : t.getClass().getName();
-        javafx.scene.control.Alert alert = new javafx.scene.control.Alert(
-                javafx.scene.control.Alert.AlertType.ERROR,
-                "JLShell failed to start:\n" + msg,
-                javafx.scene.control.ButtonType.OK);
-        alert.setTitle("JLShell — Fatal Error");
-        alert.setHeaderText("Startup failed");
-        alert.showAndWait();
-        Platform.exit();
-    }
-
-    private static String getAppVersion() {
-        String v = JlShellDesktopApplication.class.getPackage().getImplementationVersion();
-        return v != null ? v : "0.1.13";
+        javax.swing.SwingUtilities.invokeLater(() ->
+                com.jlshell.ui.swing.SwingStartupFailure.create(t, () -> {
+                    Thread cleanup = new Thread(() -> {
+                        try {
+                            if (appContext != null) appContext.close();
+                        } catch (Exception error) {
+                            log.warn("Failed to clean up after startup failure", error);
+                        } finally {
+                            Platform.exit();
+                            System.exit(1);
+                        }
+                    }, "jlshell-startup-failure-cleanup");
+                    cleanup.start();
+                }).setVisible(true));
     }
 
     private void addStageIcon(Stage stage, String resourcePath) {
@@ -206,26 +206,52 @@ public class JlShellDesktopApplication extends Application {
         } catch (Exception ignored) {}
     }
 
-    private void showAboutDialog(Stage stage) {
-        javafx.scene.control.Alert about = new javafx.scene.control.Alert(
-                javafx.scene.control.Alert.AlertType.INFORMATION);
-        about.setTitle("About JLShell");
-        about.setHeaderText("JLShell");
-        about.setContentText("SSH / SFTP Client\nVersion " + getAppVersion());
-        about.initOwner(stage);
-        about.showAndWait();
+    private void registerDesktopHandlers(MainWindow mainWindow, Stage stage) {
+        if (!javax.swing.SwingUtilities.isEventDispatchThread()) {
+            throw new IllegalStateException("Desktop handlers require EDT");
+        }
+        // Register macOS application-menu handlers (Preferences, About, Quit).
+        // This causes these items to appear in the native JLShell application menu.
+        if (Desktop.isDesktopSupported()) {
+            Desktop desktop = Desktop.getDesktop();
+            if (desktop.isSupported(Desktop.Action.APP_PREFERENCES)) {
+                desktop.setPreferencesHandler(e ->
+                    Platform.runLater(() -> mainWindow.openPreferences(stage)));
+            }
+            if (desktop.isSupported(Desktop.Action.APP_ABOUT)) {
+                desktop.setAboutHandler(e ->
+                    Platform.runLater(() -> mainWindow.openAbout(stage)));
+            }
+            if (desktop.isSupported(Desktop.Action.APP_QUIT_HANDLER)) {
+                desktop.setQuitHandler((e, response) -> {
+                    scheduleShutdown();
+                    response.cancelQuit();
+                });
+            }
+            // AppContext 已读取 ui.language。菜单仅在本次启动时选择语言，语言更改重启后生效。
+            com.jlshell.ui.swing.MacApplicationMenu.localize(java.util.Locale.getDefault())
+                    .exceptionally(error -> {
+                        log.warn("Unable to localize macOS application menu", error);
+                        return null;
+                    });
+        }
     }
 
-    private void installSystemTray(Stage stage, java.awt.Image icon) {
+    private void installSystemTray() {
+        if (!javax.swing.SwingUtilities.isEventDispatchThread()) {
+            javax.swing.SwingUtilities.invokeLater(this::installSystemTray);
+            return;
+        }
         if (!SystemTray.isSupported()) return;
+        java.awt.Image icon = loadAwtIcon();
         try {
             PopupMenu menu = new PopupMenu();
             MenuItem openItem = new MenuItem("Open JLShell");
             MenuItem hideItem = new MenuItem("Hide");
             MenuItem exitItem = new MenuItem("Exit");
 
-            openItem.addActionListener(e -> Platform.runLater(() -> { stage.show(); stage.toFront(); }));
-            hideItem.addActionListener(e -> Platform.runLater(stage::hide));
+            openItem.addActionListener(e -> Platform.runLater(() -> appContext.getMainWindow().showMainWindow()));
+            hideItem.addActionListener(e -> Platform.runLater(() -> appContext.getMainWindow().hideMainWindow()));
             exitItem.addActionListener(e -> scheduleShutdown());
 
             menu.add(openItem);
@@ -235,7 +261,7 @@ public class JlShellDesktopApplication extends Application {
 
             trayIcon = new TrayIcon(icon != null ? icon : fallbackAwtIcon(16), "JLShell", menu);
             trayIcon.setImageAutoSize(true);
-            trayIcon.addActionListener(e -> Platform.runLater(() -> { stage.show(); stage.toFront(); }));
+            trayIcon.addActionListener(e -> Platform.runLater(() -> appContext.getMainWindow().showMainWindow()));
             SystemTray.getSystemTray().add(trayIcon);
         } catch (AWTException e) {
             trayIcon = null;
@@ -243,7 +269,7 @@ public class JlShellDesktopApplication extends Application {
     }
 
     private java.awt.Image loadAwtIcon() {
-        try (InputStream is = getClass().getResourceAsStream("/icons/app_icon.png")) {
+        try (InputStream is = getClass().getResourceAsStream("/icons/brand/jlshell.png")) {
             if (is != null) return ImageIO.read(is);
         } catch (Exception ignored) {}
         return fallbackAwtIcon(256);
