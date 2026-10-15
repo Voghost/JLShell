@@ -23,7 +23,7 @@ BUILD_ONLY = {'icons/app_icon.png', 'icons/app_icon.ico', 'icons/app_icon.icns',
 def keep_native(name, targets):
     prefixes = ('org/sqlite/native/', 'com/sun/jna/', 'resources/com/pty4j/native/', 'com/formdev/flatlaf/natives/')
     for index, prefix in enumerate(prefixes):
-        if not name.startswith(prefix) or not name.endswith(('.so', '.dll', '.exe', '.dylib', '.jnilib')):
+        if not name.startswith(prefix) or not name.endswith(('.so', '.dll', '.exe', '.dylib', '.jnilib', '.a', '/pty4j-unix-spawn-helper')):
             continue
         return any(TARGETS[target][index] in name for target in targets)
     return True
