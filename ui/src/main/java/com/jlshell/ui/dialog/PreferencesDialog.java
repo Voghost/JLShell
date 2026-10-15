@@ -1937,7 +1937,7 @@ public class PreferencesDialog {
         pane.getStyleClass().add("plugin-manager-pane");
 
         ObservableList<PluginDocEntry> installedEntries = FXCollections.observableArrayList(
-                pluginDocEntries(i18n, programPluginManager, pluginManager));
+                pluginDocEntries(i18n, themeService, programPluginManager, pluginManager));
         TabPane pluginTabs = new TabPane();
         pluginTabs.getStyleClass().add("plugin-manager-tabs");
         pluginTabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
@@ -2145,7 +2145,7 @@ public class PreferencesDialog {
                         }
                         if (result.scope() == com.jlshell.plugin.api.PluginScope.SESSION && pluginManager != null) {
                             pluginManager.reloadPlugins();
-                            installedEntries.setAll(pluginDocEntries(i18n, programPluginManager, pluginManager));
+                            installedEntries.setAll(pluginDocEntries(i18n, themeService, programPluginManager, pluginManager));
                             status.setText(i18n.get("plugins.store.installedSession"));
                         } else {
                             status.setText(i18n.get("plugins.store.installedProgram"));
@@ -2317,7 +2317,7 @@ public class PreferencesDialog {
                     if (programPluginManager == null) return;
                     programPluginManager.setPluginEnabled(entry.metadata().id(), enable);
                 }
-                entries.setAll(pluginDocEntries(i18n, programPluginManager, pluginManager));
+                entries.setAll(pluginDocEntries(i18n, themeService, programPluginManager, pluginManager));
                 entries.stream()
                         .filter(item -> item.scope() == entry.scope()
                                 && item.metadata().id().equals(entry.metadata().id()))
@@ -2604,7 +2604,7 @@ public class PreferencesDialog {
         return cause.getMessage() == null ? cause.getClass().getSimpleName() : cause.getMessage();
     }
 
-    private static List<PluginDocEntry> pluginDocEntries(I18nService i18n,
+    private static List<PluginDocEntry> pluginDocEntries(I18nService i18n, ThemeService themeService,
                                                          ProgramPluginManager programPluginManager,
                                                          PluginManager pluginManager) {
         List<PluginDocEntry> entries = new ArrayList<>();
@@ -2613,7 +2613,7 @@ public class PreferencesDialog {
                 for (var desc : programPluginManager.getInstalledPlugins()) {
                     try {
                         boolean enabled = programPluginManager.isPluginEnabled(desc.id());
-                        javafx.scene.Node settings = safeProgramPluginSettings(i18n, desc, enabled);
+                        javafx.scene.Node settings = safeProgramPluginSettings(i18n, themeService, desc, enabled);
                         entries.add(new PluginDocEntry(desc.metadata(), settings, enabled));
                     } catch (Throwable error) {
                         log.warn("Failed to inspect program plugin {} while building preferences",
@@ -2662,12 +2662,13 @@ public class PreferencesDialog {
      * 将失败降级为可见提示，避免整个 Preferences 页面无法打开。
      */
     private static javafx.scene.Node safeProgramPluginSettings(
-            I18nService i18n,
+            I18nService i18n, ThemeService themeService,
             com.jlshell.program.plugin.loader.ProgramPluginDescriptor desc,
             boolean enabled) {
         if (!enabled) return null;
         try {
-            return desc.instance().settingsView(desc.context());
+            return com.jlshell.ui.swing.SwingFxPanel.preservePluginView(
+                    desc.instance().settingsView(desc.context()), themeService);
         } catch (Throwable error) {
             log.warn("Failed to build settings view for program plugin {} version {}",
                     desc.id(), desc.version(), error);

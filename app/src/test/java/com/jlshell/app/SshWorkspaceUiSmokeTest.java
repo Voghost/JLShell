@@ -335,13 +335,13 @@ class SshWorkspaceUiSmokeTest {
                 assertSame(workbench.frame(), SwingUtilities.getWindowAncestor(nativeView.toolWindow()));
             }).get(10, TimeUnit.SECONDS);
             SwingExecutors.runOnEdtAsync(() -> {
-                var page = named(workbench.frame(), "plugin.nativePage"); assertNotNull(page);
-                assertTrue(NativeSettingsProbe.all(page, javafx.embed.swing.JFXPanel.class).isEmpty());
-                NativeSettingsProbe.button(workbench.frame(),"原插件动作").doClick();
+                assertEquals(1, NativeSettingsProbe.all(workbench.frame(), javafx.embed.swing.JFXPanel.class).size(),
+                        "Legacy plugins must retain their original JavaFX controls");
             }).get(10, TimeUnit.SECONDS);
             FxThread.supplyAsync(() -> {
-                assertNull(plugin.getContent().getScene(), "Native plugin forms must not attach an FX Scene");
+                assertNotNull(plugin.getContent().getScene(), "Legacy plugin pages must attach an FX Scene");
                 assertEquals("-fx-padding: 19px;", plugin.getContent().getStyle());
+                ((Button) ((VBox) plugin.getContent()).getChildren().getFirst()).fire();
 
                 source.getInnerTabPane().getSelectionModel().select(0);
                 source.getInnerTabPane().getTabs().remove(plugin);

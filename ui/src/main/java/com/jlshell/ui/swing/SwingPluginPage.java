@@ -46,19 +46,15 @@ final class SwingPluginPage extends JPanel implements AutoCloseable {
         if (tab.getProperties().get(PluginsTabView.NATIVE_VIEW) instanceof Supplier<?> supplier) {
             return new Prepared(() -> wrap.apply((JComponent) supplier.get()), () -> {});
         }
-        var renderer = new SwingFormRenderer(i18n);
-        try {
-            var factory = renderer.prepare(tab.getContent());
-            return new Prepared(() -> wrap.apply(factory.get()), renderer::close);
-        } catch (IllegalArgumentException unsupported) {
-            renderer.close();
-            // 未升级的第三方自绘 Node 仍可打开；不影响原生插件页和列表。
-            var node = tab.getContent();
-            return new Prepared(() -> {
-                var bridge = new SwingFxPanel(themes); bridge.setView(node);
-                return wrap.apply(bridge);
-            }, () -> {});
-        }
+        // openTab(Node) 是完整 JavaFX 页面契约。表单映射器只覆盖宿主已知的控件，
+        // 会丢失第三方 Region（如 RichTextFX）、ListCell 图形和图标字体。
+        // 保留插件原始节点树；插件通过 openSwingTab 显式选择原生 Swing。
+        var node = tab.getContent();
+        return new Prepared(() -> {
+            var bridge = new SwingFxPanel(themes);
+            bridge.setView(node);
+            return wrap.apply(bridge);
+        }, () -> {});
     }
 
     void updateTitle(String title) { if (titleLabel != null) titleLabel.setText(title); }

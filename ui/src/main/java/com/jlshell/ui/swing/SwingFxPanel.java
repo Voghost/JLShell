@@ -11,6 +11,16 @@ import javafx.scene.layout.BorderPane;
 
 /** 兼容现有 JavaFX 插件及业务表单；不改变插件返回 Node 的 SDK 契约。 */
 public final class SwingFxPanel extends JFXPanel implements AutoCloseable {
+    /** Marks a third-party subtree inside a host form; its controls must not be translated. */
+    static final class PluginView extends BorderPane {
+        final ThemeService themes;
+        PluginView(Node node, ThemeService themes) { super(node); this.themes = themes; }
+    }
+
+    public static Node preservePluginView(Node node, ThemeService themes) {
+        return node == null ? null : new PluginView(node, themes);
+    }
+
     private final ThemeService themes;
     private final ChangeListener<Object> themeListener = (obs, oldValue, value) -> refreshTheme();
     private boolean closed;

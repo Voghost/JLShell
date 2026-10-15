@@ -64,6 +64,16 @@ final class SwingFormRenderer implements AutoCloseable {
 
     Supplier<JComponent> prepare(Node node) {
         if (node == null) return JPanel::new;
+        if (node instanceof SwingFxPanel.PluginView pluginView) {
+            double width = pluginView.prefWidth(-1), height = pluginView.prefHeight(-1);
+            return () -> {
+                var bridge = new SwingFxPanel(pluginView.themes);
+                bridge.setPreferredSize(new Dimension((int) Math.max(240, width), (int) Math.max(180, height)));
+                bridge.setView(pluginView);
+                onDispose(bridge::close);
+                return bridge;
+            };
+        }
         if (node.getId() != null) models.put(node.getId(), node);
         AtomicReference<JComponent> view = new AtomicReference<>();
         var enabled = observe(node.disabledProperty(), value -> {
