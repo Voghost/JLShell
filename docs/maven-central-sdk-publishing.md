@@ -89,3 +89,8 @@ Maven 坐标：
 
 显式声明 program-api 时同样使用 1.6.0、provided。SDK 发布与桌面安装包发版独立，
 本次不触发桌面 Release，也不修改已发布的 v0.1.68 标签。
+
+
+## 发布工具兼容性
+
+Central 发布插件使用 0.12.0，修复 Maven 3.10 在暂存目录产生 maven-metadata-local.xml / _remote.repositories、导致 Central 报 Bundle has content that does NOT have a .pom file 的问题。升级依据：https://central.sonatype.org/publish/publish-portal-maven/#0120-13-oct-2026 。
