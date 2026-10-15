@@ -8,7 +8,7 @@
 
 | 项目 | 优化前 | 优化后 | 说明 |
 | --- | ---: | ---: | --- |
-| 应用 fat JAR | 52.4 MiB | 33.2 MiB | 清理不支持的平台本地库、重复品牌资源，ZIP 最高压缩 |
+| 应用 fat JAR | 52.4 MiB | 32.9 MiB | 清理不支持的平台本地库、重复品牌资源，ZIP 最高压缩 |
 | macOS ARM64 安装包内应用 JAR | 52.4 MiB | 22.1 MiB | 仅自身平台本地库，JavaFX 类及资源由内置模块提供 |
 | 内置运行时（磁盘占用） | 67 MiB | 56 MiB | 收紧根模块、仅中英文 locale、jlink ZIP 9 |
 
@@ -20,7 +20,7 @@
 2. SQLite、JNA、pty4j、FlatLaf 的本地库按 Windows x64、Linux x64、macOS x64/ARM64 筛选；安装包进一步只保留自身平台。未按包名前缀删除 Java 类。
 3. 统一运行时品牌图片入口为 `icons/brand/jlshell.png`，剔除打包用 ICO/ICNS、历史重复大图，保留界面实际使用的小尺寸图标。
 4. installer JAR 中不再重复携带由 jlink 提供的 JavaFX 类和本地库；所有启动入口显式解析 `javafx.controls,javafx.swing`，Windows 二次启动保留该参数。
-5. jlink 通过依赖闭包补齐根模块依赖，移除无使用证据的额外根模块，保留 HTTP、编译 API、脚本、JFR、加密、DNS、ZIP 文件系统及反射所需模块。locale 只打包当前支持的中文和英文。
+5. 使用 `--vm=server` 只保留实际使用的 Server JVM，避免 Liberica 将 Client JVM 一并复制到运行时。jlink 通过依赖闭包补齐根模块依赖，移除无使用证据的额外根模块，保留 HTTP、编译 API、脚本、JFR、加密、DNS、ZIP 文件系统及反射所需模块。locale 只打包当前支持的中文和英文。
 6. JAR 与运行时 ZIP 9 压缩；Linux tar.gz 使用 gzip 9、DEB 使用 xz 9，Windows ZIP 使用 7-Zip 最高压缩。
 
 ## 必须保留的依赖

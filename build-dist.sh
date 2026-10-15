@@ -130,7 +130,7 @@ run_jlink() {
         --strip-debug \
         --no-man-pages \
         --no-header-files \
-        --compress zip-9
+        --vm=server --compress zip-9
 
     ok "JRE size: $(du -sh "$output" | cut -f1)"
 }
