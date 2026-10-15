@@ -16,16 +16,17 @@ public final class IdeaTooltipPopupFactory extends PopupFactory {
         Window parent = SwingUtilities.getWindowAncestor(owner);
         JWindow window = new JWindow(parent, configuration);
         window.setName("idea.tooltipWindow"); window.setType(Window.Type.POPUP);
-        window.setFocusableWindowState(false); window.setBackground(new Color(0, true));
-        window.getRootPane().putClientProperty("Window.shadow", false);
+        window.setFocusableWindowState(false);
+        boolean alpha = IdeaPopupWindow.configure(window, true);
         tip.putClientProperty("JLShell.tooltipSurface", true);
-        window.setContentPane(new IdeaPopupSurface(tip, true, true));
+        window.setContentPane(new IdeaPopupSurface(tip, alpha, true));
         window.pack();
+        IdeaPopupWindow.decorate(window, true);
         Rectangle screen = new Rectangle(configuration.getBounds());
         Insets insets = Toolkit.getDefaultToolkit().getScreenInsets(configuration);
         screen.x += insets.left; screen.y += insets.top;
         screen.width -= insets.left + insets.right; screen.height -= insets.top + insets.bottom;
-        int margin = IdeaPopupSurface.SHADOW + 1;
+        int margin = (alpha ? IdeaPopupSurface.SHADOW : 0) + 1;
         window.setLocation(Math.max(screen.x, Math.min(x - margin, screen.x + screen.width - window.getWidth())),
                 Math.max(screen.y, Math.min(y - margin, screen.y + screen.height - window.getHeight())));
         return new Popup() {

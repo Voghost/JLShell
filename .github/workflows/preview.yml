@@ -528,6 +528,26 @@ jobs:
           sizes = [(16,16),(20,20),(24,24),(32,32),(40,40),(48,48),(64,64),(128,128),(256,256)]
           img.save('app/src/main/resources/icons/app_icon.ico', format='ICO', sizes=sizes)
 
+      - name: Windows popup and workbench regression
+        shell: bash
+        run: >-
+          mvn -B -pl ui -am
+          -Dtest=WindowsWorkbenchPolishTest,IdeaPopupRenderingTest
+          -Dsurefire.failIfNoSpecifiedTests=false
+          -Djlshell.ui.smoke=true
+          "-DargLine=--add-exports=java.desktop/sun.swing=ALL-UNNAMED --add-opens=java.desktop/sun.swing=ALL-UNNAMED --add-opens=java.desktop/javax.swing=ALL-UNNAMED"
+          test
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-ui-regression-${{ env.VERSION }}
+          path: |
+            ui/target/ui-smoke/
+            ui/target/surefire-reports/
+          retention-days: 14
+          if-no-files-found: warn
+
       - name: Build fat jar + jlink runtime
         shell: bash
         run: |

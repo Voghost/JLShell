@@ -19,6 +19,7 @@ import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreePath;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
+import java.awt.event.MouseMotionAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
@@ -80,8 +81,22 @@ public final class SwingWorkbench implements AutoCloseable {
     private String sidebarSort = "name";
     private boolean foldersAlwaysOnTop = true;
     private final JPanel sidebar = new IslandPanel(new BorderLayout(), "panel");
+    private TreePath hoveredConnectionPath;
     private final JTree tree = new JTree(new DefaultMutableTreeNode()) {
         @Override public boolean getScrollableTracksViewportWidth() { return true; }
+        @Override protected void paintComponent(Graphics graphics) {
+            Graphics2D g = (Graphics2D) graphics.create();
+            try {
+                g.setColor(getBackground()); g.fillRect(0, 0, getWidth(), getHeight());
+                Rectangle bounds = hoveredConnectionPath == null ? null : getPathBounds(hoveredConnectionPath);
+                if (bounds != null && !isPathSelected(hoveredConnectionPath)) {
+                    g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    g.setColor(SwingTheme.color("treeHover"));
+                    g.fillRoundRect(4, bounds.y, Math.max(0, getWidth() - 8), bounds.height, 6, 6);
+                }
+                super.paintComponent(g);
+            } finally { g.dispose(); }
+        }
     };
     private final JTextField search = new JTextField();
     private final JButton projects = new ChevronButton("JLShell");
@@ -118,7 +133,7 @@ public final class SwingWorkbench implements AutoCloseable {
         }
     };
     private final JPanel root = new JPanel(new BorderLayout());
-    private final JSplitPane vertical = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+    private final JSplitPane vertical = new ResizeSplitPane(JSplitPane.VERTICAL_SPLIT);
     private final JPanel toolDock = new IslandPanel(new BorderLayout(), "canvas");
     private final JPanel dockBody = new JPanel(new BorderLayout());
     private final JLabel dockTitle = new JLabel() {
@@ -140,7 +155,7 @@ public final class SwingWorkbench implements AutoCloseable {
     private final JPanel rightToolNavigationHost = new JPanel();
     private final JButton toolStripe;
     private final JButton projectStripe;
-    private final JSplitPane mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+    private final JSplitPane mainSplit = new ResizeSplitPane(JSplitPane.HORIZONTAL_SPLIT);
     private final JPanel horizontalDock = new JPanel(new BorderLayout());
     private final JButton menuButton;
     private final JButton runButton;
@@ -156,7 +171,7 @@ public final class SwingWorkbench implements AutoCloseable {
     private Component rightToolWindowOwner;
     private int rightToolPageIndex = -1;
     private final Map<Object, JPanel> tabHosts = new LinkedHashMap<>();
-    private final JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+    private final JSplitPane split = new ResizeSplitPane(JSplitPane.HORIZONTAL_SPLIT);
     private final Map<Object, Component> tabViews = new LinkedHashMap<>();
     private final Map<Component, Object> viewTabs = new IdentityHashMap<>();
     private List<ConnectionProfile> profiles = List.of();
@@ -517,6 +532,17 @@ public final class SwingWorkbench implements AutoCloseable {
         });
         top.add(searchBar, BorderLayout.SOUTH);
         sidebar.add(top, BorderLayout.NORTH);
+        tree.setOpaque(false);
+        tree.addMouseMotionListener(new MouseMotionAdapter() {
+            @Override public void mouseMoved(MouseEvent event) {
+                TreePath path = tree.getClosestPathForLocation(event.getX(), event.getY());
+                Rectangle bounds = path == null ? null : tree.getPathBounds(path);
+                updateConnectionHover(bounds != null && event.getY() >= bounds.y && event.getY() < bounds.y + bounds.height ? path : null);
+            }
+        });
+        tree.addMouseListener(new MouseAdapter() {
+            @Override public void mouseExited(MouseEvent event) { updateConnectionHover(null); }
+        });
         tree.setRootVisible(false);
         tree.setShowsRootHandles(true);
         tree.setLargeModel(true);
@@ -541,6 +567,7 @@ public final class SwingWorkbench implements AutoCloseable {
                 super.getTreeCellRendererComponent(tree, value, selected, expanded, leaf, row, focus);
                 Object data = ((DefaultMutableTreeNode) value).getUserObject();
                 setFont(tree.getFont());
+                setBackgroundNonSelectionColor(null);
                 setBorder(BorderFactory.createEmptyBorder(2, 0, 2, 4));
                 setText(""); setIcon(null); setToolTipText(null);
                 if (data instanceof SidebarItem item) {
@@ -859,23 +886,23 @@ public final class SwingWorkbench implements AutoCloseable {
     }
 
     private void focusSelection() {
+        // 回调经 FX 取活动会话后再回 EDT；不要抢先滚动或聚焦当前旧选择。
         actions.focusActiveConnection().run();
-        TreePath[] paths = tree.getSelectionPaths();
-        if (paths == null || paths.length == 0) { tree.requestFocusInWindow(); return; }
-        rebuilding = true;
-        try {
-            for (TreePath path : paths) {
-                TreePath parent = path.getParentPath();
-                while (parent != null) { tree.expandPath(parent); parent = parent.getParentPath(); }
-                tree.scrollPathToVisible(path);
-            }
-        } finally { rebuilding = false; }
-        tree.requestFocusInWindow();
+    }
+
+    private void updateConnectionHover(TreePath path) {
+        if (java.util.Objects.equals(path, hoveredConnectionPath)) return;
+        TreePath previous = hoveredConnectionPath; hoveredConnectionPath = path;
+        for (TreePath changed : new TreePath[]{previous, path}) {
+            Rectangle bounds = changed == null ? null : tree.getPathBounds(changed);
+            if (bounds != null) tree.repaint(0, bounds.y, tree.getWidth(), bounds.height);
+        }
     }
 
     /** Reveal and select a connection for the currently active session. */
     public void focusConnection(String profileId) {
         if (profileId == null) return;
+        if (!search.getText().isBlank()) { search.setText(""); rebuildTree(); }
         var nodes = ((DefaultMutableTreeNode) tree.getModel().getRoot()).preorderEnumeration();
         while (nodes.hasMoreElements()) {
             var node = (DefaultMutableTreeNode) nodes.nextElement();
@@ -903,6 +930,7 @@ public final class SwingWorkbench implements AutoCloseable {
     }
 
     private void rebuildTree() {
+        hoveredConnectionPath = null;
         Set<String> selection = new HashSet<>();
         selectedItems().forEach(item -> selection.add(item.id()));
         rebuilding = true;
