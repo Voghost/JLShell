@@ -2243,7 +2243,7 @@ public class MainWindow {
             });
             withSwing(view -> {
                 com.jlshell.ui.swing.TerminalPopupBridge.install(viewHandle.component());
-                view.addTab(tab, profile.displayName(), viewHandle.component(), () -> FxThread.run(() -> closeTab(tab)));
+                view.addTab(tab, profile.displayName(), viewHandle.component(), () -> FxThread.run(() -> closeTab(tab)), profile.summary());
             });
             workspaceTabs.getTabs().add(tab);
             workspaceTabs.getSelectionModel().select(tab);
@@ -2360,7 +2360,7 @@ public class MainWindow {
             if (swingWorkbench != null) {
                 com.jlshell.ui.swing.SwingSessionView.create(tab, themeService, i18nService).thenAccept(surface ->
                         withSwing(view -> {
-                            view.addTab(tab, profile.displayName(), surface, () -> FxThread.run(() -> closeTab(tab)));
+                            view.addTab(tab, profile.displayName(), surface, () -> FxThread.run(() -> closeTab(tab)), profile.summary());
                             view.selectTab(tab);
                         }));
             }

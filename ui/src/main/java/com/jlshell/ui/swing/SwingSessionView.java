@@ -135,7 +135,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
 
         terminalBody.add(new JLabel("…", JLabel.CENTER));
         terminal.add(terminalBody, BorderLayout.CENTER);
-        // 主终端始终可见，不再从 CardLayout 移出或被文件/插件页覆盖。
+        // 终端独立于插件卡片；铺满只切换外层布局，不移除或重建终端。
         add(terminal, BorderLayout.CENTER);
         navigation.setLayout(new javax.swing.BoxLayout(navigation, javax.swing.BoxLayout.Y_AXIS));
         navigation.setOpaque(false);
@@ -181,18 +181,30 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
         selectPage(selectedPageIndex, false);
     }
 
-    /** 铺满状态切换会话时沿用工具种类，插件按 ID 匹配，未打开则回到插件列表。EDT 调用。 */
+    /** EDT 使用的页面标识快照；不读取 FX Tab 属性。 */
+    record ToolPage(int kind, String pluginId, Tab identity) {}
+
+    ToolPage selectedToolPage() {
+        int index = selectedPageIndex;
+        if (index < 1 || index >= pageTabs.size()) return null;
+        return new ToolPage(Math.min(index, 3), pagePluginIds.get(index), pageTabs.get(index));
+    }
+
+    int findToolPage(ToolPage page) {
+        if (page == null) return -1;
+        if (page.kind() < 3) return page.kind() < pageTabs.size() ? page.kind() : -1;
+        int index = page.pluginId() == null ? pageTabs.indexOf(page.identity()) : pagePluginIds.indexOf(page.pluginId());
+        return index >= 3 ? index : -1;
+    }
+
+    /** 铺满状态切换会话时沿用工具种类，未打开同一插件则回到插件列表。EDT 调用。 */
     void followToolPage(SwingSessionView previous) {
-        int previousIndex = previous.selectedPageIndex;
-        int index = previousIndex == 1 ? 1 : 2;
-        if (previousIndex >= 3 && previousIndex < previous.pagePluginIds.size()) {
-            String pluginId = previous.pagePluginIds.get(previousIndex);
-            if (pluginId != null) {
-                int matched = pagePluginIds.indexOf(pluginId);
-                if (matched >= 3) index = matched;
-            }
-        }
-        if (index >= pageTabs.size()) return;
+        int index = findToolPage(previous.selectedToolPage());
+        selectToolPage(index >= 0 ? index : 2);
+    }
+
+    void selectToolPage(int index) {
+        if (closed || index < 1 || index >= pageTabs.size()) return;
         Tab tab = pageTabs.get(index);
         selectPage(index, false);
         FxThread.run(() -> {
