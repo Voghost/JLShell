@@ -39,4 +39,6 @@
 
 现在由 `SwingModalDialog` 在显示时记录并禁用 owner，在隐藏/销毁 peer 之前恢复原状态；嵌套弹窗只恢复自己的父窗口。普通动作不预先禁用窗口，模态状态同步不再强制置顶。设置窗口也通过同一 owner 选择方法排除临时 JWindow。
 
+设置“确认/应用”期间使用透明输入遮罩和 busy 状态阻止重复操作，保留顶层窗口启用状态；完成后撤掉遮罩并恢复原输入焦点，避免短暂禁用弹窗本身再次触发系统窗口切换。
+
 `SwingModalDialogTest` 覆盖多次显示/隐藏/销毁、嵌套弹窗、原已禁用的 owner，以及主窗口仍可见且未被 iconify；本机 NativeDialogs/Settings/SSH 工作区真实窗口回归通过。Windows Preview 同时运行 owner 状态与插件图标、JavaFX 兼容回归。
