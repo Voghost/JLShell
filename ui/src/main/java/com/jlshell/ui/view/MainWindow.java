@@ -424,9 +424,8 @@ public class MainWindow {
                 }), (key, value) -> dispatchSwingAction(() -> appSettingsService.set(key, value)),
                 () -> FxThread.run(() -> {
                     var activeTab = workspaceTabs.getSelectionModel().getSelectedItem();
-                    if (activeTab != null && activeTab.getUserData() instanceof ConnectionProfile profile) {
-                        withSwing(view -> view.focusConnection(profile.id()));
-                    }
+                    ConnectionProfile profile = connectionProfileForTab(activeTab);
+                    if (profile != null) withSwing(view -> view.focusConnection(profile.id()));
                 }));
         AppTheme theme = themeService.currentTheme();
         String accent = themeService.accentColor().color();
@@ -1339,14 +1338,14 @@ public class MainWindow {
         }
     }
 
+    static ConnectionProfile connectionProfileForTab(javafx.scene.control.Tab tab) {
+        if (tab instanceof SessionWorkspaceTab sessionTab) return sessionTab.getConnectionProfile();
+        return tab != null && tab.getUserData() instanceof ConnectionProfile profile ? profile : null;
+    }
+
     private String buildWindowTitle(javafx.scene.control.Tab tab) {
-        String detail = null;
-        if (tab instanceof SessionWorkspaceTab sessionTab) {
-            ConnectionProfile profile = sessionTab.getConnectionProfile();
-            detail = formatConnectionTitle(profile);
-        } else if (tab != null && tab.getUserData() instanceof ConnectionProfile profile) {
-            detail = formatConnectionTitle(profile);
-        }
+        ConnectionProfile profile = connectionProfileForTab(tab);
+        String detail = profile == null ? null : formatConnectionTitle(profile);
         return detail == null || detail.isBlank() ? "JLShell" : detail + " — JLShell";
     }
 

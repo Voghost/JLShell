@@ -51,8 +51,11 @@ public final class SwingTheme {
         UIManager.put("Component.focusColor", Color.decode(accent));
         UIManager.put("TabbedPane.underlineColor", Color.decode(accent));
         Font base = UIManager.getFont("defaultFont");
-        UIManager.put("defaultFont", new javax.swing.plaf.FontUIResource(
-                family == null || family.isBlank() ? base.getFamily() : family, Font.PLAIN, size));
+        // 保留 FlatLaf 的系统字体与 Unicode 复合字体回退；重新按 family 构造物理字体会丢失 CJK 回退。
+        Font uiFont = family == null || family.isBlank() || "System".equalsIgnoreCase(family)
+                ? base.deriveFont(Font.PLAIN, (float) size)
+                : com.formdev.flatlaf.util.FontUtils.getCompositeFont(family, Font.PLAIN, size);
+        UIManager.put("defaultFont", new javax.swing.plaf.FontUIResource(uiFont));
         // FlatLaf 的各控件字体可能已解析缓存，不能只更新 defaultFont 后期待它们自动派生。
         Font selectedFont = UIManager.getFont("defaultFont");
         var fontKeys = UIManager.getDefaults().keySet().stream()

@@ -242,14 +242,12 @@ public final class IdeaListPopup extends JPanel {
         });
         popupWindow.setName("idea.popupWindow");
         popupWindow.setType(Window.Type.POPUP);
-        boolean alpha = popupWindow.getGraphicsConfiguration().getDevice()
-                .isWindowTranslucencySupported(GraphicsDevice.WindowTranslucency.PERPIXEL_TRANSLUCENT);
-        if (alpha) popupWindow.setBackground(new Color(0, true));
-        popupWindow.getRootPane().putClientProperty("Window.shadow", false);
+        boolean alpha = IdeaPopupWindow.configure(popupWindow, false);
         super.setVisible(true);
         IdeaPopupSurface surface = new IdeaPopupSurface(this, alpha);
         popupWindow.setContentPane(surface);
         popupWindow.pack();
+        IdeaPopupWindow.decorate(popupWindow, false);
         Rectangle screen = usableScreen(component.getGraphicsConfiguration());
         int margin = alpha ? IdeaPopupSurface.SHADOW : 0;
         int contentWidth = popupWindow.getWidth() - margin * 2;

@@ -33,6 +33,6 @@ public final class TerminalPopupBridge {
             rows.add(new IdeaListPopup.Row(terminalSettingsLabel, null, null, "", "",
                     true, List.of(), terminalSettings));
         }
-        new IdeaListPopup(rows, 190, false, "").show(invoker, x, y);
+        new IdeaListPopup(rows, 190, false, "", IdeaListPopup.Style.CONTEXT).show(invoker, x, y);
     }
 }

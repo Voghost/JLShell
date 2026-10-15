@@ -34,11 +34,10 @@ public final class IdeaComponentPopup extends JPanel implements AutoCloseable {
     public void show(Component anchor, int x, int y) {
         close(); invoker = anchor; owner = SwingUtilities.getWindowAncestor(anchor);
         window = new JWindow(owner); window.setType(Window.Type.POPUP); window.setName("idea.componentPopupWindow");
-        boolean alpha = window.getGraphicsConfiguration().getDevice().isWindowTranslucencySupported(GraphicsDevice.WindowTranslucency.PERPIXEL_TRANSLUCENT);
-        if (alpha) window.setBackground(new Color(0, true));
-        window.getRootPane().putClientProperty("Window.shadow", false);
+        boolean alpha = IdeaPopupWindow.configure(window, false);
         super.setVisible(true);
         window.setContentPane(new IdeaPopupSurface(this, alpha)); window.pack();
+        IdeaPopupWindow.decorate(window, false);
         Point position = new Point(x, y); SwingUtilities.convertPointToScreen(position, anchor);
         GraphicsConfiguration config = anchor.getGraphicsConfiguration(); Rectangle screen = new Rectangle(config.getBounds());
         Insets insets = Toolkit.getDefaultToolkit().getScreenInsets(config);

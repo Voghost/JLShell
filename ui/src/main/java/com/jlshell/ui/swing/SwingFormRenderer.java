@@ -278,7 +278,7 @@ final class SwingFormRenderer implements AutoCloseable {
         return () -> {
             JComponent result=children.isEmpty()?new JPanel():children.getLast().get();
             for(int i=children.size()-2;i>=0;i--) {
-                JSplitPane split=new JSplitPane(horizontal?JSplitPane.HORIZONTAL_SPLIT:JSplitPane.VERTICAL_SPLIT,children.get(i).get(),result);
+                JSplitPane split=new ResizeSplitPane(horizontal?JSplitPane.HORIZONTAL_SPLIT:JSplitPane.VERTICAL_SPLIT,children.get(i).get(),result);
                 split.setBorder(BorderFactory.createEmptyBorder());split.setDividerSize(4);split.setResizeWeight(ratio);
                 SwingUtilities.invokeLater(()->split.setDividerLocation(ratio));result=split;
             }

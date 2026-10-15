@@ -79,7 +79,7 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
         this.session = session; this.service = service; this.i18n = i18n;
         setName("sftp.browser"); setMinimumSize(new Dimension(260, 260));
         local = new Browser(false); remote = new Browser(true);
-        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, local, remote);
+        JSplitPane split = new ResizeSplitPane(JSplitPane.VERTICAL_SPLIT, local, remote);
         split.setName("sftp.verticalSplit"); split.setResizeWeight(.5); split.setDividerSize(5);
         split.setBorder(BorderFactory.createEmptyBorder()); split.setContinuousLayout(true);
         add(split);

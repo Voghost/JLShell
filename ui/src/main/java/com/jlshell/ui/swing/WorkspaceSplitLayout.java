@@ -42,7 +42,7 @@ final class WorkspaceSplitLayout extends JPanel {
         Container parent = source.getParent();
         boolean first = parent instanceof JSplitPane split && split.getLeftComponent() == source;
         var target = factory.get();
-        var split = new JSplitPane(orientation);
+        var split = new ResizeSplitPane(orientation);
         split.setBorder(BorderFactory.createEmptyBorder());
         split.setOpaque(false);
         split.setDividerSize(4);

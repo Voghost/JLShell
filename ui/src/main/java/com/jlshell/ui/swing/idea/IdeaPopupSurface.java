@@ -38,6 +38,11 @@ final class IdeaPopupSurface extends JPanel {
         Graphics2D g = (Graphics2D) graphics.create();
         try {
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            if (opaqueWindowsSurface()) {
+                g.setColor(SwingTheme.color(backgroundKey));
+                g.fillRect(0, 0, getWidth(), getHeight());
+                return;
+            }
             int inset = translucent ? SHADOW : 0;
             int width = getWidth() - inset * 2, height = getHeight() - inset * 2;
             if (translucent) {
@@ -55,9 +60,13 @@ final class IdeaPopupSurface extends JPanel {
     @Override protected void paintChildren(Graphics graphics) {
         Graphics2D g = (Graphics2D) graphics.create();
         try {
-            g.clip(innerShape(bodyShape(g), borderWidth(g)));
+            // Windows 由 DWM 裁剪外轮廓，文字内容只保留矩形 clip，保持 LCD 渲染条件。
+            if (opaqueWindowsSurface()) g.clipRect(1, 1, getWidth() - 2, getHeight() - 2);
+            else g.clip(innerShape(bodyShape(g), borderWidth(g)));
             super.paintChildren(g);
         } finally { g.dispose(); }
+        if (opaqueWindowsSurface() && getRootPane() != null
+                && Boolean.TRUE.equals(getRootPane().getClientProperty(IdeaPopupWindow.NATIVE_BORDER))) return;
         // PopupBorder 使用单色、向内的 1px 描边；JBR 圆角管理器同样只接收一个边框色。
         // 在内容之后描边，避免子组件和非抗锯齿 clip 留下第二层亮边或覆盖圆角。
         g = (Graphics2D) graphics.create();
@@ -66,12 +75,20 @@ final class IdeaPopupSurface extends JPanel {
             g.setColor(SwingTheme.color(borderKey));
             // 对应 RectanglePainter2D.DRAW 的 INSIDE 分支：一次填充外/内轮廓之差。
             // 坐标与线宽按 PaintUtil.alignToInt 对齐设备像素，分数缩放也不产生半像素亮边。
+            if (opaqueWindowsSurface()) {
+                g.drawRect(0, 0, getWidth() - 1, getHeight() - 1);
+                return;
+            }
             var outer = bodyShape(g);
             Path2D path = new Path2D.Double(Path2D.WIND_EVEN_ODD);
             path.append(outer, false);
             path.append(innerShape(outer, borderWidth(g)), false);
             g.fill(path);
         } finally { g.dispose(); }
+    }
+
+    private boolean opaqueWindowsSurface() {
+        return com.formdev.flatlaf.util.SystemInfo.isWindows && !translucent;
     }
 
     private RoundRectangle2D.Double bodyShape(Graphics2D g) {
