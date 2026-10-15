@@ -19,6 +19,10 @@ public final class IdeaToolTipUI extends FlatToolTipUI {
     }
 
     @Override public void update(Graphics graphics, JComponent component) {
+        if (Boolean.TRUE.equals(component.getClientProperty("JLShell.tooltipSurface"))) {
+            paint(graphics, component);
+            return;
+        }
         Graphics2D g = (Graphics2D) graphics.create();
         try {
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);

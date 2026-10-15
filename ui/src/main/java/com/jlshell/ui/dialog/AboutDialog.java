@@ -33,7 +33,7 @@ public class AboutDialog {
         dialog.getDialogPane().setPrefSize(860, 680);
         dialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
         if (com.jlshell.ui.swing.SwingDialogHost.enabled()) {
-            com.jlshell.ui.swing.SwingDialogHost.showAndWait(dialog, themeService, i18n, "jlshell.about", 760, 590);
+            com.jlshell.ui.swing.SwingDialogHost.showNativeAndWait(dialog, themeService, i18n, "jlshell.about", 820, 760);
         } else dialog.showAndWait();
     }
 }

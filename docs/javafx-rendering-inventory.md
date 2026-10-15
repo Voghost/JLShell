@@ -1,89 +1,42 @@
 # JavaFX 渲染清单与 Swing 迁移顺序
 
-盘点日期：2026-10-13
+复查日期：2026-10-14。范围：当前 preview/ui-refactor 工作树、默认 Swing 路径。
 
-本文记录默认 `jlshell.ui.renderer=swing` 路径下仍由 JavaFX 绘制的界面，供后续逐步迁移到 Swing。需要区分“JavaFX 负责显示像素”和“JavaFX 只负责业务模型、事件或线程调度”：FX Application Thread 上出现的日志本身不能证明对应组件正在由 JavaFX 渲染。
+## 当前仍需 JavaFX 绘制的内容
 
-## 当前窗口边界
+| 页面或入口 | 状态 |
+| --- | --- |
+| 项目管理主体、项目包分享码输入 | Swing 外壳内保留 FX 内容；需后续迁移 |
+| 未升级的第三方复杂自绘插件 | Canvas、WebView 等无法通用转换时按需使用兼容桥；不声称第三方二进制均已迁移 |
 
-- 正常启动的主窗口是 `SwingWorkbench` 创建的 Swing `JFrame`。主工具栏、连接树、欢迎页、会话外层标签、分屏、底部工具窗口外壳和原生 Swing 终端均由 Swing 绘制。
-- SSH/本地终端在 Swing 工作台路径中直接挂载 Swing 终端组件，不经过 `SwingNode`。JavaFX-only 回退路径仍保留 `SwingNode`。
-- `MainWindow`、`SessionWorkspaceTab`、`TerminalWorkspaceView` 等仍是 JavaFX 业务层。它们管理会话生命周期、内层标签/插件契约、工具栏和状态内容，并把相应节点交给 Swing 宿主。
-- `SwingFxPanel` 继承 `JFXPanel`，将 JavaFX `Node` 放入 JavaFX `Scene` 后嵌入 Swing。包含这种面板的窗口虽然外框和部分操作区是 Swing，面板内部仍是 JavaFX 实际绘制。
-- JavaFX 菜单对象也继续作为动作模型使用；常规菜单经 `SwingMenuBridge` 转成 Swing 行绘制，macOS 全局菜单由系统菜单后端绘制。这类情况属于模型/事件仍依赖 FX，不等于主窗口菜单由 JavaFX Scene 绘制。
+项目管理导入/导出包仍通过 JavaFX FileChooser 调用系统文件选择器。
 
-## 仍由 JavaFX 绘制的界面
+## 已由 Swing 绘制
 
-### 会话中的右侧文件和插件页面
+- 主窗口、菜单、项目选择器、欢迎页、连接树、会话标签、分屏、侧栏外壳。
+- SSH/本地终端直接挂载 JediTerm，不经过 SwingNode。
+- 本地/远程文件列表、路径、目录树和文件菜单、传输状态与操作输入。见 sftp-swing-browser.md。
+- 内置服务器监控、指标、趋势、进程与详情。见 server-monitor-swing.md。
+- 偏好设置全部页面及相关账号、字体、导入、快捷键、配色与凭据表单。
+- 右侧插件列表：搜索、两行简介、独立固定按钮、打开、数量提示。
+- 插件页面宿主：原生 Swing 工厂；旧常规表单 Node 映射为 Swing 控件；关闭与资源释放。仓库系统监控插件提供原生 Swing 图表页，脚本/会话/Program 示例的常规表单由 Swing 控件呈现。
+- 更新检查与下载进度：非阻塞 Swing 窗口、不定进度/百分比、后台运行。
+- 新建/重命名连接分组、连接分享导出、常规错误/警告/确认与主机密钥提示。
+- 启动框和启动失败提示，不依赖 AppContext 绘制。
+- 帮助菜单、系统应用菜单与设置中的关于共用 Swing 品牌页。
 
-`SwingSessionView` 将原 `SessionWorkspaceTab` 内层 `TabPane` 放进 `SwingFxPanel`。其文件页 `SftpBrowserPane`、插件页 `PluginsTabView` 和兼容插件动态创建的页面仍是 JavaFX 控件/节点。这是主窗口中最主要的一块 JavaFX 内容。
+源码预览脚本优先加载本轮构建的原生系统监控插件副本，不覆盖用户已安装插件；正式安装中的旧插件仍需升级插件包。
 
-相关代码：
+## 已删除的旧入口
 
-- `ui/src/main/java/com/jlshell/ui/swing/SwingSessionView.java`：`compatibility.setView(model)`。
-- `ui/src/main/java/com/jlshell/ui/view/SessionWorkspaceTab.java`：创建 Terminal / Files / Plugins 内层标签。
-- `ui/src/main/java/com/jlshell/ui/view/SftpBrowserPane.java`：SFTP 文件树、列表、工具栏及操作弹窗。
-- `ui/src/main/java/com/jlshell/ui/view/PluginsTabView.java`：会话插件列表及插件页面。
+终端顶部固定插件工具条及选择浮层已删除，右侧固定图标保留。全局折叠顶栏、对应快捷键、悬停设置及状态恢复逻辑已删除；专注模式继续控制侧栏。
 
-### 终端周边工具栏和监控状态
+## 保留的业务模型与兼容路径
 
-终端主体由 Swing 绘制；`TerminalWorkspaceView` 提供的终端工具栏节点和服务器状态/监控节点则分别装进 `SwingFxPanel`。监控采样、连接状态、部分详情提示、进程与磁盘信息等内容仍使用 FX 节点。`SwingSessionView` 负责把它们放在 Swing 布局中的对应区域。
+部分页面保留 FX 控件作为属性、校验和动作模型，由 SwingFormRenderer 构建真正显示的 Swing 控件。存在 Dialog、TextField 或 FX 线程日志，不等于仍在使用 JavaFX 绘图。
 
-相关代码：
+MainWindow、会话 Tab 模型、属性绑定、主题及插件 Node 契约仍依赖 FX 运行时。显式使用 --javafx 时保留旧渲染入口；不能据此删除 JavaFX 依赖。
 
-- `ui/src/main/java/com/jlshell/ui/swing/SwingSessionView.java`：`installChrome` 中的工具栏和状态 `SwingFxPanel`。
-- `ui/src/main/java/com/jlshell/ui/view/TerminalWorkspaceView.java`：状态条、监控内容、终端外观设置及插件操作节点。
+后续优先迁移项目管理及其输入窗口，再推动第三方复杂自绘插件采用 Swing 工厂接口。
 
-### 设置窗口页面
-
-设置窗口的窗口框架、搜索、左侧导航树、面包屑、页面分节标签和底部按钮是 Swing。具体设置表单仍来自 `PreferencesDialog` 的 JavaFX `TabPane`，当前选中的页面通过 `SwingFxPanel` 显示。因此通用、终端、账户、插件、快捷键、API、导入等表单控件及设置页内嵌套标签仍由 FX 绘制。
-
-设置内部打开的 JavaFX `Alert`、颜色方案编辑器等嵌套窗口也仍可能显示原生 JavaFX 窗口。
-
-相关代码：
-
-- `ui/src/main/java/com/jlshell/ui/swing/SwingPreferencesDialog.java`：Swing 外壳和 `SwingFxPanel content`。
-- `ui/src/main/java/com/jlshell/ui/dialog/PreferencesDialog.java`：设置页面、控件及保存模型。
-- `ui/src/main/java/com/jlshell/ui/dialog/ColorSchemeEditDialog.java`：颜色方案编辑弹窗。
-
-### Swing 外壳中的 FX 表单内容
-
-连接编辑、项目管理和“关于”窗口使用 Swing 对话框外壳，但其主体仍是原 JavaFX `DialogPane` 内容，由 `SwingDialogHost` 搬入 `JFXPanel` 显示。迁移这些表单时，不能只替换外层对话框。
-
-当前主要入口：
-
-- `ui/src/main/java/com/jlshell/ui/swing/SwingDialogHost.java`。
-- `ui/src/main/java/com/jlshell/ui/view/ConnectionDialog.java`。
-- `ui/src/main/java/com/jlshell/ui/dialog/ProjectManagerDialog.java`。
-- `ui/src/main/java/com/jlshell/ui/dialog/AboutDialog.java`。
-
-### 仍直接显示的 JavaFX 弹窗和临时提示
-
-以下流程仍直接创建 JavaFX `Alert`、`Dialog` 或 `TextInputDialog`，不经过 Swing 外壳。它们出现时会显示 JavaFX 窗口/弹窗：
-
-- SSH 主机密钥首次信任和密钥变化确认：`ui/src/main/java/com/jlshell/ui/service/HostKeyConfirmationService.java`。
-- 更新检查、下载进度、更新结果、重启提示及主窗口中的错误/确认/文本输入：`ui/src/main/java/com/jlshell/ui/view/MainWindow.java`。
-- SFTP 文件/目录重命名、删除、新建等确认和输入：`ui/src/main/java/com/jlshell/ui/view/SftpBrowserPane.java`。
-- 账户、保险库、项目管理和关于/设置流程中由原 JavaFX 代码直接打开的嵌套提示：`ui/src/main/java/com/jlshell/ui/dialog/AccountDialog.java`、`VaultManagerDialog.java`、`ProjectManagerDialog.java`、`PreferencesDialog.java`。
-
-这些弹窗数量较多，可以后续通过统一 Swing 对话框服务迁移；当前 `SwingDialogHost` 只能承载现有 FX 节点，若目标是彻底去除 FX 渲染，还需将表单内容本身改成 Swing。
-
-## JavaFX 仍参与但通常不直接绘制主窗口的部分
-
-- `MainWindow` 和 `SessionWorkspaceTab` 仍负责会话初始化、生命周期、连接状态、JavaFX 标签模型和业务动作。
-- JavaFX `TabPane` 是内层页面的数据/选择模型，并会被兼容面板渲染；终端工具页切换会同步到 Swing 导航栏。
-- 插件当前可返回 JavaFX `Node`。这属于插件 SDK 的 UI 契约；只替换宿主页面还不能移除插件内容的 FX 绘制，需保留 FX 兼容桥或设计版本化的 Swing 插件视图接口。
-- `ui/src/main/java/com/jlshell/ui/view/TerminalWorkspaceView.java` 的 `SwingNode` 嵌入是 JavaFX-only 回退路径；默认 Swing 工作台会使用 `NativeTerminalHost`，直接将终端挂到 Swing。
-- 原 JavaFX 主窗口及其节点仍留在 `MainWindow` 作为回退实现。切换到 JavaFX renderer 时会恢复该路径。
-- FX Application Thread 仍用于调用现有服务/模型、主题属性和插件回调。减少 FX 渲染并不自动意味着可以移除 JavaFX runtime 或 FX 线程。
-
-## 建议迁移顺序
-
-1. **独立弹窗与提示**：先处理主机密钥确认、更新/错误提示、SFTP 操作确认和文本输入。它们边界清晰，也能较早减少用户遇到的 JavaFX 原生窗口。
-2. **终端工具栏和监控状态区**：将按钮、状态栏和监控信息改成 Swing 视图，由现有业务服务提供不可变数据/动作回调；保留采样服务，不搬动业务逻辑。
-3. **SFTP 文件页**：重写文件树、路径栏、列表和操作弹窗为 Swing。SFTP 服务接口与文件操作语义保持不变。
-4. **插件宿主页**：先把市场/已安装列表、详情和页面容器改为 Swing。同步确定外部插件 JavaFX `Node` 的兼容策略；可以在过渡期通过 `JFXPanel` 保持旧插件工作。
-5. **设置页及复合表单**：按页面迁移 JavaFX 控件，复用现有设置服务、校验和保存流程；逐步替换连接、项目、账户、保险库、关于等表单内容。
-6. **收尾 JavaFX 运行时依赖**：前述 UI 与插件兼容路径稳定后，再评估移除 `SwingFxPanel`、JavaFX-only 主窗口回退、FX Scene/CSS 和相关运行时。FX 线程仍服务业务模型的部分也需要单独迁移或保留，不能只凭渲染替换结论直接删除。
-
-建议每个迁移项单独验收明暗主题、窗口缩放、键盘/输入法、弹窗焦点、插件/会话生命周期及无头测试；不要把“窗口外壳已是 Swing”记作“页面已无 JavaFX”。
+详细说明：plugin-swing-views.md、dialog-swing-adaptation.md、settings-idea-layout.md。

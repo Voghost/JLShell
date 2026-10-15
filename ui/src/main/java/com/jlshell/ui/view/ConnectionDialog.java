@@ -39,6 +39,9 @@ import javafx.scene.control.Hyperlink;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.PasswordField;
+import javafx.scene.control.Separator;
+import javafx.scene.control.Tab;
+import javafx.scene.control.TabPane;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.GridPane;
@@ -209,11 +212,12 @@ public final class ConnectionDialog {
         reloadVaultEntries.run();
 
         Hyperlink manageVaultLink = new Hyperlink(i18n.get("connection.vaultManage"));
+        manageVaultLink.setId("connection-manage-vault");
         manageVaultLink.setStyle("-fx-font-size: 1em;");
         manageVaultLink.setOnAction(e -> {
             ProjectProfile selectedProject = projectBox.getValue();
             String pid = selectedProject != null ? selectedProject.id() : null;
-            Stage stage = (Stage) dialogPane.getScene().getWindow();
+            Stage stage = owner instanceof Stage value ? value : null;
             com.jlshell.ui.dialog.VaultManagerDialog.show(
                     stage, vaultService, i18n, themeService, pid, projects, null);
             reloadVaultEntries.run();
@@ -239,9 +243,9 @@ public final class ConnectionDialog {
                         && !vaultService.getKeyService().isUnlocked()) {
                     com.jlshell.ui.dialog.VaultManagerDialog.PasswordDialog pwdDialog =
                             new com.jlshell.ui.dialog.VaultManagerDialog.PasswordDialog(
-                                    (Stage) dialogPane.getScene().getWindow(),
+                                    owner instanceof Stage value ? value : null,
                                     i18n, themeService, i18n.get("vault.unlock.title"), false);
-                    java.util.Optional<char[]> pwdResult = pwdDialog.showAndWait();
+                    java.util.Optional<char[]> pwdResult = pwdDialog.showNativeAndWait();
                     if (pwdResult.isPresent() && vaultService.getKeyService().unlock(pwdResult.get())) {
                         java.util.Arrays.fill(pwdResult.get(), '\0');
                     } else {
@@ -276,18 +280,14 @@ public final class ConnectionDialog {
                     .findFirst().ifPresent(v -> vaultBox.setValue(v));
         }
 
-        GridPane form = new GridPane();
-        form.getStyleClass().add("form-grid");
-        form.getStyleClass().add("connection-form");
-        form.setHgap(12);
-        form.setVgap(6);
-        form.setPadding(new Insets(12));
-        var labels = new javafx.scene.layout.ColumnConstraints(110);
-        var values = new javafx.scene.layout.ColumnConstraints();
-        values.setHgrow(javafx.scene.layout.Priority.ALWAYS);
-        form.getColumnConstraints().addAll(labels, values);
+        // IDEA keeps the connection identity on a compact row above the tab strip.
+        displayNameField.setPromptText(i18n.get("connection.displayName"));
+        GridPane identityHeader = connectionFormGrid();
+        identityHeader.setPadding(new Insets(12, 20, 8, 20));
+        identityHeader.getStyleClass().add("connection-identity-header");
+        addConnectionField(identityHeader, 0, new Label(i18n.get("connection.displayName")), displayNameField);
 
-        // SSH-only rows — labels and fields we'll show/hide
+        // The tab pages use the same aligned label/control grid, grouped by purpose.
         Label hostLabel = new Label(i18n.get("connection.host"));
         Label portLabel = new Label(i18n.get("connection.port"));
         Label usernameLabel = new Label(i18n.get("connection.username"));
@@ -297,57 +297,85 @@ public final class ConnectionDialog {
         Label passphraseLabel = new Label(i18n.get("connection.passphrase"));
         Label hostKeyLabel = new Label(i18n.get("connection.hostKeyMode"));
         Label remotePathLabel = new Label(i18n.get("connection.remotePath"));
-
-        int row = 0;
-        form.add(new Label(i18n.get("connection.type")), 0, row);
-        form.add(typeBox, 1, row++);
-        form.add(new Label(i18n.get("connection.displayName")), 0, row);
-        form.add(displayNameField, 1, row++);
-        form.add(hostLabel, 0, row);
-        form.add(hostField, 1, row++);
-        form.add(portLabel, 0, row);
-        form.add(portField, 1, row++);
-        form.add(usernameLabel, 0, row);
-        form.add(usernameField, 1, row++);
+        GridPane generalForm = connectionFormGrid();
+        GridPane optionsForm = connectionFormGrid();
+        GridPane sshForm = connectionFormGrid();
+        Label localShellInfo = new Label(i18n.get("connection.dialog.local.help"));
+        localShellInfo.getStyleClass().add("connection-tab-description");
+        localShellInfo.setWrapText(true);
+        generalForm.add(localShellInfo, 0, 0, 2, 1);
+        int generalRow = 1;
+        generalRow = addConnectionField(generalForm, generalRow, new Label(i18n.get("connection.type")), typeBox);
+        generalRow = addConnectionField(generalForm, generalRow, hostLabel,
+                new HBox(10, hostField, portLabel, portField));
+        HBox hostPortRow = (HBox) generalForm.getChildren().get(generalForm.getChildren().size() - 1);
+        hostPortRow.setAlignment(Pos.CENTER_LEFT);
+        HBox.setHgrow(hostField, javafx.scene.layout.Priority.ALWAYS);
+        hostField.setMaxWidth(Double.MAX_VALUE);
+        portField.setPrefWidth(105);
+        portField.setMaxWidth(105);
+        generalRow = addConnectionField(generalForm, generalRow, authTypeLabel, authTypeBox);
+        generalRow = addConnectionField(generalForm, generalRow, usernameLabel, usernameField);
         Label vaultLabel = new Label(i18n.get("connection.vaultEntry"));
-        form.add(vaultLabel, 0, row);
         HBox vaultRow = new HBox(8, vaultBox, manageVaultLink);
         vaultRow.setAlignment(Pos.CENTER_LEFT);
-        form.add(vaultRow, 1, row++);
-        form.add(authTypeLabel, 0, row);
-        form.add(authTypeBox, 1, row++);
-        form.add(passwordLabel, 0, row);
-        form.add(passwordField, 1, row++);
-        form.add(privateKeyLabel, 0, row);
-        form.add(privateKeyPathField, 1, row++);
-        form.add(passphraseLabel, 0, row);
-        form.add(passphraseField, 1, row++);
-        form.add(hostKeyLabel, 0, row);
-        form.add(hostKeyBox, 1, row++);
-        form.add(remotePathLabel, 0, row);
-        form.add(defaultRemotePathField, 1, row++);
-        form.add(new Label(i18n.get("connection.description")), 0, row);
-        form.add(descriptionArea, 1, row++);
-        form.add(new Label(i18n.get("project.field.name")), 0, row);
-        form.add(projectBox, 1, row++);
-        form.add(new Label(i18n.get("folder.field.name")), 0, row);
-        form.add(folderBox, 1, row++);
-        form.add(favoriteBox, 1, row);
+        vaultBox.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(vaultBox, javafx.scene.layout.Priority.ALWAYS);
+        generalRow = addConnectionField(generalForm, generalRow, vaultLabel, vaultRow);
+        generalRow = addConnectionField(generalForm, generalRow, passwordLabel, passwordField);
+        generalRow = addConnectionField(generalForm, generalRow, privateKeyLabel, privateKeyPathField);
+        addConnectionField(generalForm, generalRow, passphraseLabel, passphraseField);
+
+        int optionsRow = 0;
+        optionsRow = addConnectionField(optionsForm, optionsRow,
+                new Label(i18n.get("project.field.name")), projectBox);
+        optionsRow = addConnectionField(optionsForm, optionsRow,
+                new Label(i18n.get("folder.field.name")), folderBox);
+        optionsRow = addConnectionField(optionsForm, optionsRow,
+                new Label(i18n.get("connection.remotePath")), defaultRemotePathField);
+        optionsRow = addConnectionField(optionsForm, optionsRow,
+                new Label(i18n.get("connection.description")), descriptionArea);
+        optionsForm.add(favoriteBox, 1, optionsRow);
+        GridPane.setMargin(favoriteBox, new Insets(5, 0, 0, 0));
+        descriptionArea.setPrefRowCount(4);
+        descriptionArea.setWrapText(true);
+
+        Label sshIntro = new Label(i18n.get("connection.dialog.ssh.help"));
+        sshIntro.getStyleClass().add("connection-tab-description");
+        sshForm.add(sshIntro, 0, 0, 2, 1);
+        addConnectionField(sshForm, 1, hostKeyLabel, hostKeyBox);
+
+        Tab generalTab = connectionTab(i18n.get("connection.dialog.tab.general"), generalForm);
+        Tab optionsTab = connectionTab(i18n.get("connection.dialog.tab.options"), optionsForm);
+        Tab sshTab = connectionTab(i18n.get("connection.dialog.tab.sshSsl"), sshForm);
+        TabPane editorTabs = new TabPane(generalTab, optionsTab, sshTab);
+        editorTabs.getStyleClass().add("connection-tabs");
+        editorTabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
+        VBox.setVgrow(editorTabs, javafx.scene.layout.Priority.ALWAYS);
 
         // Show/hide SSH fields based on type
         javafx.beans.value.ChangeListener<ConnectionType> typeListener = (o, ov, nv) -> {
             boolean isSsh = nv == ConnectionType.SSH;
-            hostLabel.setVisible(isSsh); hostField.setVisible(isSsh);
-            portLabel.setVisible(isSsh); portField.setVisible(isSsh);
-            usernameLabel.setVisible(isSsh); usernameField.setVisible(isSsh);
-            authTypeLabel.setVisible(isSsh); authTypeBox.setVisible(isSsh);
+            localShellInfo.setVisible(!isSsh); localShellInfo.setManaged(!isSsh);
             passwordLabel.setVisible(isSsh); passwordField.setVisible(isSsh);
             privateKeyLabel.setVisible(isSsh); privateKeyPathField.setVisible(isSsh);
             passphraseLabel.setVisible(isSsh); passphraseField.setVisible(isSsh);
-            hostKeyLabel.setVisible(isSsh); hostKeyBox.setVisible(isSsh);
+            sshTab.setDisable(!isSsh);
+            hostPortRow.setVisible(isSsh); hostPortRow.setManaged(isSsh);
             remotePathLabel.setVisible(isSsh); defaultRemotePathField.setVisible(isSsh);
+            remotePathLabel.setManaged(isSsh); defaultRemotePathField.setManaged(isSsh);
             vaultRow.setVisible(isSsh); vaultRow.setManaged(isSsh);
-            vaultLabel.setVisible(isSsh);
+            vaultLabel.setVisible(isSsh); vaultLabel.setManaged(isSsh);
+            hostLabel.setVisible(isSsh); hostField.setVisible(isSsh);
+            hostLabel.setManaged(isSsh); hostField.setManaged(isSsh);
+            portLabel.setVisible(isSsh); portField.setVisible(isSsh);
+            portLabel.setManaged(isSsh); portField.setManaged(isSsh);
+            usernameLabel.setVisible(isSsh); usernameField.setVisible(isSsh);
+            usernameLabel.setManaged(isSsh); usernameField.setManaged(isSsh);
+            authTypeLabel.setVisible(isSsh); authTypeBox.setVisible(isSsh);
+            authTypeLabel.setManaged(isSsh); authTypeBox.setManaged(isSsh);
+            hostKeyLabel.setVisible(isSsh); hostKeyBox.setVisible(isSsh);
+            hostKeyLabel.setManaged(isSsh); hostKeyBox.setManaged(isSsh);
         };
         typeBox.valueProperty().addListener(typeListener);
         typeListener.changed(null, null, typeBox.getValue());
@@ -359,7 +387,7 @@ public final class ConnectionDialog {
             passwordLabel.setVisible(ssh && !key); passwordField.setVisible(ssh && !key);
             privateKeyLabel.setVisible(ssh && key); privateKeyPathField.setVisible(ssh && key);
             passphraseLabel.setVisible(ssh && key); passphraseField.setVisible(ssh && key);
-            for (javafx.scene.Node node : form.getChildren()) node.setManaged(node.isVisible());
+            for (javafx.scene.Node node : generalForm.getChildren()) node.setManaged(node.isVisible());
         };
         authTypeBox.valueProperty().addListener((o, old, value) -> updateAuthenticationRows.run());
         typeBox.valueProperty().addListener((o, old, value) -> {
@@ -392,6 +420,7 @@ public final class ConnectionDialog {
 
         // Test connection button + result label
         Button testBtn = new Button(i18n.get("action.testConnection"));
+        testBtn.setId("connection-test");
         testBtn.getStyleClass().add("button-primary");
         testBtn.setStyle("-fx-padding:4 12;-fx-font-size: 1em;");
         Button pasteShareBtn = new Button(i18n.get("connection.share.pasteButton"));
@@ -497,7 +526,7 @@ public final class ConnectionDialog {
         testResult.setWrapText(true);
         testResult.setMaxWidth(Double.MAX_VALUE);
 
-        pasteShareBtn.setOnAction(e -> showPasteShareDialog(dialogPane.getScene().getWindow(), i18n, themeService)
+        pasteShareBtn.setOnAction(e -> showPasteShareDialog(owner, i18n, themeService)
                 .ifPresent(shared -> {
                     typeBox.setValue(ConnectionType.SSH);
                     displayNameField.setText(shared.displayName());
@@ -520,15 +549,13 @@ public final class ConnectionDialog {
         HBox testActions = new HBox(8, testBtn, pasteShareBtn);
         testActions.setAlignment(Pos.CENTER_LEFT);
         VBox testRow = new VBox(4, testActions, testResult);
-        testRow.setPadding(new Insets(4, 12, 12, 12));
-
-        VBox content = new VBox(form, testRow);
+        testRow.getStyleClass().add("connection-test-footer");
+        Separator footerSeparator = new Separator();
+        VBox content = new VBox(0, identityHeader, editorTabs, footerSeparator, testRow);
         content.getStyleClass().add("connection-editor");
-        javafx.scene.control.ScrollPane scroll = new javafx.scene.control.ScrollPane(content);
-        scroll.setFitToWidth(true);
-        scroll.setHbarPolicy(javafx.scene.control.ScrollPane.ScrollBarPolicy.NEVER);
-        scroll.getStyleClass().add("connection-scroll");
-        dialogPane.setContent(scroll);
+        dialogPane.setContent(content);
+        dialogPane.getStyleClass().add("connection-dialog-pane");
+        dialogPane.setPrefSize(780, 570);
 
         dialogPane.lookupButton(ButtonType.OK).disableProperty().bind(Bindings.createBooleanBinding(
                 () -> {
@@ -570,8 +597,42 @@ public final class ConnectionDialog {
         });
 
         return com.jlshell.ui.swing.SwingDialogHost.enabled()
-                ? com.jlshell.ui.swing.SwingDialogHost.showAndWait(dialog, themeService, i18n, "jlshell.connection", 700, 760)
+                ? com.jlshell.ui.swing.SwingDialogHost.showNativeAndWait(dialog, themeService, i18n, "jlshell.connection", 780, 570)
                 : dialog.showAndWait();
+    }
+
+    private static GridPane connectionFormGrid() {
+        GridPane form = new GridPane();
+        form.getStyleClass().addAll("form-grid", "connection-form");
+        form.setHgap(16);
+        form.setVgap(14);
+        form.setPadding(new Insets(18, 20, 20, 20));
+        var labels = new javafx.scene.layout.ColumnConstraints(122);
+        var values = new javafx.scene.layout.ColumnConstraints();
+        values.setHgrow(javafx.scene.layout.Priority.ALWAYS);
+        values.setFillWidth(true);
+        form.getColumnConstraints().addAll(labels, values);
+        return form;
+    }
+
+    private static int addConnectionField(GridPane form, int row, Label label, javafx.scene.Node field) {
+        label.getStyleClass().add("connection-field-label");
+        form.add(label, 0, row);
+        form.add(field, 1, row);
+        GridPane.setHgrow(field, javafx.scene.layout.Priority.ALWAYS);
+        if (field instanceof javafx.scene.layout.Region region) region.setMaxWidth(Double.MAX_VALUE);
+        return row + 1;
+    }
+
+    private static Tab connectionTab(String title, javafx.scene.Node content) {
+        javafx.scene.control.ScrollPane scroll = new javafx.scene.control.ScrollPane(content);
+        scroll.setFitToWidth(true);
+        scroll.setHbarPolicy(javafx.scene.control.ScrollPane.ScrollBarPolicy.NEVER);
+        scroll.setVbarPolicy(javafx.scene.control.ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        scroll.getStyleClass().add("connection-tab-scroll");
+        Tab tab = new Tab(title, scroll);
+        tab.setClosable(false);
+        return tab;
     }
 
     private static <T> void enumLabels(ComboBox<T> box, java.util.function.Function<T, String> label) {
@@ -634,7 +695,9 @@ public final class ConnectionDialog {
                 errorLabel.setText(ex.getMessage());
             }
         });
-        return dialog.showAndWait();
+        return com.jlshell.ui.swing.SwingDialogHost.enabled()
+                ? com.jlshell.ui.swing.SwingDialogHost.showNativeAndWait(dialog, themeService, i18n, "jlshell.connection.share", 620, 340)
+                : dialog.showAndWait();
     }
 
     private static Optional<String> showShareCodeDialog(Window owner, I18nService i18n, ThemeService themeService) {
@@ -654,7 +717,9 @@ public final class ConnectionDialog {
         ButtonType importType = new ButtonType(i18n.get("import.button.import"), ButtonType.OK.getButtonData());
         dialog.getDialogPane().getButtonTypes().addAll(importType, ButtonType.CANCEL);
         dialog.setResultConverter(button -> button == importType ? codeField.getText().trim() : null);
-        return dialog.showAndWait();
+        return com.jlshell.ui.swing.SwingDialogHost.enabled()
+                ? com.jlshell.ui.swing.SwingDialogHost.showNativeAndWait(dialog, themeService, i18n, "jlshell.connection.share", 620, 340)
+                : dialog.showAndWait();
     }
 
     private static ConnectionRequest buildTestRequest(

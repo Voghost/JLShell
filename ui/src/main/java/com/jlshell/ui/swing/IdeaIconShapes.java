@@ -13,6 +13,13 @@ final class IdeaIconShapes {
     private record Glyph(Shape shape, boolean fill) {}
     private static final EnumMap<WorkbenchIcon.Kind, List<Glyph>> GLYPHS = new EnumMap<>(WorkbenchIcon.Kind.class);
     static {
+        // platform/icons/src/expui/nodes/ssh.svg：IDEA 的 SSH 连接图标；沿用主题化线条色。
+        put(WorkbenchIcon.Kind.SSH, new Glyph(new RoundRectangle2D.Double(1.5, 2.5, 13, 11, 3, 3), false));
+        {
+            Path2D.Double ssh = new Path2D.Double();
+            ssh.moveTo(4.5, 10.5); ssh.lineTo(7, 8); ssh.lineTo(4.4799, 5.5201);
+            put(WorkbenchIcon.Kind.SSH, new Glyph(ssh, false));
+        }
         {
             Path2D.Double p0 = new Path2D.Double(Path2D.WIND_EVEN_ODD);
             p0.moveTo(8.15132, 4.35836);

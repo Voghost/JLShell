@@ -27,6 +27,59 @@ import static org.junit.jupiter.api.Assertions.*;
 /** 真正挂载同一个终端；确保工具窗显隐、排序和切换插件页不替换主终端及缓冲区。 */
 @EnabledIfSystemProperty(named = "jlshell.ui.smoke", matches = "true")
 class SwingWorkbenchDockTest {
+    @Test void longConnectionAndFolderNamesEllipsizeWithinTheSidebarAndKeepFullTooltips() throws Exception {
+        SwingExecutors.runOnEdtAsync(() -> {
+            SwingTheme.install(AppTheme.DARK, "#3574f0", "SansSerif", 13);
+            Runnable noop = () -> {};
+            var actions = new SwingWorkbench.Actions(noop, noop, noop, noop, noop, noop, noop, noop, noop,
+                    connection -> {}, items -> {}, project -> {}, folders -> {}, tab -> {},
+                    (tab, position) -> {}, (items, folder) -> {},
+                    (item, reply) -> reply.accept(List.of()), (tab, reply) -> reply.accept(List.of()));
+            var view = new SwingWorkbench(actions, Map.of());
+            String name = "nas 的服务器——生产环境与测试服务器的超长连接名称 <html> & database";
+            try {
+                view.updateConnections(List.of(new com.jlshell.ui.model.FolderProfile("folder", "生产环境与测试环境的超长分组文件夹名称", null, null, 0)),
+                        List.of(new com.jlshell.ui.model.ConnectionProfile("server", name, "192.0.2.10", 22, "user",
+                                null, null, "", "", false, null, com.jlshell.core.model.ConnectionType.SSH, "folder", null)), java.util.Set.of());
+                view.show();
+                view.frame().validate();
+                var tree = descendants(view.frame()).stream().filter(javax.swing.JTree.class::isInstance)
+                        .map(javax.swing.JTree.class::cast).findFirst().orElseThrow();
+                tree.setSelectionRow(1);
+                var scroll = (javax.swing.JScrollPane) SwingUtilities.getAncestorOfClass(javax.swing.JScrollPane.class, tree);
+                assertEquals(scroll.getViewport().getExtentSize().width, tree.getWidth());
+                assertFalse(scroll.getHorizontalScrollBar().isVisible());
+                for (int row = 0; row < 2; row++) {
+                    Object value = tree.getPathForRow(row).getLastPathComponent();
+                    var label = (javax.swing.JLabel) tree.getCellRenderer().getTreeCellRendererComponent(tree, value, row == 1, true, row == 1, row, false);
+                    Rectangle bounds = tree.getRowBounds(row);
+                    label.setBounds(bounds);
+                    assertTrue(label.getWidth() <= tree.getWidth() - bounds.x - tree.getInsets().right);
+                    var insets = label.getInsets();
+                    String painted = SwingUtilities.layoutCompoundLabel(label, label.getFontMetrics(label.getFont()),
+                            label.getText(), label.getIcon(), label.getVerticalAlignment(), label.getHorizontalAlignment(),
+                            label.getVerticalTextPosition(), label.getHorizontalTextPosition(),
+                            new Rectangle(insets.left, insets.top, label.getWidth() - insets.left - insets.right,
+                                    label.getHeight() - insets.top - insets.bottom), new Rectangle(), new Rectangle(), label.getIconTextGap());
+                    assertNotEquals(label.getText(), painted, "Long names must actually be abbreviated for painting");
+                    assertTrue(painted.endsWith("..."), painted);
+                    assertNotNull(label.getIcon());
+                    if (row == 1) {
+                        assertEquals(name, label.getText(), "Rendering must not truncate the stored name");
+                        assertTrue(label.getToolTipText().contains("&lt;html&gt; &amp; database"));
+                        assertTrue(label.getToolTipText().contains("user@192.0.2.10:22"));
+                    }
+                }
+                java.awt.image.BufferedImage image = new java.awt.image.BufferedImage(view.frame().getWidth(), view.frame().getHeight(), java.awt.image.BufferedImage.TYPE_INT_RGB);
+                var graphics = image.createGraphics(); view.frame().paintAll(graphics); graphics.dispose();
+                var output = java.nio.file.Path.of("target/review/sidebar-long-names.png");
+                java.nio.file.Files.createDirectories(output.getParent());
+                javax.imageio.ImageIO.write(image, "png", output.toFile());
+            } catch (java.io.IOException error) { throw new java.io.UncheckedIOException(error); }
+            finally { view.close(); }
+        }).get(15, TimeUnit.SECONDS);
+    }
+
     @Test
     void sessionDropdownSwitchesExistingDuplicateTitlesWithoutConnectingAndConnectButtonIsInFooter() throws Exception {
         SwingExecutors.runOnEdtAsync(() -> {
@@ -40,6 +93,12 @@ class SwingWorkbenchDockTest {
                     (item, reply) -> reply.accept(List.of()), (tab, reply) -> reply.accept(List.of()));
             var view = new SwingWorkbench(actions, Map.of());
             try {
+                var rightSplit = descendants(view.frame()).stream().filter(javax.swing.JSplitPane.class::isInstance)
+                        .map(javax.swing.JSplitPane.class::cast).filter(pane -> "workspace.rightSplit".equals(pane.getName()))
+                        .findFirst().orElseThrow();
+                assertNull(rightSplit.getRightComponent(), "Welcome screen must have no right sidebar pane");
+                assertEquals(0, rightSplit.getDividerSize());
+                assertFalse(rightSplit.isEnabled());
                 view.addTab("first", "Same server", new JPanel(), noop);
                 view.addTab("second", "Same server", new JPanel(), noop);
                 view.selectTab("first");
@@ -179,6 +238,9 @@ class SwingWorkbenchDockTest {
     @Test
     void rightToolDockDefaultsToHalfOfWorkspaceAfterSidebarAndRails() {
         assertEquals(638, SwingWorkbench.rightDockContentWidth(1600, 280, 36, 8));
+        assertEquals(320, SwingWorkbench.rightDockContentWidth(1600, 280, 36, 8, true));
+        assertEquals(638, SwingWorkbench.rightDockContentWidth(1600, 280, 36, 8, false));
+        assertEquals(180, SwingWorkbench.rightDockContentWidth(300, 240, 36, 8, true));
         assertEquals(180, SwingWorkbench.rightDockContentWidth(300, 240, 36, 8));
         assertEquals(36, SwingWorkbench.rightDockContainerWidth(0, 36),
                 "Closing the tool content must leave its navigation rail visible");

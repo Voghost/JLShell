@@ -58,11 +58,11 @@ public final class SwingWorkbench implements AutoCloseable {
     public static final List<String> TEXT_KEYS = List.of("action.newConnection", "sidebar.newFolder",
             "action.editConnection", "action.deleteConnection", "action.refresh", "action.preferences",
             "action.connect", "sidebar.toggle", "sidebar.connections", "sidebar.search.prompt", "project.menu.manage",
-            "project.label.default", "welcome.title", "welcome.subtitle", "welcome.quickStart",
+            "project.label.default", "welcome.tagline", "welcome.favoriteHint", "welcome.recentHint", "welcome.title", "welcome.subtitle", "welcome.quickStart",
             "welcome.help.shortcuts", "welcome.help.newConnection", "welcome.help.refreshConnections",
             "welcome.help.doubleClick", "welcome.help.rightClick", "welcome.recentConnections",
             "welcome.favorites", "welcome.noRecentConnections", "welcome.noFavorites", "tab.close", "tab.close.tooltip",
-            "workspace.tools", "workspace.hideTools", "workspace.pinRightSidebar", "workspace.monitoring", "menu.main",
+            "workspace.tools", "workspace.hideTools", "workspace.monitoring", "menu.main",
             "project.popup.current", "project.popup.other", "project.popup.defaultDescription",
             "project.search.prompt", "settings.quick.plugins", "settings.quick.shortcuts", "settings.quick.theme",
             "settings.quick.view", "settings.quick.account", "menu.help.about", "menu.help.checkUpdates",
@@ -80,7 +80,9 @@ public final class SwingWorkbench implements AutoCloseable {
     private String sidebarSort = "name";
     private boolean foldersAlwaysOnTop = true;
     private final JPanel sidebar = new IslandPanel(new BorderLayout(), "panel");
-    private final JTree tree = new JTree(new DefaultMutableTreeNode());
+    private final JTree tree = new JTree(new DefaultMutableTreeNode()) {
+        @Override public boolean getScrollableTracksViewportWidth() { return true; }
+    };
     private final JTextField search = new JTextField();
     private final JButton projects = new ChevronButton("JLShell");
     private List<ProjectProfile> projectChoices = List.of();
@@ -119,27 +121,38 @@ public final class SwingWorkbench implements AutoCloseable {
     private final JSplitPane vertical = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
     private final JPanel toolDock = new IslandPanel(new BorderLayout(), "canvas");
     private final JPanel dockBody = new JPanel(new BorderLayout());
-    private final JLabel dockTitle = new JLabel();
+    private final JLabel dockTitle = new JLabel() {
+        protected void paintComponent(Graphics graphics) {
+            Graphics2D g = (Graphics2D) graphics.create();
+            try {
+                g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g.setColor(UIManager.getColor("JLShell.formRaised"));
+                g.fillRoundRect(0, 0, getWidth(), getHeight(), 6, 6);
+            } finally { g.dispose(); }
+            super.paintComponent(graphics);
+        }
+    };
     private final JPanel toolNavigationHost = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
     private final JPanel rightDockContainer = new JPanel(new BorderLayout());
     private final JPanel rightToolDock = new IslandPanel(new BorderLayout(), "canvas");
     private final JPanel rightDockBody = new JPanel(new BorderLayout());
     private final JLabel rightDockTitle = new JLabel();
-    private final JToggleButton rightDockPin = new JToggleButton(new WorkbenchIcon(WorkbenchIcon.Kind.PIN));
     private final JPanel rightToolNavigationHost = new JPanel();
     private final JButton toolStripe;
     private final JButton projectStripe;
     private final JSplitPane mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+    private final JPanel horizontalDock = new JPanel(new BorderLayout());
     private final JButton menuButton;
     private final JButton runButton;
     private final JButton connectionName = new ChevronButton();
     private final JPanel searchBar = new JPanel(new BorderLayout());
     private List<JMenu> mainMenus = List.of();
+    private JMenuBar appMenuBar;
     private boolean toolWindowVisible = true;
     private Component toolWindowOwner;
-    private int dockHeight = 250;
+    private static final int MIN_MONITOR_DOCK_HEIGHT = 96;
+    private int dockHeight = 112;
     private boolean rightToolWindowVisible;
-    private boolean rightToolWindowPinned;
     private Component rightToolWindowOwner;
     private int rightToolPageIndex = -1;
     private final Map<Object, JPanel> tabHosts = new LinkedHashMap<>();
@@ -154,7 +167,6 @@ public final class SwingWorkbench implements AutoCloseable {
     private boolean selectingTab;
     private boolean sidebarVisible = true;
     private int sidebarWidth = 280;
-    private static final String RIGHT_DOCK_PINNED_KEY = "ui.rightToolWindow.pinned";
     private final Map<KeyStroke, Runnable> shortcuts = new HashMap<>();
     private final KeyEventDispatcher shortcutDispatcher = event -> {
         if (event.getID() != java.awt.event.KeyEvent.KEY_PRESSED || !frame.isActive()) return false;
@@ -184,7 +196,6 @@ public final class SwingWorkbench implements AutoCloseable {
         if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Workbench requires EDT");
         this.actions = actions;
         this.texts = Map.copyOf(texts);
-        rightToolWindowPinned = Boolean.parseBoolean(texts.getOrDefault(RIGHT_DOCK_PINNED_KEY, "false"));
         String configuredSort = texts.get("ui.sidebar.sort");
         sidebarSort = configuredSort != null
                 && Set.of("name", "type", "modified-newest", "modified-oldest").contains(configuredSort)
@@ -193,7 +204,7 @@ public final class SwingWorkbench implements AutoCloseable {
         tabs = createTabGroup();
         workspaceSplits = new WorkspaceSplitLayout(tabs, this::createTabGroup);
         toolStripe = button(WorkbenchIcon.Kind.MONITOR, "workspace.tools", this::toggleToolWindow);
-        projectStripe = railButton(WorkbenchIcon.Kind.FOLDER, "sidebar.toggle", () -> actions.toggleSidebar().run());
+        projectStripe = railButton(WorkbenchIcon.Kind.SSH, "sidebar.toggle", () -> actions.toggleSidebar().run());
         menuButton = button(WorkbenchIcon.Kind.MENU, "menu.main", this::showMainMenu);
         runButton = button(WorkbenchIcon.Kind.RUN, "action.connect", this::connectSelection);
         settingsButton = new HeaderButton(new WorkbenchIcon(WorkbenchIcon.Kind.SETTINGS));
@@ -209,7 +220,7 @@ public final class SwingWorkbench implements AutoCloseable {
         frame.addWindowListener(new WindowAdapter() {
             public void windowClosing(WindowEvent event) { actions.quit().run(); }
         });
-        var icon = getClass().getResource("/icons/app_icon.png");
+        var icon = getClass().getResource("/icons/brand/jlshell.png");
         if (icon != null) frame.setIconImage(new ImageIcon(icon).getImage());
         root.setBackground(SwingTheme.color("frame"));
         root.add(buildMainToolbar(), BorderLayout.NORTH);
@@ -233,18 +244,23 @@ public final class SwingWorkbench implements AutoCloseable {
         buildToolDock();
         buildRightToolDock();
         mainSplit.setLeftComponent(split);
-        mainSplit.setRightComponent(rightDockContainer);
+        mainSplit.setName("workspace.rightSplit");
+        mainSplit.setRightComponent(null);
         mainSplit.setResizeWeight(1);
         mainSplit.setContinuousLayout(true);
         mainSplit.setBorder(BorderFactory.createEmptyBorder());
         mainSplit.setOpaque(false);
-        mainSplit.setDividerSize(4);
+        mainSplit.setDividerSize(0);
+        mainSplit.setEnabled(false);
         mainSplit.addComponentListener(new ComponentAdapter() {
             @Override public void componentResized(ComponentEvent event) {
-                if (rightToolWindowVisible) updateRightDockWidth(true);
+                if (mainSplit.getRightComponent() != null && rightToolDock.isVisible()) updateRightDockWidth(true);
             }
         });
-        vertical.setTopComponent(mainSplit);
+        horizontalDock.setOpaque(false);
+        horizontalDock.add(mainSplit, BorderLayout.CENTER);
+        horizontalDock.add(rightDockContainer, BorderLayout.EAST);
+        vertical.setTopComponent(horizontalDock);
         vertical.setResizeWeight(1);
         vertical.setContinuousLayout(true);
         vertical.setBorder(BorderFactory.createEmptyBorder());
@@ -404,9 +420,7 @@ public final class SwingWorkbench implements AutoCloseable {
         connectionName.setEnabled(false);
         toolbar.add(connectionName);
         toolbar.add(settingsButton);
-        JPanel windowButtons = new JPanel();
-        windowButtons.putClientProperty(com.formdev.flatlaf.FlatClientProperties.FULL_WINDOW_CONTENT_BUTTONS_PLACEHOLDER, "win horizontal");
-        windowButtons.setOpaque(false);
+        JPanel windowButtons = WindowHeaderSupport.buttonsPlaceholder("win", 12);
         toolbar.add(windowButtons);
         mainToolbar.add(identity, BorderLayout.WEST);
         mainToolbar.add(toolbar, BorderLayout.EAST);
@@ -421,19 +435,7 @@ public final class SwingWorkbench implements AutoCloseable {
                 }
             }
         });
-        MouseAdapter movement = new MouseAdapter() {
-            private Point screenPoint;
-            public void mousePressed(MouseEvent event) { screenPoint = event.getLocationOnScreen(); }
-            public void mouseDragged(MouseEvent event) {
-                if (screenPoint == null || frame.getExtendedState() != JFrame.NORMAL) return;
-                Point next = event.getLocationOnScreen();
-                frame.setLocation(frame.getX() + next.x - screenPoint.x, frame.getY() + next.y - screenPoint.y);
-                screenPoint = next;
-            }
-            public void mouseReleased(MouseEvent event) { screenPoint = null; }
-        };
-        mainToolbar.addMouseListener(movement);
-        mainToolbar.addMouseMotionListener(movement);
+        WindowHeaderSupport.installDragSupport(frame, mainToolbar);
         return mainToolbar;
     }
 
@@ -473,7 +475,7 @@ public final class SwingWorkbench implements AutoCloseable {
         JPanel header = new JPanel(new BorderLayout());
         header.setOpaque(false);
         header.setBorder(BorderFactory.createEmptyBorder(0, 10, 0, 4));
-        JLabel heading = new JLabel(text("sidebar.connections"), new WorkbenchIcon(WorkbenchIcon.Kind.CHEVRON_DOWN), SwingConstants.LEFT);
+        JLabel heading = new JLabel(text("sidebar.connections"));
         heading.setFont(heading.getFont().deriveFont(Font.BOLD));
         heading.setHorizontalTextPosition(SwingConstants.LEFT);
         heading.setIconTextGap(2);
@@ -525,6 +527,12 @@ public final class SwingWorkbench implements AutoCloseable {
         tree.setBorder(BorderFactory.createEmptyBorder(2, 8, 4, 8));
         tree.setCellRenderer(new DefaultTreeCellRenderer() {
             { putClientProperty("html.disable", true); setIconTextGap(6); }
+            @Override public void setBounds(int x, int y, int width, int height) {
+                // CellRendererPane 给出节点缩进后的实际 x；限制标签宽度，让 JLabel 原生绘制省略号。
+                // 不改变树节点的名称、首选宽度及命中范围，缩放侧栏时也无需重建树模型。
+                int available = tree.getWidth() - tree.getInsets().right - x;
+                super.setBounds(x, y, tree.getWidth() > 0 && x >= 0 ? Math.min(width, Math.max(0, available)) : width, height);
+            }
             private final Icon folderIcon = new WorkbenchIcon(WorkbenchIcon.Kind.FOLDER);
             private final Icon serverIcon = new WorkbenchIcon(WorkbenchIcon.Kind.SERVER);
             private final Icon terminalIcon = new WorkbenchIcon(WorkbenchIcon.Kind.TERMINAL);
@@ -539,7 +547,10 @@ public final class SwingWorkbench implements AutoCloseable {
                     setText(item.displayName());
                     setIcon(item instanceof SidebarItem.FolderItem ? folderIcon
                             : ((SidebarItem.ConnectionItem) item).connectionType() == ConnectionType.LOCAL_SHELL ? terminalIcon : serverIcon);
-                    setToolTipText(item instanceof SidebarItem.ConnectionItem connection ? connection.summary() : item.displayName());
+                    String name = item.displayName().replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+                    String summary = item instanceof SidebarItem.ConnectionItem connection ? connection.summary() : "";
+                    setToolTipText("<html><div width='320'>" + name + (summary == null || summary.isBlank() ? ""
+                            : "<br>" + summary.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")) + "</div></html>");
                 }
                 return this;
             }
@@ -589,6 +600,7 @@ public final class SwingWorkbench implements AutoCloseable {
             public void actionPerformed(java.awt.event.ActionEvent event) { connectSelection(); }
         });
         JScrollPane scroll = new JScrollPane(tree);
+        scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         scroll.setBorder(BorderFactory.createEmptyBorder());
         sidebar.add(scroll, BorderLayout.CENTER);
         JPanel footer = new JPanel(new BorderLayout());
@@ -604,117 +616,142 @@ public final class SwingWorkbench implements AutoCloseable {
     }
 
     private JPanel buildWelcome() {
-        JPanel content = new JPanel(new BorderLayout(0, 18));
-        content.setOpaque(false);
-        JPanel heading = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
-        heading.setOpaque(false);
-        var logo = getClass().getResource("/icons/app_icon.png");
-        if (logo != null) heading.add(new JLabel(new ImageIcon(new ImageIcon(logo).getImage()
-                .getScaledInstance(36, 36, Image.SCALE_SMOOTH))));
-        JPanel titles = new JPanel();
-        titles.setOpaque(false);
-        titles.setLayout(new BoxLayout(titles, BoxLayout.Y_AXIS));
-        JLabel title = new JLabel(text("welcome.title"));
-        title.setFont(title.getFont().deriveFont(25f));
-        titles.add(title);
-        titles.add(Box.createVerticalStrut(4));
-        JLabel subtitle = new JLabel(text("welcome.subtitle"));
-        subtitle.setForeground(SwingTheme.color("secondary"));
-        subtitle.putClientProperty("JLShell.secondaryForeground", true);
-        titles.add(subtitle);
-        heading.add(titles);
-        JPanel top = new JPanel();
-        top.setOpaque(false);
-        top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
-        top.add(heading);
-        top.add(Box.createVerticalStrut(18));
-        top.add(welcomeSectionLabel(text("welcome.quickStart")));
-        top.add(Box.createVerticalStrut(8));
-        JPanel actionsRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-        actionsRow.setOpaque(false);
-        JButton create = new JButton(text("action.newConnection"), new WorkbenchIcon(WorkbenchIcon.Kind.ADD));
-        create.addActionListener(event -> actions.create().run());
-        actionsRow.add(create);
+        welcome.setName("welcome.page");
+        JPanel content = new JPanel(new BorderLayout(0, 24)); content.setOpaque(false);
+        content.setName("welcome.content");
+        JPanel hero = new JPanel(new BorderLayout(0, 22)); hero.setOpaque(false);
+        JPanel brand = new JPanel(new BorderLayout(18, 0)); brand.setOpaque(false);
+        brand.add(new JLabel(new SwingBrandIcon(60)), BorderLayout.WEST);
+        JPanel titles = new JPanel(); titles.setOpaque(false); titles.setLayout(new BoxLayout(titles, BoxLayout.Y_AXIS));
+        JLabel title = new JLabel(text("welcome.title")); title.setFont(title.getFont().deriveFont(Font.BOLD, 34f));
+        titles.add(title); titles.add(Box.createVerticalStrut(5));
+        titles.add(welcomeSectionLabel(text("welcome.subtitle")));
+        brand.add(titles); hero.add(brand, BorderLayout.NORTH);
+        JPanel introduction = new JPanel(); introduction.setOpaque(false); introduction.setLayout(new BoxLayout(introduction, BoxLayout.Y_AXIS));
+        JLabel tagline = new JLabel(text("welcome.tagline")); tagline.setFont(tagline.getFont().deriveFont(Font.PLAIN,18f));
+        tagline.setAlignmentX(Component.LEFT_ALIGNMENT); introduction.add(tagline); introduction.add(Box.createVerticalStrut(20));
+        JPanel actionsRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0)); actionsRow.setOpaque(false);
+        actionsRow.setBorder(BorderFactory.createEmptyBorder(0,-10,0,0)); actionsRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JButton create = new JButton(text("action.newConnection")); create.setName("welcome.create");
+        create.putClientProperty("JButton.buttonType", "roundRect");
+        create.setBackground(UIManager.getColor("Component.focusColor")); create.setForeground(Color.WHITE);
+        create.putClientProperty("JLShell.primaryAction", true);
+        create.setFont(create.getFont().deriveFont(Font.BOLD));
+        create.setMargin(new Insets(10, 22, 10, 22)); create.addActionListener(event -> actions.create().run()); actionsRow.add(create);
         JButton folder = new JButton(text("sidebar.newFolder"), new WorkbenchIcon(WorkbenchIcon.Kind.FOLDER));
-        folder.addActionListener(event -> actions.folder().run());
-        actionsRow.add(folder);
-        top.add(actionsRow);
-        content.add(top, BorderLayout.NORTH);
-        JPanel middle = new JPanel(new BorderLayout(0, 12));
-        middle.setOpaque(false);
-        middle.add(new JSeparator(), BorderLayout.NORTH);
-        JPanel lists = new JPanel(new GridLayout(1, 2, 24, 0));
-        lists.setOpaque(false);
+        folder.setName("welcome.folder"); folder.putClientProperty("JButton.buttonType", "roundRect");
+        folder.setMargin(new Insets(10,16,10,16)); folder.addActionListener(event -> actions.folder().run()); actionsRow.add(folder);
+        introduction.add(actionsRow); hero.add(introduction); content.add(hero, BorderLayout.NORTH);
+
+        JPanel lists = new JPanel(new GridLayout(1, 2, 18, 18)); lists.setOpaque(false);
         lists.add(welcomeList(text("welcome.recentConnections"), recent));
         lists.add(welcomeList(text("welcome.favorites"), favorites));
-        middle.add(lists);
-        content.add(middle, BorderLayout.CENTER);
-        JPanel help = new JPanel(new BorderLayout(0, 10));
-        help.setOpaque(false);
-        help.add(new JSeparator(), BorderLayout.NORTH);
-        JPanel helpItems = new JPanel();
-        helpItems.setOpaque(false);
-        helpItems.setLayout(new BoxLayout(helpItems, BoxLayout.Y_AXIS));
-        helpItems.add(welcomeSectionLabel(text("welcome.help.shortcuts")));
-        helpItems.add(Box.createVerticalStrut(8));
+        content.add(lists);
+        JPanel footer = new JPanel(new BorderLayout(0, 12)); footer.setOpaque(false);
+        JPanel shortcuts = new JPanel(new FlowLayout(FlowLayout.LEFT, 20, 0)); shortcuts.setOpaque(false);
+        shortcuts.setBorder(BorderFactory.createEmptyBorder(0,-20,0,0));
         String mod = com.formdev.flatlaf.util.SystemInfo.isMacOS ? "⌘" : "Ctrl";
-        for (String key : List.of("welcome.help.newConnection", "welcome.help.refreshConnections",
-                "welcome.help.doubleClick", "welcome.help.rightClick")) {
-            JLabel item = welcomeSectionLabel(text(key).replace("{0}", mod));
-            helpItems.add(item);
-            helpItems.add(Box.createVerticalStrut(4));
-        }
-        help.add(helpItems, BorderLayout.CENTER);
-        content.add(help, BorderLayout.SOUTH);
-        JPanel centered = new JPanel(null) {
+        shortcuts.add(welcomeSectionLabel(text("welcome.help.newConnection").replace("{0}", mod)));
+        shortcuts.add(welcomeSectionLabel(text("welcome.help.refreshConnections").replace("{0}", mod)));
+        footer.add(shortcuts); footer.add(welcomeSectionLabel(text("welcome.help.doubleClick")), BorderLayout.SOUTH);
+        content.add(footer, BorderLayout.SOUTH);
+
+        class Canvas extends JPanel implements Scrollable {
+            Canvas() { super(null); setOpaque(false); add(content); }
+            private int contentWidth() { int available=getParent()==null?getWidth():getParent().getWidth(); return Math.min(840, Math.max(220, available-64)); }
+            private int contentHeight() {
+                boolean narrow = contentWidth() < 580;
+                ((GridLayout)lists.getLayout()).setColumns(narrow ? 1 : 2);
+                ((GridLayout)lists.getLayout()).setRows(narrow ? 2 : 1);
+                lists.setPreferredSize(new Dimension(0, narrow ? 500 : 320));
+                return hero.getPreferredSize().height + footer.getPreferredSize().height + (narrow ? 500 : 320) + 48;
+            }
             @Override public void doLayout() {
-                int width = Math.min(680, Math.max(0, getWidth() - 56));
-                content.setBounds((getWidth() - width) / 2, 28, width, Math.min(440, Math.max(0, getHeight() - 56)));
+                int width = contentWidth(), height = contentHeight();
+                content.setBounds(Math.max(20, (getWidth()-width)/2), Math.max(32, (getHeight()-height)/3), width, height);
                 content.doLayout();
             }
-        };
-        centered.setOpaque(false);
-        centered.add(content);
-        welcome.add(centered, BorderLayout.CENTER);
-        return welcome;
+            @Override public Dimension getPreferredSize() { return new Dimension(0, contentHeight()+64); }
+            public Dimension getPreferredScrollableViewportSize() { return getPreferredSize(); }
+            public int getScrollableUnitIncrement(Rectangle r,int o,int d) { return 24; }
+            public int getScrollableBlockIncrement(Rectangle r,int o,int d) { return Math.max(24,r.height-24); }
+            public boolean getScrollableTracksViewportWidth() { return true; }
+            public boolean getScrollableTracksViewportHeight() { return getParent()!=null && getPreferredSize().height<getParent().getHeight(); }
+        }
+        JScrollPane scroll = new JScrollPane(new Canvas()); scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.setOpaque(false); scroll.getViewport().setOpaque(false);
+        scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        welcome.add(scroll); return welcome;
     }
 
     private JLabel welcomeSectionLabel(String value) {
-        JLabel label = new JLabel(value);
-        label.setForeground(SwingTheme.color("secondary"));
-        label.putClientProperty("JLShell.secondaryForeground", true);
-        return label;
+        JLabel label = new JLabel(value); label.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN)); label.setForeground(SwingTheme.color("secondary"));
+        label.putClientProperty("JLShell.secondaryForeground", true); return label;
     }
 
     private JPanel welcomeList(String title, JPanel rows) {
-        JPanel list = new JPanel(new BorderLayout(0, 8));
-        list.setOpaque(false);
-        rows.setLayout(new BoxLayout(rows, BoxLayout.Y_AXIS));
-        rows.setOpaque(false);
-        list.add(welcomeSectionLabel(title), BorderLayout.NORTH);
-        JScrollPane scroll = new JScrollPane(rows);
-        scroll.setBorder(BorderFactory.createEmptyBorder());
-        scroll.setOpaque(false);
-        scroll.getViewport().setOpaque(false);
-        list.add(scroll);
-        return list;
+        JPanel card = new JPanel(new BorderLayout(0, 14)) {
+            @Override protected void paintComponent(Graphics graphics) {
+                Graphics2D g = (Graphics2D)graphics.create();
+                g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g.setColor(SwingTheme.color("formRaised")); g.fillRoundRect(0,0,getWidth()-1,getHeight()-1,20,20);
+                g.setColor(SwingTheme.color("border")); g.drawRoundRect(0,0,getWidth()-1,getHeight()-1,20,20); g.dispose();
+            }
+        };
+        card.setOpaque(false); card.setBorder(BorderFactory.createEmptyBorder(18,14,12,14));
+        JLabel heading = new JLabel(title); heading.setFont(heading.getFont().deriveFont(Font.BOLD,14f));
+        heading.setBorder(BorderFactory.createEmptyBorder(0,4,0,0)); card.add(heading, BorderLayout.NORTH);
+        rows.setLayout(new BoxLayout(rows,BoxLayout.Y_AXIS)); rows.setOpaque(false);
+        JScrollPane scroll = new JScrollPane(rows); scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.setOpaque(false); scroll.getViewport().setOpaque(false);
+        scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        scroll.getVerticalScrollBar().setUnitIncrement(24); card.add(scroll); return card;
     }
 
     public void updateWelcome(List<RecentSessionProfile> sessions, List<FavoriteConnectionProfile> starred) {
         recent.removeAll(); favorites.removeAll();
-        for (var session : sessions) recent.add(welcomeRow(session.connectionId(), session.displayName(), session.summary()));
-        for (var item : starred) favorites.add(welcomeRow(item.id(), item.displayName(), item.hostInfo()));
-        if (sessions.isEmpty()) recent.add(welcomeSectionLabel(text("welcome.noRecentConnections")));
-        if (starred.isEmpty()) favorites.add(welcomeSectionLabel(text("welcome.noFavorites")));
+        var seen = new java.util.HashSet<String>();
+        for (var session : sessions) if (seen.add(session.connectionId()))
+            recent.add(welcomeRow(session.connectionId(),session.displayName(),session.summary()));
+        for (var item : starred) favorites.add(welcomeRow(item.id(),item.displayName(),item.hostInfo()));
+        if (recent.getComponentCount()==0) recent.add(welcomeEmpty(text("welcome.noRecentConnections"),WorkbenchIcon.Kind.SSH));
+        if (favorites.getComponentCount()==0) favorites.add(welcomeEmpty(text("welcome.noFavorites"),WorkbenchIcon.Kind.PIN));
         recent.revalidate(); favorites.revalidate(); recent.repaint(); favorites.repaint();
     }
 
+    private JComponent welcomeEmpty(String text, WorkbenchIcon.Kind icon) {
+        JPanel empty = new JPanel(new BorderLayout(0,12)); empty.setOpaque(false);
+        empty.setBorder(BorderFactory.createEmptyBorder(32,8,24,8));
+        JLabel symbol = new JLabel(new WorkbenchIcon(icon)); symbol.setHorizontalAlignment(SwingConstants.CENTER);
+        JLabel label = welcomeSectionLabel(text); label.setHorizontalAlignment(SwingConstants.CENTER);
+        JPanel copy = new JPanel(new BorderLayout(0,10)); copy.setOpaque(false); copy.add(label, BorderLayout.NORTH);
+        String hintText = text(icon == WorkbenchIcon.Kind.PIN ? "welcome.favoriteHint" : "welcome.recentHint");
+        JLabel hint = welcomeSectionLabel("<html><div style='text-align:center' width='220'>"+hintText+"</div></html>");
+        hint.setHorizontalAlignment(SwingConstants.CENTER);
+        copy.add(hint); empty.add(symbol,BorderLayout.NORTH); empty.add(copy);
+        empty.setMaximumSize(new Dimension(Integer.MAX_VALUE,190));
+        return empty;
+    }
+
     private JButton welcomeRow(String id, String name, String summary) {
-        JButton row = new JButton(name, new WorkbenchIcon(WorkbenchIcon.Kind.SERVER));
-        row.putClientProperty("JButton.buttonType", "toolBarButton");
-        row.setHorizontalAlignment(SwingConstants.LEFT);
-        row.setToolTipText(summary);
-        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 36));
+        JButton row = new JButton() {
+            @Override protected void paintComponent(Graphics graphics) {
+                if (getModel().isRollover() || getModel().isPressed() || isFocusOwner()) {
+                    Graphics2D g=(Graphics2D)graphics.create(); g.setRenderingHint(RenderingHints.KEY_ANTIALIASING,RenderingHints.VALUE_ANTIALIAS_ON);
+                    g.setColor(SwingTheme.color("headerHover"));g.fillRoundRect(0,0,getWidth(),getHeight(),12,12);g.dispose();
+                }
+                super.paintComponent(graphics);
+            }
+        };
+        row.setLayout(new BorderLayout(12,0)); row.setContentAreaFilled(false); row.setBorderPainted(false);
+        row.setBorder(BorderFactory.createEmptyBorder(10,10,10,10)); row.setRolloverEnabled(true);
+        row.setName("welcome.connection."+id); row.setToolTipText(name+" · "+summary);
+        row.getAccessibleContext().setAccessibleName(name+" · "+summary);
+        row.add(new JLabel(new WorkbenchIcon(WorkbenchIcon.Kind.SERVER)),BorderLayout.WEST);
+        JPanel details=new JPanel(new GridLayout(2,1,0,4)); details.setOpaque(false);
+        JLabel title=new JLabel(name); title.setFont(title.getFont().deriveFont(Font.BOLD));
+        details.add(title); details.add(welcomeSectionLabel(summary)); row.add(details);
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE,64)); row.setPreferredSize(new Dimension(0,64));
         row.addActionListener(event -> profiles.stream().filter(profile -> profile.id().equals(id)).findFirst().ifPresent(actions.connect()));
         return row;
     }
@@ -974,7 +1011,7 @@ public final class SwingWorkbench implements AutoCloseable {
     }
 
     public void addTab(Object id, String title, JComponent view, Runnable close) {
-        JPanel host = new JPanel(new BorderLayout());
+        JPanel host = new IslandPanel(new BorderLayout(), "canvas");
         host.setOpaque(false);
         host.add(view);
         tabViews.put(id, view); tabHosts.put(id, host); viewTabs.put(host, id);
@@ -987,7 +1024,7 @@ public final class SwingWorkbench implements AutoCloseable {
                     rightToolWindowVisible = false;
                 } else if (rightToolWindowOwner == view && rightToolWindowVisible
                         && rightToolPageIndex == index) {
-                    rightToolWindowVisible = rightToolWindowPinned;
+                    rightToolWindowVisible = false;
                 } else {
                     rightToolWindowVisible = true;
                 }
@@ -1271,21 +1308,21 @@ public final class SwingWorkbench implements AutoCloseable {
         split.setDividerLocation(visible ? sidebarWidth : 0);
     }
 
-    public void setFocusMode(boolean focused) {
-        // 一体化栏承载窗口按钮，折叠时仍保留原生标题栏所需高度。
-        mainToolbar.setPreferredSize(new Dimension(0, focused ? 32 : 34));
-        mainToolbar.revalidate();
-    }
     public void setStatus(String message) { status.setText(message == null ? " " : message); }
     public void setTitle(String title) { frame.setTitle(title); }
     public void setMenuBar(JMenuBar menu) {
+        appMenuBar = menu;
         mainMenus = Arrays.stream(menu.getComponents()).filter(JMenu.class::isInstance).map(JMenu.class::cast).toList();
         headerMenus.removeAll();
-        if (com.formdev.flatlaf.util.SystemInfo.isMacOS) menuButton.setVisible(false);
+        if (com.formdev.flatlaf.util.SystemInfo.isMacOS) {
+            menuButton.setVisible(false);
+            MacMenuBridge.install(menu);
+        }
         // 对照 IDEA IdeMenuHelper：Windows/Linux 在同一标题区横向展示菜单。
         if (!com.formdev.flatlaf.util.SystemInfo.isMacOS) {
             for (JMenu source : mainMenus) {
-                JButton button = new JButton(source.getText());
+                JButton button = new HeaderButton(source.getText());
+                button.setName("header.menu." + source.getText());
                 button.putClientProperty("JButton.buttonType", "toolBarButton");
                 button.setFocusable(false);
                 button.setMargin(new Insets(4, 7, 4, 7));
@@ -1346,9 +1383,8 @@ public final class SwingWorkbench implements AutoCloseable {
         status.setForeground(SwingTheme.color("secondary"));
         connectionName.setForeground(SwingTheme.color("secondary"));
         for (JMenu menu : mainMenus) SwingTheme.update(menu);
-        dockTitle.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(0, 0, 2, 0, UIManager.getColor("Component.focusColor")),
-                BorderFactory.createEmptyBorder(6, 6, 6, 6)));
+        dockTitle.setBorder(BorderFactory.createEmptyBorder(3, 8, 3, 8));
+        dockTitle.setForeground(SwingTheme.color("secondary"));
         updateTreeRowHeight();
         updateHeaderMenuVisibility();
         frame.revalidate(); frame.repaint();
@@ -1439,6 +1475,8 @@ public final class SwingWorkbench implements AutoCloseable {
     }
 
     private void buildToolDock() {
+        vertical.setName("workspace.verticalSplit");
+        toolDock.setName("monitor.dock");
         JPanel header = new JPanel(new BorderLayout());
         header.setOpaque(false);
         header.setBorder(BorderFactory.createEmptyBorder(0, 10, 0, 4));
@@ -1447,9 +1485,9 @@ public final class SwingWorkbench implements AutoCloseable {
         JLabel name = new JLabel(text("workspace.tools"));
         name.setFont(name.getFont().deriveFont(Font.BOLD));
         labels.add(name);
-        dockTitle.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(0, 0, 2, 0, UIManager.getColor("Component.focusColor")),
-                BorderFactory.createEmptyBorder(6, 6, 6, 6)));
+        dockTitle.setBorder(BorderFactory.createEmptyBorder(3, 8, 3, 8));
+        dockTitle.setForeground(SwingTheme.color("secondary"));
+        dockTitle.setName("monitor.connectionLabel");
         labels.add(dockTitle);
         toolNavigationHost.setOpaque(false);
         labels.add(toolNavigationHost);
@@ -1462,17 +1500,16 @@ public final class SwingWorkbench implements AutoCloseable {
         dockBody.setOpaque(false);
         dockBody.setBorder(BorderFactory.createEmptyBorder(2, 4, 4, 4));
         toolDock.add(dockBody);
-        toolDock.setMinimumSize(new Dimension(0, 120));
+        toolDock.setMinimumSize(new Dimension(0, MIN_MONITOR_DOCK_HEIGHT));
     }
 
     private void buildRightToolDock() {
         rightDockContainer.setOpaque(false);
+        rightDockContainer.setVisible(false);
         rightDockContainer.setPreferredSize(new Dimension(36, 0));
 
         JPanel rail = stripeColumn();
-        rail.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(0, 1, 0, 0, SwingTheme.color("border")),
-                BorderFactory.createEmptyBorder(4, 3, 0, 3)));
+        rail.setBorder(BorderFactory.createEmptyBorder(4, 3, 0, 3));
         rail.setOpaque(false);
         rightToolNavigationHost.setLayout(new BoxLayout(rightToolNavigationHost, BoxLayout.Y_AXIS));
         rightToolNavigationHost.setOpaque(false);
@@ -1486,23 +1523,13 @@ public final class SwingWorkbench implements AutoCloseable {
         header.add(rightDockTitle, BorderLayout.CENTER);
         JPanel headerActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
         headerActions.setOpaque(false);
-        rightDockPin.putClientProperty("JButton.buttonType", "toolBarButton");
-        rightDockPin.setFocusable(false);
-        rightDockPin.setSelected(rightToolWindowPinned);
-        rightDockPin.putClientProperty("JLShell.selectedRail", Boolean.TRUE);
-        rightDockPin.setToolTipText(text("workspace.pinRightSidebar"));
-        rightDockPin.getAccessibleContext().setAccessibleName(text("workspace.pinRightSidebar"));
-        rightDockPin.addActionListener(event -> {
-            rightToolWindowPinned = rightDockPin.isSelected();
-            actions.setSetting().accept(RIGHT_DOCK_PINNED_KEY, Boolean.toString(rightToolWindowPinned));
-        });
-        headerActions.add(rightDockPin);
         headerActions.add(button(WorkbenchIcon.Kind.HIDE, "workspace.hideTools", this::toggleRightToolWindow));
         header.add(headerActions, BorderLayout.EAST);
         rightToolDock.add(header, BorderLayout.NORTH);
         rightDockBody.setOpaque(false);
         rightDockBody.setBorder(BorderFactory.createEmptyBorder(2, 4, 4, 4));
         rightToolDock.add(rightDockBody, BorderLayout.CENTER);
+        rightToolDock.setName("right.toolWindow");
         rightToolDock.setMinimumSize(new Dimension(180, 0));
         rightToolDock.setVisible(false);
         rightDockContainer.add(rightToolDock, BorderLayout.CENTER);
@@ -1516,15 +1543,33 @@ public final class SwingWorkbench implements AutoCloseable {
     private void updateRightDockWidth(boolean open) {
         int railWidth = 36;
         rightToolDock.setVisible(open);
+        // 收起时导航轨道在分割布局外独立占位，彻底移除可拖开的右侧空白区。
+        if (open) {
+            if (mainSplit.getRightComponent() != rightDockContainer) {
+                horizontalDock.remove(rightDockContainer);
+                mainSplit.setRightComponent(rightDockContainer);
+            }
+        } else {
+            if (mainSplit.getRightComponent() != null) mainSplit.setRightComponent(null);
+            if (rightDockContainer.getParent() != horizontalDock) horizontalDock.add(rightDockContainer, BorderLayout.EAST);
+        }
+        mainSplit.setDividerSize(open ? 4 : 0);
+        mainSplit.setEnabled(open);
         int contentWidth = open ? rightDockContentWidth(mainSplit.getWidth(), sidebarVisible ? sidebarWidth : 0,
-                railWidth, mainSplit.getDividerSize() + split.getDividerSize()) : 0;
+                railWidth, mainSplit.getDividerSize() + split.getDividerSize(), rightToolPageIndex == 2) : 0;
         // 关闭的是文件/插件内容区；导航轨道始终留在最右侧，供用户再次打开工具窗。
         rightDockContainer.setPreferredSize(new Dimension(rightDockContainerWidth(contentWidth, railWidth), 0));
-        if (mainSplit.getWidth() > 0) {
+        if (open && mainSplit.getWidth() > 0) {
             mainSplit.setDividerLocation(Math.max(240, mainSplit.getWidth()
                     - rightDockContainer.getPreferredSize().width - mainSplit.getDividerSize()));
         }
         mainSplit.revalidate();
+        horizontalDock.revalidate();
+    }
+
+    static int rightDockContentWidth(int mainWidth, int leftSidebarWidth, int railWidth, int dividerWidths, boolean pluginList) {
+        int half = rightDockContentWidth(mainWidth, leftSidebarWidth, railWidth, dividerWidths);
+        return pluginList ? Math.min(320, half) : half;
     }
 
     static int rightDockContentWidth(int mainWidth, int leftSidebarWidth, int railWidth, int dividerWidths) {
@@ -1544,13 +1589,21 @@ public final class SwingWorkbench implements AutoCloseable {
 
     private void releaseToolWindow() {
         if (toolWindowOwner == null) return;
-        if (toolDock.getHeight() > 0) dockHeight = Math.max(120, toolDock.getHeight());
+        if (toolDock.getHeight() > 0) dockHeight = Math.max(MIN_MONITOR_DOCK_HEIGHT, toolDock.getHeight());
         dockBody.removeAll();
         toolNavigationHost.removeAll();
         toolWindowOwner = null;
     }
 
     private void syncToolWindow() {
+        // 每组保留自己的选中标签，但只有当前活动组显示强调色；工具窗获焦时保留最近活动组。
+        for (JTabbedPane group : workspaceSplits.groups()) {
+            boolean active = group == tabs;
+            if (!Objects.equals(group.getClientProperty("JLShell.activeGroup"), active)) {
+                group.putClientProperty("JLShell.activeGroup", active);
+                group.repaint();
+            }
+        }
         Object id = viewTabs.get(tabs.getSelectedComponent());
         Component view = tabViews.get(id);
         boolean supported = view instanceof SwingSessionView;
@@ -1570,6 +1623,7 @@ public final class SwingWorkbench implements AutoCloseable {
                 dockBody.removeAll();
                 dockBody.add(session.toolWindow());
                 dockTitle.setText(tabs.getTitleAt(tabs.getSelectedIndex()));
+                dockTitle.setToolTipText(dockTitle.getText());
             }
             JPanel content = session.toolWindow();
             content.setVisible(true);
@@ -1607,6 +1661,7 @@ public final class SwingWorkbench implements AutoCloseable {
             rightToolNavigationHost.add(session.toolNavigation());
         }
         int page = session.selectedPageIndex();
+        rightToolPageIndex = page;
         boolean open = rightToolWindowVisible && page > 0;
         rightDockBody.removeAll();
         if (open) {
@@ -1630,6 +1685,7 @@ public final class SwingWorkbench implements AutoCloseable {
         KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(shortcutDispatcher);
         for (Object id : List.copyOf(tabViews.keySet())) removeTab(id);
         ToolTipManager.sharedInstance().unregisterComponent(tree);
+        MacMenuBridge.uninstall(appMenuBar);
         frame.dispose();
     }
 

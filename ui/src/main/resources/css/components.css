@@ -547,46 +547,6 @@
     -fx-padding: 0;
 }
 
-.topbar-collapse-btn {
-    -fx-background-color: transparent;
-    -fx-text-fill: -jl-muted;
-    -fx-border-color: transparent;
-    -fx-border-width: 0;
-    -fx-padding: 0;
-    -fx-min-width: 24px;
-    -fx-min-height: 24px;
-    -fx-background-radius: 5;
-    -fx-border-radius: 5;
-    -fx-font-size: 1em;
-}
-
-.topbar-collapse-btn:hover {
-    -fx-background-color: -jl-panel;
-    -fx-border-color: transparent;
-    -fx-text-fill: -jl-text;
-}
-
-.topbar-expand-btn {
-    -fx-background-color: transparent;
-    -fx-text-fill: -jl-secondary;
-    -fx-border-color: transparent;
-    -fx-border-width: 0;
-    -fx-opacity: 0.75;
-    -fx-padding: 0;
-    -fx-min-width: 24px;
-    -fx-min-height: 24px;
-    -fx-background-radius: 5;
-    -fx-border-radius: 5;
-    -fx-font-size: 1em;
-}
-
-.topbar-expand-btn:hover {
-    -fx-opacity: 1.0;
-    -fx-background-color: -jl-panel;
-    -fx-border-color: transparent;
-    -fx-text-fill: -jl-text;
-}
-
 .top-shell-menu-row {
     -fx-alignment: center-left;
 }
@@ -2305,15 +2265,11 @@
 }
 
 .about-logo {
-    -fx-min-width: 44px;
-    -fx-min-height: 44px;
-    -fx-pref-width: 44px;
-    -fx-pref-height: 44px;
-    -fx-background-color: -jl-panel;
-    -fx-background-radius: 4;
-    -fx-text-fill: white;
-    -fx-font-size: 1.18em;
-    -fx-font-weight: 900;
+    -fx-min-width: 72px;
+    -fx-min-height: 72px;
+    -fx-pref-width: 72px;
+    -fx-pref-height: 72px;
+    -fx-background-color: transparent;
 }
 
 .about-app-name {
@@ -3052,8 +3008,25 @@
 .idea-actions-row .shortcut-key-button:hover { -fx-border-color: -jl-border; -fx-background-color: -jl-hover; }
 .idea-actions-row .shortcut-clear-button { -fx-background-color: transparent; -fx-padding: 2 4; }
 
-/* Connection editor uses the same compact, outlined controls as IDEA settings. */
-.connection-editor, .connection-scroll, .connection-scroll > .viewport { -fx-background-color: -jl-canvas; }
+/* Connection editor follows IDEA's datasource dialog: identity header, compact tabs and a clear footer. */
+.connection-dialog-pane { -fx-background-color: -jl-canvas; }
+.connection-dialog-pane > .content { -fx-padding: 0; -fx-background-color: -jl-canvas; }
+.connection-editor { -fx-background-color: -jl-canvas; }
+.connection-identity-header { -fx-padding: 20 22 14 22; -fx-background-color: -jl-panel; }
+.connection-identity-label { -fx-text-fill: -jl-secondary; -fx-font-size: 0.92em; }
+.connection-subtitle { -fx-text-fill: -jl-secondary; -fx-font-size: 0.95em; }
+.connection-name-field { -fx-font-size: 1.12em; -fx-font-weight: bold; }
+.connection-type-box { -fx-font-size: 1em; }
+.connection-tabs { -fx-background-color: -jl-canvas; -fx-border-width: 0; }
+.connection-tabs > .tab-header-area { -fx-padding: 0 16; -fx-background-color: -jl-panel; }
+.connection-tabs > .tab-header-area .tab-header-background { -fx-background-color: -jl-panel; }
+.connection-tabs > .tab-header-area .tab { -fx-padding: 6 10; -fx-background-radius: 0; }
+.connection-tabs > .tab-header-area .tab:selected .tab-label { -fx-border-width: 0 0 2 0; -fx-padding: 0 0 5 0; }
+.connection-tabs > .tab-content-area { -fx-background-color: -jl-canvas; }
+.connection-tab-scroll, .connection-tab-scroll > .viewport { -fx-background-color: -jl-canvas; }
+.connection-tab-description { -fx-text-fill: -jl-secondary; -fx-wrap-text: true; -fx-padding: 0 0 8 0; }
+.connection-test-footer { -fx-padding: 10 20 12 20; -fx-background-color: -jl-panel; }
+.connection-dialog-pane > .button-bar { -fx-padding: 10 18; -fx-background-color: -jl-panel; }
 .connection-form .label { -fx-text-fill: -jl-text; -fx-font-size: 1em; }
 .connection-form .text-field, .connection-form .combo-box, .connection-form .text-area {
     -fx-background-color: -jl-frame;
@@ -3068,6 +3041,7 @@
 .connection-form .combo-box .list-cell { -fx-background-color: transparent; -fx-text-fill: -jl-text; -fx-padding: 2 4; }
 .connection-form .text-area .content { -fx-background-color: -jl-frame; -fx-padding: 4; }
 .connection-form .hyperlink { -fx-text-fill: -jl-blue; -fx-font-size: 1em; }
+.connection-form .connection-field-label { -fx-text-fill: -jl-secondary; }
 
 .plugin-detail-tabs { -fx-background-color: transparent; -fx-border-width: 0; }
 .plugin-detail-tabs > .tab-header-area { -fx-padding: 0 0 8 0; }
@@ -3092,3 +3066,58 @@
     -fx-max-height: 0;
     -fx-opacity: 0;
 }
+
+/* Session plugin cards use available width and grow vertically in the narrow right dock. */
+.session-plugin-card {
+    -fx-padding: 10;
+    -fx-background-color: -jl-panel;
+    -fx-background-radius: 6;
+    -fx-border-color: -jl-border;
+    -fx-border-radius: 6;
+}
+.session-plugin-card .plugin-name { -fx-font-weight: bold; }
+.session-plugin-card .plugin-desc { -fx-text-fill: -jl-secondary; }
+
+/* SettingsDialog / UI DSL: compact rows, section spacing and comments, shared across all settings pages. */
+.idea-settings-content {
+    -jl-canvas: -jl-settings-bg;
+    -jl-panel: -jl-settings-bg;
+    -fx-background-color: -jl-settings-bg;
+}
+.idea-settings-content .settings-card-grid { -fx-padding: 4 16 20 16; -fx-spacing: 20; }
+.idea-settings-content .settings-card { -fx-background-color: transparent; -fx-border-color: transparent; -fx-padding: 0; -fx-spacing: 8; }
+.idea-settings-content .settings-form { -fx-padding: 0; -fx-hgap: 12; -fx-vgap: 6; -fx-max-width: 620; }
+.idea-settings-content .settings-card-description { -fx-padding: 0 0 2 0; -fx-font-size: 0.92em; }
+.idea-settings-content .settings-field-label { -fx-text-fill: -jl-text; }
+.idea-settings-content .text-input {
+    -fx-background-color: -jl-settings-bg;
+    -fx-border-color: -jl-border;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+    -fx-padding: 4 8;
+}
+.idea-settings-content .combo-box { -fx-background-color: -jl-settings-control; -fx-padding: 3 6; }
+.idea-settings-content .text-input:hover, .idea-settings-content .combo-box:hover { -fx-border-color: -jl-secondary; }
+.idea-settings-content .text-input:focused, .idea-settings-content .combo-box:focused, .idea-settings-content .spinner:focused { -fx-border-color: -jl-accent; }
+.idea-settings-content .button { -fx-background-color: transparent; -fx-border-color: -jl-border; -fx-border-radius: 4; -fx-background-radius: 4; -fx-padding: 4 12; }
+.idea-settings-content .button:hover { -fx-background-color: -jl-hover; -fx-border-color: -jl-secondary; }
+.idea-settings-content .button:focused { -fx-border-color: -jl-accent; }
+.idea-settings-content .check-box { -fx-padding: 3 0; }
+.idea-settings-content .settings-preview-box { -fx-background-color: transparent; -fx-padding: 10 12; -fx-border-color: -jl-border; -fx-border-radius: 4; }
+.idea-settings-content .scroll-pane, .idea-settings-content .scroll-pane > .viewport { -fx-background-color: -jl-settings-bg; }
+.idea-settings-content .split-pane { -fx-background-color: -jl-settings-bg; -fx-padding: 0; }
+.idea-settings-content .split-pane > .split-pane-divider { -fx-background-color: -jl-border; -fx-padding: 0 1 0 0; }
+
+.idea-settings-content .button-primary { -fx-background-color: -jl-accent; -fx-border-color: -jl-accent; -fx-text-fill: white; }
+.idea-settings-content .button-primary:hover { -fx-background-color: -jl-accent; }
+
+.idea-settings-content .plugin-install-button,
+.idea-settings-content .plugin-install-button:hover { -fx-background-color: -jl-accent; -fx-border-color: -jl-accent; -fx-text-fill: white; }
+
+.idea-settings-content .idea-actions-row .shortcut-key-button,
+.idea-settings-content .idea-actions-row .shortcut-clear-button { -fx-background-color: transparent; -fx-border-color: transparent; -fx-text-fill: -jl-secondary; -fx-padding: 3 6; }
+.idea-settings-content .idea-actions-row .shortcut-key-button:hover { -fx-background-color: -jl-hover; -fx-border-color: -jl-border; }
+.idea-settings-content .idea-actions-row .shortcut-clear-button:hover { -fx-background-color: -jl-hover; -fx-text-fill: -jl-red; }
+.idea-settings-content .api-code-format-badge { -fx-background-color: -jl-blue-subtle; -fx-text-fill: -jl-blue; -fx-background-radius: 4; }
+
+.settings-font-preview { -fx-fill: -jl-text; }

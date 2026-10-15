@@ -3,8 +3,6 @@ package com.jlshell.launcher;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.net.URL;
-import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -107,10 +105,12 @@ public final class BootstrapLauncher {
         command.add("--add-opens=java.base/java.lang=ALL-UNNAMED");
         command.add("--add-opens=java.desktop/sun.awt=ALL-UNNAMED");
         command.add("-D" + ISOLATED_RUNTIME_PROPERTY + "=true");
+        command.add("--add-exports=java.desktop/sun.swing=ALL-UNNAMED");
+        command.add("--add-opens=java.desktop/sun.swing=ALL-UNNAMED");
+        command.add("--add-opens=java.desktop/javax.swing=ALL-UNNAMED");
+        if (java.lang.module.ModuleFinder.ofSystem().find("javafx.controls").isPresent())
+            command.add("--add-modules=javafx.controls,javafx.swing");
         if (preview) {
-            command.add("--add-exports=java.desktop/sun.swing=ALL-UNNAMED");
-            command.add("--add-opens=java.desktop/sun.swing=ALL-UNNAMED");
-            command.add("--add-opens=java.desktop/javax.swing=ALL-UNNAMED");
             String previewHome = System.getProperty("jlshell.preview.home");
             if (previewHome != null && !previewHome.isBlank()) command.add("-Djlshell.preview.home=" + previewHome);
         }
@@ -449,23 +449,27 @@ public final class BootstrapLauncher {
     }
 
     private static void invokeApplication(Path appJar, String[] args) throws Exception {
-        URL[] urls = { appJar.toUri().toURL() };
-        try (URLClassLoader loader = new URLClassLoader(urls, ClassLoader.getPlatformClassLoader())) {
-            Thread.currentThread().setContextClassLoader(loader);
-            Class<?> mainClass = Class.forName(APP_MAIN_CLASS, true, loader);
+        Path runtimeCache = updatesDir().resolve("runtime");
+        ApplicationRuntime runtime = ApplicationRuntime.open(appJar, runtimeCache);
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(runtime.loader());
+            System.setProperty("jlshell.runtime.jar", runtime.archive().toString());
+            Class<?> mainClass = Class.forName(APP_MAIN_CLASS, true, runtime.loader());
             Method main = mainClass.getMethod("main", String[].class);
-            try {
-                main.invoke(null, (Object) args);
-            } catch (InvocationTargetException e) {
-                Throwable cause = e.getCause();
-                if (cause instanceof Exception exception) {
-                    throw exception;
-                }
-                if (cause instanceof Error error) {
-                    throw error;
-                }
-                throw e;
-            }
+            main.invoke(null, (Object) args);
+            // main() returning does not end AWT/JavaFX event threads. The shutdown
+            // hook retains the loader so lazy classes and resources remain available.
+        } catch (InvocationTargetException error) {
+            runtime.close();
+            Throwable cause = error.getCause();
+            if (cause instanceof Exception exception) throw exception;
+            if (cause instanceof Error failure) throw failure;
+            throw error;
+        } catch (Exception | Error error) {
+            runtime.close(); throw error;
+        } finally {
+            Thread.currentThread().setContextClassLoader(previous);
         }
     }
 

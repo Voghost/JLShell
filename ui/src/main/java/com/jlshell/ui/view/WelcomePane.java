@@ -67,7 +67,7 @@ public class WelcomePane extends VBox {
     private void buildContent() {
         // App icon
         ImageView iconView = null;
-        var iconUrl = WelcomePane.class.getResource("/icons/app_icon.png");
+        var iconUrl = WelcomePane.class.getResource("/icons/brand/jlshell.png");
         if (iconUrl != null) {
             Image icon = new Image(iconUrl.toExternalForm(), 40, 40, true, true);
             iconView = new ImageView(icon);

@@ -32,20 +32,32 @@ final class SwingDialogChrome {
         title.setName("dialog.title");
         title.setFont(title.getFont().deriveFont(Font.BOLD));
         title.putClientProperty("html.disable", true);
-        JPanel buttons = new JPanel();
-        buttons.setOpaque(false);
-        buttons.putClientProperty(FlatClientProperties.FULL_WINDOW_CONTENT_BUTTONS_PLACEHOLDER,
-                SystemInfo.isMacOS ? "mac horizontal" : "win horizontal");
+        title.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 16));
+        title.putClientProperty(FlatClientProperties.COMPONENT_TITLE_BAR_CAPTION, true);
+        JPanel buttons = WindowHeaderSupport.buttonsPlaceholder(SystemInfo.isMacOS ? "mac" : "win", 12);
         header.add(title, BorderLayout.CENTER);
         header.add(buttons, SystemInfo.isMacOS ? BorderLayout.WEST : BorderLayout.EAST);
+        if (!SystemInfo.isMacOS) pane.putClientProperty(FlatClientProperties.TITLE_BAR_HEIGHT, 34);
+        WindowHeaderSupport.installDragSupport(dialog, header);
         dialog.add(header, BorderLayout.NORTH);
         return header;
     }
 
     static Window owner() {
         Window active = KeyboardFocusManager.getCurrentKeyboardFocusManager().getActiveWindow();
-        if (active != null) return active;
-        for (Frame frame : Frame.getFrames()) if (frame.isShowing() && frame.getTitle().contains("JLShell")) return frame;
+        // A non-focusable combo popup can briefly leave no active window on macOS.
+        // Follow ownership to the visible dialog instead of falling back to its disabled frame.
+        while (active instanceof JWindow) active = active.getOwner();
+        if (active != null && active.isShowing()) return visibleDialogOwner(active);
+        for (Frame frame : Frame.getFrames())
+            if (frame.isShowing() && frame.getTitle().contains("JLShell")) return visibleDialogOwner(frame);
         return null;
+    }
+
+    private static Window visibleDialogOwner(Window window) {
+        Window[] children = window.getOwnedWindows();
+        for (int i = children.length - 1; i >= 0; i--)
+            if (children[i] instanceof JDialog && children[i].isShowing()) return visibleDialogOwner(children[i]);
+        return window;
     }
 }

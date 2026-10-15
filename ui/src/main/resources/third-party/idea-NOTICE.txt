@@ -5,6 +5,7 @@ License text: third-party/idea-LICENSE.txt
 
 Source: local intellij-community-master checkout.
 Original SVGs and copyright headers retained in icons/idea/.
+Connection-list rail: platform/icons/src/expui/nodes/ssh.svg and ssh_dark.svg.
 Top-level account, view and help icons additionally reference:
 platform/icons/src/expui/general/user.svg
 platform/icons/src/expui/general/layout.svg

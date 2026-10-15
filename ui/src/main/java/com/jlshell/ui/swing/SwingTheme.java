@@ -41,6 +41,8 @@ public final class SwingTheme {
         if (!(theme == AppTheme.DARK ? FlatDarkLaf.setup() : FlatLightLaf.setup())) {
             throw new IllegalStateException("Unable to install Swing look and feel");
         }
+        javax.swing.PopupFactory.setSharedInstance(new com.jlshell.ui.swing.idea.IdeaTooltipPopupFactory(
+                javax.swing.PopupFactory.getSharedInstance()));
         // Match IDEA's 1.2s initial tooltip delay and 4s dismiss window.
         javax.swing.ToolTipManager toolTips = javax.swing.ToolTipManager.sharedInstance();
         toolTips.setInitialDelay(1200);
@@ -69,6 +71,26 @@ public final class SwingTheme {
         return UIManager.getColor("JLShell." + key);
     }
 
+    /** Paint from the current palette instead of freezing the color when a dialog is built. */
+    static javax.swing.border.Border border(int top, int left, int bottom, int right) {
+        return new javax.swing.border.AbstractBorder() {
+            public java.awt.Insets getBorderInsets(Component component) { return new java.awt.Insets(top, left, bottom, right); }
+            public java.awt.Insets getBorderInsets(Component component, java.awt.Insets insets) {
+                insets.set(top, left, bottom, right); return insets;
+            }
+            public void paintBorder(Component component, java.awt.Graphics graphics, int x, int y, int width, int height) {
+                java.awt.Graphics g = graphics.create();
+                try {
+                    g.setColor(color("border"));
+                    if (top > 0) g.fillRect(x, y, width, top);
+                    if (left > 0) g.fillRect(x, y, left, height);
+                    if (bottom > 0) g.fillRect(x, y + height - bottom, width, bottom);
+                    if (right > 0) g.fillRect(x + width - right, y, right, height);
+                } finally { g.dispose(); }
+            }
+        };
+    }
+
     public static void update(Component component) {
         // 保留 JediTerm 的自绘终端面板和滚动条 UI；不能让 LAF 遍历重装它们。
         if (component instanceof JediTermWidget || component instanceof javafx.embed.swing.JFXPanel) return;
@@ -80,6 +102,10 @@ public final class SwingTheme {
                 jc.putClientProperty("jlshell.fontStyle", original.getStyle());
             }
             jc.updateUI();
+            if (Boolean.TRUE.equals(jc.getClientProperty("jlshell.ideaForm"))) IdeaFormStyle.apply(jc);
+            if (Boolean.TRUE.equals(jc.getClientProperty("JLShell.primaryAction"))) {
+                jc.setBackground(UIManager.getColor("Component.focusColor")); jc.setForeground(Color.WHITE);
+            }
             if (Boolean.TRUE.equals(jc.getClientProperty("JLShell.secondaryForeground"))) {
                 jc.setForeground(color("secondary"));
             }

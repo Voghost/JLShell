@@ -88,8 +88,11 @@ final class WorkspaceSplitLayout extends JPanel {
         double edge = .20;
         double left = local.x / (double) Math.max(1, bounds.width);
         double right = (bounds.width - local.x) / (double) Math.max(1, bounds.width);
-        Rectangle content = group.getTabCount() == 0 ? new Rectangle(0, 0, bounds.width, bounds.height)
-                : group.getComponentAt(0).getBounds();
+        Rectangle content = group.getSelectedComponent() == null ? new Rectangle(0, 0, bounds.width, bounds.height)
+                : group.getSelectedComponent().getBounds();
+        // 整条标签头（含两端和空白处）只接受排序/跨组移动；分屏必须进入正文。
+        // 预览与释放共用这一命中结果，避免头部拖动时误显示或提交左右分屏。
+        if (!content.contains(local)) return new DropLocation(group, DropSide.CENTER, new Rectangle(bounds));
         double top = local.y >= content.y && local.y <= content.y + content.height
                 ? (local.y - content.y) / (double) Math.max(1, content.height) : Double.POSITIVE_INFINITY;
         double bottom = local.y >= content.y && local.y <= content.y + content.height

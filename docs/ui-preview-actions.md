@@ -33,3 +33,17 @@ Linux JVM 参数覆盖文件使用 `~/.config/jlshell-preview/JLShell.vmoptions`
 工作流先运行应用及启动器依赖模块的测试，再并行生成各平台安装包。
 macOS 还使用安装包实际的 JVM 参数检查 JavaFX 原生菜单桥接的模块访问权限。
 平台构建成功表示打包通过，Windows/Linux 的实际显示和交互仍需在对应系统测试。
+
+## 运行期间的类加载保护（2026-10-14）
+
+启动器不再在应用 `main()` 返回时关闭 URLClassLoader：AWT/JavaFX 事件线程可能仍需延迟加载类与资源。ApplicationRuntime 将类加载器保留至 JVM 退出；启动失败则立即释放。
+
+应用归档启动前复制到更新目录下 `runtime/runtime-<pid>-<random>/app.jar`，校验复制前源文件与副本的 SHA-256 一致，然后只从副本加载。这样重新构建 Preview 或替换安装目录的源 JAR 不会破坏当前进程。正常退出清理副本；崩溃或 halt 留下的副本在下一次启动时按进程存活状态回收，仍在运行的进程不受影响。
+
+`jlshell.active.jar` 继续指向选择的原始 JAR，保持更新启动确认和重启语义；新增 `jlshell.runtime.jar` 仅用于记录当前实际加载的副本。启动诊断同时记录两者。
+
+全局异常报告先写 stderr，再尝试日志框架；若日志框架本身发生 LinkageError，保留原始堆栈并使用 stderr 输出二次故障，不让 UncaughtExceptionHandler 再抛出异常。
+
+验证覆盖入口返回后的延迟类/资源加载、替换原归档、运行期缓存回收和日志实现缺类时的后备输出。此修复涉及 launcher，使用新的 Preview 或全量安装包启动后生效，单独替换应用 JAR 无法更新已安装的旧启动器。
+
+源码 ui/run-preview.sh 默认增加 with-plugins reactor profile，构建原生系统监控插件并通过预览专用优先目录加载。每次启动复制到独立目录，不覆盖已安装或运行中的插件 JAR。旧第三方自绘插件继续按需兼容；详见 plugin-swing-views.md。

@@ -70,7 +70,6 @@ import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
 import javafx.scene.control.OverrunStyle;
-import javafx.scene.control.PasswordField;
 import javafx.scene.control.ProgressBar;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
@@ -83,15 +82,10 @@ import javafx.scene.control.SeparatorMenuItem;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.TabPane;
 import javafx.scene.control.ToggleGroup;
-import javafx.scene.control.ToolBar;
 import javafx.event.EventHandler;
-import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyCodeCombination;
-import javafx.scene.input.KeyCombination;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.BorderPane;
-import javafx.scene.image.Image;
-import javafx.scene.image.ImageView;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
@@ -116,10 +110,8 @@ public class MainWindow {
     private static final String SETTINGS_SIDEBAR_VISIBLE = "ui.sidebar.visible";
     private static final String SETTINGS_SIDEBAR_DIVIDER_POSITION = "ui.sidebar.dividerPosition";
     private static final String SETTINGS_SIDEBAR_WIDTH = "ui.sidebar.width";
-    private static final String SETTINGS_TOPBAR_COLLAPSED = "ui.topbar.collapsed";
     private static final String SETTINGS_FOCUS_MODE = "ui.focusMode";
     private static final String SETTINGS_FOCUS_SIDEBAR_BEFORE = "ui.focusMode.sidebarVisibleBefore";
-    private static final String SETTINGS_FOCUS_TOPBAR_BEFORE = "ui.focusMode.topbarCollapsedBefore";
     private static final double WINDOWS_OUTER_CORNER_RADIUS = 10;
 
     private final MainViewModel viewModel;
@@ -186,20 +178,11 @@ public class MainWindow {
     private static final double SIDEBAR_EXPANDED_POSITION = 0.23;
     private static final double SIDEBAR_MAX_POSITION = 1.0 / 3.0;
 
-    // ── 顶栏折叠/展开 ──
-    private boolean topBarCollapsed = false;
     private boolean focusMode = false;
     private boolean sidebarVisibleBeforeFocus = true;
-    private boolean topBarCollapsedBeforeFocus = false;
-    private javafx.animation.PauseTransition collapseDelay;
     private CustomTitleBar customTitleBar; // Windows 专用
     private StackPane workspaceStack; // workspace StackPane
-    private Button topBarCollapseBtn; // 顶栏中的折叠按钮（▾）
-    private Button topBarExpandBtn; // 折叠后的展开按钮（▴）
-    private Region topHoverZone; // 折叠后顶部 4px hover 感应条
     private BorderPane rootPane;
-    /** 折叠后的免疫期：刚折叠时不响应 hover 展开，避免按钮点击瞬间触发 mouseEntered */
-    private long collapseImmuneUntil = 0;
 
     // ── 插件存储工厂 ──
     private final java.util.function.Function<String, com.jlshell.plugin.api.storage.PluginStorage> storageFactory;
@@ -259,15 +242,11 @@ public class MainWindow {
             this.activeProjectId = savedProject;
         }
         this.sidebarVisible = Boolean.parseBoolean(appSettingsService.get(SETTINGS_SIDEBAR_VISIBLE, "true"));
-        this.topBarCollapsed = Boolean.parseBoolean(appSettingsService.get(SETTINGS_TOPBAR_COLLAPSED, "false"));
         this.focusMode = Boolean.parseBoolean(appSettingsService.get(SETTINGS_FOCUS_MODE, "false"));
         if (this.focusMode) {
             this.sidebarVisibleBeforeFocus = Boolean.parseBoolean(
                     appSettingsService.get(SETTINGS_FOCUS_SIDEBAR_BEFORE, "true"));
-            this.topBarCollapsedBeforeFocus = Boolean.parseBoolean(
-                    appSettingsService.get(SETTINGS_FOCUS_TOPBAR_BEFORE, "false"));
             this.sidebarVisible = false;
-            this.topBarCollapsed = true;
         }
     }
 
@@ -394,7 +373,6 @@ public class MainWindow {
                 Collectors.toMap(key -> key, key -> i18nService.get(key)));
         texts.put("ui.sidebar.sort", appSettingsService.get("ui.sidebar.sort", "name"));
         texts.put("ui.sidebar.foldersFirst", appSettingsService.get("ui.sidebar.foldersFirst", "true"));
-        texts.put("ui.rightToolWindow.pinned", appSettingsService.get("ui.rightToolWindow.pinned", "false"));
         java.util.function.Function<Runnable, Runnable> fxAction = action -> () -> dispatchSwingAction(action);
         var actions = new com.jlshell.ui.swing.SwingWorkbench.Actions(
                 fxAction.apply(() -> createConnection(owner)), fxAction.apply(() -> createFolder(owner)),
@@ -455,7 +433,6 @@ public class MainWindow {
         String family = appSettingsService.get("ui.font.family", null);
         int fontSize = swingFontSize();
         MenuBar menuModel = buildMenuBar(owner);
-        if (com.formdev.flatlaf.util.SystemInfo.isMacOS) com.jlshell.ui.swing.MacMenuBridge.install(menuModel);
         menuModel.getMenus().getFirst().getItems().stream()
                 .filter(item -> i18nService.get("action.exit").equals(item.getText()))
                 .forEach(item -> item.setOnAction(event -> quit.run()));
@@ -490,7 +467,6 @@ public class MainWindow {
         loadConnections();
         updateWindowTitle();
         withSwing(view -> view.setSidebarVisible(sidebarVisible));
-        withSwing(view -> view.setFocusMode(topBarCollapsed));
         installSwingShortcuts(quit);
         return swingWorkbench.thenApply(unused -> null);
     }
@@ -541,7 +517,7 @@ public class MainWindow {
     private void installSwingShortcuts(Runnable quit) {
         Map<String, Runnable> actions = Map.of("app.newConnection", () -> createConnection(primaryStage),
                 "app.refreshConnections", this::loadConnections, "app.quit", quit,
-                "app.toggleSidebar", this::toggleSidebar, "app.toggleTopBar", this::toggleTopBarCollapse,
+                "app.toggleSidebar", this::toggleSidebar,
                 "app.focusMode", this::toggleFocusMode, "app.preferences", () -> openPreferences(primaryStage));
         Map<javax.swing.KeyStroke, Runnable> bindings = new java.util.HashMap<>();
         actions.forEach((id, action) -> {
@@ -680,8 +656,6 @@ public class MainWindow {
         Menu viewMenu = new Menu(i18nService.get("menu.view"));
         MenuItem toggleSidebarItem = new MenuItem(i18nService.get("sidebar.toggle"));
         toggleSidebarItem.setOnAction(event -> toggleSidebar());
-        MenuItem collapseTopBarItem = new MenuItem(i18nService.get("topbar.collapse"));
-        collapseTopBarItem.setOnAction(event -> toggleTopBarCollapse());
         CheckMenuItem focusModeItem = new CheckMenuItem(i18nService.get("focusMode.toggle"));
         focusModeItem.setSelected(focusMode);
         focusModeItem.setOnAction(event -> setFocusMode(focusModeItem.isSelected()));
@@ -704,7 +678,7 @@ public class MainWindow {
         });
         darkTheme.setOnAction(event -> themeService.setTheme(AppTheme.DARK));
         lightTheme.setOnAction(event -> themeService.setTheme(AppTheme.LIGHT));
-        viewMenu.getItems().addAll(toggleSidebarItem, collapseTopBarItem, terminalStatusBarItem, focusModeItem,
+        viewMenu.getItems().addAll(toggleSidebarItem, terminalStatusBarItem, focusModeItem,
                 new SeparatorMenuItem(), darkTheme, lightTheme);
 
         // Preferences menu item
@@ -721,7 +695,7 @@ public class MainWindow {
             MenuItem checkUpdatesItem = new MenuItem(i18nService.get("menu.help.checkUpdates"));
             checkUpdatesItem.setOnAction(event -> checkForUpdates(stage));
             MenuItem aboutItem = new MenuItem(i18nService.get("menu.help.about"));
-            aboutItem.setOnAction(event -> AboutDialog.show(stage, i18nService, themeService, () -> checkForUpdates(stage)));
+            aboutItem.setOnAction(event -> openAbout(stage));
             helpMenu.getItems().addAll(checkUpdatesItem, aboutItem);
             menuBar.getMenus().addAll(fileMenu, connectionMenu, accountMenu, viewMenu, helpMenu);
         } else {
@@ -731,7 +705,7 @@ public class MainWindow {
             MenuItem checkUpdatesItem = new MenuItem(i18nService.get("menu.help.checkUpdates"));
             checkUpdatesItem.setOnAction(event -> checkForUpdates(stage));
             MenuItem aboutItem = new MenuItem(i18nService.get("menu.help.about"));
-            aboutItem.setOnAction(event -> AboutDialog.show(stage, i18nService, themeService, () -> checkForUpdates(stage)));
+            aboutItem.setOnAction(event -> openAbout(stage));
             helpMenu.getItems().addAll(checkUpdatesItem, aboutItem);
             menuBar.getMenus().addAll(fileMenu, connectionMenu, accountMenu, viewMenu, settingsMenu, helpMenu);
         }
@@ -866,7 +840,6 @@ public class MainWindow {
         installShortcutFromRegistry(scene, "app.refreshConnections", this::loadConnections);
         installShortcutFromRegistry(scene, "app.quit", stage::close);
         installShortcutFromRegistry(scene, "app.toggleSidebar", this::toggleSidebar);
-        installShortcutFromRegistry(scene, "app.toggleTopBar", this::toggleTopBarCollapse);
         installShortcutFromRegistry(scene, "app.focusMode", this::toggleFocusMode);
         installShortcutFromRegistry(scene, "app.preferences", () -> openPreferences(stage));
     }
@@ -972,7 +945,7 @@ public class MainWindow {
                 ButtonType.OK, ButtonType.CANCEL);
         alert.setHeaderText(i18nService.get("project.switch.confirm", projectName));
         themeService.applyToDialog(alert);
-        alert.showAndWait().filter(ButtonType.OK::equals).ifPresent(unused ->
+        com.jlshell.ui.swing.SwingAlerts.showAndWait(alert, themeService, i18nService).filter(ButtonType.OK::equals).ifPresent(unused ->
                 switchProject(newProjectId));
 
         // Revert combo if cancelled
@@ -1022,11 +995,13 @@ public class MainWindow {
         refreshShortcuts(stage.getScene(), stage);
     }
 
+    public void openAbout(Stage stage) {
+        AboutDialog.show(stage, i18nService, themeService, () -> checkForUpdates(stage));
+    }
+
     public void checkForUpdates(Stage stage) {
-        Alert checking = new Alert(Alert.AlertType.INFORMATION, i18nService.get("updates.checking"), ButtonType.CANCEL);
-        checking.setTitle(i18nService.get("updates.title"));
-        checking.setHeaderText(null);
-        checking.initOwner(stage);
+        var checking = new com.jlshell.ui.swing.SwingProgressDialog(themeService, i18nService,
+                "jlshell.updates.checking", i18nService.get("updates.checking"));
         updateService.checkLatest(PreferencesDialog.getVersion())
                 .whenComplete((response, error) -> javafx.application.Platform.runLater(() -> {
                     checking.close();
@@ -1040,7 +1015,6 @@ public class MainWindow {
                     }
                     showUpdateAvailable(stage, response);
                 }));
-        checking.show();
     }
 
     private void showUpdateAvailable(Stage stage, UpdateService.UpdateResponse response) {
@@ -1052,7 +1026,7 @@ public class MainWindow {
         alert.setTitle(i18nService.get("updates.title"));
         alert.setHeaderText("JLShell " + response.latestVersion());
         alert.initOwner(stage);
-        alert.showAndWait().ifPresent(button -> {
+        com.jlshell.ui.swing.SwingAlerts.showAndWait(alert, themeService, i18nService).ifPresent(button -> {
             String text = button.getText();
             if (i18nService.get("updates.download").equals(text)) {
                 downloadUpdate(stage, response);
@@ -1063,41 +1037,9 @@ public class MainWindow {
     }
 
     private void downloadUpdate(Stage stage, UpdateService.UpdateResponse response) {
-        // 构建带进度条的自定义下载对话框
-        Dialog<Void> downloadDialog = new Dialog<>();
-        downloadDialog.setTitle(i18nService.get("updates.title"));
-        downloadDialog.setHeaderText(null);
-        downloadDialog.initOwner(stage);
-        themeService.applyToDialog(downloadDialog);
-
-        Label statusLabel = new Label(i18nService.get("updates.downloading"));
-        ProgressBar progressBar = new ProgressBar(0);
-        progressBar.setPrefWidth(360);
-        progressBar.setPrefHeight(22);
-        // 主题色匹配：使用 accent color
-        String accentColor = themeService.accentColor().color();
-        progressBar.setStyle("-fx-accent: " + accentColor + ";");
-
-        Label percentLabel = new Label("0%");
-        percentLabel.setPrefWidth(45);
-        percentLabel.setAlignment(Pos.CENTER_RIGHT);
-
-        HBox progressRow = new HBox(8, progressBar, percentLabel);
-        progressRow.setAlignment(Pos.CENTER_LEFT);
-        VBox content = new VBox(10, statusLabel, progressRow);
-        content.setPadding(new Insets(18, 20, 8, 20));
-        downloadDialog.getDialogPane().setContent(content);
-
-        ButtonType cancelType = ButtonType.CANCEL;
-        downloadDialog.getDialogPane().getButtonTypes().add(cancelType);
-
-        // 进度回调：从后台线程更新 UI
-        updateService.downloadAndStage(response, progress -> javafx.application.Platform.runLater(() -> {
-            int pct = (int) (progress * 100);
-            progressBar.setProgress(progress);
-            percentLabel.setText(pct + "%");
-            statusLabel.setText(i18nService.get("updates.downloading") + " " + pct + "%");
-        })).whenComplete((result, error) -> javafx.application.Platform.runLater(() -> {
+        var downloadDialog = new com.jlshell.ui.swing.SwingProgressDialog(themeService, i18nService,
+                "jlshell.updates.download", i18nService.get("updates.downloading"));
+        updateService.downloadAndStage(response, downloadDialog::update).whenComplete((result, error) -> javafx.application.Platform.runLater(() -> {
             downloadDialog.close();
             if (error != null) {
                 showUpdateError(stage, error);
@@ -1110,7 +1052,6 @@ public class MainWindow {
             }
         }));
 
-        downloadDialog.show();
     }
 
     private void showUpdateMessage(Stage stage, String message) {
@@ -1118,7 +1059,7 @@ public class MainWindow {
         alert.setTitle(i18nService.get("updates.title"));
         alert.setHeaderText(null);
         alert.initOwner(stage);
-        alert.showAndWait();
+        com.jlshell.ui.swing.SwingAlerts.showAndWait(alert, themeService, i18nService);
     }
 
     /**
@@ -1133,7 +1074,7 @@ public class MainWindow {
         alert.setHeaderText(null);
         alert.initOwner(stage);
         themeService.applyToDialog(alert);
-        alert.showAndWait().ifPresent(btn -> {
+        com.jlshell.ui.swing.SwingAlerts.showAndWait(alert, themeService, i18nService).ifPresent(btn -> {
             if (btn == restartBtn) {
                 com.jlshell.ui.support.RestartHelper.scheduleRestart();
             }
@@ -1149,7 +1090,7 @@ public class MainWindow {
         alert.setTitle(i18nService.get("updates.title"));
         alert.setHeaderText(null);
         alert.initOwner(stage);
-        alert.showAndWait();
+        com.jlshell.ui.swing.SwingAlerts.showAndWait(alert, themeService, i18nService);
     }
 
     private static String rootMessage(Throwable error) {
@@ -1166,7 +1107,6 @@ public class MainWindow {
     }
 
     private void refreshAllTexts(Stage stage, BorderPane root) {
-        boolean wasTopBarCollapsed = topBarCollapsed;
         boolean isWindows = System.getProperty("os.name", "").toLowerCase().contains("win");
         if (isWindows) {
             root.setTop(buildCustomTitleBar(stage));
@@ -1193,7 +1133,7 @@ public class MainWindow {
                                 });
                     });
             welcomePane.visibleProperty().bind(Bindings.isEmpty(workspaceTabs.getTabs()));
-            StackPane workspaceStackPane = new StackPane(welcomePane, workspaceTabs, revealSidebarBtn, topBarCollapseBtn, topBarExpandBtn, topHoverZone);
+            StackPane workspaceStackPane = new StackPane(welcomePane, workspaceTabs, revealSidebarBtn);
             workspaceStack = workspaceStackPane;
             splitPane.getItems().set(1, workspaceStackPane);
             // 恢复搜索过滤
@@ -1202,10 +1142,6 @@ public class MainWindow {
                 sidebarTreeView.applyFilter(savedSearch);
             }
             applySidebarVisibility();
-            // 恢复顶栏折叠状态
-            if (wasTopBarCollapsed) {
-                applyTopBarCollapsedDeferred(true);
-            }
             updateTerminalFocusLayoutStyle();
         }
     }
@@ -1246,75 +1182,8 @@ public class MainWindow {
         StackPane.setAlignment(revealSidebarBtn, javafx.geometry.Pos.BOTTOM_LEFT);
         StackPane.setMargin(revealSidebarBtn, new Insets(0, 0, 4, 4));
 
-        // ── 顶栏折叠按钮 overlay ──
-        // 不放在外层 workspace tab header 右侧：JavaFX 在标签溢出时也会在该位置
-        // 生成“更多标签”按钮，两者会重叠。下移到内层导航行右侧，避开标签溢出区。
-        topBarCollapseBtn = new Button("⌄");
-        topBarCollapseBtn.getStyleClass().add("topbar-collapse-btn");
-        topBarCollapseBtn.setTooltip(new javafx.scene.control.Tooltip(i18nService.get("topbar.collapse")));
-        topBarCollapseBtn.setOnAction(e -> {
-            toggleTopBarCollapse();
-        });
-        StackPane.setAlignment(topBarCollapseBtn, javafx.geometry.Pos.TOP_RIGHT);
-        StackPane.setMargin(topBarCollapseBtn, new Insets(34, 8, 0, 0));
-        // 初始无 tab 时不显示；有 tab 时由 applyTopBarCollapsed 管理
-        topBarCollapseBtn.setVisible(false);
-        workspaceTabs.getTabs().addListener((javafx.collections.ListChangeListener<javafx.scene.control.Tab>) c -> {
-            if (!topBarCollapsed && !c.getList().isEmpty()) {
-                topBarCollapseBtn.setVisible(true);
-            } else if (topBarCollapsed) {
-                topBarCollapseBtn.setVisible(false);
-                topBarCollapseBtn.setManaged(false);
-            }
-        });
-
-        // ── 折叠后的展开按钮（透明悬浮在终端右上角） ──
-        topBarExpandBtn = new Button("⌃");
-        topBarExpandBtn.getStyleClass().add("topbar-expand-btn");
-        topBarExpandBtn.setTooltip(new javafx.scene.control.Tooltip(i18nService.get("topbar.expand")));
-        topBarExpandBtn.setOnAction(e -> {
-            topBarCollapsed = false;
-            applyTopBarCollapsed(false);
-            removeTopBarExitListener();
-            saveLayoutState();
-        });
-        topBarExpandBtn.setVisible(false);
-        StackPane.setAlignment(topBarExpandBtn, javafx.geometry.Pos.TOP_RIGHT);
-        StackPane.setMargin(topBarExpandBtn, new Insets(4, 4, 0, 0));
-
-        // ── 折叠后顶部 hover 感应条（4px 透明区域） ──
-        // 折叠后终端（SwingNode）占满区域，StackPane 的 mouseMoved 不会被触发
-        // 在顶部放一条 4px 透明感应条，鼠标进入即展开
-        topHoverZone = new Region();
-        topHoverZone.setPrefHeight(4);
-        topHoverZone.setMaxHeight(4);
-        topHoverZone.setMinHeight(4);
-        topHoverZone.setStyle("-fx-background-color: transparent;");
-        topHoverZone.setVisible(false);
-        StackPane.setAlignment(topHoverZone, javafx.geometry.Pos.TOP_CENTER);
-        topHoverZone.setOnMouseEntered(e -> {
-            if (topBarCollapsed && System.currentTimeMillis() > collapseImmuneUntil
-                    && "true".equals(appSettingsService.get("ui.topbar.hoverExpand", "false"))) {
-                topBarCollapsed = false;
-                applyTopBarCollapsed(false);
-                installTopBarExitListener();
-                saveLayoutState();
-            }
-        });
-
-        StackPane workspaceStackPane = new StackPane(welcomePane, workspaceTabs, revealSidebarBtn, topBarCollapseBtn, topBarExpandBtn, topHoverZone);
+        StackPane workspaceStackPane = new StackPane(welcomePane, workspaceTabs, revealSidebarBtn);
         workspaceStack = workspaceStackPane;
-
-        // 延迟折叠防抖
-        collapseDelay = new javafx.animation.PauseTransition(javafx.util.Duration.millis(500));
-        collapseDelay.setOnFinished(e -> {
-            if (topBarCollapsed) {
-                applyTopBarCollapsed(true);
-            }
-        });
-        if (topBarCollapsed) {
-            applyTopBarCollapsedDeferred(true);
-        }
 
         centerSplitPane = new SplitPane(sidebarVBox, workspaceStackPane);
         centerSplitPane.getStyleClass().add("ide-workspace");
@@ -1568,7 +1437,7 @@ public class MainWindow {
                 String msg = buildDeleteConfirmMessage(preview);
                 Alert alert = new Alert(Alert.AlertType.CONFIRMATION, msg, ButtonType.OK, ButtonType.CANCEL);
                 themeService.applyToDialog(alert);
-                alert.showAndWait().filter(ButtonType.OK::equals).ifPresent(unused ->
+                com.jlshell.ui.swing.SwingAlerts.showAndWait(alert, themeService, i18nService).filter(ButtonType.OK::equals).ifPresent(unused ->
                         CompletableFuture.runAsync(() -> {
                             for (SidebarItem.ConnectionItem ci : conns) connectionProfileService.delete(ci.id());
                             for (SidebarItem.FolderItem fi : folders) connectionProfileService.deleteFolder(fi.id());
@@ -1615,8 +1484,6 @@ public class MainWindow {
                         viewModel.selectedConnectionProperty().set(null);
                     }
                 });
-
-
 
         // 紧凑图标按钮行 — SVG 图标
         Button createButton    = svgIconButton("/icons/add.svg",          i18nService.get("action.newConnection"),    () -> createConnection(stage));
@@ -1828,21 +1695,13 @@ public class MainWindow {
         focusMode = enabled;
         if (enabled) {
             sidebarVisibleBeforeFocus = sidebarVisible;
-            topBarCollapsedBeforeFocus = topBarCollapsed;
             appSettingsService.set(SETTINGS_FOCUS_SIDEBAR_BEFORE, String.valueOf(sidebarVisibleBeforeFocus));
-            appSettingsService.set(SETTINGS_FOCUS_TOPBAR_BEFORE, String.valueOf(topBarCollapsedBeforeFocus));
             if (sidebarVisible) {
                 toggleSidebar();
-            }
-            if (!topBarCollapsed) {
-                toggleTopBarCollapse();
             }
         } else {
             if (sidebarVisible != sidebarVisibleBeforeFocus) {
                 toggleSidebar();
-            }
-            if (topBarCollapsed != topBarCollapsedBeforeFocus) {
-                toggleTopBarCollapse();
             }
         }
         saveLayoutState();
@@ -1884,219 +1743,22 @@ public class MainWindow {
         }
     }
 
-    // ── 顶栏折叠/展开 ────────────────────────────────────────────
-
-    private void toggleTopBarCollapse() {
-        topBarCollapsed = !topBarCollapsed;
-        applyTopBarCollapsed(topBarCollapsed);
-        saveLayoutState();
-    }
-
     private void saveLayoutState() {
         appSettingsService.set(SETTINGS_SIDEBAR_VISIBLE, String.valueOf(sidebarVisible));
-        appSettingsService.set(SETTINGS_TOPBAR_COLLAPSED, String.valueOf(topBarCollapsed));
         appSettingsService.set(SETTINGS_FOCUS_MODE, String.valueOf(focusMode));
-    }
-
-    private void applyTopBarCollapsed(boolean collapsed) {
-        withSwing(view -> view.setFocusMode(collapsed));
-        if (mainToolbar != null) {
-            mainToolbar.setVisible(!collapsed);
-            mainToolbar.setManaged(!collapsed);
-        }
-        boolean isWindows = System.getProperty("os.name", "").toLowerCase().contains("win");
-
-        if (collapsed) {
-            // 设置免疫期：600ms 内不响应 hover 展开
-            collapseImmuneUntil = System.currentTimeMillis() + 600;
-            // macOS/Linux: 隐藏菜单栏区域（系统菜单栏不占 JavaFX 空间）
-            // Windows: 菜单栏始终保留可见
-            if (!isWindows && topArea != null) {
-                topArea.setManaged(false);
-                topArea.setVisible(false);
-            }
-            // 外层 TabPane 隐藏 tab header（程序化，CSS 不可靠）
-            setTabHeaderVisible(workspaceTabs, false);
-            // 隐藏折叠按钮 overlay
-            topBarCollapseBtn.setVisible(false);
-            topBarCollapseBtn.setManaged(false);
-            // 内层 TabPane 隐藏 tab header
-            for (javafx.scene.control.Tab t : workspaceTabs.getTabs()) {
-                if (t instanceof SessionWorkspaceTab swt) {
-                    setTabHeaderVisible(swt.getInnerTabPane(), false);
-                    // 隐藏终端顶部插件与字体工具栏；底部状态栏由用户独立控制。
-                    swt.setToolbarVisible(false);
-                }
-            }
-            // 显示展开按钮（透明悬浮在终端右上角）
-            topBarExpandBtn.setVisible(true);
-            // 显示顶部 hover 感应条
-            topHoverZone.setVisible(true);
-        } else {
-            // 恢复菜单栏
-            if (!isWindows && topArea != null) {
-                topArea.setManaged(true);
-                topArea.setVisible(true);
-            }
-            // 外层 TabPane 恢复 tab header
-            setTabHeaderVisible(workspaceTabs, true);
-            // 恢复折叠按钮 overlay
-            topBarCollapseBtn.setManaged(true);
-            topBarCollapseBtn.setVisible(true);
-            // 内层 TabPane 恢复 tab header
-            for (javafx.scene.control.Tab t : workspaceTabs.getTabs()) {
-                if (t instanceof SessionWorkspaceTab swt) {
-                    setTabHeaderVisible(swt.getInnerTabPane(), true);
-                    // 恢复终端工具栏
-                    swt.setToolbarVisible(true);
-                }
-            }
-            // 隐藏展开按钮和 hover 感应条
-            topBarExpandBtn.setVisible(false);
-            topHoverZone.setVisible(false);
-        }
-        updateTerminalFocusLayoutStyle();
-    }
-
-    private void applyTopBarCollapsedDeferred(boolean collapsed) {
-        applyTopBarCollapsed(collapsed);
-        applyTopBarCollapsedDeferred(collapsed, 4);
-    }
-
-    private void applyTopBarCollapsedDeferred(boolean collapsed, int remainingAttempts) {
-        if (remainingAttempts <= 0) {
-            return;
-        }
-        javafx.application.Platform.runLater(() -> {
-            if (topBarCollapsed != collapsed) {
-                return;
-            }
-            applyTopBarCollapsed(collapsed);
-            applyTopBarCollapsedDeferred(collapsed, remainingAttempts - 1);
-        });
     }
 
     private void updateTerminalFocusLayoutStyle() {
         if (rootPane == null) {
             return;
         }
-        boolean focusedTerminalLayout = !sidebarVisible && topBarCollapsed;
+        boolean focusedTerminalLayout = focusMode;
         if (focusedTerminalLayout) {
             if (!rootPane.getStyleClass().contains("terminal-focus-layout")) {
                 rootPane.getStyleClass().add("terminal-focus-layout");
             }
         } else {
             rootPane.getStyleClass().remove("terminal-focus-layout");
-        }
-    }
-
-    /**
-     * 程序化控制 TabPane 的 tab-header-area 显隐。
-     * CSS visibility/height 对 JavaFX 内部布局无效，必须直接操作子节点。
-     * @return true 如果找到并操作了 tab-header-area 节点
-     */
-    /**
-     * 程序化控制 TabPane 的 tab-header-area 显隐。
-     *
-     * JavaFX TabPaneSkin 用绝对定位布局，setManaged(false) 不会让
-     * content area 自动扩展。必须同时把 header 的 prefHeight/maxHeight/minHeight
-     * 设为 0，Skin 在 layoutChildren 中才会把全部空间分配给 content area。
-     */
-    private boolean setTabHeaderVisible(TabPane tabPane, boolean visible) {
-        for (javafx.scene.Node node : tabPane.getChildrenUnmodifiable()) {
-            if (node.getStyleClass().contains("tab-header-area") && node instanceof Region header) {
-                header.setVisible(visible);
-                if (visible) {
-                    header.setManaged(true);
-                    header.setPrefHeight(Region.USE_COMPUTED_SIZE);
-                    header.setMaxHeight(Region.USE_PREF_SIZE);
-                    header.setMinHeight(Region.USE_PREF_SIZE);
-                } else {
-                    header.setManaged(false);
-                    header.setPrefHeight(0);
-                    header.setMaxHeight(0);
-                    header.setMinHeight(0);
-                }
-                tabPane.requestLayout();
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * 展开状态下，鼠标离开顶栏区域后延迟折叠。
-     * 在外层 TabPane 的 tab-header-area 上安装 mouse-exit 监听，
-     * 加上 topBarNode（菜单栏）的 mouse-exit 监听。
-     * 两者之一收到 mouse-entered 都取消延迟折叠。
-     */
-    private void installTopBarExitListener() {
-        boolean isWindows = System.getProperty("os.name", "").toLowerCase().contains("win");
-
-        // 找到顶栏区域的 Node（macOS/Linux 才需要，Windows 菜单栏始终可见）
-        javafx.scene.Node topBarNode = null;
-        if (!isWindows && topArea != null) {
-            topBarNode = topArea;
-        }
-
-        // 找到外层 tab-header-area
-        javafx.scene.Node outerTabHeader = null;
-        for (javafx.scene.Node node : workspaceTabs.getChildrenUnmodifiable()) {
-            if (node.getStyleClass().contains("tab-header-area")) {
-                outerTabHeader = node;
-                break;
-            }
-        }
-
-        // 给所有顶栏区域节点安装 mouse-exit/enter 监听
-        List<javafx.scene.Node> topBarNodes = new ArrayList<>();
-        if (topBarNode != null) topBarNodes.add(topBarNode);
-        if (outerTabHeader != null) topBarNodes.add(outerTabHeader);
-
-        for (javafx.scene.Node node : topBarNodes) {
-            node.setOnMouseExited(e -> {
-                if (!topBarCollapsed) {
-                    // 检查鼠标是否真的离开了所有顶栏区域节点
-                    javafx.geometry.Point2D mousePoint = new javafx.geometry.Point2D(e.getScreenX(), e.getScreenY());
-                    boolean stillInAny = topBarNodes.stream().anyMatch(n -> {
-                        if (!n.isVisible()) return false;
-                        javafx.geometry.Bounds screenBounds = n.localToScreen(n.getBoundsInLocal());
-                        return screenBounds != null && screenBounds.contains(mousePoint);
-                    });
-                    if (!stillInAny) {
-                        topBarCollapsed = true;
-                        collapseDelay.playFromStart();
-                        saveLayoutState();
-                    }
-                }
-            });
-            node.setOnMouseEntered(e -> {
-                collapseDelay.stop();
-                topBarCollapsed = false;
-                saveLayoutState();
-            });
-        }
-    }
-
-    /** 清除顶栏 exit 监听 */
-    private void removeTopBarExitListener() {
-        boolean isWindows = System.getProperty("os.name", "").toLowerCase().contains("win");
-
-        javafx.scene.Node topBarNode = null;
-        if (!isWindows && topArea != null) {
-            topBarNode = topArea;
-        }
-        if (topBarNode != null) {
-            topBarNode.setOnMouseExited(null);
-            topBarNode.setOnMouseEntered(null);
-        }
-
-        for (javafx.scene.Node node : workspaceTabs.getChildrenUnmodifiable()) {
-            if (node.getStyleClass().contains("tab-header-area")) {
-                node.setOnMouseExited(null);
-                node.setOnMouseEntered(null);
-                break;
-            }
         }
     }
 
@@ -2191,7 +1853,7 @@ public class MainWindow {
                         alert.setHeaderText(null);
                         alert.setContentText(i18nService.get("folder.maxDepthReached", maxFolderDepth));
                         themeService.applyToDialog(alert);
-                        alert.showAndWait();
+                        com.jlshell.ui.swing.SwingAlerts.showAndWait(alert, themeService, i18nService);
                         return;
                     }
                     promptFolderName(stage, i18nService.get("folder.newSub"), "")
@@ -2209,15 +1871,18 @@ public class MainWindow {
     }
 
     private java.util.Optional<String> promptFolderName(Stage stage, String title, String initial) {
-        javafx.scene.control.TextInputDialog dialog = new javafx.scene.control.TextInputDialog(initial);
-        dialog.initOwner(stage);
-        dialog.setTitle(title);
-        dialog.setHeaderText(null);
-        dialog.setContentText(i18nService.get("sftp.newFolder.prompt"));
-        themeService.applyToDialog(dialog);
-        return dialog.showAndWait()
-                .map(String::trim)
-                .filter(s -> !s.isBlank());
+        Dialog<String> dialog = new Dialog<>();
+        dialog.initOwner(stage); dialog.setTitle(title); dialog.setHeaderText(null);
+        TextField name = new TextField(initial == null ? "" : initial);
+        name.setId("folder.name"); name.setPromptText(i18nService.get("sftp.newFolder.prompt"));
+        VBox content = new VBox(8, new Label(i18nService.get("sftp.newFolder.prompt")), name);
+        content.setPadding(new Insets(18, 22, 18, 22)); dialog.getDialogPane().setContent(content);
+        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+        dialog.getDialogPane().lookupButton(ButtonType.OK).disableProperty().bind(name.textProperty().isEmpty());
+        dialog.setResultConverter(button -> button == ButtonType.OK ? name.getText().trim() : null);
+        return (com.jlshell.ui.swing.SwingDialogHost.enabled()
+                ? com.jlshell.ui.swing.SwingDialogHost.showNativeMessageAndWait(dialog, themeService, i18nService, "jlshell.folder.name", 460)
+                : dialog.showAndWait()).filter(value -> !value.isBlank());
     }
 
     private int connectTimeoutSeconds() {
@@ -2313,6 +1978,9 @@ public class MainWindow {
         preview.setEditable(false);
         preview.setWrapText(true);
         preview.setPrefSize(520, 150);
+        preview.setId("connection.share.preview");
+        preview.setPrefRowCount(7);
+        codeField.setId("connection.share.code");
 
         Runnable refreshPreview = () -> {
             try {
@@ -2332,7 +2000,8 @@ public class MainWindow {
         hint.setWrapText(true);
 
         javafx.scene.layout.GridPane grid = new javafx.scene.layout.GridPane();
-        grid.setHgap(8);
+        grid.setPadding(new Insets(20, 24, 20, 24));
+        grid.setHgap(12);
         grid.setVgap(8);
         grid.add(new Label(i18nService.get("connection.share.code")), 0, 0);
         grid.add(codeField, 1, 0);
@@ -2365,9 +2034,11 @@ public class MainWindow {
             Alert done = new Alert(Alert.AlertType.INFORMATION, i18nService.get("connection.share.copied"), ButtonType.OK);
             themeService.applyToDialog(done);
             done.initOwner(stage);
-            done.showAndWait();
+            com.jlshell.ui.swing.SwingAlerts.showAndWait(done, themeService, i18nService);
         });
-        dialog.showAndWait();
+        if (com.jlshell.ui.swing.SwingDialogHost.enabled())
+            com.jlshell.ui.swing.SwingDialogHost.showNativeAndWait(dialog, themeService, i18nService, "jlshell.connection.share.export", 680, 390);
+        else dialog.showAndWait();
     }
 
     private void editSelectedConnection(Stage stage) {
@@ -2424,7 +2095,7 @@ public class MainWindow {
                 ButtonType.OK,
                 ButtonType.CANCEL);
         themeService.applyToDialog(alert);
-        alert.showAndWait().filter(ButtonType.OK::equals).ifPresent(unused ->
+        com.jlshell.ui.swing.SwingAlerts.showAndWait(alert, themeService, i18nService).filter(ButtonType.OK::equals).ifPresent(unused ->
                 CompletableFuture.runAsync(() -> connectionProfileService.delete(selected.id()), executor)
                         .whenComplete((v, throwable) -> FxThread.run(() -> {
                             if (throwable != null) {
@@ -2601,7 +2272,6 @@ public class MainWindow {
         });
         workspaceTabs.getTabs().add(tab);
         workspaceTabs.getSelectionModel().select(tab);
-        applyTopBarCollapsedAfterTabAdded(tab);
         FxThread.run(viewHandle::requestFocus);
         viewModel.statusMessageProperty().set(i18nService.get("status.connected", profile.displayName()));
     }
@@ -2696,7 +2366,6 @@ public class MainWindow {
             });
             workspaceTabs.getTabs().add(tab);
             workspaceTabs.getSelectionModel().select(tab);
-            applyTopBarCollapsedAfterTabAdded(tab);
             log.info("Workspace tab added for session {}", sshSession.sessionId());
             tab.initialize().whenComplete((unused, t) -> FxThread.run(() -> {
                 try {
@@ -2713,7 +2382,6 @@ public class MainWindow {
                     } else {
                         log.info("Workspace initialization completed for session {}", sshSession.sessionId());
                         viewModel.statusMessageProperty().set(i18nService.get("status.connected", profile.summary()));
-                        applyTopBarCollapsedAfterTabAdded(tab);
                     }
                 } finally {
                     finishConnecting(profile);
@@ -2723,36 +2391,6 @@ public class MainWindow {
     }
 
     private record RoutedSshSession(com.jlshell.core.session.SshSession session, AutoCloseable routeLease) {
-    }
-
-    private void applyTopBarCollapsedAfterTabAdded(javafx.scene.control.Tab tab) {
-        if (!topBarCollapsed) {
-            return;
-        }
-        applyTopBarCollapsed(true);
-        applyTopBarCollapsedToTab(tab, false);
-        applyTopBarCollapsedToTabDeferred(tab, false, 4);
-    }
-
-    private void applyTopBarCollapsedToTabDeferred(javafx.scene.control.Tab tab, boolean visible, int remainingAttempts) {
-        if (remainingAttempts <= 0) {
-            return;
-        }
-        javafx.application.Platform.runLater(() -> {
-            if (topBarCollapsed == visible) {
-                return;
-            }
-            setTabHeaderVisible(workspaceTabs, visible);
-            applyTopBarCollapsedToTab(tab, visible);
-            applyTopBarCollapsedToTabDeferred(tab, visible, remainingAttempts - 1);
-        });
-    }
-
-    private void applyTopBarCollapsedToTab(javafx.scene.control.Tab tab, boolean visible) {
-        if (tab instanceof SessionWorkspaceTab swt) {
-            setTabHeaderVisible(swt.getInnerTabPane(), visible);
-            swt.setToolbarVisible(visible);
-        }
     }
 
     /**
@@ -3071,6 +2709,6 @@ public class MainWindow {
         viewModel.statusMessageProperty().set(message);
         Alert alert = new Alert(Alert.AlertType.ERROR, message, ButtonType.OK);
         themeService.applyToDialog(alert);
-        alert.showAndWait();
+        com.jlshell.ui.swing.SwingAlerts.showAndWait(alert, themeService, i18nService);
     }
 }

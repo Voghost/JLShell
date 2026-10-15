@@ -1,17 +1,24 @@
 package com.jlshell.core.model;
 
 /**
- * 终端字体配置抽象。
- * 后续 UI/terminal 模块会基于该模型实现字体切换与持久化。
+ * 终端英文字体、中文字体、字号及行距配置。
+ * family 继续作为终端网格的主字体；chineseFamily 为空表示按系统自动选择中文字体。
+ * 保留四参数构造器，兼容既有调用与旧配置。
  */
 public record FontProfile(
         String family,
         double size,
         boolean ligaturesEnabled,
-        double lineSpacing
+        double lineSpacing,
+        String chineseFamily
 ) {
 
+    public FontProfile(String family, double size, boolean ligaturesEnabled, double lineSpacing) {
+        this(family, size, ligaturesEnabled, lineSpacing, "");
+    }
+
     public FontProfile {
+        chineseFamily = chineseFamily == null ? "" : chineseFamily.strip();
         if (family == null || family.isBlank()) {
             throw new IllegalArgumentException("family must not be blank");
         }

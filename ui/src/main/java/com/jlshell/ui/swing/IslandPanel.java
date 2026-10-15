@@ -17,6 +17,9 @@ final class IslandPanel extends JPanel {
         setOpaque(false);
     }
 
+    // 子控件（终端、目录树、滚动视口）独立重绘时也必须经过本层的圆角裁剪。
+    @Override protected boolean isPaintingOrigin() { return true; }
+
     @Override
     public void paint(Graphics graphics) {
         Graphics2D g = (Graphics2D) graphics.create();

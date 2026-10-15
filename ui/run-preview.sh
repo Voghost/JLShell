@@ -26,16 +26,31 @@ if [[ ! -x "$preview_java_home/bin/java" ]] ||
 fi
 if [[ "$preview_build" == true ]]; then
     # package 不覆盖原工作目录，也不向 ~/.m2 安装同版本 UI 模块。
-    (cd "$preview_repo" && JAVA_HOME="$preview_java_home" mvn -q package -DskipTests)
+    (cd "$preview_repo" && JAVA_HOME="$preview_java_home" mvn -q -Pwith-plugins package -DskipTests)
 fi
 preview_jar="$(ls -t "$preview_repo"/app/target/jlshell-app-*.jar 2>/dev/null | head -n 1)"
 if [[ -z "$preview_jar" ]]; then echo "未找到预览 JAR，请先构建。" >&2; exit 1; fi
 preview_home="${JLSHELL_PREVIEW_HOME:-$preview_repo/ui/target/preview-home}"
 mkdir -p "$preview_home/.jlshell/plugins" "$preview_home/.jlshell/program-plugins"
 preview_home="$(cd "$preview_home" && pwd)"
+# JVM 会在运行过程中继续从 JAR 延迟加载类。不能直接运行下一次 package 会覆盖的 target 包。
+mkdir -p "$preview_repo/ui/target"
+preview_runtime="$(mktemp -d "$preview_repo/ui/target/native-preview-runtime.XXXXXX")"
+trap 'rm -rf -- "$preview_runtime"' EXIT
+cp "$preview_jar" "$preview_runtime/jlshell-app.jar"
+preview_jar="$preview_runtime/jlshell-app.jar"
+# 主程序与插件均使用本次运行的独立副本。
+preview_plugins=""
+preview_sysmon="$preview_repo/plugins/plugin-sysmon/target/plugin-sysmon-0.1.0.RELEASE-fat.jar"
+if [[ -f "$preview_sysmon" ]]; then
+    preview_plugins="$preview_runtime/plugins"
+    mkdir -p "$preview_plugins"
+    cp "$preview_sysmon" "$preview_plugins/sysmon.jar"
+fi
 echo "预览渲染器：$preview_renderer"
 echo "独立用户目录：$preview_home"
-exec "$preview_java_home/bin/java" \
+echo "独立运行包：$preview_jar"
+"$preview_java_home/bin/java" \
     --add-exports=java.desktop/sun.swing=ALL-UNNAMED \
     --add-opens=java.desktop/sun.swing=ALL-UNNAMED \
     --add-opens=java.desktop/javax.swing=ALL-UNNAMED \
@@ -43,5 +58,6 @@ exec "$preview_java_home/bin/java" \
     -Dapple.awt.application.name=JLShell \
     -Duser.home="$preview_home" \
     -Djlshell.ui.preview=true \
+    -Djlshell.preview.plugins="$preview_plugins" \
     -Djlshell.ui.renderer="$preview_renderer" \
     -jar "$preview_jar"

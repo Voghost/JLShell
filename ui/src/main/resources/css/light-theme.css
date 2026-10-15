@@ -1,5 +1,7 @@
 /* IDEA New UI light: semantic palette, shared geometry in components.css. */
 .root {
+    -jl-settings-bg: #ffffff;
+    -jl-settings-control: #f4f5f7;
     -jl-frame: #ffffff;
     -jl-canvas: #ffffff;
     -jl-panel: #f7f8fa;

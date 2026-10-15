@@ -68,6 +68,7 @@ class DialogUiSmokeTest {
         }
         static void readable(SwingFxPanel panel,String selector)throws Exception {
             fx(()-> {
+                panel.getScene().getRoot().applyCss(); panel.getScene().getRoot().layout();
                 Label label=(Label)panel.getScene().getRoot().lookup(selector);
                 assertNotNull(label); assertFalse(label.getText().isBlank());
                 Color foreground=(Color)label.getTextFill();
@@ -115,8 +116,12 @@ class DialogUiSmokeTest {
                 JDialog settings=window("jlshell.settings");
                 assertNotNull(edt(()->named(settings,"dialog.header")),"Settings must have the themed dialog header");
                 edt(()->{((JTextField)named(settings,"settings.search")).setText(i18n.get("preferences.tab.account"));return null;});Thread.sleep(300);
-                SwingFxPanel settingsPanel=panel(settings,"settings.content");
-                readable(settingsPanel,".account-status-badge");
+                edt(()->{NativeSettingsProbe.assertNative(settings);assertNotNull(NativeSettingsProbe.styled(settings,"account-status-badge"));
+                    NativeSettingsProbe.button(settings,i18n.get("account.login.password.action")).doClick();return null;});
+                JDialog login=window("jlshell.account");
+                edt(()->{NativeSettingsProbe.assertNative(login);assertFalse(NativeSettingsProbe.all(login,JPasswordField.class).isEmpty());return null;});
+                click(login,"dialog.cancel");fx(()->null);edt(()->null);
+                assertTrue(edt(settings::isEnabled));
                 capture(settings,"settings-account-"+theme.name().toLowerCase());
                 edt(()->{((JButton)named(settings,"settings.cancel")).doClick();return null;});settingsClosed.get(10,TimeUnit.SECONDS);
 
@@ -124,16 +129,10 @@ class DialogUiSmokeTest {
                 var aboutClosed=open(()->AboutDialog.show(owner,i18n,themes,checks::incrementAndGet));
                 JDialog about=window("jlshell.about");
                 assertFalse(edt(workbench.frame()::isEnabled));
-                SwingFxPanel aboutPanel=panel(about,"dialog.content");
-                readable(aboutPanel,".about-version-badge");
-                double expected=edt(()->aboutPanel.getGraphicsConfiguration().getDefaultTransform().getScaleX());
-                double actual=edt(()->{try{var field=javafx.embed.swing.JFXPanel.class.getDeclaredField("scaleFactorX");field.setAccessible(true);return field.getDouble(aboutPanel);}catch(Exception e){throw new RuntimeException(e);}});
-                assertEquals(expected,actual,.01,"Embedded forms must render at the native display scale");
+                edt(()->{NativeSettingsProbe.assertNative(about);assertTrue(NativeSettingsProbe.all(about,JLabel.class).stream().anyMatch(label->"JLShell".equals(label.getText())&&label.getFont().getSize()>=30));return null;});
                 capture(about,"about-"+theme.name().toLowerCase());
                 if(theme==AppTheme.DARK) {
-                    fx(()->{aboutPanel.getScene().getRoot().lookupAll(".button").stream().filter(Button.class::isInstance)
-                            .map(Button.class::cast).filter(button->i18n.get("menu.help.checkUpdates").equals(button.getText()))
-                            .findFirst().orElseThrow().fire();return null;});
+                    edt(()->{NativeSettingsProbe.button(about,i18n.get("menu.help.checkUpdates")).doClick();return null;});
                     aboutClosed.get(10,TimeUnit.SECONDS);
                     assertEquals(1,checks.get(),"Original check-updates action must close its dialog and run once");
                 } else close(about,aboutClosed);

@@ -10,7 +10,7 @@ import java.awt.geom.Path2D;
 
 /** 独立的 16px 线条图标，使用逻辑坐标，由 Swing 的 HiDPI 变换缩放。 */
 public record WorkbenchIcon(Kind kind) implements Icon {
-    public enum Kind { SERVER, FOLDER, PLUGIN, ADD, RUN, REFRESH, SETTINGS, CLOSE, CHECK, TERMINAL, PROJECT, EDIT, DELETE, SEARCH, MORE, HIDE, DOCK, PIN, MENU, MONITOR, USER, HELP, LAYOUT, SPLIT_RIGHT, SPLIT_DOWN, CHEVRON_DOWN, FOCUS, EXPAND_ALL, COLLAPSE_ALL }
+    public enum Kind { SERVER, SSH, FOLDER, PLUGIN, ADD, RUN, REFRESH, SETTINGS, CLOSE, CHECK, TERMINAL, PROJECT, EDIT, DELETE, SEARCH, MORE, HIDE, DOCK, PIN, MENU, MONITOR, USER, HELP, INFO, LAYOUT, SPLIT_RIGHT, SPLIT_DOWN, CHEVRON_DOWN, FOCUS, EXPAND_ALL, COLLAPSE_ALL }
     public int getIconWidth() { return 16; }
     public int getIconHeight() { return 16; }
 
@@ -31,6 +31,12 @@ public record WorkbenchIcon(Kind kind) implements Icon {
                     ? "secondary" : "icon"));
             if (IdeaIconShapes.paint(kind, g)) return;
             switch (kind) {
+                case INFO -> {
+                    // 复用 resources/icons/info-circle.svg 的圆圈 + i 轮廓。
+                    g.drawOval(1, 1, 14, 14);
+                    g.fill(new java.awt.geom.Ellipse2D.Double(7.25, 4.5, 1.5, 1.5));
+                    g.fill(new java.awt.geom.RoundRectangle2D.Double(7.375, 7, 1.25, 4.5, .25, .25));
+                }
                 case CHEVRON_DOWN -> {
                     // IDEA expui/general/chevronDown.svg：16px、1px 圆角描边。
                     Path2D arrow = new Path2D.Double();
@@ -44,7 +50,29 @@ public record WorkbenchIcon(Kind kind) implements Icon {
                 case EXPAND_ALL -> { g.drawLine(8, 8, 8, 1); g.drawLine(5, 4, 8, 1); g.drawLine(11, 4, 8, 1); g.drawLine(8, 8, 8, 15); g.drawLine(5, 12, 8, 15); g.drawLine(11, 12, 8, 15); }
                 case COLLAPSE_ALL -> { g.drawLine(8, 1, 8, 8); g.drawLine(5, 5, 8, 8); g.drawLine(11, 5, 8, 8); g.drawLine(8, 15, 8, 8); g.drawLine(5, 11, 8, 8); g.drawLine(11, 11, 8, 8); }
                 case DOCK -> { g.drawRoundRect(2, 2, 12, 12, 2, 2); g.drawLine(2, 10, 14, 10); }
-                case PIN -> { g.drawLine(5, 2, 11, 2); g.drawLine(6, 2, 6, 6); g.drawLine(10, 2, 10, 6); g.drawLine(4, 6, 12, 6); g.drawLine(8, 6, 8, 11); g.drawLine(8, 11, 5, 14); }
+                case PIN -> {
+                    // Lucide pin.svg (ISC)，按原 24px 几何缩放；出处及许可见 third-party/lucide-LICENSE.txt。
+                    g.scale(2.0 / 3, 2.0 / 3);
+                    g.setStroke(new BasicStroke(2, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    if (component instanceof javax.swing.AbstractButton button && button.isSelected() && component.isEnabled())
+                        g.setColor(javax.swing.UIManager.getColor("Component.focusColor"));
+                    Path2D pin = new Path2D.Double();
+                    pin.moveTo(9, 10.76);
+                    pin.curveTo(9, 11.52, 8.57, 12.21, 7.89, 12.55);
+                    pin.lineTo(6.11, 13.45);
+                    pin.curveTo(5.43, 13.79, 5, 14.48, 5, 15.24);
+                    pin.lineTo(5, 16); pin.quadTo(5, 17, 6, 17);
+                    pin.lineTo(18, 17); pin.quadTo(19, 17, 19, 16);
+                    pin.lineTo(19, 15.24); pin.curveTo(19, 14.48, 18.57, 13.79, 17.89, 13.45);
+                    pin.lineTo(16.11, 12.55); pin.curveTo(15.43, 12.21, 15, 11.52, 15, 10.76);
+                    pin.lineTo(15, 7); pin.quadTo(15, 6, 16, 6);
+                    pin.curveTo(17.105, 6, 18, 5.105, 18, 4);
+                    pin.curveTo(18, 2.895, 17.105, 2, 16, 2);
+                    pin.lineTo(8, 2); pin.curveTo(6.895, 2, 6, 2.895, 6, 4);
+                    pin.curveTo(6, 5.105, 6.895, 6, 8, 6);
+                    pin.quadTo(9, 6, 9, 7); pin.closePath();
+                    g.draw(pin); g.drawLine(12, 17, 12, 22);
+                }
                 case MENU -> { for (int i = 4; i <= 12; i += 4) g.drawLine(3, i, 13, i); }
                 case MONITOR -> { g.drawRoundRect(1, 2, 14, 11, 2, 2); g.drawLine(4, 10, 4, 7); g.drawLine(8, 10, 8, 5); g.drawLine(12, 10, 12, 8); }
                 case SPLIT_RIGHT, SPLIT_DOWN -> {

@@ -30,8 +30,29 @@ public final class SwingDialogHost {
 
     public static <R> Optional<R> showAndWait(javafx.scene.control.Dialog<R> model, ThemeService themes,
                                    I18nService i18n, String name, int width, int height) {
+        return showAndWait(model, themes, i18n, name, width, height, false, false);
+    }
+
+    public static <R> Optional<R> showNativeAndWait(javafx.scene.control.Dialog<R> model, ThemeService themes,
+                                      I18nService i18n, String name, int width, int height) {
+        return showAndWait(model, themes, i18n, name, width, height, true, false);
+    }
+
+    /** Message dialogs grow with their wrapped text, with scrolling only at the screen limit. */
+    public static <R> Optional<R> showNativeMessageAndWait(javafx.scene.control.Dialog<R> model, ThemeService themes,
+                                      I18nService i18n, String name, int width) {
+        return showAndWait(model, themes, i18n, name, width, 0, true, true);
+    }
+
+    private static <R> Optional<R> showAndWait(javafx.scene.control.Dialog<R> model, ThemeService themes,
+                                   I18nService i18n, String name, int width, int height, boolean nativeForm, boolean fitContent) {
         if (!Platform.isFxApplicationThread()) throw new IllegalStateException("Dialog model requires FX thread");
         Node node = model.getDialogPane().getContent();
+        SwingFormRenderer renderer = nativeForm ? new SwingFormRenderer(i18n) : null;
+        java.util.function.Supplier<JComponent> nativeContent = nativeForm ? renderer.prepare(node) : null;
+        var theme = themes.currentTheme();
+        String accent = themes.accentColor().color(), family = themes.uiFontFamily();
+        int fontSize = themes.uiFontSize();
         model.getDialogPane().setContent(null);
         List<ButtonSpec> buttons = model.getDialogPane().getButtonTypes().stream().map(type -> {
             var source = (javafx.scene.control.Button) model.getDialogPane().lookupButton(type);
@@ -80,6 +101,7 @@ public final class SwingDialogHost {
             javafx.stage.Window.getWindows().removeListener(modalListener);
             if (node.getParent() instanceof BorderPane wrapper && wrapper.getCenter() == node) wrapper.setCenter(null);
             if (content.get() != null) content.get().close();
+            if (renderer != null) renderer.close();
             model.getDialogPane().setContent(node);
             Platform.exitNestedEventLoop(loop, null);
         };
@@ -89,26 +111,47 @@ public final class SwingDialogHost {
             Object oldModal = owner instanceof RootPaneContainer host
                     ? host.getRootPane().getClientProperty("jlshell.settingsModal") : null;
             try {
+                SwingTheme.install(theme, accent, family, fontSize);
                 JDialog dialog = new JDialog(owner, model.getTitle(), Dialog.ModalityType.MODELESS);
                 dialog.setName(name);
                 dialog.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
                 view.set(dialog);
                 SwingDialogChrome.configure(dialog);
-                SwingFxPanel panel = new SwingFxPanel(themes);
-                content.set(panel);
-                panel.setName("dialog.content");
-                panel.setOwnsDialogKeys(true);
-                panel.setDialogView(node);
-                dialog.add(panel, BorderLayout.CENTER);
+                SwingFxPanel panel = nativeForm ? null : new SwingFxPanel(themes);
+                JComponent body;
+                if (nativeForm) {
+                    body = nativeContent.get();
+                    body.putClientProperty("jlshell.formModel", node);
+                    body.putClientProperty("jlshell.formFields", renderer.models());
+                } else {
+                    content.set(panel);
+                    panel.setOwnsDialogKeys(true);
+                    panel.setDialogView(node);
+                    body = panel;
+                }
+                body.setName("dialog.content");
+                JScrollPane messageScroll = fitContent ? new JScrollPane(new MessageBody(body)) : null;
+                if (messageScroll != null) {
+                    messageScroll.setName("dialog.messageScroll");
+                    messageScroll.setBorder(BorderFactory.createEmptyBorder());
+                    messageScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+                    messageScroll.getVerticalScrollBar().setUnitIncrement(16);
+                }
+                dialog.add(messageScroll == null ? body : messageScroll, BorderLayout.CENTER);
                 JPanel footer = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 10));
                 footer.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, SwingTheme.color("border")));
                 for (ButtonSpec spec : buttons) {
                     JButton button = new JButton(spec.text());
-                    button.setName(spec.type() == ButtonType.CLOSE ? "dialog.close"
-                            : spec.type().getButtonData().isDefaultButton() ? "dialog.ok" : "dialog.cancel");
+                    Object explicitName = spec.source().getProperties().get("swing.name");
+                    button.setName(explicitName instanceof String id ? id : spec.type() == ButtonType.CLOSE ? "dialog.close"
+                            : spec.type().getButtonData().isDefaultButton() ? "dialog.ok"
+                            : spec.type().getButtonData().isCancelButton() ? "dialog.cancel"
+                            : "dialog.action." + buttons.indexOf(spec));
                     button.setEnabled(!spec.disabled());
                     button.addActionListener(event -> FxThread.run(spec.source()::fire));
                     nativeButtons.put(spec.type(), button);
+                    button.putClientProperty("jlshell.primary", spec.type().getButtonData().isDefaultButton());
+                    if (nativeForm) IdeaFormStyle.apply(button);
                     footer.add(button);
                     if (spec.type().getButtonData().isDefaultButton()) {
                         button.putClientProperty("JButton.buttonType", "default");
@@ -119,7 +162,7 @@ public final class SwingDialogHost {
                 Runnable requestClose = () -> FxThread.run(model::close);
                 dialog.getRootPane().registerKeyboardAction(event -> requestClose.run(),
                         KeyStroke.getKeyStroke("ESCAPE"), JComponent.WHEN_IN_FOCUSED_WINDOW);
-                FxThread.run(() -> {
+                if (panel != null) FxThread.run(() -> {
                     buttons.stream().filter(spec -> spec.type().getButtonData().isDefaultButton()).findFirst()
                             .ifPresent(spec -> panel.getScene().getAccelerators().put(
                                     new javafx.scene.input.KeyCodeCombination(javafx.scene.input.KeyCode.ENTER), spec.source()::fire));
@@ -137,9 +180,27 @@ public final class SwingDialogHost {
                         FxThread.run(cleanup);
                     }
                 });
-                dialog.setMinimumSize(new Dimension(Math.min(width, 700), Math.min(height, 460)));
                 Rectangle screen = dialog.getGraphicsConfiguration().getBounds();
-                dialog.setSize(Math.min(width, screen.width - 80), Math.min(height, screen.height - 80));
+                Insets screenInsets = Toolkit.getDefaultToolkit().getScreenInsets(dialog.getGraphicsConfiguration());
+                int availableHeight = screen.height - screenInsets.top - screenInsets.bottom - 80;
+                int targetWidth = Math.min(width, screen.width - screenInsets.left - screenInsets.right - 80);
+                if (fitContent) {
+                    dialog.setSize(targetWidth, availableHeight);
+                    dialog.validate();
+                    measureWrappedContent(body);
+                    messageScroll.setPreferredSize(new Dimension(0, body.getPreferredSize().height));
+                    dialog.pack();
+                    int naturalHeight = dialog.getHeight();
+                    dialog.setMinimumSize(new Dimension(Math.min(targetWidth, 360), Math.min(naturalHeight, 140)));
+                    dialog.setSize(targetWidth, Math.min(naturalHeight, availableHeight));
+                    dialog.validate();
+                    // A scrollbar takes some width; measure wrapping once more at the final viewport width.
+                    measureWrappedContent(body);
+                    messageScroll.getViewport().getView().revalidate();
+                } else {
+                    dialog.setMinimumSize(new Dimension(Math.min(width, 560), Math.min(height, 280)));
+                    dialog.setSize(targetWidth, Math.min(height, availableHeight));
+                }
                 dialog.setLocationRelativeTo(owner);
                 if (owner instanceof RootPaneContainer host) host.getRootPane().putClientProperty("jlshell.settingsModal", true);
                 if (owner != null) owner.setEnabled(false);
@@ -158,4 +219,29 @@ public final class SwingDialogHost {
         if (failure.get() != null) throw new IllegalStateException("Cannot display " + name, failure.get());
         return Optional.ofNullable(model.getResult());
     }
+    private static void measureWrappedContent(Component component) {
+        if (component instanceof javax.swing.JTextArea text && !text.isEditable() && text.getLineWrap()) {
+            text.setRows(0);
+            text.setPreferredSize(null);
+            Dimension preferred = text.getPreferredSize();
+            text.setPreferredSize(new Dimension(Math.max(1, text.getWidth()), preferred.height));
+        } else if (component instanceof Container parent) {
+            for (Component child : parent.getComponents()) measureWrappedContent(child);
+            if (parent.getLayout() instanceof LayoutManager2 layout) layout.invalidateLayout(parent);
+        }
+    }
+
+    private static final class MessageBody extends JPanel implements Scrollable {
+        MessageBody(JComponent content) {
+            super(new BorderLayout());
+            setOpaque(false);
+            add(content, BorderLayout.NORTH);
+        }
+        public Dimension getPreferredScrollableViewportSize() { return getPreferredSize(); }
+        public int getScrollableUnitIncrement(Rectangle visible, int orientation, int direction) { return 16; }
+        public int getScrollableBlockIncrement(Rectangle visible, int orientation, int direction) { return Math.max(16, visible.height - 16); }
+        public boolean getScrollableTracksViewportWidth() { return true; }
+        public boolean getScrollableTracksViewportHeight() { return false; }
+    }
+
 }

@@ -25,6 +25,73 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @EnabledIfSystemProperty(named = "jlshell.ui.smoke", matches = "true")
 class SwingWorkspaceSplitTest {
+    @Test void splitTabsDistinguishTheActiveGroupAndFollowBodyAndHeaderFocus() throws Exception {
+        var reference = new java.util.concurrent.atomic.AtomicReference<SwingWorkbench>();
+        var first = new JTextArea("First terminal body");
+        var second = new JTextArea("Second terminal body");
+        var active = new java.util.concurrent.atomic.AtomicReference<Object>();
+        Runnable noop = () -> {};
+        try {
+            SwingExecutors.runOnEdtAsync(() -> {
+                SwingTheme.install(AppTheme.DARK, "#3574f0", "SansSerif", 13);
+                var actions = new SwingWorkbench.Actions(noop, noop, noop, noop, noop, noop, noop, noop, noop,
+                        connection -> fail("Changing group focus must not connect"), items -> {}, project -> {}, folders -> {}, active::set,
+                        (tab, position) -> {}, (items, folder) -> {},
+                        (item, reply) -> reply.accept(List.of()), (tab, reply) -> reply.accept(List.of()));
+                var view = new SwingWorkbench(actions, Map.of()); reference.set(view);
+                view.addTab("first", "First", first, noop); view.addTab("second", "Second", second, noop);
+                view.frame().setAlwaysOnTop(true);
+                view.show(); view.splitTab("first", JSplitPane.VERTICAL_SPLIT); view.frame().validate();
+                assertEquals(true, group(first).getClientProperty("JLShell.activeGroup"));
+                assertEquals(false, group(second).getClientProperty("JLShell.activeGroup"));
+                second.requestFocusInWindow();
+            }).get(15, TimeUnit.SECONDS);
+            Point body = SwingExecutors.supplyOnEdtAsync(() -> {
+                reference.get().frame().validate();
+                Point point = second.getLocationOnScreen();
+                point.translate(second.getWidth() / 2, Math.min(30, second.getHeight() / 2));
+                return point;
+            }).get(10, TimeUnit.SECONDS);
+            java.awt.Robot robot = new java.awt.Robot();
+            robot.mouseMove(body.x, body.y);
+            robot.mousePress(java.awt.event.InputEvent.BUTTON1_DOWN_MASK);
+            robot.mouseRelease(java.awt.event.InputEvent.BUTTON1_DOWN_MASK);
+            robot.waitForIdle();
+            boolean focused = false;
+            for (int attempt = 0; attempt < 80; attempt++) {
+                focused = SwingExecutors.supplyOnEdtAsync(() -> second.isFocusOwner()
+                        && Boolean.TRUE.equals(group(second).getClientProperty("JLShell.activeGroup"))).get(5, TimeUnit.SECONDS);
+                if (focused) break;
+                Thread.sleep(25);
+            }
+            assertTrue(focused, "Focusing a split body must activate its tab group");
+            SwingExecutors.runOnEdtAsync(() -> {
+                assertEquals("second", active.get());
+                assertEquals(false, group(first).getClientProperty("JLShell.activeGroup"));
+                assertNotEquals(UIManager.getColor("JLShell.tabSelection"), UIManager.getColor("JLShell.tabInactiveSelection"));
+                Component header = ((Container) group(first).getTabComponentAt(0)).getComponent(0);
+                header.dispatchEvent(new MouseEvent(header, MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(),
+                        MouseEvent.BUTTON1_DOWN_MASK, 8, 8, 1, false, MouseEvent.BUTTON1));
+                header.dispatchEvent(new MouseEvent(header, MouseEvent.MOUSE_RELEASED, System.currentTimeMillis(),
+                        0, 8, 8, 1, false, MouseEvent.BUTTON1));
+                assertEquals(true, group(first).getClientProperty("JLShell.activeGroup"));
+                assertEquals(false, group(second).getClientProperty("JLShell.activeGroup"));
+                assertEquals("first", active.get());
+                assertSame(first.getParent(), group(first).getSelectedComponent());
+                assertSame(second.getParent(), group(second).getSelectedComponent());
+                for (AppTheme theme : List.of(AppTheme.DARK, AppTheme.LIGHT)) {
+                    if (theme == AppTheme.LIGHT) reference.get().applyTheme(theme, "#3574f0", "SansSerif", 13);
+                    var frame = reference.get().frame();
+                    var image = new java.awt.image.BufferedImage(frame.getWidth(), frame.getHeight(), java.awt.image.BufferedImage.TYPE_INT_RGB);
+                    var graphics = image.createGraphics(); frame.paintAll(graphics); graphics.dispose();
+                    var output = java.nio.file.Path.of("target/review/split-tab-focus-" + theme.name().toLowerCase() + ".png");
+                    try { java.nio.file.Files.createDirectories(output.getParent()); javax.imageio.ImageIO.write(image, "png", output.toFile()); }
+                    catch (java.io.IOException error) { throw new java.io.UncheckedIOException(error); }
+                }
+            }).get(15, TimeUnit.SECONDS);
+        } finally { if (reference.get() != null) SwingExecutors.runOnEdtAsync(() -> reference.get().close()).get(15, TimeUnit.SECONDS); }
+    }
+
     @Test
     void workspaceDropZonesResolveFourSplitDirectionsAndCenterTransfer() throws Exception {
         SwingExecutors.runOnEdtAsync(() -> {
@@ -37,6 +104,10 @@ class SwingWorkspaceSplitTest {
             group.doLayout();
             Rectangle bounds = SwingUtilities.convertRectangle(group.getParent(), group.getBounds(), layout);
             Rectangle content = group.getComponentAt(0).getBounds();
+            for (int x : new int[]{2, bounds.width / 2, bounds.width - 2})
+                assertEquals(WorkspaceSplitLayout.DropSide.CENTER,
+                        layout.dropLocation(new Point(bounds.x + x, bounds.y + content.y / 2)).side(),
+                        "The full tab header, including both edges, must never be a split target");
             assertEquals(WorkspaceSplitLayout.DropSide.LEFT,
                     layout.dropLocation(new Point(bounds.x + 2, bounds.y + bounds.height / 2)).side());
             assertEquals(WorkspaceSplitLayout.DropSide.RIGHT,
@@ -167,6 +238,13 @@ class SwingWorkspaceSplitTest {
                 WorkspaceSplitLayout layout = layout(view.frame());
                 Component firstHost = first.getParent();
                 JTabbedPane initial = group(first);
+                int headerY = Math.max(1, initial.getSelectedComponent().getY() / 2);
+                for (int x : new int[]{2, initial.getWidth() - 2}) {
+                    dragToWorkspacePoint(initial, firstHost, x, headerY);
+                    assertEquals(1, layout.groups().size(), "Dragging along either end of the tab header must only reorder");
+                    assertSame(initial, group(first));
+                    assertSame(firstHost, first.getParent(), "Reordering must preserve the existing terminal host");
+                }
                 dragToWorkspacePoint(initial, firstHost, initial.getWidth() - 2, initial.getHeight() / 2);
                 assertEquals(2, layout.groups().size());
                 assertEquals(JSplitPane.HORIZONTAL_SPLIT, ((JSplitPane) group(first).getParent()).getOrientation());

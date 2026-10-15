@@ -2,7 +2,6 @@ package com.jlshell.ui.view;
 
 import java.util.concurrent.CompletableFuture;
 
-import com.jlshell.core.model.ConnectionRequest;
 import com.jlshell.core.model.SessionState;
 import com.jlshell.core.service.AppSettingsService;
 import com.jlshell.core.service.FontProfileService;
@@ -72,12 +71,13 @@ public class SessionWorkspaceTab extends Tab {
     private final AppSettingsService appSettingsService;
 
     private boolean filePaneInitialized;
+    private boolean nativeFiles;
     private Tab pluginsTab;
     private PluginsTabView pluginsTabView;
     private final ChangeListener<java.util.Locale> localeListener;
     /** SFTP 面板，首次激活时创建 */
     private SftpBrowserPane sftpPane;
-    /** 内层 TabPane（Terminal / Files / Plugins），用于折叠顶栏时控制 tab-header 显隐 */
+    /** 会话内容模型，保存终端、文件和插件标签。 */
     private final TabPane innerTabPane;
 
     public SessionWorkspaceTab(
@@ -128,17 +128,12 @@ public class SessionWorkspaceTab extends Tab {
                 sessionId, connectionProfile.id(), connectionProfile.projectId(), Instant.now()));
 
         this.terminalWorkspaceView = new TerminalWorkspaceView(
-                sessionId,
                 sshSession,
                 terminalViewFactory,
                 fontProfileService,
                 appSettingsService,
                 i18nService,
-                themeService,
-                pluginManager,
-                capabilityBus,
-                sftpService,
-                storageFactory
+                themeService
         );
 
         Tab terminalTab = new Tab(i18nService.get("workspace.terminal"), terminalWorkspaceView);
@@ -155,7 +150,6 @@ public class SessionWorkspaceTab extends Tab {
         TabPane workspaceTabs = new TabPane(terminalTab, filesTab);
         workspaceTabs.getStyleClass().add("session-inner-tabs");
         this.innerTabPane = workspaceTabs;
-        terminalWorkspaceView.setWorkspaceTabPane(workspaceTabs);
 
         // 注册重连回调：断连后点击"重新连接"时触发
         terminalWorkspaceView.setOnReconnect(this::reconnect);
@@ -165,8 +159,9 @@ public class SessionWorkspaceTab extends Tab {
             pluginsTab.setClosable(false);
             pluginsTabView = new PluginsTabView(
                     pluginManager, programSessionRegistry, sessionId, sshSession, workspaceTabs,
-                    i18nService, themeService, sftpService, capabilityBus, storageFactory);
+                    i18nService, themeService, sftpService, capabilityBus, storageFactory, appSettingsService);
             pluginsTab.setContent(pluginsTabView);
+            pluginsTab.getProperties().put(PluginsTabView.PINNED_SHORTCUTS, pluginsTabView.getProperties().get(PluginsTabView.PINNED_SHORTCUTS));
             workspaceTabs.getTabs().add(pluginsTab);
         }
 
@@ -196,7 +191,6 @@ public class SessionWorkspaceTab extends Tab {
         if (pluginManager != null) {
             pluginManager.deactivateSession(sshSession.sessionId().toString());
         }
-        terminalWorkspaceView.stopPlugins();
         if (pluginsTabView != null) {
             pluginsTabView.dispose();
             pluginsTabView = null;
@@ -242,7 +236,7 @@ public class SessionWorkspaceTab extends Tab {
      * 文件页签首次激活时再创建 SFTP 面板，避免连接瞬间同时初始化终端和文件管理导致界面卡顿。
      */
     private void initializeFilePane(Tab filesTab) {
-        if (filePaneInitialized) {
+        if (nativeFiles || filePaneInitialized) {
             return;
         }
         filePaneInitialized = true;
@@ -250,6 +244,13 @@ public class SessionWorkspaceTab extends Tab {
         // 连接终端 cwd 属性，实现"跟随终端目录"
         sftpPane.setTerminalCwdProperty(terminalWorkspaceView.cwdProperty());
         filesTab.setContent(sftpPane);
+    }
+
+    /** Native host owns file rendering; retain tab selection only as navigation state. FX thread. */
+    public java.util.function.Supplier<com.jlshell.ui.swing.SwingSftpBrowser> prepareNativeFiles() {
+        nativeFiles = true;
+        return com.jlshell.ui.swing.SwingSftpBrowser.prepare(sshSession, sftpService, i18nService,
+                connectionProfile.defaultRemotePath(), terminalWorkspaceView.cwdProperty());
     }
 
     /** 返回内层 TabPane（Terminal / Files / Plugins） */
@@ -276,11 +277,6 @@ public class SessionWorkspaceTab extends Tab {
     }
 
     /** 控制终端工作区顶部插件与字体工具栏的显隐。 */
-    public void setToolbarVisible(boolean visible) {
-        if (terminalWorkspaceView != null) {
-            terminalWorkspaceView.setToolbarVisible(visible);
-        }
-    }
 
     /** 控制终端底部实时状态栏的显隐。 */
     public void setStatusBarVisible(boolean visible) {
@@ -301,7 +297,6 @@ public class SessionWorkspaceTab extends Tab {
         if (pluginManager != null) {
             pluginManager.deactivateSession(sshSession.sessionId().toString());
         }
-        terminalWorkspaceView.stopPlugins();
         if (pluginsTabView != null) {
             pluginsTabView.stopPlugins();
         }
@@ -355,11 +350,9 @@ public class SessionWorkspaceTab extends Tab {
                                 newSessionId, connectionProfile.id(),
                                 connectionProfile.projectId(), Instant.now()));
                         TerminalWorkspaceView newView = new TerminalWorkspaceView(
-                                newSessionId, newSession, terminalViewFactory, fontProfileService,
-                                appSettingsService, i18nService, themeService, pluginManager,
-                                capabilityBus, sftpService, storageFactory
+                                newSession, terminalViewFactory, fontProfileService,
+                                appSettingsService, i18nService, themeService
                         );
-                        newView.setWorkspaceTabPane(innerTabPane);
                         newView.setOnReconnect(this::reconnect);
                         this.terminalWorkspaceView = newView;
 
@@ -423,7 +416,8 @@ public class SessionWorkspaceTab extends Tab {
         pluginsTabView = new PluginsTabView(
                 pluginManager, programSessionRegistry, newSessionId, sshSession, innerTabPane,
                 i18nService, themeService,
-                sftpService, capabilityBus, storageFactory);
+                sftpService, capabilityBus, storageFactory, appSettingsService);
         pluginsTab.setContent(pluginsTabView);
+        pluginsTab.getProperties().put(PluginsTabView.PINNED_SHORTCUTS, pluginsTabView.getProperties().get(PluginsTabView.PINNED_SHORTCUTS));
     }
 }

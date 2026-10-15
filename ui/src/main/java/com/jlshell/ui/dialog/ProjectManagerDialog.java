@@ -243,7 +243,7 @@ public class ProjectManagerDialog {
                     ButtonType.OK, ButtonType.CANCEL);
             confirm.setHeaderText(i18n.get("project.switch.confirm", selected.name()));
             themeService.applyToDialog(confirm);
-            confirm.showAndWait().filter(ButtonType.OK::equals).ifPresent(unused -> {
+            com.jlshell.ui.swing.SwingAlerts.showAndWait(confirm, themeService, i18n).filter(ButtonType.OK::equals).ifPresent(unused -> {
                 if (onSwitchProject != null) onSwitchProject.accept(selected.id());
                 dialog.close();
             });
@@ -299,7 +299,7 @@ public class ProjectManagerDialog {
                     i18n.get("project.action.deleteConfirm").replace("{0}", selected.name()),
                     ButtonType.YES, ButtonType.NO);
             themeService.applyToDialog(confirm);
-            confirm.showAndWait().filter(b -> b == ButtonType.YES).ifPresent(b -> {
+            com.jlshell.ui.swing.SwingAlerts.showAndWait(confirm, themeService, i18n).filter(b -> b == ButtonType.YES).ifPresent(b -> {
                 service.deleteProject(selected.id());
                 refreshProjectItems(items, service, i18n);
                 nameField.clear();
@@ -938,7 +938,7 @@ public class ProjectManagerDialog {
         if (owner.getDialogPane().getScene() != null) {
             alert.initOwner(owner.getDialogPane().getScene().getWindow());
         }
-        alert.showAndWait();
+        com.jlshell.ui.swing.SwingAlerts.showAndWait(alert, themeService, i18n);
     }
 
     private static String showProjectPackageCodeDialog(Dialog<?> owner, I18nService i18n,
@@ -974,6 +974,6 @@ public class ProjectManagerDialog {
         if (owner.getDialogPane().getScene() != null) {
             alert.initOwner(owner.getDialogPane().getScene().getWindow());
         }
-        alert.showAndWait();
+        com.jlshell.ui.swing.SwingAlerts.showAndWait(alert, themeService, i18n);
     }
 }

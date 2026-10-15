@@ -11,18 +11,16 @@ import java.util.List;
 public final class TerminalPopupBridge {
     private TerminalPopupBridge() {}
     public static void install(Component component) {
-        install(component, null, null, null, null);
+        install(component, null, null);
     }
-    public static void install(Component component, String terminalSettingsLabel, Runnable terminalSettings,
-                               String pluginLabel, Runnable pluginSettings) {
+    public static void install(Component component, String terminalSettingsLabel, Runnable terminalSettings) {
         if (component instanceof RefreshableTerminalPanel panel) panel.setPopupPresenter((invoker, x, y, actions) ->
-                show(invoker, x, y, actions, terminalSettingsLabel, terminalSettings, pluginLabel, pluginSettings));
+                show(invoker, x, y, actions, terminalSettingsLabel, terminalSettings));
         if (component instanceof Container container) for (Component child : container.getComponents())
-            install(child, terminalSettingsLabel, terminalSettings, pluginLabel, pluginSettings);
+            install(child, terminalSettingsLabel, terminalSettings);
     }
     private static void show(Component invoker, int x, int y, List<RefreshableTerminalPanel.PopupAction> actions,
-                             String terminalSettingsLabel, Runnable terminalSettings,
-                             String pluginLabel, Runnable pluginSettings) {
+                             String terminalSettingsLabel, Runnable terminalSettings) {
         List<IdeaListPopup.Row> rows = new ArrayList<>();
         String group = null;
         for (var action : actions) {
@@ -31,15 +29,9 @@ public final class TerminalPopupBridge {
                     action.enabled(), List.of(), action.action()));
             group = null;
         }
-        if (terminalSettings != null || pluginSettings != null) {
-            group = "";
-            if (terminalSettings != null) {
-                rows.add(new IdeaListPopup.Row(terminalSettingsLabel, null, null, "", group,
-                        true, List.of(), terminalSettings));
-                group = null;
-            }
-            if (pluginSettings != null) rows.add(new IdeaListPopup.Row(pluginLabel, null, null, "", group,
-                    true, List.of(), pluginSettings));
+        if (terminalSettings != null) {
+            rows.add(new IdeaListPopup.Row(terminalSettingsLabel, null, null, "", "",
+                    true, List.of(), terminalSettings));
         }
         new IdeaListPopup(rows, 190, false, "").show(invoker, x, y);
     }

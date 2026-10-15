@@ -16,13 +16,20 @@ final class IdeaPopupSurface extends JPanel {
     static final int SHADOW = 10;
     private static final int RADIUS = 8;
     private final boolean translucent;
+    private final String backgroundKey, borderKey;
 
     IdeaPopupSurface(JComponent content, boolean translucent) {
+        this(content, translucent, false);
+    }
+
+    IdeaPopupSurface(JComponent content, boolean translucent, boolean tooltip) {
         super(new BorderLayout());
+        backgroundKey = tooltip ? "tooltip" : "popup";
+        borderKey = tooltip ? "tooltipBorder" : "popupBorder";
         this.translucent = translucent;
         setName("idea.popupSurface");
         setOpaque(!translucent);
-        setBackground(SwingTheme.color("popup"));
+        setBackground(SwingTheme.color(backgroundKey));
         int margin = translucent ? SHADOW : 0;
         setBorder(BorderFactory.createEmptyBorder(margin + 1, margin + 1, margin + 1, margin + 1));
         add(content);
@@ -41,7 +48,7 @@ final class IdeaPopupSurface extends JPanel {
                             width + spread * 2, height + spread * 2, (RADIUS + spread) * 2, (RADIUS + spread) * 2));
                 }
             }
-            g.setColor(getBackground());
+            g.setColor(SwingTheme.color(backgroundKey));
             g.fill(bodyShape(g));
         } finally { g.dispose(); }
     }
@@ -56,7 +63,7 @@ final class IdeaPopupSurface extends JPanel {
         g = (Graphics2D) graphics.create();
         try {
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g.setColor(SwingTheme.color("popupBorder"));
+            g.setColor(SwingTheme.color(borderKey));
             // 对应 RectanglePainter2D.DRAW 的 INSIDE 分支：一次填充外/内轮廓之差。
             // 坐标与线宽按 PaintUtil.alignToInt 对齐设备像素，分数缩放也不产生半像素亮边。
             var outer = bodyShape(g);

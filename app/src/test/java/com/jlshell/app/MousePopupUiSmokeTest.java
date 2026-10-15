@@ -157,25 +157,39 @@ class MousePopupUiSmokeTest {
             mouseRow(popup(), "偏好设置");
             JDialog dialog = settings();
             assertFalse(edt(workbench.frame()::isEnabled), "Settings must still block its host window");
-            SwingFxPanel panel = edt(() -> (SwingFxPanel) named(dialog, "settings.content"));
-            fx(() -> { panel.getScene().getRoot().applyCss(); panel.getScene().getRoot().layout(); return null; });
-            ComboBox<?> combo = fx(() -> panel.getScene().getRoot().lookupAll(".combo-box").stream()
-                    .filter(ComboBox.class::isInstance).map(ComboBox.class::cast)
-                    .filter(candidate -> candidate.getItems().equals(javafx.collections.FXCollections.observableArrayList("Dark", "Light")))
-                    .findFirst().orElseThrow());
-            javafx.geometry.Bounds bounds = fx(() -> combo.localToScene(combo.getBoundsInLocal()));
-            Point origin = edt(panel::getLocationOnScreen);
-            mouse(new Point(origin.x + (int) bounds.getMaxX() - 15, origin.y + (int) ((bounds.getMinY() + bounds.getMaxY()) / 2)));
-            assertTrue(fx(combo::isShowing), "Embedded theme dropdown must open on mouse click");
-            ListCell<?> darkCell = fx(() -> javafx.stage.Window.getWindows().stream().filter(javafx.stage.PopupWindow.class::isInstance)
-                    .filter(javafx.stage.Window::isShowing)
-                    .flatMap(window -> window.getScene().getRoot().lookupAll(".list-cell").stream())
-                    .filter(ListCell.class::isInstance).map(ListCell.class::cast)
-                    .filter(cell -> "Dark".equals(cell.getText()) && cell.localToScreen(cell.getBoundsInLocal()) != null)
-                    .findFirst().orElseThrow());
-            javafx.geometry.Bounds option = fx(() -> darkCell.localToScreen(darkCell.getBoundsInLocal()));
-            mouse(new Point((int) ((option.getMinX() + option.getMaxX()) / 2), (int) ((option.getMinY() + option.getMaxY()) / 2)));
-            assertEquals("Dark", fx(combo::getValue), "Mouse must select the embedded theme option");
+            JComboBox<?> combo = edt(() -> (JComboBox<?>)named(dialog,"settings-theme"));
+            mouse(edt(() -> center(combo)));
+            assertTrue(edt(combo::isPopupVisible), "Native theme dropdown must open on mouse click");
+            Point darkOption = edt(() -> {
+                var popup = (javax.swing.plaf.basic.BasicComboPopup)combo.getUI().getAccessibleChild(combo,0);
+                JList<?> list=popup.getList();
+                var cell=list.getCellBounds(0,0); Point point=list.getLocationOnScreen();
+                point.translate(cell.x+cell.width/2,cell.y+cell.height/2);return point;
+            });
+            mouse(darkOption);
+            assertEquals("Dark", edt(combo::getSelectedItem), "Mouse must select the native theme option");
+            assertFalse(edt(combo::isPopupVisible), "Selecting a row must dismiss the combo popup");
+            JComboBox<?> fontPicker = edt(() -> (JComboBox<?>)named(dialog,"settings-ui-font"));
+            mouse(edt(() -> center(fontPicker)));
+            assertTrue(edt(fontPicker::isPopupVisible));
+            mouse(edt(() -> center(named(dialog,"settings.search"))));
+            assertFalse(edt(fontPicker::isPopupVisible), "Clicking outside must dismiss the rounded popup");
+            mouse(edt(() -> center(fontPicker)));
+            assertTrue(edt(fontPicker::isPopupVisible));
+            robot.keyPress(java.awt.event.KeyEvent.VK_ESCAPE);robot.keyRelease(java.awt.event.KeyEvent.VK_ESCAPE);
+            robot.waitForIdle();Thread.sleep(150);
+            assertFalse(edt(fontPicker::isPopupVisible), "Escape must dismiss the font popup");
+            mouse(edt(() -> center(fontPicker)));
+            assertTrue(edt(fontPicker::isPopupVisible));
+            // Page replacement without a mouse click must also close an anchored popup.
+            edt(() -> { ((JTextField)named(dialog,"settings.search")).setText("API");return null; });
+            Thread.sleep(300);
+            assertTrue(edt(() -> ((JLabel)named(dialog,"settings.breadcrumb")).getText().contains("API")));
+            assertFalse(edt(fontPicker::isPopupVisible), "Changing settings page must dismiss a detached picker");
+            assertFalse(edt(() -> java.util.Arrays.stream(Window.getWindows()).anyMatch(window ->
+                    "settings.comboWindow".equals(window.getName()) && window.isShowing())), "No orphan popup window may remain");
+            edt(() -> { ((JTextField)named(dialog,"settings.search")).setText("通用");return null; });
+            Thread.sleep(300);
             JButton apply = edt(() -> (JButton) named(dialog, "settings.apply"));
             edt(() -> { assertTrue(dialog.isEnabled()); assertTrue(apply.isEnabled()); return null; });
             mouse(edt(() -> center(apply)));
@@ -183,17 +197,16 @@ class MousePopupUiSmokeTest {
             assertEquals(AppTheme.DARK, fx(themes::currentTheme), "Mouse Apply must update the host theme");
             assertEquals("DARK", fx(() -> persisted.get("ui.theme", "")));
             assertFalse(edt(workbench.frame()::isEnabled), "Apply must preserve settings modality");
-            String chosenFamily = fx(() -> {
-                @SuppressWarnings("unchecked") javafx.scene.control.Spinner<Integer> size =
-                        (javafx.scene.control.Spinner<Integer>) panel.getScene().getRoot().lookup(".spinner");
-                size.getValueFactory().setValue(15);
-                @SuppressWarnings("unchecked") ComboBox<String> fonts = (ComboBox<String>) panel.getScene().getRoot()
-                        .lookupAll(".combo-box").stream().filter(ComboBox.class::isInstance).map(ComboBox.class::cast)
-                        .filter(candidate -> candidate.getItems().size() > 20).findFirst().orElseThrow();
-                String family = fonts.getItems().contains("Menlo") ? "Menlo" : fonts.getItems().get(1);
-                fonts.getSelectionModel().select(family);
-                return family;
+            String chosenFamily = edt(() -> {
+                ((JSpinner)named(dialog,"settings-size-8-24")).setValue(15);
+                JComboBox<?> fonts=(JComboBox<?>)named(dialog,"settings-ui-font");
+                String family="Menlo";
+                boolean found=false;
+                for(int i=0;i<fonts.getItemCount();i++) if(family.equals(fonts.getItemAt(i)))found=true;
+                if(!found)family=(String)fonts.getItemAt(1);
+                fonts.setSelectedItem(family);return family;
             });
+            fx(() -> null);
             mouse(edt(() -> center(apply)));
             assertEquals("15", fx(() -> persisted.get("ui.font.size", "")));
             assertEquals(chosenFamily, fx(() -> persisted.get("ui.font.family", "")));
@@ -203,36 +216,33 @@ class MousePopupUiSmokeTest {
                 try { return ((JTree) field(workbench, "tree")).getFont().getSize(); }
                 catch (Exception error) { throw new RuntimeException(error); }
             }), "Existing connection tree must receive the chosen font size");
-            fx(() -> {
-                assertTrue(panel.getScene().getRoot().getStyle().contains("15px"), "Font Apply must update embedded FX forms");
-                assertTrue(panel.getScene().getRoot().getStyle().contains(chosenFamily));
-                return null;
-            });
+            assertEquals(15,edt(() -> named(dialog,"settings-connection-timeout").getFont().getSize()),
+                    "Font Apply must update native form controls");
             JTextField settingsSearch = edt(() -> (JTextField) named(dialog, "settings.search"));
             edt(() -> { settingsSearch.setText("快捷键"); return null; });
             Thread.sleep(300);
-            javafx.scene.control.Button recording = fx(() -> {
-                panel.getScene().getRoot().applyCss(); panel.getScene().getRoot().layout();
-                @SuppressWarnings("unchecked") javafx.scene.control.TreeView<javafx.scene.Node> actions =
-                        (javafx.scene.control.TreeView<javafx.scene.Node>) panel.getScene().getRoot().lookup(".idea-actions-tree");
-                assertNotNull(actions, "Keymap page must use a virtualized actions tree");
-                var firstAction = actions.getRoot().getChildren().getFirst().getChildren().getFirst();
-                actions.scrollTo(actions.getRow(firstAction));
-                javafx.scene.layout.HBox row = (javafx.scene.layout.HBox) firstAction.getValue();
-                var lastButton = ((javafx.scene.layout.HBox) row.getChildren().get(2)).getChildren().getLast();
-                assertTrue(lastButton.localToScene(lastButton.getBoundsInLocal()).getMaxX()
-                        <= actions.localToScene(actions.getBoundsInLocal()).getMaxX() - 6,
-                        "Both shortcut columns must remain inside the actions viewport");
-                return (javafx.scene.control.Button) ((javafx.scene.layout.HBox) row.getChildren().get(1)).getChildren().getFirst();
-            });
-            Thread.sleep(150);
-            String oldBinding = fx(recording::getText);
-            mouseFx(panel, recording);
+            JTree actions=edt(()->(JTree)named(dialog,"settings.actionsTree"));
+            assertNotNull(actions);
+            var path=edt(()->actions.getPathForRow(1));
+            java.util.function.Supplier<JButton> recording=()->{
+                var node=path.getLastPathComponent();
+                Component row=actions.getCellRenderer().getTreeCellRendererComponent(actions,node,true,false,true,1,false);
+                return (JButton)named(row,"shortcut.app.newConnection.primary");
+            };
+            String oldBinding=edt(()->recording.get().getText());
+            java.util.function.Supplier<Point> keyPoint=()->{
+                Component row=recording.get();
+                // Renderer rows are not attached until editing, so use the tree row origin.
+                Point local=SwingUtilities.convertPoint(row,row.getWidth()/2,row.getHeight()/2,row.getParent().getParent());
+                Rectangle bounds=actions.getPathBounds(path);Point origin=actions.getLocationOnScreen();
+                origin.translate(bounds.x+local.x,bounds.y+local.y);return origin;
+            };
+            mouse(edt(keyPoint));
             robot.keyPress(java.awt.event.KeyEvent.VK_ESCAPE); robot.keyRelease(java.awt.event.KeyEvent.VK_ESCAPE);
             robot.waitForIdle(); Thread.sleep(200);
             assertTrue(edt(dialog::isShowing), "Escape must cancel recording, not close settings");
-            assertEquals(oldBinding, fx(recording::getText));
-            mouseFx(panel, recording);
+            assertEquals(oldBinding, edt(()->recording.get().getText()));
+            mouse(edt(keyPoint));
             robot.keyPress(java.awt.event.KeyEvent.VK_CONTROL); robot.keyPress(java.awt.event.KeyEvent.VK_SHIFT);
             robot.keyPress(java.awt.event.KeyEvent.VK_K); robot.keyRelease(java.awt.event.KeyEvent.VK_K);
             robot.keyRelease(java.awt.event.KeyEvent.VK_SHIFT); robot.keyRelease(java.awt.event.KeyEvent.VK_CONTROL);

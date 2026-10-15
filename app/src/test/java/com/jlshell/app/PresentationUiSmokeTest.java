@@ -82,7 +82,7 @@ class PresentationUiSmokeTest {
             HttpServer server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
             String listing="""
                     {"pluginId":"com.jlshell.fixture.monitor","scope":"SESSION","listingStatus":"APPROVED",
-                     "displayName":"系统监控","description":"实时 CPU、内存、网络和磁盘监控，支持趋势图表。",
+                     "displayName":"系统监控","description":"实时 CPU、内存、网络和磁盘监控，支持趋势图表以及多主机会话的长时间采样、磁盘吞吐和历史趋势展示；这个介绍文本用于验证窄侧栏内正确省略，不会撑宽整个插件列表。",
                      "author":"JLShell","latestVersion":"0.1.0","minHostVersion":"0.1.0",
                      "maxHostVersion":"0.1.999","downloads":6}
                     """;
@@ -125,10 +125,10 @@ class PresentationUiSmokeTest {
             } else fx(()->{button.fire();return null;});
             fx(()->null);edt(()->null);
         }
-        @SuppressWarnings("unchecked") static <T> ComboBox<T> box(SwingFxPanel panel,String id) {
-            return (ComboBox<T>)panel.getScene().getRoot().lookup("#connection-"+id);
+        @SuppressWarnings("unchecked") static <T> ComboBox<T> box(JComponent panel,String id) {
+            return (ComboBox<T>)((java.util.Map<?,?>)panel.getClientProperty("jlshell.formFields")).get("connection-"+id);
         }
-        static TextField input(SwingFxPanel panel,String id) {return (TextField)panel.getScene().getRoot().lookup("#connection-"+id);}
+        static TextField input(JComponent panel,String id) {return (TextField)((java.util.Map<?,?>)panel.getClientProperty("jlshell.formFields")).get("connection-"+id);}
         static void connection(I18nService i18n,ThemeService themes,List<ProjectProfile> projects)throws Exception {
             String projectId=projects.getFirst().id();
             var profile=new VaultEntryProfile("fixture-vault","验收凭据",AuthenticationType.PASSWORD,VaultEncryptionMode.SYSTEM,projectId,null);
@@ -146,7 +146,8 @@ class PresentationUiSmokeTest {
             for(AppTheme theme:List.of(AppTheme.DARK,AppTheme.LIGHT)) {
                 fx(()->{themes.setTheme(theme);return null;});
                 var result=form(i18n,themes,ConnectionFormData.empty(projectId),projects,vault,tester);
-                JDialog dialog=window("jlshell.connection");SwingFxPanel panel=panel(dialog,"dialog.content");
+                JDialog dialog=window("jlshell.connection");JComponent panel=edt(()->(JComponent)named(dialog,"dialog.content"));
+                assertFalse(panel instanceof SwingFxPanel, "Connection form must use native Swing controls");
                 assertNotNull(edt(()->named(dialog,"dialog.header")));
                 assertFalse(edt(()->((JButton)named(dialog,"dialog.ok")).isEnabled()),"Original required-field validation must disable native OK");
                 fx(()->{
@@ -159,8 +160,7 @@ class PresentationUiSmokeTest {
                     box(panel,"auth").setValue(AuthenticationType.PRIVATE_KEY);
                     assertTrue(input(panel,"password").isDisabled());assertFalse(input(panel,"key-path").isDisabled());
                     box(panel,"vault").setValue(profile);
-                    panel.getScene().getRoot().lookupAll(".button").stream().filter(Button.class::isInstance).map(Button.class::cast)
-                            .filter(button->i18n.get("action.testConnection").equals(button.getText())).findFirst().orElseThrow().fire();return null;
+                    ((Button)((java.util.Map<?,?>)panel.getClientProperty("jlshell.formFields")).get("connection-test")).fire();return null;
                 });
                 edt(()->null);assertTrue(edt(()->((JButton)named(dialog,"dialog.ok")).isEnabled()));
                 assertNotNull(tested.get());assertEquals("ui.example.invalid",tested.get().request().target().host());
@@ -177,7 +177,8 @@ class PresentationUiSmokeTest {
             var edit=form(i18n,themes,initial,projects,vault,tester);JDialog dialog=window("jlshell.connection");
             click(dialog,"dialog.ok");assertEquals(initial,edit.get(10,TimeUnit.SECONDS).orElseThrow());
             var cancel=form(i18n,themes,ConnectionFormData.empty(projectId),projects,vault,tester);dialog=window("jlshell.connection");
-            SwingFxPanel panel=panel(dialog,"dialog.content");
+            JDialog localDialog=dialog;
+            JComponent panel=edt(()->(JComponent)named(localDialog,"dialog.content"));
             fx(()->{box(panel,"type").setValue(ConnectionType.LOCAL_SHELL);assertFalse(input(panel,"host").isManaged());return null;});
             click(dialog,"dialog.cancel");assertTrue(cancel.get(10,TimeUnit.SECONDS).isEmpty());
         }
@@ -189,41 +190,36 @@ class PresentationUiSmokeTest {
                 fx(()->{themes.setTheme(theme);return null;});var closed=open(()->main.openPreferences(owner));
                 JDialog dialog=window("jlshell.settings");
                 edt(()->{((JTextField)named(dialog,"settings.search")).setText(i18n.get("preferences.tab.plugins"));return null;});Thread.sleep(350);
-                SwingFxPanel panel=panel(dialog,"settings.content");
                 for(int attempt=0;attempt<100;attempt++) {
-                    if(fx(()->panel.getScene().getRoot().lookup(".plugin-detail-title")!=null))break;Thread.sleep(50);
+                    if(edt(()->NativeSettingsProbe.styled(dialog,"plugin-detail-title")!=null))break;Thread.sleep(50);
                 }
-                assertNotNull(edt(()->named(dialog,"settings.pluginTab.0")));
-                fx(()->{
-                    var root=panel.getScene().getRoot();assertNotNull(root.lookup(".plugin-detail-title"));
-                    assertTrue(root.lookup(".plugin-detail-tabs") instanceof TabPane);
-                    assertEquals(0,root.lookup(".plugin-external-tabs > .tab-header-area").getBoundsInParent().getHeight(),.01);
-                    return null;
-                });capture(dialog,"plugins-marketplace-"+theme.name().toLowerCase());
-                click(dialog,"settings.pluginTab.1");Thread.sleep(200);
-                fx(()->{
-                    var root=panel.getScene().getRoot();
-                    @SuppressWarnings("unchecked") ListView<Object> list=(ListView<Object>)root.lookup(".plugin-manager-list");
-                    assertEquals(2,list.getItems().size());list.getSelectionModel().select(1);return null;
-                });Thread.sleep(200);
-                readable(panel,".plugin-state-badge");capture(dialog,"plugins-installed-"+theme.name().toLowerCase());
+                edt(()->{NativeSettingsProbe.assertNative(dialog);assertNotNull(named(dialog,"settings.pluginTab.0"));
+                    assertNotNull(NativeSettingsProbe.styled(dialog,"plugin-detail-title"));return null;});
+                capture(dialog,"plugins-marketplace-"+theme.name().toLowerCase());
+                java.awt.Dimension original=edt(dialog::getSize);
+                edt(()->{dialog.setSize(820,600);return null;});Thread.sleep(250);
+                edt(()->{
+                    JScrollPane scroll=(JScrollPane)NativeSettingsProbe.styled(dialog,"plugin-manager-list");
+                    JList<?> items=(JList<?>)scroll.getViewport().getView();
+                    assertFalse(scroll.getHorizontalScrollBar().isVisible());
+                    assertEquals(scroll.getViewport().getExtentSize().width,items.getWidth(),"Plugin cells must track the viewport width");
+                    @SuppressWarnings("unchecked") var renderer=(ListCellRenderer<Object>)items.getCellRenderer();
+                    java.awt.Component cell=renderer.getListCellRendererComponent((JList)items,items.getModel().getElementAt(0),0,true,false);
+                    assertTrue(cell.getPreferredSize().width<=items.getWidth());return null;
+                });capture(dialog,"plugins-narrow-"+theme.name().toLowerCase());
+                edt(()->{dialog.setSize(original);return null;});Thread.sleep(100);
+                click(dialog,"settings.pluginTab.1");Thread.sleep(250);
+                JList<?> list=edt(()->NativeSettingsProbe.all(NativeSettingsProbe.styled(dialog,"plugin-manager-list"),JList.class).getFirst());
+                edt(()->{assertEquals(2,list.getModel().getSize());list.setSelectedIndex(1);return null;});Thread.sleep(250);
+                capture(dialog,"plugins-installed-"+theme.name().toLowerCase());
                 if(theme==AppTheme.DARK) {
-                    Button enable=fx(()->panel.getScene().getRoot().lookupAll(".button").stream()
-                            .filter(Button.class::isInstance).map(Button.class::cast)
-                            .filter(button->i18n.get("plugins.store.enable").equals(button.getText())).findFirst().orElseThrow());
-                    clickFx(panel,enable);
-                    assertTrue(sessions.isPluginEnabled(SESSION_ID),"Original enable callback must still reach the unchanged plugin manager");
+                    edt(()->{NativeSettingsProbe.button(dialog,i18n.get("plugins.store.enable")).doClick();return null;});fx(()->null);
+                    assertTrue(sessions.isPluginEnabled(SESSION_ID),"Original enable callback must reach the plugin manager");
                 }
-                fx(()->{
-                    @SuppressWarnings("unchecked") ListView<Object> list=(ListView<Object>)panel.getScene().getRoot().lookup(".plugin-manager-list");
-                    list.getSelectionModel().select(0);return null;
-                });Thread.sleep(100);
-                Button save=fx(()->{
-                    var root=panel.getScene().getRoot();TextArea note=(TextArea)root.lookupAll(".text-area").stream().findFirst().orElseThrow();
-                    note.setText("UI 插件设置验收");return root.lookupAll(".button").stream().filter(Button.class::isInstance).map(Button.class::cast)
-                            .filter(button->"Save note".equals(button.getText())).findFirst().orElseThrow();
-                });
-                clickFx(panel,save);
+                edt(()->{list.setSelectedIndex(0);return null;});Thread.sleep(250);
+                edt(()->{NativeSettingsProbe.all(dialog,JTextArea.class).stream().filter(JTextArea::isEditable).findFirst().orElseThrow().setText("UI 插件设置验收");return null;});
+                fx(()->null);
+                edt(()->{NativeSettingsProbe.button(dialog,"Save note").doClick();return null;});fx(()->null);
                 assertEquals("UI 插件设置验收",programs.getInstalledPlugins().getFirst().context().storage().get("demo.note",""));
                 click(dialog,"settings.cancel");closed.get(10,TimeUnit.SECONDS);
             }

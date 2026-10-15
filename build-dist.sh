@@ -100,7 +100,7 @@ build_jar() {
 # ── Step 2: Required Java modules (fixed list, covers Spring Boot + JavaFX + SQLite + SSH) ──
 detect_modules() {
     # jdeps on a shaded fat jar can be unreliable; use a curated list that covers all runtime needs.
-    echo "java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.management.rmi,java.naming,java.net.http,jdk.httpserver,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.transaction.xa,java.xml,java.xml.crypto,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.jfr,jdk.localedata,jdk.management,jdk.naming.dns,jdk.net,jdk.unsupported,jdk.unsupported.desktop,jdk.zipfs"
+    echo "java.base,java.compiler,java.desktop,java.logging,java.management,java.naming,java.net.http,java.prefs,java.scripting,java.security.jgss,java.sql,java.xml,jdk.crypto.ec,jdk.httpserver,jdk.jfr,jdk.localedata,jdk.naming.dns,jdk.net,jdk.unsupported,jdk.unsupported.desktop,jdk.zipfs"
 }
 
 # ── Step 3: jlink ─────────────────────────────────────────────────────────────
@@ -119,7 +119,7 @@ run_jlink() {
     if [[ -n "$javafx_mods" && -d "$javafx_mods" ]]; then
         module_path="$javafx_mods:$module_path"
         # Add JavaFX modules
-        modules="$modules,javafx.base,javafx.controls,javafx.fxml,javafx.graphics,javafx.swing"
+        modules="$modules,javafx.base,javafx.controls,javafx.graphics,javafx.swing"
     fi
 
     log "Running jlink → $output"
@@ -130,7 +130,7 @@ run_jlink() {
         --strip-debug \
         --no-man-pages \
         --no-header-files \
-        --compress zip-6
+        --compress zip-9
 
     ok "JRE size: $(du -sh "$output" | cut -f1)"
 }

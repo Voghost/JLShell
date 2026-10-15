@@ -40,7 +40,9 @@ final class IdeaPopupRenderer implements ListCellRenderer<IdeaListPopup.Row> {
         icon.setVerticalAlignment(row.detail() == null ? SwingConstants.CENTER : SwingConstants.TOP);
         if (reserveIcons || row.icon() != null) content.add(icon, BorderLayout.WEST);
         content.add(lines, BorderLayout.CENTER);
-        JLabel trailing = new JLabel(!row.children().isEmpty() ? "›" : row.shortcut());
+        boolean checked = row.children().isEmpty() && "✓".equals(row.shortcut());
+        JLabel trailing = new JLabel(!row.children().isEmpty() ? "›" : checked ? "" : row.shortcut());
+        if (checked) trailing.setIcon(new com.jlshell.ui.swing.WorkbenchIcon(com.jlshell.ui.swing.WorkbenchIcon.Kind.CHECK));
         trailing.setFont(list.getFont());
         trailing.setForeground(SwingTheme.color("secondary"));
         trailing.setBorder(BorderFactory.createEmptyBorder(0, 16, 0, 0));

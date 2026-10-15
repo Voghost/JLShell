@@ -90,11 +90,29 @@ UI 字号、终端字号、行距和回滚行数改用数值步进控件，保�
 顶部使用一体化主工具栏，放置项目选择、连接动作和主菜单入口；macOS 保留原生窗口按钮，
 Windows/Linux 使用 FlatLaf 的窗口装饰和按钮占位。主菜单保留原业务动作及动态启用状态。
 
-macOS 对照 `MacNativeActionMenu` 的动作模型/原生展示分离，复用原 MenuBar 动作。
-OpenJDK Aqua 在 JavaFX Glass 嵌入模式下明确禁用屏幕菜单，直接设置 JFrame 菜单会额外
-占据窗口一行。现通过已有 JavaFX 原生系统菜单后端发布全局菜单，Swing 窗口内不增加
-菜单行；快捷键在菜单打开时从原注册表刷新。当前 fat JAR/classpath 启动验证成功；
-适配器使用 JavaFX 内部后端反射，不将尚未验证的 module-path 启动列为支持范围。
+macOS 复用原 MenuBar 动作，并通过 `Desktop.setDefaultMenuBar(JMenuBar)` 注册 Swing 原生
+系统菜单；Swing 窗口内不增加菜单行，菜单打开时从原注册表刷新动态条目。Windows/Linux
+则在 Swing 标题区显示菜单。
+工作区标签与正文之间不再绘制内容分隔线，正文承载层独立裁剪四角；各侧栏及正文的
+`IslandPanel` 作为子控件重绘起点，终端更新、目录树及滚动视口的局部重绘仍经过圆角裁剪。
+右侧文件/插件尚未打开或已收起时，将导航轨道移到分割布局外，卸载右侧内容及拖动分隔条；
+欢迎页不保留右栏。只有打开具体工具页后才恢复可调整宽度的右侧面板，缩放窗口不会重新撑开空白区域。
+
+连接树跟随视口宽度；长连接名与分组名通过 JLabel 原生省略号绘制，保留节点完整名称，
+悬停显示完整名称及连接地址，不再产生横向滚动条。标签溢出列表复用 IdeaListPopup 的圆角、
+列表悬停、键盘选择与关闭行为；长标题限制弹窗宽度并提供完整提示，重复标题按组件身份定位。
+标签悬停及溢出/滚动按钮采用统一的 headerHover/headerPressed 配色。项目、会话和菜单选中标记
+均绘制 WorkbenchIcon.CHECK 矢量图形，避免 Windows 缺字方框。插件固定按钮采用 Lucide pin
+图标，已固定时使用主题强调色，原始 SVG 及 ISC 许可随资源保留。
+标签拖放的分屏命中仅覆盖正文区域；整条标签头（含左右边缘及空白处）只排序或跨组移动，
+不显示分屏预览，也不提交分屏。预览与释放使用同一套命中规则。
+分屏时每组保留选中标签，但只有当前活动组绘制蓝色选中背景；其他组绘制中性底色与边框。
+点击标签、正文获得键盘焦点及会话切换时同步活动组；转入文件/插件工具窗时保留最近的活动组，
+避免工具窗操作导致会话上下文和高亮消失。深浅主题分别配置非活动标签颜色。
+最左侧 macOS 应用菜单由 `MacApplicationMenu` 在启动时根据已保存的 `ui.language`
+翻译“关于、设置、服务、隐藏、退出”。通过 JNA 调用公开的 Objective-C/AppKit API，
+只设置标题，保留 JDK 注册的命令、Services 子菜单与系统快捷键。操作异步交给 AppKit
+主线程，FX/EDT 均不等待；Windows/Linux 不加载 Objective-C 运行时。语言修改重启后生效。
 连接面板的搜索按需展开，新建文件夹、编辑、删除、刷新和项目管理可从标题栏更多菜单进入，
 右键操作、拖放移动和快捷键继续保留。
 
@@ -165,7 +183,7 @@ macOS 实际运行使用独立示例数据库，检查了原生本地终端、�
 主题子菜单及 Esc 返回后重开、设置页 FX 主题下拉选择、应用后即时刷新及保存、字体名称/字号生效到原连接树和 FX
 表单、快捷键录制与 Esc、明暗终端右键菜单原动作、终端历史滑块拖动，并检查 macOS 原生
 菜单安装且主窗口不增加菜单行。终端测试用模拟内容，不连接真实 SSH 或读取用户凭据。
-实际 macOS 全局菜单点击尚需人工核对；系统菜单模型和启动路径已通过测试。
+macOS 全局菜单现直接由 AWT Desktop 管理；点击行为仍通过原菜单动作模型分发。
 
 本次已读取本机 IDEA 源码及用户截图；IDEA 应用控制接口返回系统 Computer Use 权限未授予，
 没有更改用户 IDEA 的主题或设置，也不将其现场操作列为完成项。
@@ -320,3 +338,90 @@ Actions，也没有修改发布工作流或网站。
 本地 Swing 欢迎页画面已检查；相关的 `WorkbenchUiSmokeTest`、
 `SwingWorkbenchDockTest` 和 `SwingWorkspaceSplitTest` 共 12 项通过，
 `app` 模块打包成功。未触发 Preview Actions。
+
+## Windows/Linux 标题区一致性（2026-10-14）
+
+- Windows/Linux 顶部横向菜单使用 HeaderButton，与项目选择器、设置按钮共用 headerHover/headerPressed 圆角绘制，避免混入 FlatLaf toolbar 默认悬停背景。
+- WindowHeaderSupport 统一窗口按钮占位：跟随 FlatLaf 的实际按钮宽度，额外保留 12px 间距；标题标签增加内边距，非 macOS 设置窗口不再压缩为 28px，统一为 34px 标题区。
+- Windows 原生窗口装饰可用时，集成工具栏使用 FlatLaf 的 JComponent.titleBarCaption 命中检测，不安装 setLocation 鼠标拖动处理器。空白区域交给 Windows 的原生 caption 拖动流程，按钮区域仍接受操作，使系统贴边分屏/原生窗口管理能够工作。其他平台保留移动回退。
+- MousePopupUiSmokeTest 和 SettingsUiSmokeTest 在 macOS 上通过。Windows 原生贴边吸附、最大化与多屏 DPI 需要在 Windows 实机验收，不能用 macOS 的 Swing 回归结果替代。
+
+### macOS 终端输入法空指针（2026-10-14）
+
+JediTerm 3.61 的 `MyInputMethodRequests.getCommittedText()` 返回 null；JDK 21 的
+`CInputMethod.attributedSubstringFromRange()` 会直接调用迭代器的 `getEndIndex()`，
+因此 macOS 输入法查询终端上下文时可能打印 InvocationTargetException/NPE。
+`RefreshableTerminalPanel` 现在通过 `TerminalInputMethodRequests` 包装该接口：
+无 committed text 时返回新的空迭代器，保留原来的 length=0、候选窗定位、选区与取消语义。
+不以终端输出/历史填充输入法上下文，也不关闭中文输入或屏蔽异常日志。
+
+`RefreshableTerminalPanelImeTest` 以真实终端面板重复执行 macOS 的迭代器读取顺序，覆盖
+null/指定属性、独立迭代器以及合法的无选区状态；与字体/行距刷新回归共 5 项通过。
+
+### 连接入口与预览运行包隔离（2026-10-15）
+
+连接列表侧栏入口改用 IntelliJ `expui/nodes/ssh.svg` 的 SSH 图标，保留原始资源和
+Apache-2.0 来源记录，Java2D 路径沿用统一主题颜色与选中状态。
+
+`ui/run-preview.sh` 为每次运行复制应用 JAR 和内置系统监控插件，Java 退出后清理副本。
+避免运行中执行下一次 `package` 覆盖原 JAR，导致延迟类加载出现
+`TerminalActionPresentation` / `ThrowableProxy` 缺失，进而中断终端按键与异常日志处理。
+`PreviewScriptRuntimeTest` 对比直接运行构建包和脚本独立副本，运行中覆盖原应用及插件，
+验证前者类加载失败、后者仍可加载未使用的类和原插件，并在退出后清理副本。
+已发生类加载失败的旧实例需要退出后重新启动。
+
+### 目录上报初始化与 SFTP 默认跟随（2026-10-15）
+
+原先在终端开始渲染之后输入 OSC 7 钩子，只按原文匹配回显；zsh/readline 的
+着色、换行与重绘会打断匹配，执行内部命令还会额外产生一份提示符。
+现在终端工厂先在 I/O 执行器提交会话级初始化，再启动渲染；初始化事务使用随机
+开始标记和附加在额外提示符末尾的一次性结束标记。保留开始标记前的登录 banner、
+登录提示和第一份提示符，仅移除带控制序列的初始化回显及额外提示符。
+脚本不修改远端 rc 文件，保留 bash 原有字符串/数组 PROMPT_COMMAND 和 zsh precmd hooks。
+初始化输入采用 gzip/base64 缩短至 1024 字符以内，避免小 PTY 规范行缓冲截断；
+远端需要 bash/zsh、base64、gzip。事务有 5 秒和 128 KiB 上限，异常时恢复显示，
+不会无限隐藏登录提示或阻塞交互。真实 PTY 测试覆盖 bash 3.2、zsh 彩色多行提示符、
+登录 banner、中文/空格/百分号目录，以及单字符分包的语法高亮回显。
+
+OSC 7 解析拆为独立流式解析器，支持 ESC ]、BEL、ST 在任意 read 边界拆分；
+正确解码百分号编码并保留字面加号，限制异常序列长度，忽略非法路径。
+Swing SFTP 默认跟随本会话终端，首次打开立即对齐已记录的目录；远端工具栏的
+定位图标和菜单共用跟随状态，暂停后可独立浏览，重开立即同步。
+跟随比较当前请求目标而非已显示目录，避免 cd 到慢目录后又返回原目录时被旧响应覆盖。
+关闭面板解除监听，断线禁用跟随操作。
+
+终端协议、真实 shell、SFTP 跟随/暂停/关闭、SSH 工作区共 11 项定向检查通过并打包。
+较广的既有 SFTP Robot 弹窗用例在本机两次遇到窗口焦点/按键时序问题，未计入通过项。
+
+### Powerlevel10k 首屏提示符丢失修复（2026-10-15）
+
+用户反馈 zsh 首次连接仅显示瞬态箭头，回车后才显示完整多行及右侧提示符。
+前一版按纯文本计数验证提示符，未覆盖主题的 zle-line-finish 重绘：Powerlevel10k
+在接受内部初始化命令时会收缩提示符，并按命令实际换行数回退光标、重新绘制输入。
+删除命令文字却保留这些光标回退会擦掉正常首屏；随后隐藏完整的新提示符则只留下箭头。
+
+初始化事务在当前会话检测 Powerlevel10k 瞬态模式，以随机协议标记告诉过滤器：
+保留初始完整提示符和 banner，移除内部输入及其 line-finish 光标回退、收缩和再次回显。
+不改变用户的瞬态提示符配置，不修改远端启动文件；普通用户命令继续保留主题原有行为。
+
+验证使用官方 Powerlevel10k 源码临时 checkout d05a1b0（不打入产品），配置多行左提示、
+右提示和 transient=always，在 50/120 列真实 zsh PTY 中执行初始化及 cd。
+测试将过滤后的 ANSI 输出输入 JediTerm，检查最终屏幕的 banner、完整第一行、右侧内容
+及提示符唯一性，而非只检查原始字节流中出现过某段文字。另有默认执行的合成回归覆盖
+16 行隐藏输入对应的光标回退和重绘。真实主题用例通过
+-Djlshell.p10k.source=/path/to/powerlevel10k 启用，不依赖 CI 联网下载。
+
+本次终端、目录上报、SFTP 跟随和工作区共 13 项定向测试通过，with-plugins 打包成功。
+主题行为参考：https://github.com/romkatv/powerlevel10k#transient-prompt 。
+
+### 原生首页视觉整理（2026-10-15）
+
+首页继续使用纯 Swing。以更大的品牌标识、标题和简短说明建立视觉中心；
+“新建连接”使用主题色主按钮，新建文件夹为次按钮。最近连接与收藏采用并排的
+圆角分区，连接名称下显示主机信息，长名称保留省略与完整提示，点击继续走原有连接动作。
+最近会话按连接 ID 去重；空列表提供图标和简短引导。底部仅保留两项常用快捷键与操作提示。
+内容最大宽度 840px，随窗口高度调整上方留白；窄于 580px 时两分区上下排列，整页可滚动，
+避免压缩卡片或裁剪操作。主按钮颜色与次要文字跟随主题，新增文案提供中英版本。
+
+WelcomeUiSmokeTest 输出深色、浅色、空列表及窄窗口截图到 ui/target/review/welcome-*.png，
+检查新建和连接动作以及窄窗口布局；与工作区 dock 回归一同验证。

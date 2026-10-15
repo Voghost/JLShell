@@ -19,7 +19,17 @@ public final class IdeaListPopup extends JPanel {
         }
     }
 
-    private final JList<Row> list = new JList<>();
+    private final JList<Row> list = new JList<>() {
+        @Override public boolean getScrollableTracksViewportWidth() { return true; }
+        @Override public String getToolTipText(MouseEvent event) {
+            int index = locationToIndex(event.getPoint());
+            if (index < 0 || !getCellBounds(index, index).contains(event.getPoint())) return null;
+            Row row = getModel().getElementAt(index);
+            if (getFontMetrics(getFont()).stringWidth(row.title()) <= getWidth() - 90) return null;
+            return "<html><div width='320'>" + row.title().replace("&", "&amp;")
+                    .replace("<", "&lt;").replace(">", "&gt;") + "</div></html>";
+        }
+    };
     private final DefaultListModel<Row> model = new DefaultListModel<>();
     private final List<Row> rows;
     private final JTextField search = new JTextField();
@@ -51,6 +61,7 @@ public final class IdeaListPopup extends JPanel {
         list.setCellRenderer(new IdeaPopupRenderer(style == Style.CONTEXT || rows.stream().anyMatch(row -> row.icon() != null), style));
         list.setFocusable(true);
         list.setName("popup.list");
+        ToolTipManager.sharedInstance().registerComponent(list);
         JScrollPane scroll = new JScrollPane(list);
         scroll.setBorder(BorderFactory.createEmptyBorder());
         scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
