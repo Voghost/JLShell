@@ -52,6 +52,18 @@ class IdeaPopupRenderingTest {
                 JFrame frame = new JFrame("Windows popup rendering");
                 JButton anchor = new JButton("Menu font: " + UIManager.getFont("defaultFont").getFontName());
                 frame.add(anchor); frame.setSize(480, 120); frame.setLocation(100, 100); frame.setVisible(true); owner.set(frame);
+                frame.toFront();
+                frame.requestFocus();
+            }).get(15, TimeUnit.SECONDS);
+            Robot robot = new Robot();
+            robot.waitForIdle();
+            // Let the owner finish its initial move/resize/activation events before
+            // opening the popup. The popup dispatcher intentionally closes menus
+            // when their owner moves or resizes.
+            robot.delay(250);
+            SwingExecutors.runOnEdtAsync(() -> {
+                JFrame frame = owner.get();
+                JButton anchor = (JButton) frame.getContentPane().getComponent(0);
                 var menu = new IdeaListPopup(List.of(
                         IdeaListPopup.Row.action("Find 查找", null, "Ctrl+F", null, () -> {}),
                         IdeaListPopup.Row.action("Copy 复制", null, "Ctrl+C", null, () -> {}),
@@ -59,9 +71,11 @@ class IdeaPopupRenderingTest {
                         IdeaListPopup.Row.action("Select All 全选", null, "Ctrl+A", null, () -> {}),
                         IdeaListPopup.Row.action("Font and Color Settings 字体与配色", null, "", "", () -> {})
                 ), 300, false, "", IdeaListPopup.Style.CONTEXT);
-                popup.set(menu); menu.show(anchor, 0, anchor.getHeight());
+                popup.set(menu);
+                menu.show(anchor, 0, anchor.getHeight());
             }).get(15, TimeUnit.SECONDS);
-            Robot robot = new Robot(); robot.waitForIdle();
+            robot.waitForIdle();
+            robot.delay(150);
             Rectangle bounds = SwingExecutors.supplyOnEdtAsync(() -> {
                 Window window = SwingUtilities.getWindowAncestor(popup.get());
                 return new Rectangle(window.getLocationOnScreen(), window.getSize());
