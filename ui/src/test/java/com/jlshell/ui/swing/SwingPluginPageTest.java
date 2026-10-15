@@ -147,6 +147,30 @@ class SwingPluginPageTest {
     }
 
     @Test
+    void asynchronousMarketplaceArtworkKeepsItsNativeIconRenderer() throws Exception {
+        var image = new CompletableFuture<java.awt.image.BufferedImage>();
+        var renderer = new SwingFormRenderer(new I18nService(Locale.ENGLISH));
+        try {
+            var factory = FxThread.supplyAsync(() -> renderer.prepare(
+                    PluginIcons.avatar("Plugin", new PluginIcons.Source(image)))).get(10, TimeUnit.SECONDS);
+            var artwork = new java.awt.image.BufferedImage(20, 20, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+            var graphics = artwork.createGraphics();
+            try { graphics.setColor(java.awt.Color.RED); graphics.fillRect(0, 0, 20, 20); }
+            finally { graphics.dispose(); }
+            image.complete(artwork);
+            FxThread.supplyAsync(() -> null).get(10, TimeUnit.SECONDS);
+            SwingExecutors.runOnEdtAsync(() -> {
+                var label = assertInstanceOf(JLabel.class, factory.get());
+                assertEquals(40, label.getIcon().getIconWidth());
+                var rendered = new java.awt.image.BufferedImage(40, 40, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+                var paint = rendered.createGraphics();
+                try { label.getIcon().paintIcon(label, paint, 0, 0); } finally { paint.dispose(); }
+                assertEquals(java.awt.Color.RED.getRGB(), rendered.getRGB(20, 20));
+            }).get(10, TimeUnit.SECONDS);
+        } finally { FxThread.supplyAsync(() -> { renderer.close(); return null; }).get(10, TimeUnit.SECONDS); }
+    }
+
+    @Test
     void explicitSwingFactoryStillRunsAndClosesOnEdt() throws Exception {
         AtomicInteger closes = new AtomicInteger();
         var prepared = FxThread.supplyAsync(() -> {

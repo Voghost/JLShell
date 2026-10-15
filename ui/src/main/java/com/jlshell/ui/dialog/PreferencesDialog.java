@@ -2605,7 +2605,8 @@ public class PreferencesDialog {
                     try {
                         boolean enabled = programPluginManager.isPluginEnabled(desc.id());
                         javafx.scene.Node settings = safeProgramPluginSettings(i18n, themeService, desc, enabled);
-                        entries.add(new PluginDocEntry(desc.metadata(), settings, enabled, com.jlshell.ui.swing.PluginIcons.local(desc.instance().getClass())));
+                        entries.add(new PluginDocEntry(desc.metadata(), settings, enabled, com.jlshell.ui.swing.PluginIcons.local(
+                                desc.instance() == null ? null : desc.instance().getClass())));
                     } catch (Throwable error) {
                         log.warn("Failed to inspect program plugin {} while building preferences",
                                 safePluginId(desc), error);
@@ -2620,7 +2621,8 @@ public class PreferencesDialog {
                 for (var desc : pluginManager.getInstalledPlugins()) {
                     try {
                         entries.add(new PluginDocEntry(desc.metadata(), null,
-                                pluginManager.isPluginEnabled(desc.id()), com.jlshell.ui.swing.PluginIcons.local(desc.instance().getClass())));
+                                pluginManager.isPluginEnabled(desc.id()), com.jlshell.ui.swing.PluginIcons.local(
+                                desc.instance() == null ? null : desc.instance().getClass())));
                     } catch (Throwable error) {
                         log.warn("Failed to inspect session plugin {} while building preferences",
                                 safePluginId(desc), error);

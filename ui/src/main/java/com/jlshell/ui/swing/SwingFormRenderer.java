@@ -143,7 +143,7 @@ final class SwingFormRenderer implements AutoCloseable {
         else if (node instanceof Region) factory = JPanel::new;
         else throw new IllegalArgumentException("Unsupported native form node: " + node.getClass().getName());
         AtomicReference<Supplier<JComponent>> currentFactory=new AtomicReference<>(factory);
-        if (node instanceof Pane pane) {
+        if (node instanceof Pane pane && !styles.contains("plugin-avatar")) {
             javafx.collections.ListChangeListener<Node> listener = change -> {
                 Supplier<JComponent> replacement = pane instanceof BorderPane border ? border(border) : pane(pane);
                 currentFactory.set(replacement);
