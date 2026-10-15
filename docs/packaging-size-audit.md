@@ -41,7 +41,7 @@
 - 网站通知使用现有 HMAC 签名 webhook，上传失败或网站通知失败会使 Action 失败。
 - 本版改变运行时和启动参数，网站设置 `updateType=full`、`requiresFullInstaller=true`，禁止仅替换旧安装中的 JAR。
 - macOS 包实际架构取 runner 的真实架构，网站不再把单架构包标为 `any`。
-- 保持仓库发布分支规则，触发公开发布前确认代码与发布说明对应的提交来源。
+- Beta 使用独立 `beta` 分支：从 `develop` 创建，经 PR 合入候选变更，在 `beta` 上触发工作流。稳定版从 `main` 发布；Beta 验证通过并经用户确认后再进入稳定合并流程。工作流对公开发布渠道和分支做强校验，`build_only=true` 可在功能分支验证。
 
 ## 验证
 

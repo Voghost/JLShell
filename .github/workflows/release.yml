@@ -1,4 +1,5 @@
 name: Release
+run-name: "${{ inputs.channel }} v${{ inputs.version }} · ${{ github.ref_name }}${{ inputs.build_only && ' · build only' || '' }}"
 
 on:
   workflow_dispatch:
@@ -47,6 +48,7 @@ on:
 
 env:
   VERSION: ${{ github.event.inputs.version }}
+  RELEASE_BUILD_ONLY: ${{ github.event.inputs.build_only }}
   RELEASE_CHANNEL: ${{ github.event.inputs.channel }}
   RELEASE_PUBLISH: ${{ github.event.inputs.publish }}
   RELEASE_ASSET_VISIBLE: ${{ github.event.inputs.asset_visible }}
@@ -90,6 +92,10 @@ jobs:
           channel = os.environ["RELEASE_CHANNEL"]
           if channel not in ("stable", "beta"):
               raise SystemExit("Invalid release channel")
+          if os.environ.get("RELEASE_BUILD_ONLY") != "true":
+              required_branch = "beta" if channel == "beta" else "main"
+              if os.environ.get("GITHUB_REF_NAME") != required_branch:
+                  raise SystemExit(f"Publish {channel} releases only from {required_branch}")
           PY
           python .github/scripts/prepare_release_metadata.py
           cat "$RELEASE_OUTPUT_DIR/release-change-summary.md" >> "$GITHUB_STEP_SUMMARY"
