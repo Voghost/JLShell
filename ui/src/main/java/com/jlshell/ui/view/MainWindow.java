@@ -480,12 +480,9 @@ public class MainWindow {
     }
 
     private void dispatchSwingAction(Runnable action) {
-        withSwing(view -> {
-            view.setEnabled(false);
-            FxThread.run(() -> {
-                try { action.run(); }
-                finally { updateSwingModality(); }
-            });
+        FxThread.run(() -> {
+            try { action.run(); }
+            finally { updateSwingModality(); }
         });
     }
 

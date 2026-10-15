@@ -1389,8 +1389,7 @@ public final class SwingWorkbench implements AutoCloseable {
     public void setPreferenceShortcut(String displayText) { preferenceShortcut = displayText == null ? "" : displayText; }
     public void setEnabled(boolean enabled) {
         boolean allowed = enabled && !Boolean.TRUE.equals(frame.getRootPane().getClientProperty("jlshell.settingsModal"));
-        frame.setEnabled(allowed);
-        if (allowed) frame.toFront();
+        if (frame.isEnabled() != allowed) frame.setEnabled(allowed);
     }
     public void show() {
         frame.setVisible(true);

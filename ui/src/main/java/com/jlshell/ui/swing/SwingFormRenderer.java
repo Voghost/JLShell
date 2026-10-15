@@ -64,6 +64,16 @@ final class SwingFormRenderer implements AutoCloseable {
 
     Supplier<JComponent> prepare(Node node) {
         if (node == null) return JPanel::new;
+        if (node instanceof SwingFxPanel.PluginView pluginView) {
+            double width = pluginView.prefWidth(-1), height = pluginView.prefHeight(-1);
+            return () -> {
+                var bridge = new SwingFxPanel(pluginView.themes);
+                bridge.setPreferredSize(new Dimension((int) Math.max(240, width), (int) Math.max(180, height)));
+                bridge.setView(pluginView);
+                onDispose(bridge::close);
+                return bridge;
+            };
+        }
         if (node.getId() != null) models.put(node.getId(), node);
         AtomicReference<JComponent> view = new AtomicReference<>();
         var enabled = observe(node.disabledProperty(), value -> {
@@ -118,13 +128,11 @@ final class SwingFormRenderer implements AutoCloseable {
             };
         } else if(node instanceof StackPane avatar&&styles.contains("plugin-avatar")) {
             String initial=((Label)avatar.getChildren().getFirst()).getText();
-            factory=()->new JLabel(initial,SwingConstants.CENTER) {
-                {setPreferredSize(new Dimension(40,40));setMinimumSize(new Dimension(40,40));}
-                protected void paintComponent(java.awt.Graphics graphics){
-                    var g=(java.awt.Graphics2D)graphics.create();try{g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING,java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
-                        g.setColor(UIManager.getColor("Component.focusColor"));g.fillRoundRect(0,0,getWidth(),getHeight(),12,12);
-                    }finally{g.dispose();}super.paintComponent(graphics);
-                }
+            var source = (PluginIcons.Source) avatar.getProperties().get("swing.pluginIconSource");
+            factory = () -> {
+                JLabel label = new JLabel(PluginIcons.icon(initial, source, 40, false));
+                label.setPreferredSize(new Dimension(40, 40)); label.setMinimumSize(new Dimension(40, 40));
+                return label;
             };
         }
         else if(node instanceof GridPane grid&&grid.getStyleClass().contains("terminal-font-layout"))factory=SwingTerminalFontPanel.prepare(this,grid);
@@ -135,7 +143,7 @@ final class SwingFormRenderer implements AutoCloseable {
         else if (node instanceof Region) factory = JPanel::new;
         else throw new IllegalArgumentException("Unsupported native form node: " + node.getClass().getName());
         AtomicReference<Supplier<JComponent>> currentFactory=new AtomicReference<>(factory);
-        if (node instanceof Pane pane) {
+        if (node instanceof Pane pane && !styles.contains("plugin-avatar")) {
             javafx.collections.ListChangeListener<Node> listener = change -> {
                 Supplier<JComponent> replacement = pane instanceof BorderPane border ? border(border) : pane(pane);
                 currentFactory.set(replacement);

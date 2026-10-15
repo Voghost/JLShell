@@ -45,8 +45,9 @@ public final class SwingPreferencesDialog {
     private final JButton back = new JButton(historyIcon(false));
     private final JButton forward = new JButton(historyIcon(true));
     private boolean busy;
+    private final JPanel inputBlocker = new JPanel();
+    private Component busyFocus;
     private final Window owner;
-    private final boolean ownerWasEnabled;
     private final ThemeService themes;
 
     private SwingPreferencesDialog(List<Page> pages, int initial, I18nService i18n,
@@ -54,17 +55,25 @@ public final class SwingPreferencesDialog {
                                    Runnable applyAction, Runnable okAction, Runnable closed) {
         this.pages = pages;
         this.themes = themes;
-        Window parent = KeyboardFocusManager.getCurrentKeyboardFocusManager().getActiveWindow();
-        if (parent == null) for (Frame frame : Frame.getFrames()) {
-            if (frame.isShowing() && frame.getTitle().contains("JLShell")) { parent = frame; break; }
-        }
-        owner = parent;
-        ownerWasEnabled = owner != null && owner.isEnabled();
+        owner = SwingDialogChrome.owner();
         // AWT 应用模态过滤器会阻止 JFXPanel 中的 Glass 下拉弹窗接收鼠标。
         // 使用禁用宿主窗口实现模态，FX 嵌套事件循环仍保持 showAndWait 的调用顺序。
-        dialog = new JDialog(owner, i18n.get("preferences.title") + " — JLShell", Dialog.ModalityType.MODELESS);
+        dialog = new SwingModalDialog(owner, i18n.get("preferences.title") + " — JLShell");
         dialog.setName("jlshell.settings");
         dialog.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
+        inputBlocker.setOpaque(false);
+        inputBlocker.setFocusable(true);
+        inputBlocker.setFocusTraversalKeysEnabled(false);
+        inputBlocker.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+        inputBlocker.addMouseListener(new MouseAdapter() {});
+        inputBlocker.addMouseMotionListener(new MouseMotionAdapter() {});
+        inputBlocker.addKeyListener(new KeyAdapter() {
+            @Override public void keyPressed(KeyEvent event) { event.consume(); }
+            @Override public void keyTyped(KeyEvent event) { event.consume(); }
+            @Override public void keyReleased(KeyEvent event) { event.consume(); }
+        });
+        dialog.setGlassPane(inputBlocker);
+        inputBlocker.setVisible(false);
         JPanel windowHeader=SwingDialogChrome.configure(dialog);
         windowHeader.setPreferredSize(new Dimension(0, com.formdev.flatlaf.util.SystemInfo.isMacOS ? 28 : 34));
         JPanel navigation = new JPanel(new BorderLayout(0, 10));
@@ -178,14 +187,12 @@ public final class SwingPreferencesDialog {
             public void windowClosing(WindowEvent e) { if (!busy) dialog.dispose(); }
             public void windowClosed(WindowEvent e) {
                 filterTimer.stop();
-                if (owner instanceof RootPaneContainer host) host.getRootPane().putClientProperty("jlshell.settingsModal", null);
-                if (owner != null) owner.setEnabled(ownerWasEnabled);
                 closed.run();
             }
         });
         dialog.getRootPane().registerKeyboardAction(e -> { if (!busy) dialog.dispose(); },
                 KeyStroke.getKeyStroke("ESCAPE"), JComponent.WHEN_IN_FOCUSED_WINDOW);
-        dialog.getRootPane().registerKeyboardAction(e -> search.requestFocusInWindow(),
+        dialog.getRootPane().registerKeyboardAction(e -> { if (!busy) search.requestFocusInWindow(); },
                 KeyStroke.getKeyStroke(KeyEvent.VK_F, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
                 JComponent.WHEN_IN_FOCUSED_WINDOW);
         search.getInputMap().put(KeyStroke.getKeyStroke("DOWN"), "tree");
@@ -206,14 +213,14 @@ public final class SwingPreferencesDialog {
         dialog.setSize(Math.min(1060, screen.width - 80), Math.min(760, screen.height - 80));
         dialog.setLocationRelativeTo(owner);
         rebuildTree(initial);
-        if (owner instanceof RootPaneContainer host) host.getRootPane().putClientProperty("jlshell.settingsModal", true);
-        if (owner != null) owner.setEnabled(false);
     }
 
     private void runAction(Runnable action, boolean close) {
         if (busy) return;
         busy = true;
-        dialog.setEnabled(false);
+        busyFocus = dialog.getFocusOwner();
+        inputBlocker.setVisible(true);
+        inputBlocker.requestFocusInWindow();
         FxThread.run(() -> {
             boolean succeeded = false;
             try {
@@ -235,8 +242,10 @@ public final class SwingPreferencesDialog {
                 boolean dispose = close && succeeded;
                 SwingUtilities.invokeLater(() -> {
                     busy = false;
-                    dialog.setEnabled(true);
+                    inputBlocker.setVisible(false);
                     if (dispose) dialog.dispose();
+                    else if (busyFocus != null) busyFocus.requestFocusInWindow();
+                    busyFocus = null;
                 });
             }
         });
@@ -440,7 +449,7 @@ public final class SwingPreferencesDialog {
                     window instanceof javafx.stage.Stage stage && stage.isShowing()
                             && stage.getModality() != javafx.stage.Modality.NONE);
             SwingUtilities.invokeLater(() -> {
-                if (view.get() != null) view.get().dialog.setEnabled(!modal && !view.get().busy);
+                if (view.get() != null) view.get().dialog.setEnabled(!modal);
             });
         };
         fxApply.disabledProperty().addListener(applyListener);

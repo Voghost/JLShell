@@ -275,7 +275,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
                 navigation.add(javax.swing.Box.createVerticalStrut(6));
             }
             for (PluginsTabView.PinnedShortcut shortcut : shortcuts) {
-                JToggleButton selector = new JToggleButton(new WorkbenchIcon(WorkbenchIcon.Kind.PLUGIN));
+                JToggleButton selector = new JToggleButton(PluginIcons.icon(shortcut.title(), shortcut.icon(), 18, true));
                 selector.setName("plugin-shortcut-" + shortcut.id());
                 selector.putClientProperty("JButton.buttonType", "toolBarButton");
                 int openedIndex = -1;
