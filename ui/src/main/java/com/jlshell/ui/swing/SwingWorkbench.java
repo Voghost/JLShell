@@ -1667,8 +1667,8 @@ public final class SwingWorkbench implements AutoCloseable {
             return;
         }
         boolean restoring = rightDockContainer.getParent() == maximizedWorkspace;
+        int restoreSidebarWidth = sidebarWidth;
         if (restoring) {
-            int restoreSidebarWidth = sidebarWidth;
             rightToolMaximized = false;
             maximizedWorkspace.remove(rightDockContainer);
             maximizedSplit.setLeftComponent(null);
@@ -1677,7 +1677,6 @@ public final class SwingWorkbench implements AutoCloseable {
             split.setDividerLocation(sidebarVisible ? restoreSidebarWidth : 0);
         }
         rightToolMaximized = false;
-        ((CardLayout) workspaceCards.getLayout()).show(workspaceCards, "normal");
         updateMaximizeToolButton();
         rightToolDock.setVisible(open);
         // 收起时导航轨道在分割布局外独立占位，彻底移除可拖开的右侧空白区。
@@ -1699,10 +1698,24 @@ public final class SwingWorkbench implements AutoCloseable {
         if (open && mainSplit.getWidth() > 0) {
             int location = restoring && rightDockRestoreDivider >= 0 ? rightDockRestoreDivider
                     : mainSplit.getWidth() - rightDockContainer.getPreferredSize().width - mainSplit.getDividerSize();
-            mainSplit.setDividerLocation(Math.max(240, Math.min(location, mainSplit.getWidth() - 220)));
+            // 侧栏在铺满期间可能被拉宽；还原时给终端保留最小宽度，不能用旧的外层分隔位置挤窄侧栏。
+            int minimumLeft = workspace.getMinimumSize().width
+                    + (sidebarVisible ? restoreSidebarWidth + split.getDividerSize() : 0);
+            int maximumLeft = Math.max(240, mainSplit.getWidth() - 220);
+            mainSplit.setDividerLocation(Math.max(Math.min(minimumLeft, maximumLeft), Math.min(location, maximumLeft)));
         }
+        if (restoring) split.setDividerLocation(sidebarVisible ? restoreSidebarWidth : 0);
         mainSplit.revalidate();
         horizontalDock.revalidate();
+        // CardLayout.show 会立即校验布局；必须先完成两层分隔位置恢复。
+        ((CardLayout) workspaceCards.getLayout()).show(workspaceCards, "normal");
+        if (restoring) {
+            // BasicSplitPaneUI 在子组件重新挂载并改变宽度的首轮布局中按 resizeWeight 分配空间。
+            // 外层尺寸稳定后再次应用用户宽度，避免该轮布局把它重置为侧栏的 minimumSize。
+            mainSplit.doLayout();
+            split.setDividerLocation(sidebarVisible ? restoreSidebarWidth : 0);
+            split.doLayout();
+        }
     }
 
     private void updateMaximizeToolButton() {

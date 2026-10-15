@@ -48,6 +48,7 @@ class SwingToolWindowMaximizeTest {
             var view = new SwingWorkbench(actions, Map.of());
             view.addTab("first", "First", first.view, noop);
             view.addTab("second", "Second", second.view, noop);
+            view.frame().setSize(850, 640); // 窄窗口：旧外层宽度不足以容纳铺满时被拉宽的侧栏。
             view.selectTab("first"); view.show();
             return view;
         }).get(10, TimeUnit.SECONDS);
@@ -97,9 +98,13 @@ class SwingToolWindowMaximizeTest {
                 fill.doClick(); frame.validate();
                 assertTrue(first.view.isShowing());
                 assertTrue(named(frame, "monitor.dock", JPanel.class).isShowing());
-                assertEquals(originalDivider, rightSplit.getDividerLocation());
+                assertTrue(rightSplit.getDividerLocation() >= originalDivider,
+                        "A wider sidebar may require more space for the terminal when restoring");
                 assertEquals(310, ((JSplitPane) rightSplit.getLeftComponent()).getDividerLocation(),
-                        "Sidebar width changes made while expanded must survive restoring");
+                        "Sidebar width changes made while expanded must survive restoring: frame=" + frame.getWidth()
+                                + " outer=" + rightSplit.getWidth() + "/" + rightSplit.getDividerLocation()
+                                + " left=" + rightSplit.getLeftComponent().getWidth()
+                                + " right=" + rightSplit.getRightComponent().getWidth());
                 assertEquals("workspace.maximizeTool", fill.getToolTipText());
                 first.view.selectPage(1, true); // 文件面板使用相同的铺满/还原入口。
                 fill.doClick(); frame.validate();
