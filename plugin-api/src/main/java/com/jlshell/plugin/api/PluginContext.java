@@ -35,6 +35,14 @@ public interface PluginContext {
     /** Open a new workspace tab with the given title and content node. */
     void openTab(String title, javafx.scene.Node content);
 
+    /** 原生 Swing 页能力；未支持此能力的上下文返回 false，插件可继续使用 openTab。 */
+    default boolean supportsSwingViews() { return false; }
+
+    /** 工厂只在 EDT 执行。页面可实现 AutoCloseable，在标签移除/会话关闭时释放资源。 */
+    default void openSwingTab(String title, java.util.function.Supplier<javax.swing.JComponent> content) {
+        throw new UnsupportedOperationException("This host does not support Swing plugin views");
+    }
+
     /** Close the tab that was opened by this plugin, if any. */
     void closeTab();
 

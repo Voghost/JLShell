@@ -37,8 +37,8 @@ gpg --armor --export-secret-keys <KEY_ID>
 手动运行 GitHub Actions 工作流 `Publish JLShell SDK to Maven Central`：
 
 - `sourceRef`：默认 `main`，正式发布应使用已合入 `main` 的提交或标签。
-- `sdkVersion`：不可覆盖的语义版本；连接前路由 SDK 对应下一版本 `1.4.0`，已公开的
-  `1.0.0` 不得覆盖。
+- `sdkVersion`：不可覆盖的语义版本；本次 Swing 插件视图扩展使用 `1.6.0`，已公开的
+  `1.0.0` 至 `1.5.0` 不得覆盖。
 - `autoPublish`：首次发布保持 `false`。工作流会上传并等待 Central 校验，通过后由维护者
   在 Portal 中检查并手动 Publish。确认流程稳定后才可选择 `true` 自动公开。
 
@@ -60,3 +60,32 @@ sources JAR 和 javadoc JAR 的生成流程：
 mvn -pl plugin-api,program-api -Pcentral-release \
   -DskipTests -Dgpg.skip=true package
 ```
+
+
+## SDK 1.6.0：Swing 插件视图
+
+本次仅提取已在 0.1.68 Beta 验证的公共 API，桌面 Beta 的 UI 实现仍保留在 beta 分支。
+同时发布 plugin-api 和 program-api 1.6.0，保持两者依赖版本一致；program-api 本身没有新增接口。
+
+PluginContext 新增两个 default 方法：
+
+- `supportsSwingViews()`：上下文未实现原生 Swing 视图时返回 false。
+- `openSwingTab(String, Supplier<JComponent>)`：支持它的宿主在 EDT 调用组件工厂；默认实现抛出 UnsupportedOperationException，且不执行工厂。
+
+新增 default 方法保持现有插件和 PluginContext 实现的兼容性。插件调用 1.6.0 新方法时，应将
+最低宿主版本设为 0.1.68，并在调用 openSwingTab 前检查 supportsSwingViews。
+早于 1.6.0 的宿主 SDK 根本没有这些方法，不能靠调用新方法来探测该旧宿主的能力。
+
+Maven 坐标：
+
+```xml
+<dependency>
+    <groupId>net.oomn.jlshell</groupId>
+    <artifactId>plugin-api</artifactId>
+    <version>1.6.0</version>
+    <scope>provided</scope>
+</dependency>
+```
+
+显式声明 program-api 时同样使用 1.6.0、provided。SDK 发布与桌面安装包发版独立，
+本次不触发桌面 Release，也不修改已发布的 v0.1.68 标签。
