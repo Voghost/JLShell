@@ -133,6 +133,7 @@ public class AppContext implements AutoCloseable {
         ColorSchemeRegistry colorSchemeRegistry = new ColorSchemeRegistry(builtInLoader, customStore);
 
         ThemeService themeService = new ThemeService(appSettingsService, colorSchemeRegistry, executor);
+        prepareSwingTheme(themeService, appSettingsService);
 
         // 5. SSH / SFTP
         SshjConnectionManager connectionManager = new SshjConnectionManager(
@@ -281,6 +282,24 @@ public class AppContext implements AutoCloseable {
 
     public MainWindow getMainWindow() {
         return mainWindow;
+    }
+
+    private static void prepareSwingTheme(ThemeService themes, AppSettingsService settings) {
+        if ("javafx".equalsIgnoreCase(System.getProperty("jlshell.ui.renderer", "swing"))) return;
+        // 主题偏好已就绪：EDT 初始化 LAF，同时 FX 继续装配服务与插件。
+        // 不等待 EDT；窗口创建时 install() 会确认实际配置，并在预加载失败时重试。
+        var theme = themes.currentTheme();
+        String accent = themes.accentColor().color(), family = settings.get("ui.font.family", null);
+        int parsed;
+        try { parsed = Math.max(10, Math.min(40, Integer.parseInt(settings.get("ui.font.size", "13")))); }
+        catch (NumberFormatException invalid) { parsed = 13; }
+        int size = parsed;
+        com.jlshell.terminal.support.SwingExecutors.runOnEdtAsync(() ->
+                com.jlshell.ui.swing.SwingTheme.install(theme, accent, family, size))
+                .exceptionally(error -> {
+                    log.warn("Swing theme preparation failed; retrying when the window opens", error);
+                    return null;
+                });
     }
 
     @Override

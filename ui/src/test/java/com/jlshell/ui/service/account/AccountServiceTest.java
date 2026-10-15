@@ -74,6 +74,23 @@ class AccountServiceTest {
     }
 
     @Test
+    void localSessionReadDoesNotCreateHttpClientAndRequestsReuseIt() throws Exception {
+        startServer(exchange -> respond(exchange, 200, "{}"));
+        settings.set(AccountService.SETTINGS_BASE_URL, baseUrl());
+        var created = new AtomicInteger();
+        service = new AccountService(settings, secureSettings, executor, () -> {
+            created.incrementAndGet();
+            return HttpClient.newBuilder().executor(executor).build();
+        }, scheduler, Duration.ofHours(1), Duration.ofHours(1), new DesktopBrowserLogin(executor));
+        assertTrue(service.isSignedIn());
+        service.currentSession();
+        assertEquals(0, created.get(), "Reading a restored session must not initialize network infrastructure");
+        service.sendVerification("user@example.test", "captcha", "answer").join();
+        service.sendVerification("user@example.test", "captcha", "answer").join();
+        assertEquals(1, created.get());
+    }
+
+    @Test
     void restoredSessionImmediatelyReportsCurrentSshCount() throws Exception {
         CountDownLatch reportReceived = new CountDownLatch(1);
         AtomicReference<String> reportBody = new AtomicReference<>();
