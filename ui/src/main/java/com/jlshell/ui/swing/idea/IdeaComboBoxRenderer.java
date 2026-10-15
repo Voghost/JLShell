@@ -20,9 +20,9 @@ public final class IdeaComboBoxRenderer implements ListCellRenderer<Object> {
     }
     public Component getListCellRendererComponent(JList<?> list,Object value,int index,boolean selected,boolean focus){
         String text=display.apply(value);Font base=UIManager.getFont("defaultFont");
-        JLabel label=new JLabel(text);label.putClientProperty("html.disable",true);label.setFont(base);
+        JLabel label=fonts && index>=0 ? new FontPreviewLabel(text,base) : new JLabel(text);
+        label.putClientProperty("html.disable",true);label.setFont(base);
         label.setForeground(UIManager.getColor("Label.foreground"));
-        if(fonts&&index>=0&&FAMILIES.contains(text)&&!SYMBOL_FAMILIES.contains(text.toLowerCase(java.util.Locale.ROOT))){Font preview=new Font(text,Font.PLAIN,base.getSize());if(preview.canDisplayUpTo(text)==-1)label.setFont(preview);}
         if(value instanceof com.jlshell.ui.theme.AccentColor accent)label.setIcon(new Icon(){
             public int getIconWidth(){return 14;}public int getIconHeight(){return 14;}
             public void paintIcon(Component c,Graphics g,int x,int y){g.setColor(Color.decode(accent.color()));g.fillOval(x+1,y+1,12,12);}
@@ -44,5 +44,23 @@ public final class IdeaComboBoxRenderer implements ListCellRenderer<Object> {
         JPanel wrapper=new JPanel(new BorderLayout());wrapper.putClientProperty("jlshell.fontGroup",group);wrapper.setBackground(SwingTheme.color("popup"));
         wrapper.add(new IdeaGroupHeaderSeparator(group,index<=1,base),BorderLayout.NORTH);wrapper.add(item);
         return wrapper;
+    }
+
+    /** JList 为计算布局会请求全部行；仅实际绘制的可见行才解析物理字体。 */
+    private static final class FontPreviewLabel extends JLabel {
+        private final Font base;
+        private boolean resolved;
+        FontPreviewLabel(String text, Font base) { super(text); this.base = base; }
+        @Override protected void paintComponent(Graphics graphics) {
+            if (!resolved) {
+                resolved = true;
+                String text = getText();
+                if (FAMILIES.contains(text) && !SYMBOL_FAMILIES.contains(text.toLowerCase(java.util.Locale.ROOT))) {
+                    Font preview = new Font(text, Font.PLAIN, base.getSize());
+                    if (preview.canDisplayUpTo(text) == -1) setFont(preview);
+                }
+            }
+            super.paintComponent(graphics);
+        }
     }
 }

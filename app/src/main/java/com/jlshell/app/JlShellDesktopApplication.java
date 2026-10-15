@@ -44,7 +44,10 @@ public class JlShellDesktopApplication extends Application {
     @Override
     public void init() {
         try {
-            BundledFontLoader.load();
+            // Swing 终端自行注册 AWT 字体；旧 FX 插件首次显示时再注册 FX 字体。
+            if ("javafx".equalsIgnoreCase(System.getProperty("jlshell.ui.renderer", "swing"))) {
+                BundledFontLoader.load();
+            }
         } catch (Exception | LinkageError failure) {
             initializationFailure = failure;
         }
@@ -97,11 +100,13 @@ public class JlShellDesktopApplication extends Application {
 
         // JavaFX window icons (taskbar + Alt-Tab on Windows/Linux). Supplying
         // multiple sizes avoids Windows scaling a tiny icon on high-DPI setups.
-        addStageIcon(stage, "/icons/app_icon_16.png");
-        addStageIcon(stage, "/icons/app_icon_32.png");
-        addStageIcon(stage, "/icons/app_icon_48.png");
-        addStageIcon(stage, "/icons/app_icon_256.png");
-        addStageIcon(stage, "/icons/brand/jlshell.png");
+        if ("javafx".equalsIgnoreCase(System.getProperty("jlshell.ui.renderer", "swing"))) {
+            addStageIcon(stage, "/icons/app_icon_16.png");
+            addStageIcon(stage, "/icons/app_icon_32.png");
+            addStageIcon(stage, "/icons/app_icon_48.png");
+            addStageIcon(stage, "/icons/app_icon_256.png");
+            addStageIcon(stage, "/icons/brand/jlshell.png");
+        }
 
         // AWT 操作不能在 FX/AppKit 回调中争用 Swing 的 AWTTreeLock。
         // 系统菜单、托盘及 Swing 窗口全部异步交给 EDT，FX 线程从不等待 EDT。

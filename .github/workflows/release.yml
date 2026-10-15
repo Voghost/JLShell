@@ -198,9 +198,13 @@ jobs:
             --java-options "--add-exports=java.desktop/sun.swing=ALL-UNNAMED" \
             --java-options "--add-opens=java.desktop/sun.swing=ALL-UNNAMED" \
             --java-options "--add-opens=java.desktop/javax.swing=ALL-UNNAMED" \
-            --java-options "-Xms64m" \
+            --java-options "-Xms32m" \
             --java-options "-Xmx512m" \
             --java-options "-XX:+ExplicitGCInvokesConcurrent" \
+            --java-options "-XX:+UseG1GC" \
+            --java-options "-XX:G1PeriodicGCInterval=30000" \
+            --java-options "-XX:MinHeapFreeRatio=20" \
+            --java-options "-XX:MaxHeapFreeRatio=40" \
             --java-options "--add-opens java.base/java.lang=ALL-UNNAMED" \
             --java-options "--add-opens java.desktop/sun.awt=ALL-UNNAMED" \
             --java-options "-Dapple.laf.useScreenMenuBar=true" \
@@ -344,15 +348,19 @@ jobs:
           cat > dist/linux-work/JLShell/JLShell.vmoptions <<'EOF'
           # JLShell JVM options. One option per line.
           # User override path on Linux: ~/.config/jlshell/JLShell.vmoptions
-          -Xms64m
+          -Xms32m
           -Xmx512m
           -XX:+ExplicitGCInvokesConcurrent
+          -XX:+UseG1GC
+          -XX:G1PeriodicGCInterval=30000
+          -XX:MinHeapFreeRatio=20
+          -XX:MaxHeapFreeRatio=40
           EOF
 
           cat > dist/linux-work/JLShell/JLShell.sh <<'EOF'
           #!/bin/bash
           DIR="$(cd "$(dirname "$0")" && pwd)"
-          DEFAULT_VM_OPTS=(-Xms64m -Xmx512m -XX:+ExplicitGCInvokesConcurrent)
+          DEFAULT_VM_OPTS=(-Xms32m -Xmx512m -XX:+ExplicitGCInvokesConcurrent -XX:+UseG1GC -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40)
           USER_VMOPTIONS="${XDG_CONFIG_HOME:-$HOME/.config}/jlshell/JLShell.vmoptions"
           BUNDLED_VMOPTIONS="$DIR/JLShell.vmoptions"
           VMOPTIONS_FILE=""
@@ -403,15 +411,19 @@ jobs:
           cat > $PKG/opt/jlshell/JLShell.vmoptions <<'EOF'
           # JLShell JVM options. One option per line.
           # User override path on Linux: ~/.config/jlshell/JLShell.vmoptions
-          -Xms64m
+          -Xms32m
           -Xmx512m
           -XX:+ExplicitGCInvokesConcurrent
+          -XX:+UseG1GC
+          -XX:G1PeriodicGCInterval=30000
+          -XX:MinHeapFreeRatio=20
+          -XX:MaxHeapFreeRatio=40
           EOF
 
           cat > $PKG/opt/jlshell/JLShell.sh <<'EOF'
           #!/bin/bash
           DIR="$(cd "$(dirname "$0")" && pwd)"
-          DEFAULT_VM_OPTS=(-Xms64m -Xmx512m -XX:+ExplicitGCInvokesConcurrent)
+          DEFAULT_VM_OPTS=(-Xms32m -Xmx512m -XX:+ExplicitGCInvokesConcurrent -XX:+UseG1GC -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40)
           USER_VMOPTIONS="${XDG_CONFIG_HOME:-$HOME/.config}/jlshell/JLShell.vmoptions"
           BUNDLED_VMOPTIONS="$DIR/JLShell.vmoptions"
           VMOPTIONS_FILE=""
@@ -498,16 +510,20 @@ jobs:
           cat > $APPDIR/usr/JLShell.vmoptions <<'EOF'
           # JLShell JVM options. One option per line.
           # User override path on Linux: ~/.config/jlshell/JLShell.vmoptions
-          -Xms64m
+          -Xms32m
           -Xmx512m
           -XX:+ExplicitGCInvokesConcurrent
+          -XX:+UseG1GC
+          -XX:G1PeriodicGCInterval=30000
+          -XX:MinHeapFreeRatio=20
+          -XX:MaxHeapFreeRatio=40
           EOF
 
           # AppRun
           cat > $APPDIR/AppRun <<'EOF'
           #!/bin/bash
           HERE="$(cd "$(dirname "$0")" && pwd)"
-          DEFAULT_VM_OPTS=(-Xms64m -Xmx512m -XX:+ExplicitGCInvokesConcurrent)
+          DEFAULT_VM_OPTS=(-Xms32m -Xmx512m -XX:+ExplicitGCInvokesConcurrent -XX:+UseG1GC -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40)
           USER_VMOPTIONS="${XDG_CONFIG_HOME:-$HOME/.config}/jlshell/JLShell.vmoptions"
           BUNDLED_VMOPTIONS="$HERE/usr/JLShell.vmoptions"
           VMOPTIONS_FILE=""
@@ -654,9 +670,13 @@ jobs:
             --java-options "--add-exports=java.desktop/sun.swing=ALL-UNNAMED" \
             --java-options "--add-opens=java.desktop/sun.swing=ALL-UNNAMED" \
             --java-options "--add-opens=java.desktop/javax.swing=ALL-UNNAMED" \
-            --java-options "-Xms64m" \
+            --java-options "-Xms32m" \
             --java-options "-Xmx512m" \
             --java-options "-XX:+ExplicitGCInvokesConcurrent" \
+            --java-options "-XX:+UseG1GC" \
+            --java-options "-XX:G1PeriodicGCInterval=30000" \
+            --java-options "-XX:MinHeapFreeRatio=20" \
+            --java-options "-XX:MaxHeapFreeRatio=40" \
             --java-options "--add-opens java.base/java.lang=ALL-UNNAMED" \
             --java-options "--add-opens java.desktop/sun.awt=ALL-UNNAMED" \
             --dest dist/win-image
@@ -688,9 +708,13 @@ jobs:
             --java-options "--add-exports=java.desktop/sun.swing=ALL-UNNAMED" \
             --java-options "--add-opens=java.desktop/sun.swing=ALL-UNNAMED" \
             --java-options "--add-opens=java.desktop/javax.swing=ALL-UNNAMED" \
-            --java-options "-Xms64m" \
+            --java-options "-Xms32m" \
             --java-options "-Xmx512m" \
             --java-options "-XX:+ExplicitGCInvokesConcurrent" \
+            --java-options "-XX:+UseG1GC" \
+            --java-options "-XX:G1PeriodicGCInterval=30000" \
+            --java-options "-XX:MinHeapFreeRatio=20" \
+            --java-options "-XX:MaxHeapFreeRatio=40" \
             --java-options "--add-opens java.base/java.lang=ALL-UNNAMED" \
             --java-options "--add-opens java.desktop/sun.awt=ALL-UNNAMED" \
             --win-dir-chooser \

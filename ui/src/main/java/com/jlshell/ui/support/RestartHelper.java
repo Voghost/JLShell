@@ -123,9 +123,13 @@ public final class RestartHelper {
         cmd.add("java.base/java.lang=ALL-UNNAMED");
         cmd.add("--add-opens");
         cmd.add("java.desktop/sun.awt=ALL-UNNAMED");
-        cmd.add("-Xms64m");
+        cmd.add("-Xms32m");
         cmd.add("-Xmx512m");
+        cmd.add("-XX:+UseG1GC");
         cmd.add("-XX:+ExplicitGCInvokesConcurrent");
+        cmd.add("-XX:G1PeriodicGCInterval=30000");
+        cmd.add("-XX:MinHeapFreeRatio=20");
+        cmd.add("-XX:MaxHeapFreeRatio=40");
         // Main class from the launcher
         cmd.add("-jar");
         cmd.add(Path.of(activeJar).toAbsolutePath().toString());

@@ -99,9 +99,7 @@ public final class BootstrapLauncher {
     static List<String> windowsRelaunchCommand(Path javaExecutable, Path launcher, String[] args, boolean preview) {
         List<String> command = new ArrayList<>();
         command.add(javaExecutable.toString());
-        command.add("-Xms64m");
-        command.add("-Xmx512m");
-        command.add("-XX:+ExplicitGCInvokesConcurrent");
+        command.addAll(RuntimeJvmOptions.defaults());
         command.add("--add-opens=java.base/java.lang=ALL-UNNAMED");
         command.add("--add-opens=java.desktop/sun.awt=ALL-UNNAMED");
         command.add("-D" + ISOLATED_RUNTIME_PROPERTY + "=true");
