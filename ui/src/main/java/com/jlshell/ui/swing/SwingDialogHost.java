@@ -107,12 +107,9 @@ public final class SwingDialogHost {
         };
         SwingUtilities.invokeLater(() -> {
             Window owner = SwingDialogChrome.owner();
-            boolean wasEnabled = owner != null && owner.isEnabled();
-            Object oldModal = owner instanceof RootPaneContainer host
-                    ? host.getRootPane().getClientProperty("jlshell.settingsModal") : null;
             try {
                 SwingTheme.install(theme, accent, family, fontSize);
-                JDialog dialog = new JDialog(owner, model.getTitle(), Dialog.ModalityType.MODELESS);
+                JDialog dialog = new SwingModalDialog(owner, model.getTitle());
                 dialog.setName(name);
                 dialog.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
                 view.set(dialog);
@@ -175,8 +172,6 @@ public final class SwingDialogHost {
                 dialog.addWindowListener(new WindowAdapter() {
                     public void windowClosing(WindowEvent event) { requestClose.run(); }
                     public void windowClosed(WindowEvent event) {
-                        if (owner instanceof RootPaneContainer host) host.getRootPane().putClientProperty("jlshell.settingsModal", oldModal);
-                        if (owner != null) owner.setEnabled(wasEnabled);
                         FxThread.run(cleanup);
                     }
                 });
@@ -202,15 +197,11 @@ public final class SwingDialogHost {
                     dialog.setSize(targetWidth, Math.min(height, availableHeight));
                 }
                 dialog.setLocationRelativeTo(owner);
-                if (owner instanceof RootPaneContainer host) host.getRootPane().putClientProperty("jlshell.settingsModal", true);
-                if (owner != null) owner.setEnabled(false);
                 dialog.setVisible(true);
             } catch (Throwable error) {
                 failure.set(error);
                 if (view.get() != null && view.get().isDisplayable()) view.get().dispose();
                 else {
-                    if (owner instanceof RootPaneContainer host) host.getRootPane().putClientProperty("jlshell.settingsModal", oldModal);
-                    if (owner != null) owner.setEnabled(wasEnabled);
                     FxThread.run(cleanup);
                 }
             }

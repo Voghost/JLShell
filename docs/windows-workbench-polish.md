@@ -32,3 +32,11 @@
 - 实际 Swing 窗口回归覆盖同名同地址不同 ID 的目标定位、折叠父目录展开、过滤清除、hover 像素与选中项隔离、分隔条拖动及主题更新。
 - Preview Windows job 执行相同 UI 回归，并上传 Windows 菜单实际截图与测试报告；Windows 专属断言检查不透明窗口和可用中文字体的回退。
 - 本机为 macOS，Windows 实际渲染需以 Windows runner 和用户显示器上的结果为准；远程 runner 的字体安装、ClearType 与 DPI 不一定与用户机器一致。
+
+## 弹窗关闭后的闪烁与最小化
+
+动作分发原先对每次菜单/按钮调用都先禁用主窗口，完成后强制 `toFront()`；模拟模态弹窗在 `WINDOW_CLOSED` 之后才恢复 owner。Windows 在隐藏和销毁子窗口时已经开始选择下一个活动窗口，恢复父窗口太晚会导致闪烁或激活到其他窗口。
+
+现在由 `SwingModalDialog` 在显示时记录并禁用 owner，在隐藏/销毁 peer 之前恢复原状态；嵌套弹窗只恢复自己的父窗口。普通动作不预先禁用窗口，模态状态同步不再强制置顶。设置窗口也通过同一 owner 选择方法排除临时 JWindow。
+
+`SwingModalDialogTest` 覆盖多次显示/隐藏/销毁、嵌套弹窗、原已禁用的 owner，以及主窗口仍可见且未被 iconify；本机 NativeDialogs/Settings/SSH 工作区真实窗口回归通过。Windows Preview 同时运行 owner 状态与插件图标、JavaFX 兼容回归。

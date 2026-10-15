@@ -128,13 +128,11 @@ final class SwingFormRenderer implements AutoCloseable {
             };
         } else if(node instanceof StackPane avatar&&styles.contains("plugin-avatar")) {
             String initial=((Label)avatar.getChildren().getFirst()).getText();
-            factory=()->new JLabel(initial,SwingConstants.CENTER) {
-                {setPreferredSize(new Dimension(40,40));setMinimumSize(new Dimension(40,40));}
-                protected void paintComponent(java.awt.Graphics graphics){
-                    var g=(java.awt.Graphics2D)graphics.create();try{g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING,java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
-                        g.setColor(UIManager.getColor("Component.focusColor"));g.fillRoundRect(0,0,getWidth(),getHeight(),12,12);
-                    }finally{g.dispose();}super.paintComponent(graphics);
-                }
+            var source = (PluginIcons.Source) avatar.getProperties().get("swing.pluginIconSource");
+            factory = () -> {
+                JLabel label = new JLabel(PluginIcons.icon(initial, source, 40, false));
+                label.setPreferredSize(new Dimension(40, 40)); label.setMinimumSize(new Dimension(40, 40));
+                return label;
             };
         }
         else if(node instanceof GridPane grid&&grid.getStyleClass().contains("terminal-font-layout"))factory=SwingTerminalFontPanel.prepare(this,grid);

@@ -50,7 +50,7 @@ public class PluginsTabView extends BorderPane {
     private final java.util.concurrent.atomic.AtomicReference<com.jlshell.ui.swing.SwingPluginList> nativeView = new java.util.concurrent.atomic.AtomicReference<>();
     private boolean disposed;
     public static final String PINNED_SHORTCUTS = "jlshell.pinnedPluginShortcuts";
-    public record PinnedShortcut(String id, String title, Runnable open) {}
+    public record PinnedShortcut(String id, String title, Runnable open, com.jlshell.ui.swing.PluginIcons.Source icon) {}
     private final javafx.collections.ObservableList<PinnedShortcut> pinnedShortcuts;
     private final com.jlshell.core.service.AppSettingsService settings;
     private final Set<String> pinnedIds = new java.util.HashSet<>();
@@ -269,7 +269,7 @@ public class PluginsTabView extends BorderPane {
     private void publishPinnedShortcuts() {
         publishNativeList();
         pinnedShortcuts.setAll(listView.getItems().stream().filter(item -> pinnedIds.contains(item.tabKey()))
-                .map(item -> new PinnedShortcut(item.tabKey(), item.displayName(i18nService.getLocale()), () -> activate(item)))
+                .map(item -> new PinnedShortcut(item.tabKey(), item.displayName(i18nService.getLocale()), () -> activate(item), item.icon()))
                 .toList());
     }
 
@@ -294,7 +294,7 @@ public class PluginsTabView extends BorderPane {
                     if (selected) pinnedIds.add(item.tabKey()); else pinnedIds.remove(item.tabKey());
                     if (settings != null) settings.set("ui.pluginSidebar.pinned." + item.tabKey(), Boolean.toString(selected));
                     publishPinnedShortcuts(); listView.refresh();
-                }))).toList();
+                }), item.icon())).toList();
     }
 
     private void publishNativeList() {
@@ -341,6 +341,11 @@ public class PluginsTabView extends BorderPane {
 
         String tabKey() {
             return (sessionPlugin == null ? "program:" : "session:") + ownerPluginId;
+        }
+
+        com.jlshell.ui.swing.PluginIcons.Source icon() {
+            Object plugin = sessionPlugin == null ? programContribution.contribution() : sessionPlugin.instance();
+            return com.jlshell.ui.swing.PluginIcons.local(plugin == null ? null : plugin.getClass());
         }
 
         String displayName(java.util.Locale locale) {

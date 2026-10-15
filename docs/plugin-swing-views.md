@@ -53,3 +53,9 @@ ui/run-preview.sh 默认使用该 profile，并将本轮 sysmon fat JAR 复制�
 - PluginProgressUiSmokeTest：深浅主题窄列表布局与搜索、更新进度/后台运行/快速关闭，以及从实际 sysmon fat JAR 创建原生监控页。
 
 系统监控插件在旧宿主上自动走原 FX 页面，新版宿主上使用 Swing 工厂。
+
+## 插件图标
+
+市场列表优先读取网站返回的 `iconUrl`。插件卡片和已安装列表优先读取本地插件 JAR 图标，缺失、格式不支持或读取失败时显示名称首字占位。固定到侧栏的图标使用主题前景色，不保留品牌色；卡片和市场使用原图颜色。图标异步加载并缓存，失败不会阻塞页面。
+
+本地插件可在 `META-INF/MANIFEST.MF` 声明 `JLShell-Plugin-Icon: branding/logo.png`，路径相对 JAR 根目录。未声明时依次检查 `META-INF/jlshell/icon.png`、`icons/plugin.png`、`icon.png`。支持 PNG、JPEG、GIF 等 ImageIO 图片格式，建议提供带透明背景的 PNG，单张不超过 2 MB、2048×2048。此约定不需要新增 SDK 方法；未携带这些资源的旧插件继续显示名称首字占位。

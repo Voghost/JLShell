@@ -11,7 +11,10 @@ import java.util.function.Consumer;
 /** 窄侧栏使用紧凑卡片；卡片文字按可用宽度绘制，不撑宽滚动区域。 */
 public final class SwingPluginList extends JPanel {
     public record Entry(String id, String name, String description, String version, boolean pinned,
-                        Runnable open, Consumer<Boolean> pin) {}
+                        Runnable open, Consumer<Boolean> pin, PluginIcons.Source icon) {
+        public Entry(String id, String name, String description, String version, boolean pinned,
+                     Runnable open, Consumer<Boolean> pin) { this(id, name, description, version, pinned, open, pin, null); }
+    }
     private final JPanel rows = new JPanel();
     private final JTextField search = new JTextField();
     private final JLabel count = new JLabel();
@@ -65,7 +68,8 @@ public final class SwingPluginList extends JPanel {
             setPreferredSize(new Dimension(0, 146)); setMinimumSize(new Dimension(0, 146));
             setBorder(BorderFactory.createEmptyBorder(12, 12, 10, 12));
             JPanel title = new JPanel(new BorderLayout(8, 0)); title.setOpaque(false);
-            JLabel name = new JLabel(entry.name(), new WorkbenchIcon(WorkbenchIcon.Kind.PLUGIN), JLabel.LEFT);
+            JLabel name = new JLabel(entry.name(), PluginIcons.icon(entry.name(), entry.icon(), 32, false), JLabel.LEFT);
+            name.setIconTextGap(8);
             name.putClientProperty("html.disable", true); name.setFont(name.getFont().deriveFont(Font.BOLD)); name.setToolTipText(entry.name());
             name.setMinimumSize(new Dimension(0, 22)); title.add(name, BorderLayout.CENTER);
             JToggleButton pin = new JToggleButton(new WorkbenchIcon(WorkbenchIcon.Kind.PIN), entry.pinned());
