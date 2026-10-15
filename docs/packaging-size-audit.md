@@ -51,3 +51,19 @@
 - 使用相同精简运行时和 JAR（不添加 Maven 依赖类路径）冷启动真实 Launcher，验证数据库初始化、窗口显示、FX/EDT 响应、托盘及正常关闭。
 - 工作流提供 `build_only=true`：只构建可下载的 Actions 产物，不创建版本标签、不上传 OSS、不通知网站。
 - CI 三平台分别执行自己的打包运行时 smoke，任一平台失败均不进入 Release/OSS 发布。
+
+## Actions 完整安装包实测
+
+验证提交 `3b5bed010c21b7f2b3116817b5536019a3881fa0`，[构建记录](https://github.com/Voghost/JLShell/actions/runs/38660118151)，三平台均成功。与 v0.1.67 GitHub Release 的同类型产物比较；本轮只构建，无公开发布。
+
+| 产物 | v0.1.67 | 0.1.68 Beta | 减少 |
+| --- | ---: | ---: | ---: |
+| JLShell-0.1.68-linux-x64.deb | 101.34 MiB | 61.30 MiB | 39.5% |
+| JLShell-0.1.68-linux-x64.tar.gz | 107.28 MiB | 65.58 MiB | 38.9% |
+| JLShell-0.1.68-linux-x86_64.AppImage | 107.74 MiB | 66.05 MiB | 38.7% |
+| jlshell-app-0.1.68.jar | 45.98 MiB | 32.82 MiB | 28.6% |
+| JLShell-0.1.68-mac.zip | 99.27 MiB | 62.66 MiB | 36.9% |
+| JLShell-0.1.68-win-x64.msi | 101.58 MiB | 64.26 MiB | 36.7% |
+| JLShell-0.1.68-win-x64.zip | 99.93 MiB | 62.47 MiB | 37.5% |
+
+已下载并检查 Windows ZIP、Linux tar.gz、macOS ZIP：保留各自平台 SQLite，本地应用 JAR 不再重复 JavaFX，运行时没有 Client JVM。
