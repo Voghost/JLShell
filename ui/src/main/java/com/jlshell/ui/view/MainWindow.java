@@ -377,6 +377,12 @@ public class MainWindow {
 
     /** 新分支的 Swing 渲染入口；业务动作、会话及插件上下文仍由原控制器维护。 */
     public CompletableFuture<Void> showSwingWindow(Stage owner, Runnable quit) {
+        return showSwingWindow(owner, quit, null);
+    }
+
+    public CompletableFuture<Void> showSwingWindow(Stage owner, Runnable quit,
+                                                  com.jlshell.core.support.PerformanceTrace timing) {
+        var modelTiming = timing == null ? null : timing.step("swing-window-model");
         swingQuitAction = quit;
         var texts = com.jlshell.ui.swing.SwingWorkbench.TEXT_KEYS.stream().collect(
                 Collectors.toMap(key -> key, key -> i18nService.get(key)));
@@ -445,9 +451,18 @@ public class MainWindow {
                 .filter(item -> i18nService.get("action.exit").equals(item.getText()))
                 .forEach(item -> item.setOnAction(event -> quit.run()));
         var menuSnapshot = com.jlshell.ui.swing.SwingMenuBridge.snapshot(menuModel, this::dispatchSwingAction);
+        if (modelTiming != null) modelTiming.close();
+        var queueTiming = timing == null ? null : timing.step("swing-workbench-edt-queue");
         swingWorkbench = com.jlshell.terminal.support.SwingExecutors.supplyOnEdtAsync(() -> {
-            com.jlshell.ui.swing.SwingTheme.install(theme, accent, family, fontSize);
-            var view = new com.jlshell.ui.swing.SwingWorkbench(actions, texts);
+            if (queueTiming != null) queueTiming.close();
+            if (timing != null) timing.run("swing-theme-confirm", () -> com.jlshell.ui.swing.SwingTheme.install(theme, accent, family, fontSize));
+            else com.jlshell.ui.swing.SwingTheme.install(theme, accent, family, fontSize);
+            var view = timing == null ? new com.jlshell.ui.swing.SwingWorkbench(actions, texts)
+                    : timing.call("swing-workbench-create", () -> new com.jlshell.ui.swing.SwingWorkbench(actions, texts));
+            if (timing != null) view.firstPaint().thenRun(() -> {
+                timing.mark("workbench-first-paint");
+                timing.finish("workbench-first-paint");
+            });
             view.setMenuBar(com.jlshell.ui.swing.SwingMenuBridge.create(menuModel, menuSnapshot, this::dispatchSwingAction));
             view.setMenuProvider(reply -> FxThread.run(() -> {
                 for (Menu menu : menuModel.getMenus()) javafx.event.Event.fireEvent(menu, new javafx.event.Event(Menu.ON_SHOWING));
@@ -456,7 +471,8 @@ public class MainWindow {
                     "plugins", fxAction.apply(() -> openPreferences(owner, PreferencesDialog.TAB_PLUGINS)),
                     "account", fxAction.apply(() -> openPreferences(owner, PreferencesDialog.TAB_ACCOUNT)),
                     "shortcuts", fxAction.apply(() -> openPreferences(owner, PreferencesDialog.TAB_SHORTCUTS))));
-            view.show();
+            if (timing != null) timing.run("swing-window-show", view::show);
+            else view.show();
             return view;
         });
         swingModalListener = change -> updateSwingModality();

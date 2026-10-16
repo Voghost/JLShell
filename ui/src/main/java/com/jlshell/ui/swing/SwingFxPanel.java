@@ -24,6 +24,7 @@ public final class SwingFxPanel extends JFXPanel implements AutoCloseable {
     private final ThemeService themes;
     private final ChangeListener<Object> themeListener = (obs, oldValue, value) -> refreshTheme();
     private boolean closed;
+    private com.jlshell.ui.support.PluginOpenTiming pluginTiming;
     private boolean ownsDialogKeys;
     public void setOwnsDialogKeys(boolean value) { ownsDialogKeys = value; }
     @Override protected boolean processKeyBinding(javax.swing.KeyStroke key, java.awt.event.KeyEvent event,
@@ -51,16 +52,32 @@ public final class SwingFxPanel extends JFXPanel implements AutoCloseable {
         setView(node, true);
     }
 
-    private void setView(Node node, boolean dialog) {
+    public void setPluginView(Node node, com.jlshell.ui.support.PluginOpenTiming timing) {
+        pluginTiming = timing;
+        setView(node, false, timing);
+    }
+
+    private void setView(Node node, boolean dialog) { setView(node, dialog, null); }
+
+    private void setView(Node node, boolean dialog, com.jlshell.ui.support.PluginOpenTiming timing) {
+        var queue = timing == null ? null : timing.step("fx-bridge-queue");
         FxThread.run(() -> {
-            if (closed) return;
-            // 宿主主题只作用于包装节点，避免覆盖插件根节点的 inline style。
-            com.jlshell.ui.support.BundledFontLoader.load();
-            Parent root = new BorderPane(node);
-            if (dialog) root.getStyleClass().add("idea-dialog-root");
-            Scene scene = new Scene(root);
-            themes.apply(scene);
-            setScene(scene);
+            if (queue != null) queue.close();
+            if (closed) { if (timing != null) timing.finish("closed-before-display"); return; }
+            var span = timing == null ? null : timing.step("fx-scene-create");
+            try {
+                // 宿主主题只作用于包装节点，避免覆盖插件根节点的 inline style。
+                com.jlshell.ui.support.BundledFontLoader.load();
+                Parent root = new BorderPane(node);
+                if (dialog) root.getStyleClass().add("idea-dialog-root");
+                Scene scene = new Scene(root);
+                themes.apply(scene);
+                setScene(scene);
+                if (timing != null) timing.observeFxContent(node);
+            } catch (RuntimeException | Error error) {
+                if (span != null) { span.failed(error); timing.failed(error); }
+                throw error;
+            } finally { if (span != null) span.close(); }
         });
     }
 
@@ -73,6 +90,7 @@ public final class SwingFxPanel extends JFXPanel implements AutoCloseable {
         FxThread.run(() -> {
             if (closed) return;
             closed = true;
+            if (pluginTiming != null) { pluginTiming.finish("closed-before-layout"); pluginTiming = null; }
             themes.currentThemeProperty().removeListener(themeListener);
             themes.accentColorProperty().removeListener(themeListener);
             setScene(null);

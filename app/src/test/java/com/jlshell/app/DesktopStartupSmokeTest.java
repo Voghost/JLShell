@@ -40,6 +40,10 @@ class DesktopStartupSmokeTest {
             assertTrue(exited, () -> "Startup did not complete:\n" + read(log));
             assertEquals(0, process.exitValue(), () -> read(log));
             assertTrue(read(log).contains("DESKTOP_STARTUP_READY"), () -> read(log));
+            assertTrue(read(log).contains("operation=startup subject=desktop stage=total event=end outcome=workbench-first-paint"),
+                    () -> "Startup must measure actual Swing painting:\n" + read(log));
+            assertTrue(read(log).contains("stage=javafx-toolkit-bootstrap#"), () -> read(log));
+            assertTrue(read(log).contains("stage=database-schema#"), () -> read(log));
         } finally {
             if (process.isAlive()) {
                 process.destroyForcibly();

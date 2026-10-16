@@ -132,7 +132,15 @@ public final class SwingWorkbench implements AutoCloseable {
             } finally { g.dispose(); }
         }
     };
-    private final JPanel root = new JPanel(new BorderLayout());
+    private final java.util.concurrent.CompletableFuture<Void> firstPaint = new java.util.concurrent.CompletableFuture<>();
+    private final JPanel root = new JPanel(new BorderLayout()) {
+        @Override protected void paintChildren(Graphics graphics) {
+            super.paintChildren(graphics);
+            if (isShowing() && getWidth() > 0 && getHeight() > 0) firstPaint.complete(null);
+        }
+    };
+
+    public java.util.concurrent.CompletableFuture<Void> firstPaint() { return firstPaint; }
     private final JSplitPane vertical = new ResizeSplitPane(JSplitPane.VERTICAL_SPLIT);
     private final JPanel toolDock = new IslandPanel(new BorderLayout(), "canvas");
     private final JPanel dockBody = new JPanel(new BorderLayout());
