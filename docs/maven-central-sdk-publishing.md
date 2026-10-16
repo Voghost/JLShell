@@ -37,8 +37,8 @@ gpg --armor --export-secret-keys <KEY_ID>
 手动运行 GitHub Actions 工作流 `Publish JLShell SDK to Maven Central`：
 
 - `sourceRef`：默认 `main`，正式发布应使用已合入 `main` 的提交或标签。
-- `sdkVersion`：不可覆盖的语义版本；本次 Swing 插件视图扩展使用 `1.6.0`，已公开的
-  `1.0.0` 至 `1.5.0` 不得覆盖。
+- `sdkVersion`：不可覆盖的语义版本；本次只读字体扩展使用 `1.7.0`，已公开的
+  `1.0.0` 至 `1.6.0` 不得覆盖。
 - `autoPublish`：首次发布保持 `false`。工作流会上传并等待 Central 校验，通过后由维护者
   在 Portal 中检查并手动 Publish。确认流程稳定后才可选择 `true` 自动公开。
 
@@ -94,3 +94,15 @@ Maven 坐标：
 ## 发布工具兼容性
 
 Central 发布插件使用 0.12.0，修复 Maven 3.10 在暂存目录产生 maven-metadata-local.xml / _remote.repositories、导致 Central 报 Bundle has content that does NOT have a .pom file 的问题。升级依据：https://central.sonatype.org/publish/publish-portal-maven/#0120-13-oct-2026 。
+
+
+## SDK 1.7.0：只读宿主字体
+
+Session、Program 和 Program 会话贡献通过 `context.fonts()` 读取终端、界面字体，
+并使用 `onTerminalFontChanged` / `onUiFontChanged` 订阅变更。不提供写入宿主字体的 API。
+`FontSpec` 为 UI 技术栈无关的不可变配置；订阅的首个值、排序与生命周期约定见
+[`plugin-fonts.md`](plugin-fonts.md)。
+
+同时发布 `net.oomn.jlshell:plugin-api:1.7.0` 和 `net.oomn.jlshell:program-api:1.7.0`。
+program-api 无新增接口，只保持两包版本及依赖一致。新 SDK 的使用需要包含对应实现的
+宿主；SDK 独立发布不代表已有 0.1.71 Beta 已支持该字体能力。

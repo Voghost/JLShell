@@ -15,7 +15,7 @@ import com.jlshell.program.api.AccountSessionService;
 import javafx.beans.property.ReadOnlyObjectProperty;
 import javafx.beans.property.ReadOnlyStringProperty;
 
-public interface ProgramPluginContext {
+public interface ProgramPluginContext extends com.jlshell.plugin.api.ui.FontAwareContext {
 
     String themeName();
 

@@ -25,6 +25,10 @@ import javafx.scene.Parent;
  */
 public class ThemeService {
 
+    public record UiFont(String family, int size) {}
+    private final javafx.beans.property.ReadOnlyObjectWrapper<UiFont> uiFont =
+            new javafx.beans.property.ReadOnlyObjectWrapper<>();
+
     private final ObjectProperty<AppTheme> currentTheme = new SimpleObjectProperty<>(AppTheme.DARK);
     private final ObjectProperty<AccentColor> accentColor = new SimpleObjectProperty<>(AccentColor.SKY);
     private final ObjectProperty<TerminalColorScheme> activeColorScheme;
@@ -33,6 +37,7 @@ public class ThemeService {
 
     public ThemeService(AppSettingsService appSettings, ColorSchemeRegistry registry, ExecutorService executor) {
         this.appSettings = appSettings;
+        refreshUiFont();
         this.registry = registry;
         String savedTheme = appSettings.get("ui.theme", "DARK");
         currentTheme.set("LIGHT".equals(savedTheme) ? AppTheme.LIGHT : AppTheme.DARK);
@@ -107,6 +112,21 @@ public class ThemeService {
         applyAccent(scene.getRoot());
     }
 
+    public javafx.beans.property.ReadOnlyObjectProperty<UiFont> uiFontProperty() {
+        return uiFont.getReadOnlyProperty();
+    }
+
+    public UiFont uiFont() { return uiFont.get(); }
+
+    /** Publish one complete preference after both family and size have been saved. FX thread. */
+    public void refreshUiFont() {
+        String family = appSettings.get("ui.font.family", "").strip();
+        int size;
+        try { size = Integer.parseInt(appSettings.get("ui.font.size", "13")); }
+        catch (NumberFormatException invalid) { size = 13; }
+        uiFont.set(new UiFont(family, Math.max(8, Math.min(24, size))));
+    }
+
     public void applyToDialog(DialogPane pane) {
         String stylesheet = getClass().getResource(currentTheme().stylesheet()).toExternalForm();
         if (!pane.getStylesheets().contains(stylesheet)) {
@@ -153,14 +173,14 @@ public class ThemeService {
 
     public String uiStyle() {
         StringBuilder style = new StringBuilder();
-        String family = appSettings.get("ui.font.family", null);
+        String family = uiFont().family();
         if (family != null && !family.isBlank()) {
             style.append("-fx-font-family: \"")
                     .append(family.replace("\\", "\\\\").replace("\"", "\\\""))
                     .append("\";");
         }
         style.append("-fx-font-size: ")
-                .append(appSettings.get("ui.font.size", "13"))
+                .append(uiFont().size())
                 .append("px;");
         style.append(accentStyle());
         return style.toString();

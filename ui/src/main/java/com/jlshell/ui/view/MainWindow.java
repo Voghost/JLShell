@@ -340,6 +340,7 @@ public class MainWindow {
 
         themeService.apply(scene);
         applyUiFontSettings();
+        themeService.uiFontProperty().addListener((obs, oldFont, newFont) -> applyUiFontSettings());
         viewModel.activeThemeProperty().bind(themeService.currentThemeProperty());
         themeService.currentThemeProperty().addListener((obs, oldTheme, newTheme) -> {
             themeService.apply(scene);
