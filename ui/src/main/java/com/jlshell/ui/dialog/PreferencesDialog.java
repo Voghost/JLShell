@@ -226,14 +226,18 @@ public class PreferencesDialog {
                             AccountService accountService,
                             ShortcutRegistry shortcutRegistry,
                             int initialTabIndex) {
-        Dialog<Void> dialog = new Dialog<>();
-        dialog.setTitle(i18n.get("preferences.title"));
-        dialog.setHeaderText(null);
-        if (owner != null) dialog.initOwner(owner);
-        themeService.applyToDialog(dialog);
-        dialog.setResizable(true);
-        dialog.getDialogPane().setPrefSize(1040, 760);
-        dialog.getDialogPane().setMinSize(640, 480);
+        boolean swing = !"javafx".equalsIgnoreCase(System.getProperty("jlshell.ui.renderer", "swing"));
+        // Swing 使用原生窗口；不再创建一个永远不显示的 FX Dialog/Stage/皮肤树。
+        Dialog<Void> dialog = swing ? null : new Dialog<>();
+        if (dialog != null) {
+            dialog.setTitle(i18n.get("preferences.title"));
+            dialog.setHeaderText(null);
+            if (owner != null) dialog.initOwner(owner);
+            themeService.applyToDialog(dialog);
+            dialog.setResizable(true);
+            dialog.getDialogPane().setPrefSize(1040, 760);
+            dialog.getDialogPane().setMinSize(640, 480);
+        }
 
         FontProfile[] pending = { fontProfileService.activeProfile() };
         String[] pendingLang = { appSettings.get("ui.language", null) };
@@ -273,15 +277,15 @@ public class PreferencesDialog {
         if (initialTabIndex >= 0 && initialTabIndex < tabs.getTabs().size()) {
             tabs.getSelectionModel().select(initialTabIndex);
         }
-        boolean swing = !"javafx".equalsIgnoreCase(System.getProperty("jlshell.ui.renderer", "swing"));
         if (!swing) dialog.getDialogPane().setContent(new com.jlshell.ui.view.SettingsNavigation(tabs));
 
         // Apply 按钮：用 APPLY 类型让 ButtonBar 自动放左侧
         ButtonType applyBtnType = new ButtonType(i18n.get("preferences.apply"), ButtonBar.ButtonData.APPLY);
-        dialog.getDialogPane().getButtonTypes().addAll(applyBtnType, ButtonType.CANCEL, ButtonType.OK);
+        if (!swing) dialog.getDialogPane().getButtonTypes().addAll(applyBtnType, ButtonType.CANCEL, ButtonType.OK);
 
         // Apply 按钮：拦截默认关闭行为，只应用设置
-        Button applyButton = (Button) dialog.getDialogPane().lookupButton(applyBtnType);
+        Button applyButton = swing ? new Button(i18n.get("preferences.apply"))
+                : (Button) dialog.getDialogPane().lookupButton(applyBtnType);
         PreferencesSnapshot[] lastApplied = { snapshotOf(pending, pendingLang, pendingTheme, pendingAccent,
                 pendingConnTimeout, pendingKeepAlive, pendingScheme, pendingApiEnabled, pendingApiPort,
                 pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines,
@@ -310,16 +314,21 @@ public class PreferencesDialog {
             if (needRestart) showRestartPrompt(owner, i18n, themeService);
         });
 
+        Runnable applyAndClose = () -> {
+            boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending,
+                    pendingLang, pendingTheme, pendingAccent, pendingConnTimeout, pendingKeepAlive,
+                    pendingScheme, pendingApiEnabled, pendingApiPort, pendingUiFontFamily, pendingUiFontSize,
+                    pendingScrollbackLines, pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl,
+                    pendingAccountSyncEnabled, pendingAccountBaseUrl);
+            if (needRestart) showRestartPrompt(owner, i18n, themeService);
+        };
+
+        if (swing) {
+            com.jlshell.ui.swing.SwingPreferencesDialog.showAndWait(tabs, applyButton, i18n, themeService, applyAndClose);
+            return;
+        }
         dialog.setResultConverter(btn -> {
-            if (btn.getButtonData() == ButtonBar.ButtonData.OK_DONE) {
-                boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending,
-                        pendingLang, pendingTheme, pendingAccent, pendingConnTimeout, pendingKeepAlive,
-                         pendingScheme,
-                        pendingApiEnabled, pendingApiPort, pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines,
-                        pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl,
-                        pendingAccountSyncEnabled, pendingAccountBaseUrl);
-                if (needRestart) showRestartPrompt(owner, i18n, themeService);
-            }
+            if (btn.getButtonData() == ButtonBar.ButtonData.OK_DONE) applyAndClose.run();
             return null;
         });
 
@@ -331,12 +340,7 @@ public class PreferencesDialog {
             }
         });
 
-        if (swing) {
-            com.jlshell.ui.swing.SwingPreferencesDialog.showAndWait(tabs, applyButton, i18n, themeService,
-                    () -> dialog.getResultConverter().call(ButtonType.OK));
-        } else {
-            dialog.showAndWait();
-        }
+        dialog.showAndWait();
     }
 
     private static void showRestartPrompt(Stage owner, I18nService i18n, ThemeService themeService) {
@@ -509,43 +513,51 @@ public class PreferencesDialog {
         tabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
 
         Tab generalTab = new Tab(i18n.get("preferences.tab.general"));
-        generalTab.setContent(buildGeneralPane(appSettings, i18n, themeService, pendingLang, pendingTheme,
+        generalTab.setContent(new com.jlshell.ui.support.DeferredSettingsPage(
+                () -> buildGeneralPane(appSettings, i18n, themeService, pendingLang, pendingTheme,
                 pendingAccent, pendingConnTimeout, pendingKeepAlive,
                 pendingUiFontFamily, pendingUiFontSize,
                 pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl,
-                memoryReclaimService, preferenceChanged));
+                memoryReclaimService, preferenceChanged), i18n.searchText("preferences.general.", "preferences.connection.", "preferences.updates.")));
         tabPane.getTabs().add(generalTab);
 
         Tab accountTab = new Tab(i18n.get("preferences.tab.account"));
-        accountTab.setContent(buildAccountPane(i18n, themeService, accountService, owner,
-                pendingAccountSyncEnabled, pendingAccountBaseUrl, preferenceChanged));
+        accountTab.setContent(new com.jlshell.ui.support.DeferredSettingsPage(
+                () -> buildAccountPane(i18n, themeService, accountService, owner,
+                pendingAccountSyncEnabled, pendingAccountBaseUrl, preferenceChanged), i18n.searchText("preferences.account.", "account.")));
         tabPane.getTabs().add(accountTab);
 
         Tab terminalTab = new Tab(i18n.get("preferences.tab.terminal"));
-        terminalTab.setContent(buildTerminalPane(appSettings, fontProfileService.activeProfile(), i18n, themeService,
-                pending, pendingScheme, pendingScrollbackLines, preferenceChanged, owner));
+        terminalTab.setContent(new com.jlshell.ui.support.DeferredSettingsPage(
+                () -> buildTerminalPane(appSettings, fontProfileService.activeProfile(), i18n, themeService,
+                pending, pendingScheme, pendingScrollbackLines, preferenceChanged, owner), i18n.searchText("preferences.terminal.", "terminal.", "colorScheme.")));
         tabPane.getTabs().add(terminalTab);
 
         Tab importTab = new Tab(i18n.get("preferences.tab.import"));
-        importTab.setContent(buildImportPane(i18n, connectionProfileService, activeProjectId, themeService));
+        importTab.setContent(new com.jlshell.ui.support.DeferredSettingsPage(
+                () -> buildImportPane(i18n, connectionProfileService, activeProjectId, themeService), i18n.searchText("import.", "preferences.import.")));
         tabPane.getTabs().add(importTab);
 
         Tab apiTab = new Tab(i18n.get("preferences.tab.api"));
-        apiTab.setContent(buildApiPane(appSettings, i18n, apiServer, capabilityBus, selectedSessionId,
-                pendingApiEnabled, pendingApiPort, preferenceChanged));
+        apiTab.setContent(new com.jlshell.ui.support.DeferredSettingsPage(
+                () -> buildApiPane(appSettings, i18n, apiServer, capabilityBus, selectedSessionId,
+                pendingApiEnabled, pendingApiPort, preferenceChanged), i18n.searchText("api.", "preferences.api.")));
         tabPane.getTabs().add(apiTab);
 
         Tab pluginsTab = new Tab(i18n.get("preferences.tab.plugins"));
-        pluginsTab.setContent(buildPluginsPane(appSettings, i18n, themeService, owner,
-                programPluginManager, pluginManager));
+        pluginsTab.setContent(new com.jlshell.ui.support.DeferredSettingsPage(
+                () -> buildPluginsPane(appSettings, i18n, themeService, owner,
+                programPluginManager, pluginManager), i18n.searchText("plugins.")));
         tabPane.getTabs().add(pluginsTab);
 
         Tab shortcutsTab = new Tab(i18n.get("preferences.tab.shortcuts"));
-        shortcutsTab.setContent(buildShortcutsPane(shortcutRegistry, i18n, themeService, owner, preferenceChanged));
+        shortcutsTab.setContent(new com.jlshell.ui.support.DeferredSettingsPage(
+                () -> buildShortcutsPane(shortcutRegistry, i18n, themeService, owner, preferenceChanged), i18n.searchText("shortcuts.", "shortcut.")));
         tabPane.getTabs().add(shortcutsTab);
 
         Tab aboutTab = new Tab(i18n.get("preferences.tab.about"));
-        aboutTab.setContent(buildAboutPane(i18n));
+        aboutTab.setContent(new com.jlshell.ui.support.DeferredSettingsPage(
+                () -> buildAboutPane(i18n), i18n.searchText("about.", "preferences.about.")));
         tabPane.getTabs().add(aboutTab);
 
         return tabPane;
@@ -866,7 +878,10 @@ public class PreferencesDialog {
         String[] allFonts = GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames();
         List<String> sortedFonts = Arrays.stream(allFonts).sorted().collect(Collectors.toCollection(ArrayList::new));
         String defaultFontLabel = i18n.get("preferences.general.uiFont.default");
-        Set<String> monoFamilies=new HashSet<>(loadMonospacedFonts());
+        // 分组只需要字体名称；逐个测量所有系统字体会初始化大量原生字体缓存。
+        Set<String> monoFamilies = Arrays.stream(allFonts)
+                .filter(PreferencesDialog::isKnownMonospacedFamily)
+                .collect(Collectors.toSet());
         sortedFonts.sort(Comparator.comparing((String family)->!monoFamilies.contains(family)).thenComparing(String.CASE_INSENSITIVE_ORDER));
         uiFontCombo.getProperties().put("jlshell.fontPicker",true);
         uiFontCombo.getProperties().put("jlshell.fontGroups",true);
@@ -4353,6 +4368,12 @@ public class PreferencesDialog {
         if (result.isEmpty()) result.add("Monospaced");
         cachedMonoFonts = List.copyOf(result);
         return cachedMonoFonts;
+    }
+
+    private static boolean isKnownMonospacedFamily(String family) {
+        String name = family.toLowerCase(Locale.ROOT);
+        return PREFERRED_MONO.contains(family) || name.contains("mono") || name.contains("code")
+                || name.contains("console") || name.contains("courier") || name.contains("typewriter");
     }
 
     private static boolean isMonospaced(String family) {

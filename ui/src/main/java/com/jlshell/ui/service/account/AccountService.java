@@ -62,8 +62,8 @@ public class AccountService {
     private final AppSettingsService appSettings;
     private final SecureSettingsService secureSettings;
     private final ExecutorService executor;
-    private final HttpClient httpClient;
-    private final HttpClient linkGatewayHttpClient;
+    private final java.util.function.Supplier<HttpClient> httpClient;
+    private final java.util.function.Supplier<HttpClient> linkGatewayHttpClient;
     private final Gson gson = new Gson();
     private final Duration heartbeatInterval;
     private final Duration reportStatsInterval;
@@ -79,7 +79,7 @@ public class AccountService {
 
     public AccountService(AppSettingsService appSettings, SecureSettingsService secureSettings,
                           ExecutorService executor) {
-        this(appSettings, secureSettings, executor, HttpClient.newBuilder()
+        this(appSettings, secureSettings, executor, () -> HttpClient.newBuilder()
                         .connectTimeout(Duration.ofSeconds(10))
                         .executor(executor)
                         .followRedirects(HttpClient.Redirect.NORMAL)
@@ -92,15 +92,23 @@ public class AccountService {
                    ExecutorService executor, HttpClient httpClient,
                    ScheduledThreadPoolExecutor scheduler, Duration heartbeatInterval,
                    Duration reportStatsInterval, DesktopBrowserLogin browserLogin) {
+        this(appSettings, secureSettings, executor, () -> httpClient, scheduler, heartbeatInterval, reportStatsInterval, browserLogin);
+        Objects.requireNonNull(httpClient);
+    }
+
+    AccountService(AppSettingsService appSettings, SecureSettingsService secureSettings,
+                   ExecutorService executor, java.util.function.Supplier<HttpClient> httpClientFactory,
+                   ScheduledThreadPoolExecutor scheduler, Duration heartbeatInterval,
+                   Duration reportStatsInterval, DesktopBrowserLogin browserLogin) {
         this.appSettings = Objects.requireNonNull(appSettings);
         this.secureSettings = Objects.requireNonNull(secureSettings);
         this.executor = Objects.requireNonNull(executor);
-        this.httpClient = Objects.requireNonNull(httpClient);
-        this.linkGatewayHttpClient = HttpClient.newBuilder()
+        this.httpClient = new com.jlshell.ui.support.LazyValue<>(httpClientFactory);
+        this.linkGatewayHttpClient = new com.jlshell.ui.support.LazyValue<>(() -> HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .executor(executor)
                 .followRedirects(HttpClient.Redirect.NEVER)
-                .build();
+                .build());
         this.heartbeatScheduler = Objects.requireNonNull(scheduler);
         this.heartbeatInterval = requirePositive(heartbeatInterval, "heartbeatInterval");
         this.reportStatsInterval = requirePositive(reportStatsInterval, "reportStatsInterval");
@@ -186,7 +194,7 @@ public class AccountService {
                         .header("Content-Type", "application/json")
                         .POST(HttpRequest.BodyPublishers.ofString(body))
                         .build();
-                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                HttpResponse<String> response = httpClient.get().send(request, HttpResponse.BodyHandlers.ofString());
                 if (response.statusCode() < 200 || response.statusCode() >= 300) {
                     throw parseError(response.statusCode(), response.body());
                 }
@@ -216,7 +224,7 @@ public class AccountService {
                         .timeout(Duration.ofSeconds(10))
                         .GET()
                         .build();
-                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                HttpResponse<String> response = httpClient.get().send(request, HttpResponse.BodyHandlers.ofString());
                 if (response.statusCode() < 200 || response.statusCode() >= 300) {
                     throw new AccountHttpException(response.statusCode(), null,
                             "Captcha request returned HTTP " + response.statusCode());
@@ -247,7 +255,7 @@ public class AccountService {
                         .header("Authorization", "Bearer " + token)
                         .GET()
                         .build();
-                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                HttpResponse<String> response = httpClient.get().send(request, HttpResponse.BodyHandlers.ofString());
                 if (response.statusCode() == 401) {
                     clearSession();
                     return null;
@@ -290,7 +298,7 @@ public class AccountService {
                         .header("Content-Type", "application/json")
                         .POST(HttpRequest.BodyPublishers.noBody())
                         .build();
-                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                HttpResponse<String> response = httpClient.get().send(request, HttpResponse.BodyHandlers.ofString());
                 if (response.statusCode() == 401 || response.statusCode() == 404) {
                     clearSession();
                     stopHeartbeat();
@@ -333,7 +341,7 @@ public class AccountService {
                         .header("Content-Type", "application/json")
                         .POST(HttpRequest.BodyPublishers.ofString(body))
                         .build();
-                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                HttpResponse<String> response = httpClient.get().send(request, HttpResponse.BodyHandlers.ofString());
                 if (response.statusCode() == 401 || response.statusCode() == 404) {
                     clearSession();
                     stopHeartbeat();
@@ -370,7 +378,7 @@ public class AccountService {
                         .header("Content-Type", "application/json")
                         .POST(HttpRequest.BodyPublishers.ofString(body))
                         .build();
-                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                HttpResponse<String> response = httpClient.get().send(request, HttpResponse.BodyHandlers.ofString());
                 if (response.statusCode() < 200 || response.statusCode() >= 300) {
                     throw parseError(response.statusCode(), response.body());
                 }
@@ -401,7 +409,7 @@ public class AccountService {
                             .POST(HttpRequest.BodyPublishers.noBody())
                             .build();
                     try {
-                        httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                        httpClient.get().send(request, HttpResponse.BodyHandlers.ofString());
                     } catch (Exception e) {
                         log.debug("Logout network call failed (clearing local state anyway)", e);
                     }
@@ -480,7 +488,7 @@ public class AccountService {
                     builder.header("Content-Type", "application/json")
                             .method(requestMethod, HttpRequest.BodyPublishers.ofString(jsonBody));
                 }
-                HttpResponse<byte[]> response = linkGatewayHttpClient.send(builder.build(),
+                HttpResponse<byte[]> response = linkGatewayHttpClient.get().send(builder.build(),
                         HttpResponse.BodyHandlers.ofByteArray());
                 if (response.body().length > MAX_PLUGIN_RESPONSE_BYTES) {
                     throw new IOException("Account API response is too large");
@@ -617,7 +625,7 @@ public class AccountService {
                         .header("Content-Type", "application/json")
                         .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(requestBody)))
                         .build();
-                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                HttpResponse<String> response = httpClient.get().send(request, HttpResponse.BodyHandlers.ofString());
                 if (response.statusCode() < 200 || response.statusCode() >= 300) {
                     throw parseError(response.statusCode(), response.body());
                 }

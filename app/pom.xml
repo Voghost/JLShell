@@ -15,7 +15,7 @@
     <packaging>jar</packaging>
 
     <properties>
-        <jlshell.jvm.xms>64m</jlshell.jvm.xms>
+        <jlshell.jvm.xms>32m</jlshell.jvm.xms>
         <jlshell.jvm.xmx>512m</jlshell.jvm.xmx>
     </properties>
 
@@ -162,6 +162,11 @@
                             <options>
                                 <option>-Xms${jlshell.jvm.xms}</option>
                                 <option>-Xmx${jlshell.jvm.xmx}</option>
+                                <option>-XX:+ExplicitGCInvokesConcurrent</option>
+                                <option>-XX:+UseG1GC</option>
+                                <option>-XX:G1PeriodicGCInterval=30000</option>
+                                <option>-XX:MinHeapFreeRatio=20</option>
+                                <option>-XX:MaxHeapFreeRatio=40</option>
                                 <option>-Dapple.laf.useScreenMenuBar=true</option>
                                 <option>-Dapple.awt.application.appearance=system</option>
                                 <option>-Dapple.awt.application.name=JLShell</option>
@@ -202,6 +207,10 @@
                                     <opt>-Xms${jlshell.jvm.xms}</opt>
                                     <opt>-Xmx${jlshell.jvm.xmx}</opt>
                                     <opt>-XX:+ExplicitGCInvokesConcurrent</opt>
+                                    <opt>-XX:+UseG1GC</opt>
+                                    <opt>-XX:G1PeriodicGCInterval=30000</opt>
+                                    <opt>-XX:MinHeapFreeRatio=20</opt>
+                                    <opt>-XX:MaxHeapFreeRatio=40</opt>
                                     <opt>--add-opens java.base/java.lang=ALL-UNNAMED</opt>
                                     <opt>--add-opens java.desktop/sun.awt=ALL-UNNAMED</opt>
                                 </opts>
@@ -244,6 +253,11 @@
                     <options>
                         <option>-Xms${jlshell.jvm.xms}</option>
                         <option>-Xmx${jlshell.jvm.xmx}</option>
+                        <option>-XX:+ExplicitGCInvokesConcurrent</option>
+                        <option>-XX:+UseG1GC</option>
+                        <option>-XX:G1PeriodicGCInterval=30000</option>
+                        <option>-XX:MinHeapFreeRatio=20</option>
+                        <option>-XX:MaxHeapFreeRatio=40</option>
                     </options>
                 </configuration>
             </plugin>

@@ -258,14 +258,22 @@ public class MainWindow {
 
         String osName = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
         boolean isWindows = osName.contains("win");
+        boolean swing = !"javafx".equalsIgnoreCase(System.getProperty("jlshell.ui.renderer", "swing"));
         boolean isMacUnified = osName.contains("mac") && stage.getStyle() == javafx.stage.StageStyle.UNIFIED;
-        if (isWindows) {
+        if (swing) {
+            // 保留业务动作使用的选择模型，不构造永远不显示的第二套工作台控件。
+            configureSidebarModel(stage);
+            refreshProjectCombo();
+            observeWorkspaceTabs();
+        } else if (isWindows) {
             root.setTop(buildCustomTitleBar(stage));
         } else {
             root.setTop(buildTopArea(stage));
         }
-        root.setCenter(buildCenterArea(stage));
-        root.setBottom(buildStatusBar());
+        if (!swing) {
+            root.setCenter(buildCenterArea(stage));
+            root.setBottom(buildStatusBar());
+        }
 
         // Adapt initial and minimum window size to available screen area.
         // On Windows with 150% DPI scaling at 1920×1080, the logical
@@ -307,7 +315,7 @@ public class MainWindow {
         });
 
         // On Windows, the stage is UNDECORATED so we need manual edge resize.
-        if (isWindows) {
+        if (isWindows && !swing) {
             root.getStyleClass().add("win-undecorated");
             installWindowsRoundedWindowClip(stage, root);
             installWindowResizeHandler(stage, scene);
@@ -359,7 +367,7 @@ public class MainWindow {
             updateWindowTitle();
         });
 
-        loadConnections();
+        if (!swing) loadConnections();
         updateWindowTitle();
         scheduleAutomaticUpdateCheck(stage);
         validateAccountSession(stage);
@@ -1142,15 +1150,17 @@ public class MainWindow {
         }
     }
 
+    private void observeWorkspaceTabs() {
+        workspaceTabs.getSelectionModel().selectedItemProperty().addListener((obs, oldTab, newTab) -> updateWindowTitle());
+        workspaceTabs.getTabs().addListener((javafx.collections.ListChangeListener<javafx.scene.control.Tab>) change -> updateWindowTitle());
+    }
+
     private BorderPane buildCenterArea(Stage stage) {
         sidebarVBox = buildSidebar(stage);
         sidebarVBox.setMinWidth(SIDEBAR_EXPANDED_MIN_WIDTH);
         workspaceTabs.getStyleClass().add("workspace-tabs");
         installTabDragReorder(workspaceTabs);
-        workspaceTabs.getSelectionModel().selectedItemProperty().addListener((obs, oldTab, newTab) -> updateWindowTitle());
-        workspaceTabs.getTabs().addListener((javafx.collections.ListChangeListener<javafx.scene.control.Tab>) change -> {
-            updateWindowTitle();
-        });
+        observeWorkspaceTabs();
 
         welcomePane = new WelcomePane(i18nService, connectionProfileService, executor,
                 () -> createConnection(stage),
@@ -1398,7 +1408,7 @@ public class MainWindow {
         return name + " — " + profile.summary();
     }
 
-    private VBox buildSidebar(Stage stage) {
+    private void configureSidebarModel(Stage stage) {
         sidebarTreeView = new SidebarTreeView(i18nService, maxFolderDepth);
         sidebarTreeView.setOnConnect(this::connectSelected);
         sidebarTreeView.setOnEdit(item -> {
@@ -1481,6 +1491,10 @@ public class MainWindow {
                     }
                 });
 
+    }
+
+    private VBox buildSidebar(Stage stage) {
+        configureSidebarModel(stage);
         // 紧凑图标按钮行 — SVG 图标
         Button createButton    = svgIconButton("/icons/add.svg",          i18nService.get("action.newConnection"),    () -> createConnection(stage));
         Button editButton      = svgIconButton("/icons/edit.svg",         i18nService.get("action.editConnection"), () -> editSelectedConnection(stage));
@@ -1705,6 +1719,7 @@ public class MainWindow {
 
     private void applySidebarVisibility() {
         withSwing(view -> view.setSidebarVisible(sidebarVisible));
+        if (centerSplitPane == null) return;
         if (sidebarVisible) {
             centerSplitPane.getStyleClass().remove("sidebar-collapsed");
             sidebarVBox.setPrefWidth(Region.USE_COMPUTED_SIZE);
@@ -2228,7 +2243,7 @@ public class MainWindow {
             });
             withSwing(view -> {
                 com.jlshell.ui.swing.TerminalPopupBridge.install(viewHandle.component());
-                view.addTab(tab, profile.displayName(), viewHandle.component(), () -> FxThread.run(() -> closeTab(tab)));
+                view.addTab(tab, profile.displayName(), viewHandle.component(), () -> FxThread.run(() -> closeTab(tab)), profile.summary());
             });
             workspaceTabs.getTabs().add(tab);
             workspaceTabs.getSelectionModel().select(tab);
@@ -2345,7 +2360,7 @@ public class MainWindow {
             if (swingWorkbench != null) {
                 com.jlshell.ui.swing.SwingSessionView.create(tab, themeService, i18nService).thenAccept(surface ->
                         withSwing(view -> {
-                            view.addTab(tab, profile.displayName(), surface, () -> FxThread.run(() -> closeTab(tab)));
+                            view.addTab(tab, profile.displayName(), surface, () -> FxThread.run(() -> closeTab(tab)), profile.summary());
                             view.selectTab(tab);
                         }));
             }

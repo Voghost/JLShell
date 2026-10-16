@@ -146,9 +146,13 @@ jobs:
             --icon dist/AppIcon.icns \
             --vendor JLShell \
             --description "JLShell UI Preview - Test Only" \
-            --java-options "-Xms64m" \
+            --java-options "-Xms32m" \
             --java-options "-Xmx512m" \
             --java-options "-XX:+ExplicitGCInvokesConcurrent" \
+            --java-options "-XX:+UseG1GC" \
+            --java-options "-XX:G1PeriodicGCInterval=30000" \
+            --java-options "-XX:MinHeapFreeRatio=20" \
+            --java-options "-XX:MaxHeapFreeRatio=40" \
             --java-options "--add-opens java.base/java.lang=ALL-UNNAMED" \
             --java-options "--add-opens java.desktop/sun.awt=ALL-UNNAMED" \
             --java-options "--add-exports java.desktop/sun.swing=ALL-UNNAMED" \
@@ -272,15 +276,19 @@ jobs:
           cat > dist/linux-work/JLShellPreview/JLShell.vmoptions <<'EOF'
           # JLShell JVM options. One option per line.
           # User override path on Linux: ~/.config/jlshell-preview/JLShell.vmoptions
-          -Xms64m
+          -Xms32m
           -Xmx512m
           -XX:+ExplicitGCInvokesConcurrent
+          -XX:+UseG1GC
+          -XX:G1PeriodicGCInterval=30000
+          -XX:MinHeapFreeRatio=20
+          -XX:MaxHeapFreeRatio=40
           EOF
 
           cat > dist/linux-work/JLShellPreview/JLShell.sh <<'EOF'
           #!/bin/bash
           DIR="$(cd "$(dirname "$0")" && pwd)"
-          DEFAULT_VM_OPTS=(-Xms64m -Xmx512m -XX:+ExplicitGCInvokesConcurrent)
+          DEFAULT_VM_OPTS=(-Xms32m -Xmx512m -XX:+ExplicitGCInvokesConcurrent -XX:+UseG1GC -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40)
           USER_VMOPTIONS="${XDG_CONFIG_HOME:-$HOME/.config}/jlshell-preview/JLShell.vmoptions"
           BUNDLED_VMOPTIONS="$DIR/JLShell.vmoptions"
           VMOPTIONS_FILE=""
@@ -330,15 +338,19 @@ jobs:
           cat > $PKG/opt/jlshell-preview/JLShell.vmoptions <<'EOF'
           # JLShell JVM options. One option per line.
           # User override path on Linux: ~/.config/jlshell-preview/JLShell.vmoptions
-          -Xms64m
+          -Xms32m
           -Xmx512m
           -XX:+ExplicitGCInvokesConcurrent
+          -XX:+UseG1GC
+          -XX:G1PeriodicGCInterval=30000
+          -XX:MinHeapFreeRatio=20
+          -XX:MaxHeapFreeRatio=40
           EOF
 
           cat > $PKG/opt/jlshell-preview/JLShell.sh <<'EOF'
           #!/bin/bash
           DIR="$(cd "$(dirname "$0")" && pwd)"
-          DEFAULT_VM_OPTS=(-Xms64m -Xmx512m -XX:+ExplicitGCInvokesConcurrent)
+          DEFAULT_VM_OPTS=(-Xms32m -Xmx512m -XX:+ExplicitGCInvokesConcurrent -XX:+UseG1GC -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40)
           USER_VMOPTIONS="${XDG_CONFIG_HOME:-$HOME/.config}/jlshell-preview/JLShell.vmoptions"
           BUNDLED_VMOPTIONS="$DIR/JLShell.vmoptions"
           VMOPTIONS_FILE=""
@@ -424,16 +436,20 @@ jobs:
           cat > $APPDIR/usr/JLShell.vmoptions <<'EOF'
           # JLShell JVM options. One option per line.
           # User override path on Linux: ~/.config/jlshell-preview/JLShell.vmoptions
-          -Xms64m
+          -Xms32m
           -Xmx512m
           -XX:+ExplicitGCInvokesConcurrent
+          -XX:+UseG1GC
+          -XX:G1PeriodicGCInterval=30000
+          -XX:MinHeapFreeRatio=20
+          -XX:MaxHeapFreeRatio=40
           EOF
 
           # AppRun
           cat > $APPDIR/AppRun <<'EOF'
           #!/bin/bash
           HERE="$(cd "$(dirname "$0")" && pwd)"
-          DEFAULT_VM_OPTS=(-Xms64m -Xmx512m -XX:+ExplicitGCInvokesConcurrent)
+          DEFAULT_VM_OPTS=(-Xms32m -Xmx512m -XX:+ExplicitGCInvokesConcurrent -XX:+UseG1GC -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40)
           USER_VMOPTIONS="${XDG_CONFIG_HOME:-$HOME/.config}/jlshell-preview/JLShell.vmoptions"
           BUNDLED_VMOPTIONS="$HERE/usr/JLShell.vmoptions"
           VMOPTIONS_FILE=""
@@ -531,12 +547,16 @@ jobs:
       - name: Windows popup and workbench regression
         shell: bash
         run: >-
-          mvn -B -pl ui -am
-          -Dtest=WindowsWorkbenchPolishTest,IdeaPopupRenderingTest,SwingPluginPageTest,PluginIconsTest,SwingModalDialogTest
+          mvn -B -pl app -am
+          -Dtest=WindowsWorkbenchPolishTest,IdeaPopupRenderingTest,SwingPluginPageTest,PluginIconsTest,SwingModalDialogTest,SwingPreferencesLoadingTest,SwingToolWindowMaximizeTest,UncaughtExceptionReporterTest
           -Dsurefire.failIfNoSpecifiedTests=false
           -Djlshell.ui.smoke=true
           "-DargLine=--add-exports=java.desktop/sun.swing=ALL-UNNAMED --add-opens=java.desktop/sun.swing=ALL-UNNAMED --add-opens=java.desktop/javax.swing=ALL-UNNAMED"
           test
+
+      - name: Measure Windows workbench startup and idle memory
+        shell: bash
+        run: python .github/scripts/measure_workbench.py --output app/target/performance/windows-workbench.log
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -545,6 +565,7 @@ jobs:
           path: |
             ui/target/ui-smoke/
             ui/target/surefire-reports/
+            app/target/performance/
           retention-days: 14
           if-no-files-found: warn
 
@@ -589,9 +610,13 @@ jobs:
             --icon app/src/main/resources/icons/app_icon.ico \
             --vendor JLShell \
             --description "JLShell UI Preview - Test Only" \
-            --java-options "-Xms64m" \
+            --java-options "-Xms32m" \
             --java-options "-Xmx512m" \
             --java-options "-XX:+ExplicitGCInvokesConcurrent" \
+            --java-options "-XX:+UseG1GC" \
+            --java-options "-XX:G1PeriodicGCInterval=30000" \
+            --java-options "-XX:MinHeapFreeRatio=20" \
+            --java-options "-XX:MaxHeapFreeRatio=40" \
             --java-options "--add-opens java.base/java.lang=ALL-UNNAMED" \
             --java-options "--add-opens java.desktop/sun.awt=ALL-UNNAMED" \
             --java-options "--add-exports java.desktop/sun.swing=ALL-UNNAMED" \
@@ -622,9 +647,13 @@ jobs:
             --icon app/src/main/resources/icons/app_icon.ico \
             --vendor JLShell \
             --description "JLShell UI Preview - Test Only" \
-            --java-options "-Xms64m" \
+            --java-options "-Xms32m" \
             --java-options "-Xmx512m" \
             --java-options "-XX:+ExplicitGCInvokesConcurrent" \
+            --java-options "-XX:+UseG1GC" \
+            --java-options "-XX:G1PeriodicGCInterval=30000" \
+            --java-options "-XX:MinHeapFreeRatio=20" \
+            --java-options "-XX:MaxHeapFreeRatio=40" \
             --java-options "--add-opens java.base/java.lang=ALL-UNNAMED" \
             --java-options "--add-opens java.desktop/sun.awt=ALL-UNNAMED" \
             --java-options "--add-exports java.desktop/sun.swing=ALL-UNNAMED" \

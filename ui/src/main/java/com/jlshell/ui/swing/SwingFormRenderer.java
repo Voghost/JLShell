@@ -675,5 +675,10 @@ final class SwingFormRenderer implements AutoCloseable {
         if (component instanceof JScrollPane scroll) scroll.getViewport().getView().setEnabled(enabled);
     }
 
-    public void close() { closed = true; removers.forEach(Runnable::run); removers.clear(); }
+    public void close() {
+        closed = true;
+        removers.forEach(Runnable::run);
+        removers.clear();
+        models.clear();
+    }
 }

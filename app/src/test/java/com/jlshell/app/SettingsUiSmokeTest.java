@@ -96,6 +96,20 @@ class SettingsUiSmokeTest {
             });
             return result;
         }
+        static void awaitPage(JDialog dialog, String query) throws Exception {
+            int index = switch (query) {
+                case "通用" -> 0; case "账号" -> 1; case "终端" -> 2; case "导入" -> 3;
+                case "API" -> 4; case "插件" -> 5; case "快捷键" -> 6; case "关于" -> 7;
+                default -> throw new IllegalArgumentException(query);
+            };
+            for (int attempt = 0; attempt < 200; attempt++) {
+                if (edt(() -> { Component page = named(dialog, "settings.nativePage." + index);
+                    return page != null && page.isShowing(); })) return;
+                Thread.sleep(25);
+            }
+            throw new AssertionError("Settings page did not load: " + query);
+        }
+
         static void editTimeout(JDialog dialog, String value) throws Exception {
             edt(() -> { ((JTextField)named(dialog,"settings-connection-timeout")).setText(value); return null; });
             fx(() -> null); edt(() -> null);
@@ -132,6 +146,11 @@ class SettingsUiSmokeTest {
                             }
                             if("Menlo".equals(box.getItemAt(i))) {
                                 JLabel sample=NativeSettingsProbe.all(row,JLabel.class).getFirst();
+                                // 字体只在真实绘制时加载，测量列表行不能预加载整个系统字体库。
+                                sample.setSize(220, 28);
+                                var image = new java.awt.image.BufferedImage(220, 28, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+                                var graphics = image.createGraphics();
+                                try { sample.paint(graphics); } finally { graphics.dispose(); }
                                 assertEquals(new java.awt.Font("Menlo",0,13).getFamily(),sample.getFont().getFamily());
                             }
                         }
@@ -150,7 +169,7 @@ class SettingsUiSmokeTest {
         }
         static void verifyTerminalFontPreview(JDialog dialog) throws Exception {
             edt(()->{((JTextField)named(dialog,"settings.search")).setText("终端");return null;});
-            Thread.sleep(250);
+            awaitPage(dialog, "终端");
             int originalHeight=edt(()->(Integer)((JComponent)named(dialog,"settings-terminal-preview")).getClientProperty("terminal.previewLineHeight"));
             edt(()->{((JSpinner)named(dialog,"settings-terminal-spacing")).setValue(1.6);return null;});
             fx(()->null);edt(()->null);
@@ -181,7 +200,7 @@ class SettingsUiSmokeTest {
             java.util.Map<String,Component> retained=new java.util.HashMap<>();
             for(String theme:List.of("Dark","Light")) {
                 edt(()->{((JTextField)named(dialog,"settings.search")).setText("通用");return null;});
-                Thread.sleep(220);
+                awaitPage(dialog, "通用");
                 edt(()->{((JComboBox<?>)named(dialog,"settings-theme")).setSelectedItem(theme);return null;});
                 fx(()->null);click(dialog,"settings.apply");fx(()->null);edt(()->null);
                 edt(()->{
@@ -193,7 +212,7 @@ class SettingsUiSmokeTest {
                 });
                 for(String query:queries) {
                     edt(()->{((JTextField)named(dialog,"settings.search")).setText(query);return null;});
-                    Thread.sleep(220);
+                    awaitPage(dialog, query);
                     edt(()->{
                         JComponent page=NativeSettingsProbe.all(dialog,JComponent.class).stream()
                             .filter(c->c.getName()!=null&&c.getName().startsWith("settings.nativePage.")&&c.isShowing()).findFirst().orElseThrow();
@@ -357,7 +376,7 @@ class SettingsUiSmokeTest {
             editTimeout(dialog, "31");
             JDialog current = dialog;
             edt(() -> { ((JTextField) named(current, "settings.search")).setText("插件"); return null; });
-            Thread.sleep(250);
+            awaitPage(current, "插件");
             assertTrue(edt(() -> ((JLabel) named(current, "settings.breadcrumb")).getText().contains("插件")));
             click(dialog,"settings.back");
             assertTrue(edt(() -> ((JLabel)named(current,"settings.breadcrumb")).getText().contains("通用")));
@@ -370,7 +389,7 @@ class SettingsUiSmokeTest {
 
             edt(() -> {NativeSettingsProbe.assertNative(current);return null;});
             edt(() -> { ((JTextField) named(current, "settings.search")).setText("终端"); return null; });
-            Thread.sleep(250);
+            awaitPage(current, "终端");
             edt(() -> {NativeSettingsProbe.button(current,"新建").doClick();return null;});
             JDialog schemeEditor=DialogUiSmokeTest.Probe.window("jlshell.colors");
             edt(() -> {NativeSettingsProbe.assertNative(schemeEditor);return null;});
@@ -389,7 +408,7 @@ class SettingsUiSmokeTest {
             verifyPickers(dialog,"light");
             for(String query:List.of("账号","终端","导入","API","插件","快捷键","关于")) {
                 edt(() -> { ((JTextField)named(themed,"settings.search")).setText(query); return null; });
-                Thread.sleep(220);
+                awaitPage(themed, query);
                 edt(() -> {NativeSettingsProbe.assertNative(themed);return null;});
                 if(query.equals("导入"))verifyImport(themed);
                 DialogUiSmokeTest.Probe.capture(dialog,"settings-page-"+query);

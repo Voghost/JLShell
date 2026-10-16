@@ -31,7 +31,7 @@ public final class SettingsNavigation extends BorderPane {
         navigation.getSelectionModel().selectedItemProperty().addListener((obs, oldTab, tab) -> {
             if (tab == null) return;
             tabs.getSelectionModel().select(tab);
-            content.getChildren().setAll(tab.getContent());
+            content.getChildren().setAll(com.jlshell.ui.support.DeferredSettingsPage.materialize(tab.getContent()));
         });
         tabs.getSelectionModel().selectedItemProperty().addListener((obs, oldTab, tab) ->
                 navigation.getSelectionModel().select(tab));

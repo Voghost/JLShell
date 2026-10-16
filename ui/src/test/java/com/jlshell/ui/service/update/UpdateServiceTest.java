@@ -55,6 +55,21 @@ class UpdateServiceTest {
     }
 
     @Test
+    void createsHttpClientOnlyOnFirstRequestAndReusesIt() throws Exception {
+        startServer(exchange -> respond(exchange, 200, "{\"updateAvailable\":false}"));
+        settings.set(UpdateService.SETTINGS_BASE_URL, baseUrl());
+        var created = new java.util.concurrent.atomic.AtomicInteger();
+        var service = new UpdateService(settings, executor, () -> {
+            created.incrementAndGet();
+            return HttpClient.newBuilder().executor(executor).build();
+        }, tempDir);
+        assertEquals(0, created.get(), "Startup/configuration must not initialize TLS or spawn HTTP clients");
+        service.checkLatest("0.1.70").join();
+        service.checkLatest("0.1.70").join();
+        assertEquals(1, created.get());
+    }
+
+    @Test
     void checkLatestUsesClientUpdateApiContract() throws Exception {
         CapturedRequest captured = new CapturedRequest();
         startServer(exchange -> {

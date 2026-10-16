@@ -24,7 +24,26 @@ import java.util.concurrent.atomic.AtomicReference;
  * 搜索树、面包屑、分栏和动作栏遵循 IDEA；现有 FX 配置页与保存动作原样复用。
  */
 public final class SwingPreferencesDialog {
-    private record Page(int index, String title, String group, String searchText, Node content, TabPane headerTabs, java.util.function.Supplier<JComponent> nativeView) {}
+    private static final class Page {
+        final int index;
+        final javafx.scene.control.Tab tab;
+        final String title, group, searchText;
+        Node content;
+        TabPane headerTabs;
+        java.util.function.Supplier<JComponent> nativeView;
+        java.util.function.Supplier<java.util.concurrent.CompletableFuture<Page>> loader;
+        java.util.concurrent.CompletableFuture<Page> loading;
+        Page(int index, javafx.scene.control.Tab tab, String group, String searchText) {
+            this.index = index; this.tab = tab; this.title = tab.getText(); this.group = group; this.searchText = searchText;
+        }
+        int index() { return index; }
+        String title() { return title; }
+        String group() { return group; }
+        String searchText() { return searchText; }
+        Node content() { return content; }
+        TabPane headerTabs() { return headerTabs; }
+        java.util.function.Supplier<JComponent> nativeView() { return nativeView; }
+    }
     private record Entry(String title, Page page) { public String toString() { return title; } }
 
     private final JDialog dialog;
@@ -45,16 +64,19 @@ public final class SwingPreferencesDialog {
     private final JButton back = new JButton(historyIcon(false));
     private final JButton forward = new JButton(historyIcon(true));
     private boolean busy;
+    private boolean disposed;
     private final JPanel inputBlocker = new JPanel();
     private Component busyFocus;
     private final Window owner;
     private final ThemeService themes;
+    private final String pageLoadFailed;
 
     private SwingPreferencesDialog(List<Page> pages, int initial, I18nService i18n,
                                    ThemeService themes, boolean applyDisabled,
                                    Runnable applyAction, Runnable okAction, Runnable closed) {
         this.pages = pages;
         this.themes = themes;
+        this.pageLoadFailed = i18n.get("settings.page.loadFailed");
         owner = SwingDialogChrome.owner();
         // AWT 应用模态过滤器会阻止 JFXPanel 中的 Glass 下拉弹窗接收鼠标。
         // 使用禁用宿主窗口实现模态，FX 嵌套事件循环仍保持 showAndWait 的调用顺序。
@@ -186,7 +208,10 @@ public final class SwingPreferencesDialog {
         dialog.addWindowListener(new WindowAdapter() {
             public void windowClosing(WindowEvent e) { if (!busy) dialog.dispose(); }
             public void windowClosed(WindowEvent e) {
+                disposed = true;
                 filterTimer.stop();
+                contentHost.removeAll();
+                nativePages.clear();
                 closed.run();
             }
         });
@@ -273,14 +298,40 @@ public final class SwingPreferencesDialog {
         updateHistoryButtons();
         breadcrumb.setText(page.group() == null ? page.title() : page.group() + "  ›  " + page.title());
         contentHost.removeAll();
+        if (page.nativeView() != null) {
+            attachPage(page);
+        } else {
+            JProgressBar progress = new JProgressBar();
+            progress.setIndeterminate(true);
+            progress.setBorder(BorderFactory.createEmptyBorder(20, 24, 20, 24));
+            contentHost.add(progress, BorderLayout.NORTH);
+            contentHost.revalidate(); contentHost.repaint();
+            pageTabs.removeAll(); pageTabs.revalidate(); pageTabs.repaint();
+            if (page.loading == null) page.loading = page.loader.get();
+            page.loading.whenComplete((ready, failure) -> SwingUtilities.invokeLater(() -> {
+                if (disposed || selected != page) return;
+                if (failure != null) {
+                    org.slf4j.LoggerFactory.getLogger(SwingPreferencesDialog.class)
+                            .warn("Unable to initialize settings page {}", page.title(), failure);
+                    contentHost.removeAll();
+                    contentHost.add(new JLabel(pageLoadFailed));
+                    contentHost.revalidate(); contentHost.repaint();
+                    return;
+                }
+                attachPage(page);
+            }));
+        }
+    }
+
+    private void attachPage(Page page) {
+        contentHost.removeAll();
         JComponent nativePage = nativePages.computeIfAbsent(page.index(), ignored -> page.nativeView().get());
-        nativePage.setName("settings.nativePage."+page.index());
-        nativePage.putClientProperty("jlshell.formModel",page.content());
+        nativePage.setName("settings.nativePage." + page.index());
+        nativePage.putClientProperty("jlshell.formModel", page.content());
         contentHost.add(nativePage);
-        SwingUtilities.invokeLater(() -> { if(selected==page)resetInitialScroll(nativePage); });
+        SwingUtilities.invokeLater(() -> { if (selected == page && !disposed) resetInitialScroll(nativePage); });
         contentHost.revalidate(); contentHost.repaint();
         refreshPageTabs(page);
-
     }
 
     private void revealPage(Page page) {
@@ -365,6 +416,7 @@ public final class SwingPreferencesDialog {
         DefaultMutableTreeNode root = new DefaultMutableTreeNode(new Entry("", null));
         String query = search.getText().strip().toLowerCase(Locale.ROOT);
         DefaultMutableTreeNode preferredNode = null;
+        int preferredScore = -1;
         for (Page page : pages) {
             if (!page.searchText().contains(query)) continue;
             DefaultMutableTreeNode parent = root;
@@ -381,7 +433,10 @@ public final class SwingPreferencesDialog {
             }
             DefaultMutableTreeNode leaf = new DefaultMutableTreeNode(new Entry(page.title(), page));
             parent.add(leaf);
-            if (preferredNode == null || page.index() == preferred) preferredNode = leaf;
+            // 分类名称的命中优先于其他页面帮助文本中的提及（如 API 文案也含“插件”）。
+            int score = !query.isBlank() && page.title().toLowerCase(Locale.ROOT).contains(query)
+                    ? 3 : page.index() == preferred ? 2 : 1;
+            if (score > preferredScore) { preferredNode = leaf; preferredScore = score; }
         }
         tree.setModel(new DefaultTreeModel(root));
         for (int i = 0; i < tree.getRowCount(); i++) tree.expandRow(i);
@@ -407,34 +462,45 @@ public final class SwingPreferencesDialog {
                 case 3, 4 -> i18n.get("settings.group.tools");
                 default -> null;
             };
-            tab.getContent().getStyleClass().add("idea-settings-content");
-            StringBuilder text = new StringBuilder(tab.getText()).append(' ').append(group);
+            StringBuilder text = new StringBuilder(tab.getText()).append(' ').append(group).append(' ')
+                    .append(tab.getContent().getProperties().getOrDefault("jlshell.settingsSearchText", ""));
             searchableText(tab.getContent(), text);
-            TabPane headerTabs = (TabPane) tab.getContent().getProperties().get("jlshell.headerTabs");
-            if (headerTabs != null) headerTabs.getStyleClass().add("plugin-external-tabs");
-            SwingFormRenderer renderer = new SwingFormRenderer(i18n, true);
-            nativeRenderers.add(renderer);
-            java.util.function.Supplier<JComponent> nativeView = index==0
-                    ? SwingSettingsGeneralPage.prepare(tab.getContent(),renderer,i18n) : renderer.prepare(tab.getContent());
-            pages.add(new Page(index, tab.getText(), group, text.toString().toLowerCase(Locale.ROOT), tab.getContent(), headerTabs, nativeView));
+            pages.add(new Page(index, tab, group, text.toString().toLowerCase(Locale.ROOT)));
         }
         int initial = tabs.getSelectionModel().getSelectedIndex();
         boolean disabled = fxApply.isDisabled();
         Object loop = new Object();
         AtomicReference<SwingPreferencesDialog> view = new AtomicReference<>();
         AtomicReference<Throwable> error = new AtomicReference<>();
+        java.util.concurrent.atomic.AtomicBoolean closedState = new java.util.concurrent.atomic.AtomicBoolean();
         List<Runnable> removeHeaderListeners = new ArrayList<>();
-        for (Page page : pages) if (page.headerTabs() != null) {
-            ChangeListener<Object> listener = (o, old, value) -> {
-                if (view.get() != null) view.get().refreshPageTabs(page);
-            };
-            page.headerTabs().getSelectionModel().selectedIndexProperty().addListener(listener);
-            removeHeaderListeners.add(() -> page.headerTabs().getSelectionModel().selectedIndexProperty().removeListener(listener));
-            for (var tab : page.headerTabs().getTabs()) {
-                tab.textProperty().addListener(listener);
-                removeHeaderListeners.add(() -> tab.textProperty().removeListener(listener));
+        for (Page page : pages) page.loader = () -> FxThread.supplyAsync(() -> {
+            if (closedState.get()) throw new java.util.concurrent.CancellationException("Settings closed");
+            page.content = com.jlshell.ui.support.DeferredSettingsPage.materialize(page.tab.getContent());
+            page.content.getStyleClass().add("idea-settings-content");
+            page.headerTabs = (TabPane) page.content.getProperties().get("jlshell.headerTabs");
+            if (page.headerTabs != null) page.headerTabs.getStyleClass().add("plugin-external-tabs");
+            SwingFormRenderer renderer = new SwingFormRenderer(i18n, true);
+            nativeRenderers.add(renderer);
+            page.nativeView = page.index == 0
+                    ? SwingSettingsGeneralPage.prepare(page.content, renderer, i18n) : renderer.prepare(page.content);
+            if (page.headerTabs != null) {
+                ChangeListener<Object> listener = (o, old, value) -> {
+                    if (view.get() != null && !closedState.get()) view.get().refreshPageTabs(page);
+                };
+                page.headerTabs.getSelectionModel().selectedIndexProperty().addListener(listener);
+                removeHeaderListeners.add(() -> page.headerTabs.getSelectionModel().selectedIndexProperty().removeListener(listener));
+                for (var tab : page.headerTabs.getTabs()) {
+                    tab.textProperty().addListener(listener);
+                    removeHeaderListeners.add(() -> tab.textProperty().removeListener(listener));
+                }
             }
-        }
+            return page;
+        });
+        // 只准备首个可见页面，其余页面由 EDT 选择后异步交给 FX 创建。
+        Page first = pages.get(Math.max(0, initial));
+        first.loading = first.loader.get();
+        first.loading.join(); // 已在 FX 线程同步执行，无跨线程等待。
         ChangeListener<Boolean> applyListener = (o, old, value) -> SwingUtilities.invokeLater(() -> {
             if (view.get() != null) view.get().apply.setEnabled(!value);
         });
@@ -457,6 +523,7 @@ public final class SwingPreferencesDialog {
         themes.accentColorProperty().addListener(themeListener);
         javafx.stage.Window.getWindows().addListener(modalListener);
         Runnable closed = () -> FxThread.run(() -> {
+            closedState.set(true);
             removeHeaderListeners.forEach(Runnable::run);
             nativeRenderers.forEach(SwingFormRenderer::close);
             fxApply.disabledProperty().removeListener(applyListener);
