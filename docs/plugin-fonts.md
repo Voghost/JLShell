@@ -82,11 +82,28 @@ if (context.fonts().available()) {
 `UnsupportedOperationException`，不会伪造一套宿主字体配置。
 
 这不等于旧宿主中缺少新 API 类也能直接调用：正式采用本接口的插件仍需声明包含该
-能力的最低宿主版本。此改动尚未发布新的公共 SDK；Maven Central 的 1.6.0 不含本接口。
-后续 SDK 发布沿用独立的发布流程，不覆盖既有版本。
+能力的最低宿主版本。该接口从 Plugin SDK **1.7.0** 起提供，1.6.0 不含本接口。
+SDK 发布独立于桌面客户端：已发布的 0.1.71 Beta 尚未集成该字体服务，不可仅升级
+编译依赖就直接调用。使用本接口时需配合包含该实现的宿主版本；未支持的宿主需要
+保留原有 UI 字体行为。SDK 发布不覆盖既有版本。
 
 ## 验证
 
 - 完整 `mvn test` 通过，覆盖 API 默认兼容行为、Session 关闭和 Program 停用/重新启用。
 - `HostPluginFontsTest` 的 3 项真实 JavaFX 回归通过：持久设置跟随、连续变更顺序、无重复通知、回调异常隔离、关闭前排队事件取消，以及快照读取无存储访问。
 - `mvn -pl plugin-api,program-api -am package` 通过，SDK JAR 内包含新增字体契约。
+
+
+Maven 编译依赖：
+
+```xml
+<dependency>
+    <groupId>net.oomn.jlshell</groupId>
+    <artifactId>plugin-api</artifactId>
+    <version>1.7.0</version>
+    <scope>provided</scope>
+</dependency>
+```
+
+仅当插件还实现 Program API 的 JSON-RPC SPI 时显式添加 `program-api:1.7.0`，同样使用
+`provided`。本次同步发布两包以保持依赖一致，program-api 没有新增字体或 RPC 方法。
