@@ -142,7 +142,8 @@ class SwingTransferAndPluginTest {
                 "", "", PluginCompatibilityStatus.COMPATIBLE, "", plugin);
         var manager = new PluginManager(temporary.toString()) {
             @Override public List<PluginDescriptor> getAvailablePlugins() { return List.of(descriptor); }
-            @Override public void activatePlugin(String id, PluginContext context) { plugin.activate(context); }
+            @Override public void activatePlugin(String id, PluginContext context,
+                                                 com.jlshell.core.support.PerformanceTrace timing) { plugin.activate(context); }
         };
         var executor = Executors.newSingleThreadExecutor();
         var themes = FxThread.supplyAsync(() -> new ThemeService(new AppSettingsService() {
