@@ -14,4 +14,9 @@ public interface FontProfileService {
     FontProfile activeProfile();
 
     void updateActiveProfile(FontProfile fontProfile);
+
+    /** Called after a preference has been persisted; closing removes this listener. */
+    default AutoCloseable onChanged(java.util.function.Consumer<FontProfile> listener) {
+        return () -> {};
+    }
 }

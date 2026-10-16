@@ -15,7 +15,7 @@ import javafx.beans.property.ReadOnlyStringProperty;
 /**
  * Runtime context passed to a plugin on {@link JlShellPlugin#activate(PluginContext)}.
  */
-public interface PluginContext {
+public interface PluginContext extends com.jlshell.plugin.api.ui.FontAwareContext {
 
     /** Current theme name — "dark" or "light". */
     String themeName();

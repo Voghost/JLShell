@@ -43,6 +43,16 @@ public class DefaultProgramPluginContext implements ProgramPluginContext, Plugin
     private final Callbacks callbacks;
     private final StringProperty themeName = new SimpleStringProperty("dark");
     private final SimpleObjectProperty<Locale> locale = new SimpleObjectProperty<>(Locale.getDefault());
+    private com.jlshell.plugin.loader.ScopedPluginFonts fonts;
+
+    @Override public com.jlshell.plugin.api.ui.PluginFonts fonts() {
+        return fonts == null ? com.jlshell.plugin.api.ui.PluginFonts.unavailable() : fonts;
+    }
+
+    void attachFonts(com.jlshell.plugin.loader.ScopedPluginFonts fonts) {
+        if (this.fonts != null) this.fonts.close();
+        this.fonts = fonts;
+    }
 
     public interface Callbacks {
         String resolveI18n(String key, String fallback);
@@ -143,6 +153,7 @@ public class DefaultProgramPluginContext implements ProgramPluginContext, Plugin
     @Override public void error(String message, Throwable t) { hostLog.error("[{}] {}", pluginId, message, t); }
 
     void dispose() {
+        closeIfNeeded(fonts);
         closeIfNeeded(projectIntegration);
         closeIfNeeded(hostEvents);
         closeIfNeeded(sessionIntegration);

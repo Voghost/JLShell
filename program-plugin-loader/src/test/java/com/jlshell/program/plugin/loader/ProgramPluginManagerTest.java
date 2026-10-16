@@ -52,6 +52,48 @@ class ProgramPluginManagerTest {
     }
 
     @Test
+    void programContextReceivesFontServiceAndReleasesSubscriptionsOnStop() throws Exception {
+        var listeners = new java.util.ArrayList<java.util.function.Consumer<com.jlshell.plugin.api.ui.FontSpec>>();
+        var font = new com.jlshell.plugin.api.ui.FontSpec("Program UI", 15);
+        var source = new com.jlshell.plugin.api.ui.PluginFonts() {
+            public boolean available() { return true; }
+            public com.jlshell.plugin.api.ui.FontSpec terminalFont() { return font; }
+            public com.jlshell.plugin.api.ui.FontSpec uiFont() { return font; }
+            public com.jlshell.plugin.api.lifecycle.Registration onTerminalFontChanged(java.util.function.Consumer<com.jlshell.plugin.api.ui.FontSpec> listener) {
+                listeners.add(listener); return () -> listeners.remove(listener);
+            }
+            public com.jlshell.plugin.api.lifecycle.Registration onUiFontChanged(java.util.function.Consumer<com.jlshell.plugin.api.ui.FontSpec> listener) {
+                return onTerminalFontChanged(listener);
+            }
+        };
+        PluginManager sessions = new PluginManager("/not/exist", "1.0.0");
+        sessions.setFontService(source);
+        var manager = new ProgramPluginManager("/not/exist", "1.0.0", sessions, sessions.globalRegistry(),
+                new CapabilityBusImpl(sessions), id -> null, (key, fallback) -> fallback);
+        var descriptor = descriptor(manager, new TestProgramPlugin());
+        addDescriptorAndMarkLoaded(manager, descriptor);
+        manager.activateAll();
+        var fonts = descriptor.context().fonts();
+        assertThat(fonts.available()).isTrue();
+        assertThat(fonts.uiFont()).isEqualTo(font);
+        fonts.onUiFontChanged(value -> {});
+        assertThat(listeners).hasSize(1);
+        manager.deactivateAll();
+        assertThat(listeners).isEmpty();
+        assertThat(fonts.available()).isFalse();
+        manager.activateAll();
+        assertThat(descriptor.context().fonts().available()).isTrue();
+        assertThat(descriptor.context().fonts()).isNotSameAs(fonts);
+        descriptor.context().fonts().onUiFontChanged(value -> {});
+        assertThat(listeners).hasSize(1);
+        manager.setPluginEnabled(descriptor.id(), false);
+        assertThat(listeners).isEmpty();
+        manager.setPluginEnabled(descriptor.id(), true);
+        assertThat(descriptor.context().fonts().available()).isTrue();
+        manager.deactivateAll();
+    }
+
+    @Test
     void disablingProgramPluginDeactivatesItAndKeepsItManageable() throws Exception {
         PluginManager sessionManager = new PluginManager("/not/exist", "1.0.0");
         CapabilityBus bus = new CapabilityBusImpl(sessionManager);

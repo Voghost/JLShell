@@ -80,6 +80,7 @@ public class AppContext implements AutoCloseable {
     private final List<ProgramApiProvider> programApiProviders;
     private final MemoryReclaimService memoryReclaimService;
     private final AccountService accountService;
+    private final com.jlshell.ui.service.HostPluginFonts pluginFonts;
 
     public AppContext() {
         String userHome = System.getProperty("user.home");
@@ -133,6 +134,7 @@ public class AppContext implements AutoCloseable {
         ColorSchemeRegistry colorSchemeRegistry = new ColorSchemeRegistry(builtInLoader, customStore);
 
         ThemeService themeService = new ThemeService(appSettingsService, colorSchemeRegistry, executor);
+        pluginFonts = new com.jlshell.ui.service.HostPluginFonts(fontProfileService, themeService);
 
         // 5. SSH / SFTP
         SshjConnectionManager connectionManager = new SshjConnectionManager(
@@ -229,6 +231,7 @@ public class AppContext implements AutoCloseable {
                 com.jlshell.program.plugin.loader.ProjectIntegrationRegistry.shared(),
                 accountSessionService
         );
+        pluginManager.setFontService(pluginFonts);
         programPluginManager.setThemeName(themeService.currentThemeProperty().get().name().toLowerCase());
         programPluginManager.setLocale(initialLocale);
         programPluginManager.ensureLoaded();
@@ -289,6 +292,7 @@ public class AppContext implements AutoCloseable {
         if (apiServer != null) apiServer.stop();
         programApiProviders.forEach(ProgramApiProvider::deactivate);
         if (programPluginManager != null) programPluginManager.deactivateAll();
+        pluginFonts.close();
         if (accountService != null) accountService.shutdown();
         if (memoryReclaimService != null) memoryReclaimService.close();
         if (mainWindow != null) mainWindow.flushPendingUiState();
