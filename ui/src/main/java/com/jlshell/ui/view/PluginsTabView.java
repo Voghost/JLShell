@@ -143,7 +143,7 @@ public class PluginsTabView extends BorderPane {
 
     private void requestOpen(LaunchItem item) {
         var timing = new com.jlshell.ui.support.PluginOpenTiming(item.tabKey());
-        com.jlshell.ui.support.FxThread.run(() -> { if (!disposed) activate(item, timing); });
+        com.jlshell.ui.support.FxThread.run(() -> { if (!disposed) activate(item, timing); else timing.finish("disposed"); });
     }
 
     private void activate(LaunchItem item, com.jlshell.ui.support.PluginOpenTiming timing) {
@@ -151,32 +151,36 @@ public class PluginsTabView extends BorderPane {
         for (Tab tab : workspaceTabs.getTabs()) {
             if (item.tabKey().equals(tab.getProperties().get("pluginId"))) {
                 workspaceTabs.getSelectionModel().select(tab);
+                timing.finish("reused-tab");
                 return;
             }
         }
 
-        long started = System.nanoTime();
-        try {
-            CapabilityRegistryImpl sessionRegistry = pluginManager.registryForSession(sessionId);
-            PluginStorage storage = storageFactory == null ? null : storageFactory.apply(item.ownerPluginId());
-            DefaultPluginContext context = new DefaultPluginContext(
-                    item.ownerPluginId(), sessionId, sessionRegistry, capabilityBus, storage,
-                    Optional.of(sshContext), callbacks(item, timing));
-            context.writableThemeNameProperty().bind(pluginManager.themeNameProperty());
-            context.writableLocaleProperty().bind(pluginManager.localeProperty());
-            timing.mark("context-ready");
+        try (var activation = timing.step("activation-and-context")) {
+            try {
+                CapabilityRegistryImpl sessionRegistry = pluginManager.registryForSession(sessionId);
+                PluginStorage storage = storageFactory == null ? null : storageFactory.apply(item.ownerPluginId());
+                DefaultPluginContext context = new DefaultPluginContext(
+                        item.ownerPluginId(), sessionId, sessionRegistry, capabilityBus, storage,
+                        Optional.of(sshContext), callbacks(item, timing));
+                context.writableThemeNameProperty().bind(pluginManager.themeNameProperty());
+                context.writableLocaleProperty().bind(pluginManager.localeProperty());
+                timing.mark("context-ready");
 
-            if (item.sessionPlugin() != null) {
-                pluginManager.adoptContext(sessionId, item.ownerPluginId(), context);
-                pluginManager.activatePlugin(item.ownerPluginId(), context);
-                activatedSessionPluginIds.add(item.ownerPluginId());
-            } else if (programSessionRegistry != null) {
-                programSessionRegistry.activate(item.ownerPluginId(), sessionId, context);
+                if (item.sessionPlugin() != null) {
+                    pluginManager.adoptContext(sessionId, item.ownerPluginId(), context);
+                    pluginManager.activatePlugin(item.ownerPluginId(), context, timing.trace());
+                    activatedSessionPluginIds.add(item.ownerPluginId());
+                } else if (programSessionRegistry != null) {
+                    timing.trace().call("program-session-plugin-code", () ->
+                            programSessionRegistry.activate(item.ownerPluginId(), sessionId, context));
+                }
+                timing.mark("activation-returned");
+            } catch (RuntimeException | Error error) {
+                activation.failed(error);
+                timing.failed(error);
+                throw error;
             }
-        } finally {
-            long elapsed = (System.nanoTime() - started) / 1_000_000;
-            org.slf4j.LoggerFactory.getLogger(PluginsTabView.class).info(
-                    "Plugin {} activation returned in {} ms", item.tabKey(), elapsed);
         }
     }
 
@@ -190,12 +194,12 @@ public class PluginsTabView extends BorderPane {
                 timing.mark("swing-view-request");
                 // On FX, publish immediately: the Swing view need not wait for activate() to return.
                 com.jlshell.ui.support.FxThread.run(() -> {
-                    if (disposed) return;
+                    if (disposed) { timing.finish("disposed"); return; }
                     openedTab = new Tab(title, new javafx.scene.layout.Pane());
                     openedTab.getProperties().put("pluginId", item.tabKey());
                     openedTab.getProperties().put(NATIVE_VIEW, content);
                     openedTab.getProperties().put(com.jlshell.ui.support.PluginOpenTiming.PROPERTY, timing);
-                    openedTab.setOnClosed(event -> deactivateAfterUserClose(item));
+                    openedTab.setOnClosed(event -> { timing.finish("closed-before-display"); deactivateAfterUserClose(item); });
                     workspaceTabs.getTabs().add(openedTab);
                     workspaceTabs.getSelectionModel().select(openedTab);
                 });
@@ -203,12 +207,15 @@ public class PluginsTabView extends BorderPane {
 
             @Override
             public void openTab(String title, javafx.scene.Node content) {
+                timing.mark("fx-view-request");
                 com.jlshell.ui.support.FxThread.run(() -> {
-                    if (disposed) return;
+                    if (disposed) { timing.finish("disposed"); return; }
                     openedTab = new Tab(title, content);
+                    openedTab.getProperties().put(com.jlshell.ui.support.PluginOpenTiming.PROPERTY, timing);
+                    if (!supportsSwingViews()) timing.observeFxContent(content);
                     openedTab.setClosable(true);
                     openedTab.getProperties().put("pluginId", item.tabKey());
-                    openedTab.setOnClosed(event -> deactivateAfterUserClose(item));
+                    openedTab.setOnClosed(event -> { timing.finish("closed-before-display"); deactivateAfterUserClose(item); });
                     workspaceTabs.getTabs().add(openedTab);
                     workspaceTabs.getSelectionModel().select(openedTab);
                 });
@@ -216,6 +223,7 @@ public class PluginsTabView extends BorderPane {
 
             @Override
             public void closeTab() {
+                timing.finish("closed-before-display");
                 if (openedTab == null) {
                     return;
                 }

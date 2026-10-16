@@ -395,6 +395,7 @@ public class PreferencesDialog {
         // UI 字体设置
         appSettings.set("ui.font.family", pendingUiFontFamily[0] != null ? pendingUiFontFamily[0] : "");
         appSettings.set("ui.font.size", pendingUiFontSize[0]);
+        themeService.refreshUiFont();
         appSettings.set("terminal.scrollback.lines", pendingScrollbackLines[0]);
         appSettings.set(UpdateService.SETTINGS_AUTO_CHECK, pendingUpdateAutoCheck[0]);
         appSettings.set(UpdateService.SETTINGS_CHANNEL, pendingUpdateChannel[0]);

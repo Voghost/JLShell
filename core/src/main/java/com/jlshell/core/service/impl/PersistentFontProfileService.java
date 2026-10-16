@@ -32,6 +32,8 @@ public class PersistentFontProfileService implements FontProfileService {
 
     private final AppSettingsService settings;
     private final AtomicReference<FontProfile> cached;
+    private final java.util.concurrent.CopyOnWriteArrayList<java.util.function.Consumer<FontProfile>> listeners =
+            new java.util.concurrent.CopyOnWriteArrayList<>();
 
     public PersistentFontProfileService(AppSettingsService settings) {
         this.settings = settings;
@@ -49,13 +51,27 @@ public class PersistentFontProfileService implements FontProfileService {
     }
 
     @Override
-    public void updateActiveProfile(FontProfile profile) {
+    public synchronized void updateActiveProfile(FontProfile profile) {
         settings.set(KEY_FAMILY,    profile.family());
         settings.set(KEY_CHINESE,   profile.chineseFamily());
         settings.set(KEY_SIZE,      String.valueOf(profile.size()));
         settings.set(KEY_SPACING,   String.valueOf(profile.lineSpacing()));
         settings.set(KEY_LIGATURES, String.valueOf(profile.ligaturesEnabled()));
-        cached.set(profile);
+        FontProfile previous = cached.getAndSet(profile);
+        if (!profile.equals(previous)) for (var listener : listeners) {
+            try { listener.accept(profile); }
+            catch (RuntimeException error) {
+                org.slf4j.LoggerFactory.getLogger(PersistentFontProfileService.class)
+                        .warn("Font preference listener failed", error);
+            }
+        }
+    }
+
+    @Override
+    public AutoCloseable onChanged(java.util.function.Consumer<FontProfile> listener) {
+        java.util.Objects.requireNonNull(listener, "listener");
+        listeners.add(listener);
+        return () -> listeners.remove(listener);
     }
 
     private FontProfile load() {

@@ -38,6 +38,16 @@ public class DefaultPluginContext implements PluginContext {
     private final Callbacks callbacks;
     private HostEvents hostEvents = HostEvents.unavailable();
     private PluginAccessPolicy accessPolicy = PluginAccessPolicy.allowAll();
+    private ScopedPluginFonts fonts;
+
+    @Override public com.jlshell.plugin.api.ui.PluginFonts fonts() {
+        return fonts == null ? com.jlshell.plugin.api.ui.PluginFonts.unavailable() : fonts;
+    }
+
+    void attachFonts(ScopedPluginFonts fonts) {
+        if (this.fonts == null) this.fonts = fonts;
+        else fonts.close();
+    }
 
     public interface Callbacks {
         void openTab(String title, Node content);
@@ -163,6 +173,7 @@ public class DefaultPluginContext implements PluginContext {
     }
 
     public void disposeBindings() {
+        if (fonts != null) fonts.close();
         themeName.unbind();
         locale.unbind();
         if (hostEvents instanceof AutoCloseable closeable) {

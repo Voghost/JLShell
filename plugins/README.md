@@ -258,3 +258,9 @@ ServiceLoader；SPI 文件仍位于各 JAR 内部。
 
 程序级与会话级 Capability 调用示例、外部 JSON-RPC API 说明见
 [`docs/plugin-and-external-api-guide.md`](../docs/plugin-and-external-api-guide.md)。
+
+## 跟随宿主字体
+
+Session 和 Program 插件通过 `context.fonts()` 读取终端、界面字体并订阅变化，
+不修改宿主全局设置。线程、生命周期和新 SDK 发布状态见
+[`docs/plugin-fonts.md`](../docs/plugin-fonts.md)。

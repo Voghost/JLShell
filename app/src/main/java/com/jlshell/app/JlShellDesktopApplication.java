@@ -38,15 +38,18 @@ public class JlShellDesktopApplication extends Application {
         // 兼容直接调用 Application.main 的入口；正常 Launcher 路径已绘制过首帧。
         Launcher.showStartupBeforeJavaFx();
         StartupDiagnostics.logBeforeJavaFxLaunch();
-        launch(args);
+        StartupTiming.beforeJavaFx();
+        try { launch(args); }
+        catch (RuntimeException | Error error) { StartupTiming.trace().failed(error); throw error; }
     }
 
     @Override
     public void init() {
+        StartupTiming.javaFxInitialized();
         try {
             // Swing 终端自行注册 AWT 字体；旧 FX 插件首次显示时再注册 FX 字体。
             if ("javafx".equalsIgnoreCase(System.getProperty("jlshell.ui.renderer", "swing"))) {
-                BundledFontLoader.load();
+                StartupTiming.trace().run("bundled-fx-fonts", BundledFontLoader::load);
             }
         } catch (Exception | LinkageError failure) {
             initializationFailure = failure;
@@ -55,6 +58,7 @@ public class JlShellDesktopApplication extends Application {
 
     @Override
     public void start(Stage stage) {
+        StartupTiming.trace().mark("javafx-start-enter");
         Platform.setImplicitExit(false);
         if (initializationFailure != null) { showFatalError(initializationFailure); return; }
         try {
@@ -69,7 +73,7 @@ public class JlShellDesktopApplication extends Application {
         splash.updateStatus("正在加载连接与偏好设置", "Loading connections and preferences");
 
         try {
-            appContext = new AppContext();
+            appContext = StartupTiming.trace().call("app-context", () -> new AppContext(StartupTiming.trace()));
         } catch (Exception e) {
             log.error("Failed to initialize AppContext", e);
             showFatalError(e);
@@ -93,7 +97,7 @@ public class JlShellDesktopApplication extends Application {
         }
 
         stage.setTitle("JLShell");
-        stage.setScene(mainWindow.createScene(stage));
+        stage.setScene(StartupTiming.trace().call("fx-scene-model", () -> mainWindow.createScene(stage)));
         // Minimum window size is now set adaptively in MainWindow.createScene()
         // based on Screen.getPrimary().getVisualBounds(), so the app scales
         // properly on HiDPI / small screens (e.g. 1920×1080 @ 150 %).
@@ -120,15 +124,17 @@ public class JlShellDesktopApplication extends Application {
         if (!"javafx".equalsIgnoreCase(System.getProperty("jlshell.ui.renderer", "swing"))) {
             // 本分支默认使用原生 Swing 工作台；保留 JavaFX 渲染入口供对照验收。
             Platform.setImplicitExit(false);
-            mainWindow.showSwingWindow(stage, this::scheduleShutdown).whenComplete((unused, error) ->
+            mainWindow.showSwingWindow(stage, this::scheduleShutdown, StartupTiming.trace()).whenComplete((unused, error) ->
                     Platform.runLater(() -> {
                         splash.hide();
                         if (error != null) { showFatalError(error); return; }
+                        StartupTiming.trace().mark("workbench-shown");
                         UpdateActivationMarker.markStartupConfirmed();
                         installSystemTray();
                     }));
         } else {
             stage.show();
+            StartupTiming.trace().finish("fx-window-shown");
             UpdateActivationMarker.markStartupConfirmed();
             splash.hide();
             installSystemTray();
@@ -186,6 +192,7 @@ public class JlShellDesktopApplication extends Application {
     private void showFatalError(Throwable t) {
         if (fatalErrorShown) return;
         fatalErrorShown = true;
+        StartupTiming.trace().failed(t);
         splash.hide();
         javax.swing.SwingUtilities.invokeLater(() ->
                 com.jlshell.ui.swing.SwingStartupFailure.create(t, () -> {

@@ -24,6 +24,7 @@ final class SwingPluginPage extends JPanel implements AutoCloseable {
         String title = tab.getText(); boolean closable = tab.isClosable();
         var timing = (com.jlshell.ui.support.PluginOpenTiming)
                 tab.getProperties().get(com.jlshell.ui.support.PluginOpenTiming.PROPERTY);
+        var edtQueue = timing == null ? null : timing.step("edt-page-queue");
         Runnable closeTab = () -> com.jlshell.ui.support.FxThread.run(() -> {
             var owner = tab.getTabPane(); if (owner == null) return;
             owner.getTabs().remove(tab);
@@ -49,12 +50,12 @@ final class SwingPluginPage extends JPanel implements AutoCloseable {
         }
         if (tab.getProperties().get(PluginsTabView.NATIVE_VIEW) instanceof Supplier<?> supplier) {
             return new Prepared(() -> {
+                if (edtQueue != null) edtQueue.close();
                 if (timing != null) timing.mark("edt-factory-start");
-                long started = System.nanoTime();
-                try { return wrap.apply((JComponent) supplier.get()); }
-                finally { if (timing != null) timing.mark("edt-factory-ready");
-                    org.slf4j.LoggerFactory.getLogger(SwingPluginPage.class).info(
-                        "Plugin Swing view created in {} ms", (System.nanoTime() - started) / 1_000_000); }
+                if (timing == null) return wrap.apply((JComponent) supplier.get());
+                try {
+                    return timing.trace().call("swing-view-factory", () -> wrap.apply((JComponent) supplier.get()));
+                } catch (RuntimeException | Error error) { timing.failed(error); throw error; }
             }, () -> {});
         }
         // openTab(Node) 是完整 JavaFX 页面契约。表单映射器只覆盖宿主已知的控件，
@@ -62,9 +63,16 @@ final class SwingPluginPage extends JPanel implements AutoCloseable {
         // 保留插件原始节点树；插件通过 openSwingTab 显式选择原生 Swing。
         var node = tab.getContent();
         return new Prepared(() -> {
-            var bridge = new SwingFxPanel(themes);
-            bridge.setView(node);
-            return wrap.apply(bridge);
+            if (edtQueue != null) edtQueue.close();
+            try {
+                var bridge = timing == null ? new SwingFxPanel(themes)
+                        : timing.trace().call("javafx-bridge-create", () -> new SwingFxPanel(themes));
+                bridge.setPluginView(node, timing);
+                return wrap.apply(bridge);
+            } catch (RuntimeException | Error error) {
+                if (timing != null) timing.failed(error);
+                throw error;
+            }
         }, () -> {});
     }
 
@@ -72,11 +80,16 @@ final class SwingPluginPage extends JPanel implements AutoCloseable {
 
     @Override protected void paintChildren(java.awt.Graphics graphics) {
         super.paintChildren(graphics);
-        if (timing != null) { timing.mark("first-paint"); timing = null; }
+        if (timing != null && isShowing() && getWidth() > 0 && getHeight() > 0) {
+            timing.mark("swing-first-paint");
+            if (!(content instanceof SwingFxPanel)) timing.finish("swing-first-paint");
+            timing = null;
+        }
     }
 
     @Override public void close() {
         if (closed) return; closed = true;
+        if (timing != null) { timing.finish("closed-before-display"); timing = null; }
         if (content instanceof AutoCloseable resource) {
             try { resource.close(); } catch (Exception error) {
                 org.slf4j.LoggerFactory.getLogger(SwingPluginPage.class).warn("Cannot close plugin view", error);
