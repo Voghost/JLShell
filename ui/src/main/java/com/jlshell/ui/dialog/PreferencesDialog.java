@@ -82,6 +82,9 @@ import java.awt.Canvas;
 import java.awt.FontMetrics;
 import java.awt.GraphicsEnvironment;
 import java.util.Arrays;
+import java.util.Set;
+import java.util.HashSet;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -127,14 +130,12 @@ public class PreferencesDialog {
     private static String readVersion() {
         // 优先从 META-INF/MANIFEST.MF 读取 Implementation-Version（jpackage 打包时写入）
         try {
-            var res = PreferencesDialog.class.getResource("/META-INF/MANIFEST.MF");
-            if (res != null) {
-                String content = new String(res.openStream().readAllBytes());
-                for (String line : content.split("\n")) {
-                    if (line.startsWith("Implementation-Version:")) {
-                        return line.substring("Implementation-Version:".length()).trim();
-                    }
-                }
+            // 只读取承载本类的 JAR，不能把 FlatLaf 等依赖的版本误认为宿主版本。
+            var res = PreferencesDialog.class.getResource("PreferencesDialog.class");
+            if (res != null && res.openConnection() instanceof java.net.JarURLConnection connection) {
+                var manifest = connection.getManifest();
+                String version = manifest == null ? null : manifest.getMainAttributes().getValue("Implementation-Version");
+                if (version != null && !version.isBlank()) return version;
             }
         } catch (Exception ignored) {}
         // 回退到 Maven 生成的 pom.properties（ui 模块）
@@ -142,7 +143,7 @@ public class PreferencesDialog {
             var res = PreferencesDialog.class.getResource("/META-INF/maven/com.jlshell/ui/pom.properties");
             if (res != null) {
                 var props = new java.util.Properties();
-                props.load(res.openStream());
+                try (var stream = res.openStream()) { props.load(stream); }
                 String v = props.getProperty("version");
                 if (v != null && !v.isBlank()) {
                     // 去掉 Maven 的 -SNAPSHOT 后缀，只保留语义版本号
@@ -225,14 +226,18 @@ public class PreferencesDialog {
                             AccountService accountService,
                             ShortcutRegistry shortcutRegistry,
                             int initialTabIndex) {
-        Dialog<Void> dialog = new Dialog<>();
-        dialog.setTitle(i18n.get("preferences.title"));
-        dialog.setHeaderText(null);
-        if (owner != null) dialog.initOwner(owner);
-        themeService.applyToDialog(dialog);
-        dialog.setResizable(true);
-        dialog.getDialogPane().setPrefSize(1040, 760);
-        dialog.getDialogPane().setMinSize(860, 620);
+        boolean swing = !"javafx".equalsIgnoreCase(System.getProperty("jlshell.ui.renderer", "swing"));
+        // Swing 使用原生窗口；不再创建一个永远不显示的 FX Dialog/Stage/皮肤树。
+        Dialog<Void> dialog = swing ? null : new Dialog<>();
+        if (dialog != null) {
+            dialog.setTitle(i18n.get("preferences.title"));
+            dialog.setHeaderText(null);
+            if (owner != null) dialog.initOwner(owner);
+            themeService.applyToDialog(dialog);
+            dialog.setResizable(true);
+            dialog.getDialogPane().setPrefSize(1040, 760);
+            dialog.getDialogPane().setMinSize(640, 480);
+        }
 
         FontProfile[] pending = { fontProfileService.activeProfile() };
         String[] pendingLang = { appSettings.get("ui.language", null) };
@@ -240,7 +245,6 @@ public class PreferencesDialog {
         AccentColor[] pendingAccent = { themeService.accentColor() };
         String[] pendingConnTimeout = { appSettings.get("connection.timeout", "10") };
         String[] pendingKeepAlive = { appSettings.get("connection.keepAliveInterval", "60") };
-        String[] pendingHoverExpand = { appSettings.get("ui.topbar.hoverExpand", "false") };
         TerminalColorScheme[] pendingScheme = { themeService.activeColorScheme() };
         String[] pendingApiEnabled = { appSettings.get("api.enabled", "false") };
         String[] pendingApiPort = { appSettings.get("api.port", "0") };
@@ -260,7 +264,7 @@ public class PreferencesDialog {
 
         TabPane tabs = buildTabPane(fontProfileService, appSettings, i18n, themeService,
                 pending, pendingLang, pendingTheme, pendingAccent, pendingConnTimeout, pendingKeepAlive,
-                pendingHoverExpand, pendingScheme,
+                 pendingScheme,
                 connectionProfileService, activeProjectId, apiServer, capabilityBus, programPluginManager, pluginManager,
                 selectedSessionId,
                 pendingApiEnabled, pendingApiPort,
@@ -273,22 +277,23 @@ public class PreferencesDialog {
         if (initialTabIndex >= 0 && initialTabIndex < tabs.getTabs().size()) {
             tabs.getSelectionModel().select(initialTabIndex);
         }
-        dialog.getDialogPane().setContent(tabs);
+        if (!swing) dialog.getDialogPane().setContent(new com.jlshell.ui.view.SettingsNavigation(tabs));
 
         // Apply 按钮：用 APPLY 类型让 ButtonBar 自动放左侧
         ButtonType applyBtnType = new ButtonType(i18n.get("preferences.apply"), ButtonBar.ButtonData.APPLY);
-        dialog.getDialogPane().getButtonTypes().addAll(applyBtnType, ButtonType.CANCEL, ButtonType.OK);
+        if (!swing) dialog.getDialogPane().getButtonTypes().addAll(applyBtnType, ButtonType.CANCEL, ButtonType.OK);
 
         // Apply 按钮：拦截默认关闭行为，只应用设置
-        Button applyButton = (Button) dialog.getDialogPane().lookupButton(applyBtnType);
+        Button applyButton = swing ? new Button(i18n.get("preferences.apply"))
+                : (Button) dialog.getDialogPane().lookupButton(applyBtnType);
         PreferencesSnapshot[] lastApplied = { snapshotOf(pending, pendingLang, pendingTheme, pendingAccent,
-                pendingConnTimeout, pendingKeepAlive, pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort,
+                pendingConnTimeout, pendingKeepAlive, pendingScheme, pendingApiEnabled, pendingApiPort,
                 pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines,
                 pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl,
                 pendingAccountSyncEnabled, pendingAccountBaseUrl, shortcutRegistry) };
         updateApplyState[0] = () -> applyButton.setDisable(!hasPendingSettingsChanges(lastApplied[0],
                 snapshotOf(pending, pendingLang, pendingTheme, pendingAccent, pendingConnTimeout, pendingKeepAlive,
-                        pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort,
+                         pendingScheme, pendingApiEnabled, pendingApiPort,
                         pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines,
                         pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl,
                         pendingAccountSyncEnabled, pendingAccountBaseUrl, shortcutRegistry)));
@@ -297,28 +302,33 @@ public class PreferencesDialog {
             e.consume(); // 阻止 Dialog 默认的关闭逻辑
             boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending,
                     pendingLang, pendingTheme, pendingAccent, pendingConnTimeout, pendingKeepAlive,
-                    pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort, pendingUiFontFamily,
+                     pendingScheme, pendingApiEnabled, pendingApiPort, pendingUiFontFamily,
                     pendingUiFontSize, pendingScrollbackLines, pendingUpdateAutoCheck, pendingUpdateChannel,
                     pendingUpdateBaseUrl, pendingAccountSyncEnabled, pendingAccountBaseUrl);
             lastApplied[0] = snapshotOf(pending, pendingLang, pendingTheme, pendingAccent,
-                    pendingConnTimeout, pendingKeepAlive, pendingHoverExpand, pendingScheme, pendingApiEnabled, pendingApiPort,
+                    pendingConnTimeout, pendingKeepAlive, pendingScheme, pendingApiEnabled, pendingApiPort,
                     pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines,
                     pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl,
                     pendingAccountSyncEnabled, pendingAccountBaseUrl, shortcutRegistry);
             updateApplyState[0].run();
-            if (needRestart) showRestartPrompt(owner, i18n);
+            if (needRestart) showRestartPrompt(owner, i18n, themeService);
         });
 
+        Runnable applyAndClose = () -> {
+            boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending,
+                    pendingLang, pendingTheme, pendingAccent, pendingConnTimeout, pendingKeepAlive,
+                    pendingScheme, pendingApiEnabled, pendingApiPort, pendingUiFontFamily, pendingUiFontSize,
+                    pendingScrollbackLines, pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl,
+                    pendingAccountSyncEnabled, pendingAccountBaseUrl);
+            if (needRestart) showRestartPrompt(owner, i18n, themeService);
+        };
+
+        if (swing) {
+            com.jlshell.ui.swing.SwingPreferencesDialog.showAndWait(tabs, applyButton, i18n, themeService, applyAndClose);
+            return;
+        }
         dialog.setResultConverter(btn -> {
-            if (btn.getButtonData() == ButtonBar.ButtonData.OK_DONE) {
-                boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending,
-                        pendingLang, pendingTheme, pendingAccent, pendingConnTimeout, pendingKeepAlive,
-                        pendingHoverExpand, pendingScheme,
-                        pendingApiEnabled, pendingApiPort, pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines,
-                        pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl,
-                        pendingAccountSyncEnabled, pendingAccountBaseUrl);
-                if (needRestart) showRestartPrompt(owner, i18n);
-            }
+            if (btn.getButtonData() == ButtonBar.ButtonData.OK_DONE) applyAndClose.run();
             return null;
         });
 
@@ -333,14 +343,14 @@ public class PreferencesDialog {
         dialog.showAndWait();
     }
 
-    private static void showRestartPrompt(Stage owner, I18nService i18n) {
+    private static void showRestartPrompt(Stage owner, I18nService i18n, ThemeService themeService) {
         Alert alert = new Alert(Alert.AlertType.WARNING,
                 i18n.get("preferences.general.restartRequired"),
                 ButtonType.OK);
         alert.setTitle(i18n.get("preferences.title"));
         alert.setHeaderText(null);
         if (owner != null) alert.initOwner(owner);
-        alert.showAndWait();
+        com.jlshell.ui.swing.SwingAlerts.showAndWait(alert, themeService, i18n);
         com.jlshell.ui.support.RestartHelper.scheduleRestart();
     }
 
@@ -348,7 +358,6 @@ public class PreferencesDialog {
                                               ThemeService themeService, FontProfile[] pending, String[] pendingLang,
                                               String[] pendingTheme, AccentColor[] pendingAccent, String[] pendingConnTimeout,
                                               String[] pendingKeepAlive,
-                                              String[] pendingHoverExpand,
                                               TerminalColorScheme[] pendingScheme,
                                               String[] pendingApiEnabled, String[] pendingApiPort,
                                               String[] pendingUiFontFamily, String[] pendingUiFontSize,
@@ -370,7 +379,6 @@ public class PreferencesDialog {
 
         appSettings.set("connection.timeout", pendingConnTimeout[0]);
         appSettings.set("connection.keepAliveInterval", pendingKeepAlive[0]);
-        appSettings.set("ui.topbar.hoverExpand", pendingHoverExpand[0]);
 
         if (pendingScheme[0] != null) {
             themeService.setActiveColorScheme(pendingScheme[0]);
@@ -406,7 +414,6 @@ public class PreferencesDialog {
             AccentColor accent,
             String connectionTimeout,
             String keepAliveInterval,
-            String hoverExpand,
             TerminalColorScheme colorScheme,
             String apiEnabled,
             String apiPort,
@@ -424,7 +431,6 @@ public class PreferencesDialog {
     private static PreferencesSnapshot snapshotOf(FontProfile[] pending, String[] pendingLang,
                                                   String[] pendingTheme, AccentColor[] pendingAccent,
                                                   String[] pendingConnTimeout, String[] pendingKeepAlive,
-                                                  String[] pendingHoverExpand,
                                                   TerminalColorScheme[] pendingScheme,
                                                   String[] pendingApiEnabled, String[] pendingApiPort,
                                                   String[] pendingUiFontFamily, String[] pendingUiFontSize,
@@ -440,7 +446,6 @@ public class PreferencesDialog {
                 pendingAccent[0],
                 pendingConnTimeout[0],
                 pendingKeepAlive[0],
-                pendingHoverExpand[0],
                 pendingScheme[0],
                 pendingApiEnabled[0],
                 pendingApiPort[0],
@@ -487,7 +492,6 @@ public class PreferencesDialog {
                                          FontProfile[] pending, String[] pendingLang,
                                          String[] pendingTheme, AccentColor[] pendingAccent, String[] pendingConnTimeout,
                                          String[] pendingKeepAlive,
-                                         String[] pendingHoverExpand,
                                          TerminalColorScheme[] pendingScheme,
                                          com.jlshell.ui.service.ConnectionProfileService connectionProfileService,
                                          String activeProjectId,
@@ -510,43 +514,51 @@ public class PreferencesDialog {
         tabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
 
         Tab generalTab = new Tab(i18n.get("preferences.tab.general"));
-        generalTab.setContent(buildGeneralPane(appSettings, i18n, themeService, pendingLang, pendingTheme,
-                pendingAccent, pendingConnTimeout, pendingKeepAlive, pendingHoverExpand,
+        generalTab.setContent(new com.jlshell.ui.support.DeferredSettingsPage(
+                () -> buildGeneralPane(appSettings, i18n, themeService, pendingLang, pendingTheme,
+                pendingAccent, pendingConnTimeout, pendingKeepAlive,
                 pendingUiFontFamily, pendingUiFontSize,
                 pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl,
-                memoryReclaimService, preferenceChanged));
+                memoryReclaimService, preferenceChanged), i18n.searchText("preferences.general.", "preferences.connection.", "preferences.updates.")));
         tabPane.getTabs().add(generalTab);
 
         Tab accountTab = new Tab(i18n.get("preferences.tab.account"));
-        accountTab.setContent(buildAccountPane(i18n, themeService, accountService, owner,
-                pendingAccountSyncEnabled, pendingAccountBaseUrl, preferenceChanged));
+        accountTab.setContent(new com.jlshell.ui.support.DeferredSettingsPage(
+                () -> buildAccountPane(i18n, themeService, accountService, owner,
+                pendingAccountSyncEnabled, pendingAccountBaseUrl, preferenceChanged), i18n.searchText("preferences.account.", "account.")));
         tabPane.getTabs().add(accountTab);
 
         Tab terminalTab = new Tab(i18n.get("preferences.tab.terminal"));
-        terminalTab.setContent(buildTerminalPane(appSettings, fontProfileService.activeProfile(), i18n, themeService,
-                pending, pendingScheme, pendingScrollbackLines, preferenceChanged));
+        terminalTab.setContent(new com.jlshell.ui.support.DeferredSettingsPage(
+                () -> buildTerminalPane(appSettings, fontProfileService.activeProfile(), i18n, themeService,
+                pending, pendingScheme, pendingScrollbackLines, preferenceChanged, owner), i18n.searchText("preferences.terminal.", "terminal.", "colorScheme.")));
         tabPane.getTabs().add(terminalTab);
 
         Tab importTab = new Tab(i18n.get("preferences.tab.import"));
-        importTab.setContent(buildImportPane(i18n, connectionProfileService, activeProjectId));
+        importTab.setContent(new com.jlshell.ui.support.DeferredSettingsPage(
+                () -> buildImportPane(i18n, connectionProfileService, activeProjectId, themeService), i18n.searchText("import.", "preferences.import.")));
         tabPane.getTabs().add(importTab);
 
         Tab apiTab = new Tab(i18n.get("preferences.tab.api"));
-        apiTab.setContent(buildApiPane(appSettings, i18n, apiServer, capabilityBus, selectedSessionId,
-                pendingApiEnabled, pendingApiPort, preferenceChanged));
+        apiTab.setContent(new com.jlshell.ui.support.DeferredSettingsPage(
+                () -> buildApiPane(appSettings, i18n, apiServer, capabilityBus, selectedSessionId,
+                pendingApiEnabled, pendingApiPort, preferenceChanged), i18n.searchText("api.", "preferences.api.")));
         tabPane.getTabs().add(apiTab);
 
         Tab pluginsTab = new Tab(i18n.get("preferences.tab.plugins"));
-        pluginsTab.setContent(buildPluginsPane(appSettings, i18n, themeService, owner,
-                programPluginManager, pluginManager));
+        pluginsTab.setContent(new com.jlshell.ui.support.DeferredSettingsPage(
+                () -> buildPluginsPane(appSettings, i18n, themeService, owner,
+                programPluginManager, pluginManager), i18n.searchText("plugins.")));
         tabPane.getTabs().add(pluginsTab);
 
         Tab shortcutsTab = new Tab(i18n.get("preferences.tab.shortcuts"));
-        shortcutsTab.setContent(buildShortcutsPane(shortcutRegistry, i18n, themeService, owner, preferenceChanged));
+        shortcutsTab.setContent(new com.jlshell.ui.support.DeferredSettingsPage(
+                () -> buildShortcutsPane(shortcutRegistry, i18n, themeService, owner, preferenceChanged), i18n.searchText("shortcuts.", "shortcut.")));
         tabPane.getTabs().add(shortcutsTab);
 
         Tab aboutTab = new Tab(i18n.get("preferences.tab.about"));
-        aboutTab.setContent(buildAboutPane(i18n));
+        aboutTab.setContent(new com.jlshell.ui.support.DeferredSettingsPage(
+                () -> buildAboutPane(i18n), i18n.searchText("about.", "preferences.about.")));
         tabPane.getTabs().add(aboutTab);
 
         return tabPane;
@@ -658,7 +670,7 @@ public class PreferencesDialog {
             refreshAccountState.run();
         });
 
-        HBox actions = new HBox(8, webLoginButton, passwordLoginButton,
+        FlowPane actions = new FlowPane(8, 6, webLoginButton, passwordLoginButton,
                 registerButton, logoutButton, changePasswordButton);
         actions.setAlignment(Pos.CENTER_LEFT);
 
@@ -681,19 +693,8 @@ public class PreferencesDialog {
         VBox syncCard = settingsCard(i18n.get("preferences.account.syncSection"),
                 i18n.get("preferences.account.syncSection.description"), syncForm);
 
-        GridPane cards = new GridPane();
+        VBox cards = new VBox(20, identityCard, syncCard);
         cards.getStyleClass().add("settings-card-grid");
-        cards.setHgap(14);
-        cards.setVgap(14);
-        javafx.scene.layout.ColumnConstraints profileColumn = new javafx.scene.layout.ColumnConstraints();
-        profileColumn.setPercentWidth(54);
-        profileColumn.setHgrow(Priority.ALWAYS);
-        javafx.scene.layout.ColumnConstraints syncColumn = new javafx.scene.layout.ColumnConstraints();
-        syncColumn.setPercentWidth(46);
-        syncColumn.setHgrow(Priority.ALWAYS);
-        cards.getColumnConstraints().addAll(profileColumn, syncColumn);
-        cards.add(identityCard, 0, 0);
-        cards.add(syncCard, 1, 0);
 
         refreshAccountState.run();
 
@@ -773,7 +774,8 @@ public class PreferencesDialog {
             });
         });
 
-        dialog.showAndWait();
+        if(com.jlshell.ui.swing.SwingDialogHost.enabled())com.jlshell.ui.swing.SwingDialogHost.showNativeAndWait(dialog,themeService,i18n,"jlshell.account.password",520,340);
+        else dialog.showAndWait();
     }
 
     /** 创建带主题的 Alert 并 showAndWait。 */
@@ -784,7 +786,7 @@ public class PreferencesDialog {
         alert.setHeaderText(null);
         if (owner != null) alert.initOwner(owner);
         themeService.applyToDialog(alert);
-        alert.showAndWait();
+        com.jlshell.ui.swing.SwingAlerts.showAndWait(alert, themeService, i18n);
     }
 
     // ── General Tab ────────────────────────────────────────────────────────
@@ -792,7 +794,7 @@ public class PreferencesDialog {
     private static VBox buildGeneralPane(AppSettingsService appSettings, I18nService i18n,
                                           ThemeService themeService, String[] pendingLang, String[] pendingTheme,
                                           AccentColor[] pendingAccent, String[] pendingConnTimeout,
-                                          String[] pendingKeepAlive, String[] pendingHoverExpand,
+                                          String[] pendingKeepAlive,
                                           String[] pendingUiFontFamily, String[] pendingUiFontSize,
                                           String[] pendingUpdateAutoCheck, String[] pendingUpdateChannel,
                                           String[] pendingUpdateBaseUrl,
@@ -823,6 +825,7 @@ public class PreferencesDialog {
         });
 
         ComboBox<String> themeCombo = new ComboBox<>();
+        themeCombo.setId("settings-theme");
         themeCombo.getItems().addAll("Dark", "Light");
         themeCombo.setValue("LIGHT".equals(currentTheme) ? "Light" : "Dark");
         themeCombo.setPrefWidth(200);
@@ -832,6 +835,7 @@ public class PreferencesDialog {
         });
 
         ComboBox<AccentColor> accentCombo = new ComboBox<>();
+        accentCombo.setId("settings-accent");
         accentCombo.getItems().addAll(AccentColor.values());
         accentCombo.setValue(pendingAccent[0]);
         accentCombo.setPrefWidth(200);
@@ -842,13 +846,6 @@ public class PreferencesDialog {
                 pendingAccent[0] = nv;
                 preferenceChanged.run();
             }
-        });
-
-        CheckBox hoverExpandCheck = new CheckBox(i18n.get("preferences.general.hoverExpand"));
-        hoverExpandCheck.setSelected("true".equals(pendingHoverExpand[0]));
-        hoverExpandCheck.selectedProperty().addListener((o, ov, nv) -> {
-            pendingHoverExpand[0] = String.valueOf(nv);
-            preferenceChanged.run();
         });
 
         CheckBox updateAutoCheck = new CheckBox(i18n.get("preferences.updates.autoCheck"));
@@ -878,9 +875,18 @@ public class PreferencesDialog {
         // ── UI 字体设置 ──
         String currentUiFontFamily = appSettings.get("ui.font.family", null);
         ComboBox<String> uiFontCombo = new ComboBox<>();
+        uiFontCombo.setId("settings-ui-font");
         String[] allFonts = GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames();
         List<String> sortedFonts = Arrays.stream(allFonts).sorted().collect(Collectors.toCollection(ArrayList::new));
         String defaultFontLabel = i18n.get("preferences.general.uiFont.default");
+        // 分组只需要字体名称；逐个测量所有系统字体会初始化大量原生字体缓存。
+        Set<String> monoFamilies = Arrays.stream(allFonts)
+                .filter(PreferencesDialog::isKnownMonospacedFamily)
+                .collect(Collectors.toSet());
+        sortedFonts.sort(Comparator.comparing((String family)->!monoFamilies.contains(family)).thenComparing(String.CASE_INSENSITIVE_ORDER));
+        uiFontCombo.getProperties().put("jlshell.fontPicker",true);
+        uiFontCombo.getProperties().put("jlshell.fontGroups",true);
+        uiFontCombo.getProperties().put("jlshell.monospacedFonts",Set.copyOf(monoFamilies));
         sortedFonts.add(0, defaultFontLabel);
         ObservableList<String> uiFonts = FXCollections.observableArrayList(sortedFonts);
         uiFontCombo.setItems(uiFonts);
@@ -914,8 +920,7 @@ public class PreferencesDialog {
         });
 
         Text uiFontPreview = new Text("Hello World  Settings  设置  AaBbCc 0123");
-        String previewFg = themeService.currentThemeProperty().get() == AppTheme.LIGHT ? "#0f172a" : "#dfe1e5";
-        uiFontPreview.setStyle("-fx-fill: " + previewFg + ";");
+        uiFontPreview.getStyleClass().add("settings-font-preview");
         uiFontCombo.valueProperty().addListener((o, ov, nv) -> {
             String fam = (nv == null || nv.equals(defaultFontLabel) || !uiFonts.contains(nv))
                     ? "System" : nv;
@@ -938,7 +943,7 @@ public class PreferencesDialog {
             preferenceChanged.run();
         });
 
-        HBox uiFontSizeRow = new HBox(8, uiFontSizeSlider, uiFontSizeField);
+        HBox uiFontSizeRow = new HBox(8, sizeSpinner(uiFontSizeSlider, 8, 24));
         uiFontSizeRow.setAlignment(Pos.CENTER_LEFT);
 
         Button gcButton = new Button(i18n.get("preferences.general.memoryGc"));
@@ -957,6 +962,7 @@ public class PreferencesDialog {
         memoryRow.setAlignment(Pos.CENTER_LEFT);
 
         TextField timeoutField = new TextField(pendingConnTimeout[0]);
+        timeoutField.setId("settings-connection-timeout");
         timeoutField.setPrefWidth(72);
         timeoutField.setMaxWidth(72);
         timeoutField.textProperty().addListener((o, ov, nv) -> {
@@ -973,6 +979,7 @@ public class PreferencesDialog {
         timeoutRow.setAlignment(Pos.CENTER_LEFT);
 
         TextField keepAliveField = new TextField(pendingKeepAlive[0]);
+        keepAliveField.setId("settings-connection-keepAlive");
         keepAliveField.setPrefWidth(72);
         keepAliveField.setMaxWidth(72);
         keepAliveField.textProperty().addListener((o, ov, nv) -> {
@@ -992,7 +999,6 @@ public class PreferencesDialog {
         addSettingsRow(appearanceForm, 0, i18n.get("preferences.general.language"), langCombo);
         addSettingsRow(appearanceForm, 1, i18n.get("preferences.general.theme"), themeCombo);
         addSettingsRow(appearanceForm, 2, i18n.get("preferences.general.accentColor"), accentCombo);
-        addSettingsRow(appearanceForm, 3, "", hoverExpandCheck);
 
         GridPane fontForm = settingsForm();
         addSettingsRow(fontForm, 0, i18n.get("preferences.general.uiFontFamily"), uiFontCombo);
@@ -1026,22 +1032,8 @@ public class PreferencesDialog {
         VBox updatesCard = settingsCard(i18n.get("preferences.updates.title"),
                 i18n.get("preferences.updates.description"), updatesForm);
 
-        GridPane cards = new GridPane();
+        VBox cards = new VBox(20, appearanceCard, fontCard, connectionCard, systemCard, updatesCard);
         cards.getStyleClass().add("settings-card-grid");
-        cards.setHgap(14);
-        cards.setVgap(14);
-        javafx.scene.layout.ColumnConstraints leftColumn = new javafx.scene.layout.ColumnConstraints();
-        leftColumn.setPercentWidth(50);
-        leftColumn.setHgrow(Priority.ALWAYS);
-        javafx.scene.layout.ColumnConstraints rightColumn = new javafx.scene.layout.ColumnConstraints();
-        rightColumn.setPercentWidth(50);
-        rightColumn.setHgrow(Priority.ALWAYS);
-        cards.getColumnConstraints().addAll(leftColumn, rightColumn);
-        cards.add(appearanceCard, 0, 0);
-        cards.add(fontCard, 1, 0);
-        cards.add(connectionCard, 0, 1);
-        cards.add(systemCard, 1, 1);
-        cards.add(updatesCard, 0, 2, 2, 1);
 
         ScrollPane scroll = new ScrollPane(cards);
         scroll.setFitToWidth(true);
@@ -1049,20 +1041,58 @@ public class PreferencesDialog {
         VBox pane = new VBox(scroll);
         pane.getStyleClass().add("settings-page");
         VBox.setVgrow(scroll, Priority.ALWAYS);
+        pane.getProperties().put("jlshell.generalSettingsFields", Map.ofEntries(
+                Map.entry("language",langCombo), Map.entry("theme",themeCombo), Map.entry("accent",accentCombo),
+                Map.entry("font",uiFontCombo),
+                Map.entry("size",uiFontSizeRow.getChildren().getFirst()), Map.entry("preview",uiFontPreview),
+                Map.entry("timeout",timeoutField), Map.entry("keepAlive",keepAliveField), Map.entry("memory",memoryRow),
+                Map.entry("autoUpdate",updateAutoCheck), Map.entry("channel",updateChannel), Map.entry("url",updateBaseUrl)));
         return pane;
+    }
+
+    // IDEA 的字体配置使用数值编辑器；保留已有 Slider 模型/监听，避免整数文本回写造成拖动震荡。
+    private static javafx.scene.control.Spinner<Integer> sizeSpinner(Slider model, int min, int max) {
+        return integerSpinner(model, min, max, 1);
+    }
+
+    private static javafx.scene.control.Spinner<Integer> integerSpinner(Slider model, int min, int max, int step) {
+        var spinner = new javafx.scene.control.Spinner<Integer>(min, max, (int) Math.round(model.getValue()), step);
+        spinner.setId("settings-size-"+min+"-"+max);
+        spinner.setEditable(true);
+        spinner.setPrefWidth(step == 1 ? 96 : 144);
+        spinner.setMaxWidth(spinner.getPrefWidth());
+        spinner.valueProperty().addListener((o, old, value) -> model.setValue(value));
+        model.valueProperty().addListener((o, old, value) -> {
+            int target = value.intValue();
+            if (spinner.getValue() != target) spinner.getValueFactory().setValue(target);
+        });
+        return spinner;
+    }
+
+    private static javafx.scene.control.Spinner<Double> decimalSpinner(Slider model, double min, double max, double step) {
+        var spinner = new javafx.scene.control.Spinner<Double>(min, max, model.getValue(), step);
+        spinner.setEditable(true);
+        spinner.setPrefWidth(96);
+        spinner.setMaxWidth(96);
+        spinner.valueProperty().addListener((o, old, value) -> model.setValue(value));
+        model.valueProperty().addListener((o, old, value) -> {
+            if (Math.abs(spinner.getValue() - value.doubleValue()) > 0.0001) spinner.getValueFactory().setValue(value.doubleValue());
+        });
+        return spinner;
     }
 
     private static GridPane settingsForm() {
         GridPane form = new GridPane();
         form.getStyleClass().add("settings-form");
         form.setHgap(14);
-        form.setVgap(12);
+        form.setVgap(6);
         javafx.scene.layout.ColumnConstraints labels = new javafx.scene.layout.ColumnConstraints();
         labels.setMinWidth(95);
         labels.setPrefWidth(115);
         javafx.scene.layout.ColumnConstraints values = new javafx.scene.layout.ColumnConstraints();
         values.setHgrow(Priority.ALWAYS);
         values.setFillWidth(true);
+        values.setMaxWidth(380);
         form.getColumnConstraints().addAll(labels, values);
         return form;
     }
@@ -1075,16 +1105,22 @@ public class PreferencesDialog {
         form.add(key, 0, row);
         form.add(value, 1, row);
         GridPane.setHgrow(value, Priority.ALWAYS);
-        if (value instanceof Region region) region.setMaxWidth(Double.MAX_VALUE);
+        if (value instanceof Region region) region.setMaxWidth(value instanceof Label ? Region.USE_PREF_SIZE : Double.MAX_VALUE);
     }
 
     private static VBox settingsCard(String title, String description, javafx.scene.Node content) {
         Label titleLabel = new Label(title);
+        titleLabel.setId("settings-section-"+title);
         titleLabel.getStyleClass().add("settings-card-title");
         Label descriptionLabel = new Label(description);
         descriptionLabel.getStyleClass().add("settings-card-description");
         descriptionLabel.setWrapText(true);
-        VBox card = new VBox(5, titleLabel, descriptionLabel, new Separator(), content);
+        Separator line = new Separator();
+        line.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(line, Priority.ALWAYS);
+        HBox heading = new HBox(12, titleLabel, line);
+        heading.setAlignment(Pos.CENTER_LEFT);
+        VBox card = new VBox(10, heading, descriptionLabel, content);
         card.getStyleClass().add("settings-card");
         card.setMaxWidth(Double.MAX_VALUE);
         VBox.setVgrow(content, Priority.ALWAYS);
@@ -1172,14 +1208,31 @@ public class PreferencesDialog {
                                            ThemeService themeService,
                                            FontProfile[] pending, TerminalColorScheme[] pendingScheme,
                                            String[] pendingScrollbackLines,
-                                           Runnable preferenceChanged) {
+                                           Runnable preferenceChanged, Stage owner) {
         // ── Font section ──
         List<String> monoFonts = loadMonospacedFonts();
 
         ComboBox<String> fontCombo = new ComboBox<>();
+        fontCombo.setId("settings-terminal-font");fontCombo.getProperties().put("jlshell.fontPicker",true);
         fontCombo.getItems().addAll(monoFonts);
-        fontCombo.setValue(monoFonts.contains(current.family()) ? current.family() : monoFonts.get(0));
+        if (!fontCombo.getItems().contains(current.family())) fontCombo.getItems().addFirst(current.family());
+        fontCombo.setValue(current.family());
         fontCombo.setPrefWidth(220);
+
+        ComboBox<String> chineseFontCombo = new ComboBox<>();
+        chineseFontCombo.setId("settings-terminal-chinese-font");
+        chineseFontCombo.getProperties().put("jlshell.fontPicker", true);
+        String automaticChinese = i18n.get("preferences.terminal.chineseAutomatic");
+        chineseFontCombo.getItems().add(automaticChinese);
+        for (String family : GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames()) {
+            if (new java.awt.Font(family, java.awt.Font.PLAIN, 13).canDisplayUpTo("中文字体你好世界") == -1)
+                chineseFontCombo.getItems().add(family);
+        }
+        if (!current.chineseFamily().isBlank() && !chineseFontCombo.getItems().contains(current.chineseFamily()))
+            chineseFontCombo.getItems().add(current.chineseFamily());
+        chineseFontCombo.setValue(current.chineseFamily().isBlank() ? automaticChinese : current.chineseFamily());
+        chineseFontCombo.setPrefWidth(220);
+        var previewProfile = new javafx.beans.property.SimpleObjectProperty<FontProfile>(current);
 
         Slider sizeSlider = new Slider(8, 32, current.size());
         sizeSlider.setPrefWidth(180);
@@ -1205,9 +1258,8 @@ public class PreferencesDialog {
         ligaturesCheck.setSelected(current.ligaturesEnabled());
 
         Text preview = new Text("Hello World  你好世界  AaBbCc 0123  -> => !=");
-        // 字体预览强制使用主题前景色，避免与对话框背景对比度不足
-        String previewFg = themeService.currentThemeProperty().get() == AppTheme.LIGHT ? "#0f172a" : "#dfe1e5";
-        preview.setStyle("-fx-fill: " + previewFg + ";");
+        // Resolve the foreground from the current theme, including live changes while settings remain open.
+        preview.getStyleClass().add("settings-font-preview");
         fontCombo.valueProperty().addListener((o, ov, nv) -> updatePreview(preview, nv, sizeSlider.getValue()));
         sizeSlider.valueProperty().addListener((o, ov, nv) -> updatePreview(preview, fontCombo.getValue(), nv.doubleValue()));
         updatePreview(preview, fontCombo.getValue(), sizeSlider.getValue());
@@ -1215,35 +1267,46 @@ public class PreferencesDialog {
         Runnable sync = () -> {
             double size    = parseDouble(sizeField.getText(), current.size());
             double spacing = parseDouble(spacingField.getText(), current.lineSpacing());
-            pending[0] = new FontProfile(fontCombo.getValue(), size, ligaturesCheck.isSelected(), spacing);
+            String chinese = automaticChinese.equals(chineseFontCombo.getValue()) ? "" : chineseFontCombo.getValue();
+            pending[0] = new FontProfile(fontCombo.getValue(), size, ligaturesCheck.isSelected(), spacing, chinese);
+            previewProfile.set(pending[0]);
             preferenceChanged.run();
         };
         fontCombo.valueProperty().addListener((o, ov, nv) -> sync.run());
+        chineseFontCombo.valueProperty().addListener((o, ov, nv) -> sync.run());
         sizeSlider.valueProperty().addListener((o, ov, nv) -> sync.run());
         spacingSlider.valueProperty().addListener((o, ov, nv) -> sync.run());
         ligaturesCheck.selectedProperty().addListener((o, ov, nv) -> sync.run());
 
         GridPane fontGrid = new GridPane();
+        fontGrid.getStyleClass().add("terminal-font-layout");
+        fontGrid.getProperties().put("jlshell.terminalPreviewProfile", previewProfile);
         fontGrid.setHgap(12);
         fontGrid.setVgap(10);
 
         fontGrid.add(new Label(i18n.get("preferences.terminal.fontFamily")), 0, 0);
         fontGrid.add(fontCombo, 1, 0, 2, 1);
 
-        fontGrid.add(new Label(i18n.get("preferences.terminal.fontSize")), 0, 1);
-        HBox sizeRow = new HBox(8, sizeSlider, sizeField);
+        fontGrid.add(new Label(i18n.get("preferences.terminal.chineseFontFamily")), 0, 1);
+        fontGrid.add(chineseFontCombo, 1, 1, 2, 1);
+        fontGrid.add(new Label(i18n.get("preferences.terminal.fontSize")), 0, 2);
+        HBox sizeRow = new HBox(8, sizeSpinner(sizeSlider, 8, 32));
         sizeRow.setAlignment(Pos.CENTER_LEFT);
-        fontGrid.add(sizeRow, 1, 1, 2, 1);
+        fontGrid.add(sizeRow, 1, 2, 2, 1);
 
-        fontGrid.add(new Label(i18n.get("preferences.terminal.lineSpacing")), 0, 2);
-        HBox spacingRow = new HBox(8, spacingSlider, spacingField);
+        fontGrid.add(new Label(i18n.get("preferences.terminal.lineSpacing")), 0, 3);
+        var spacingSpinner = decimalSpinner(spacingSlider, 0.8, 2.0, 0.1);
+        spacingSpinner.setId("settings-terminal-spacing");
+        HBox spacingRow = new HBox(8, spacingSpinner);
         spacingRow.setAlignment(Pos.CENTER_LEFT);
-        fontGrid.add(spacingRow, 1, 2, 2, 1);
+        fontGrid.add(spacingRow, 1, 3, 2, 1);
 
-        fontGrid.add(ligaturesCheck, 1, 3, 2, 1);
+        fontGrid.add(ligaturesCheck, 1, 4, 2, 1);
 
-        fontGrid.add(new Label(i18n.get("preferences.terminal.preview")), 0, 4);
-        fontGrid.add(preview, 1, 4, 2, 1);
+        Label previewCaption = new Label(i18n.get("preferences.terminal.preview"));
+        previewCaption.setId("settings-terminal-preview-caption");
+        fontGrid.add(previewCaption, 0, 5);
+        fontGrid.add(preview, 1, 5, 2, 1);
 
         int currentScrollback = parseScrollbackLines(appSettings.get(
                 "terminal.scrollback.lines",
@@ -1277,10 +1340,10 @@ public class PreferencesDialog {
             } catch (NumberFormatException ignored) {}
         });
 
-        fontGrid.add(new Label(i18n.get("preferences.terminal.scrollbackLines")), 0, 5);
-        HBox scrollbackRow = new HBox(8, scrollbackSlider, scrollbackField, scrollbackUnit);
+        fontGrid.add(new Label(i18n.get("preferences.terminal.scrollbackLines")), 0, 6);
+        HBox scrollbackRow = new HBox(8, integerSpinner(scrollbackSlider, TerminalRuntimeSettings.MIN_SCROLLBACK_LINES, TerminalRuntimeSettings.MAX_SCROLLBACK_LINES, 500), scrollbackUnit);
         scrollbackRow.setAlignment(Pos.CENTER_LEFT);
-        fontGrid.add(scrollbackRow, 1, 5, 2, 1);
+        fontGrid.add(scrollbackRow, 1, 6, 2, 1);
 
         // ── Color scheme section ──
         ColorSchemeRegistry registry = themeService.registry();
@@ -1371,7 +1434,7 @@ public class PreferencesDialog {
 
         newBtn.setOnAction(e -> {
             TerminalColorScheme created = ColorSchemeEditDialog.show(
-                    (Stage) schemeList.getScene().getWindow(), themeService, null, true);
+                    owner, themeService, i18n, null, true);
             if (created != null) {
                 registry.saveCustomScheme(created);
                 refreshList(allSchemes, filteredSchemes, registry, filterField.getText());
@@ -1391,7 +1454,7 @@ public class PreferencesDialog {
             }
             TerminalColorScheme copy = registry.copyScheme(sel, tryName);
             TerminalColorScheme edited = ColorSchemeEditDialog.show(
-                    (Stage) schemeList.getScene().getWindow(), themeService, copy, true);
+                    owner, themeService, i18n, copy, true);
             if (edited != null) {
                 registry.saveCustomScheme(edited);
                 refreshList(allSchemes, filteredSchemes, registry, filterField.getText());
@@ -1403,7 +1466,7 @@ public class PreferencesDialog {
             TerminalColorScheme sel = schemeList.getSelectionModel().getSelectedItem();
             if (sel == null || registry.isBuiltIn(sel.name())) return;
             TerminalColorScheme edited = ColorSchemeEditDialog.show(
-                    (Stage) schemeList.getScene().getWindow(), themeService, sel, false);
+                    owner, themeService, i18n, sel, false);
             if (edited != null) {
                 registry.saveCustomScheme(edited);
                 refreshList(allSchemes, filteredSchemes, registry, filterField.getText());
@@ -1419,7 +1482,7 @@ public class PreferencesDialog {
                     ButtonType.YES, ButtonType.NO);
             confirm.setTitle(i18n.get("preferences.terminal.colorScheme.delete"));
             confirm.setHeaderText(null);
-            if (confirm.showAndWait().orElse(ButtonType.NO) == ButtonType.YES) {
+            if (com.jlshell.ui.swing.SwingAlerts.showAndWait(confirm, themeService, i18n).orElse(ButtonType.NO) == ButtonType.YES) {
                 registry.deleteCustomScheme(sel.name());
                 refreshList(allSchemes, filteredSchemes, registry, filterField.getText());
             }
@@ -1447,14 +1510,9 @@ public class PreferencesDialog {
         ScrollPane scroll = new ScrollPane(cards);
         scroll.setFitToWidth(true);
         scroll.getStyleClass().add("settings-scroll-pane");
-        VBox directory = settingsSectionDirectory(i18n, scroll, cards, List.of(
-                new SettingsSectionLink(i18n.get("preferences.terminal.typographySection"), typographyCard),
-                new SettingsSectionLink(i18n.get("preferences.terminal.colorsSection"), colorsCard)));
         BorderPane workspace = new BorderPane();
-        workspace.setLeft(directory);
         workspace.setCenter(scroll);
         workspace.getStyleClass().add("settings-directory-workspace");
-        BorderPane.setMargin(directory, new Insets(16, 0, 16, 18));
         VBox pane = new VBox(workspace);
         pane.getStyleClass().add("settings-page");
         VBox.setVgrow(workspace, Priority.ALWAYS);
@@ -1895,7 +1953,7 @@ public class PreferencesDialog {
         pane.getStyleClass().add("plugin-manager-pane");
 
         ObservableList<PluginDocEntry> installedEntries = FXCollections.observableArrayList(
-                pluginDocEntries(i18n, programPluginManager, pluginManager));
+                pluginDocEntries(i18n, themeService, programPluginManager, pluginManager));
         TabPane pluginTabs = new TabPane();
         pluginTabs.getStyleClass().add("plugin-manager-tabs");
         pluginTabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
@@ -1910,6 +1968,8 @@ public class PreferencesDialog {
                 installed.setText(i18n.get("plugins.store.installed", installedEntries.size())));
 
         pluginTabs.getTabs().addAll(marketplace, installed);
+        // IDEA PluginManagerConfigurablePanel 将页签交给设置页的 TopComponent，内容独立切换。
+        pane.getProperties().put("jlshell.headerTabs", pluginTabs);
         VBox.setVgrow(pluginTabs, Priority.ALWAYS);
         pane.getChildren().add(pluginTabs);
         return pane;
@@ -1926,12 +1986,14 @@ public class PreferencesDialog {
 
         TextField query = new TextField();
         query.setPromptText(i18n.get("plugins.store.search"));
+        query.setMinWidth(60);
         query.getStyleClass().add("plugin-search-field");
         ComboBox<String> scope = new ComboBox<>(FXCollections.observableArrayList(
                 i18n.get("plugins.filter.all"), i18n.get("plugins.filter.program"), i18n.get("plugins.filter.session")));
         scope.getSelectionModel().select(0);
         scope.setMinWidth(130);
         Button search = new Button(i18n.get("plugins.store.searchButton"));
+        search.setMinWidth(Region.USE_PREF_SIZE);
         Label status = new Label();
         status.setWrapText(true);
         status.getStyleClass().add("plugin-status");
@@ -1970,9 +2032,13 @@ public class PreferencesDialog {
                 }
                 VBox text = new VBox(3, name, description, metaRow);
                 HBox.setHgrow(text, Priority.ALWAYS);
-                HBox row = new HBox(12, pluginAvatar(item.displayName()), text);
+                HBox row = new HBox(12, com.jlshell.ui.swing.PluginIcons.avatar(item.displayName(), com.jlshell.ui.swing.PluginIcons.remote(item.iconUrl())), text);
                 row.setAlignment(Pos.CENTER_LEFT);
                 row.getStyleClass().add("plugin-list-cell-content");
+                row.prefWidthProperty().bind(list.widthProperty().subtract(18));
+                text.setMinWidth(0);
+                name.setMinWidth(0);
+                name.setMaxWidth(Double.MAX_VALUE);
                 setText(null);
                 setGraphic(row);
             }
@@ -2095,7 +2161,7 @@ public class PreferencesDialog {
                         }
                         if (result.scope() == com.jlshell.plugin.api.PluginScope.SESSION && pluginManager != null) {
                             pluginManager.reloadPlugins();
-                            installedEntries.setAll(pluginDocEntries(i18n, programPluginManager, pluginManager));
+                            installedEntries.setAll(pluginDocEntries(i18n, themeService, programPluginManager, pluginManager));
                             status.setText(i18n.get("plugins.store.installedSession"));
                         } else {
                             status.setText(i18n.get("plugins.store.installedProgram"));
@@ -2116,7 +2182,7 @@ public class PreferencesDialog {
 
         SplitPane split = new SplitPane(left, detailScroll);
         split.getStyleClass().add("plugin-content-split");
-        split.setDividerPositions(0.38);
+        split.setDividerPositions(0.44);
         BorderPane root = new BorderPane(split);
         root.getStyleClass().add("plugin-marketplace-root");
         Platform.runLater(runSearch);
@@ -2136,11 +2202,13 @@ public class PreferencesDialog {
         FilteredList<PluginDocEntry> filtered = new FilteredList<>(entries, item -> true);
         TextField search = new TextField();
         search.setPromptText(i18n.get("plugins.store.searchInstalled"));
+        search.setMinWidth(60);
         ComboBox<String> scope = new ComboBox<>(FXCollections.observableArrayList(
                 i18n.get("plugins.filter.all"), i18n.get("plugins.filter.program"), i18n.get("plugins.filter.session")));
         scope.getSelectionModel().select(0);
         scope.setMinWidth(130);
         Button updates = new Button(i18n.get("plugins.store.checkUpdates"));
+        updates.setMinWidth(Region.USE_PREF_SIZE);
         Label status = new Label();
         status.getStyleClass().add("plugin-status");
         status.setWrapText(true);
@@ -2190,9 +2258,13 @@ public class PreferencesDialog {
                 meta.setAlignment(Pos.CENTER_LEFT);
                 VBox text = new VBox(3, name, id, meta);
                 HBox.setHgrow(text, Priority.ALWAYS);
-                HBox row = new HBox(12, pluginAvatar(item.metadata().displayName()), text);
+                HBox row = new HBox(12, com.jlshell.ui.swing.PluginIcons.avatar(item.metadata().displayName(), item.icon()), text);
                 row.setAlignment(Pos.CENTER_LEFT);
                 row.getStyleClass().add("plugin-list-cell-content");
+                row.prefWidthProperty().bind(list.widthProperty().subtract(18));
+                text.setMinWidth(0);
+                name.setMinWidth(0);
+                name.setMaxWidth(Double.MAX_VALUE);
                 setText(null);
                 setGraphic(row);
             }
@@ -2261,7 +2333,7 @@ public class PreferencesDialog {
                     if (programPluginManager == null) return;
                     programPluginManager.setPluginEnabled(entry.metadata().id(), enable);
                 }
-                entries.setAll(pluginDocEntries(i18n, programPluginManager, pluginManager));
+                entries.setAll(pluginDocEntries(i18n, themeService, programPluginManager, pluginManager));
                 entries.stream()
                         .filter(item -> item.scope() == entry.scope()
                                 && item.metadata().id().equals(entry.metadata().id()))
@@ -2300,7 +2372,7 @@ public class PreferencesDialog {
 
         SplitPane split = new SplitPane(left, detailScroll);
         split.getStyleClass().add("plugin-content-split");
-        split.setDividerPositions(0.38);
+        split.setDividerPositions(0.44);
         BorderPane root = new BorderPane(split);
         root.getStyleClass().add("plugin-marketplace-root");
         return root;
@@ -2315,13 +2387,15 @@ public class PreferencesDialog {
         author.getStyleClass().add("plugin-detail-author");
         VBox headingText = new VBox(4, name, author);
         HBox.setHgrow(headingText, Priority.ALWAYS);
-        HBox heading = new HBox(12, pluginAvatar(plugin.displayName()), headingText);
+        HBox actions = new HBox(10);
         if (installed) {
-            heading.getChildren().add(pluginStateBadge(
+            actions.getChildren().add(pluginStateBadge(
                     i18n.get("plugins.store.installedBadge"), "plugin-state-installed"));
         }
-        heading.getChildren().add(install);
-        heading.setAlignment(Pos.CENTER_LEFT);
+        actions.getChildren().add(install);
+        actions.setAlignment(Pos.CENTER_LEFT);
+        VBox heading = new VBox(10, headingText, actions);
+        name.setWrapText(true);
 
         Label description = new Label(plugin.description());
         description.setWrapText(true);
@@ -2338,8 +2412,12 @@ public class PreferencesDialog {
         notes.getStyleClass().add("plugin-detail-description");
         Label id = new Label(plugin.pluginId());
         id.getStyleClass().add("plugin-detail-id");
-        return new VBox(18, heading, new Separator(), description, versionTitle, versionText,
-                notesTitle, notes, new Separator(), id);
+        TabPane details = pluginDetailsTabs(i18n,
+                new VBox(12, description, versionTitle, versionText),
+                new VBox(12, notesTitle, notes), new VBox(id));
+        VBox result = new VBox(12, heading, details);
+        VBox.setVgrow(details, Priority.ALWAYS);
+        return result;
     }
 
     private static VBox installedPluginDetail(I18nService i18n, PluginDocEntry entry,
@@ -2362,16 +2440,17 @@ public class PreferencesDialog {
         uninstall.getStyleClass().add("plugin-uninstall-button");
         uninstall.setDisable(!removable);
         uninstall.setOnAction(event -> uninstallAction.run());
-        HBox heading = new HBox(10, pluginAvatar(entry.metadata().displayName()), headingText,
-                state, toggle, uninstall);
-        heading.setAlignment(Pos.CENTER_LEFT);
+        javafx.scene.layout.FlowPane actions = new javafx.scene.layout.FlowPane(10, 6, toggle, uninstall, state);
+        actions.setAlignment(Pos.CENTER_LEFT);
+        VBox heading = new VBox(10, headingText, actions);
+        name.setWrapText(true);
 
         Label description = new Label(entry.metadata().description());
         description.setWrapText(true);
         description.getStyleClass().add("plugin-detail-description");
         GridPane metadata = new GridPane();
         metadata.setHgap(16);
-        metadata.setVgap(9);
+        metadata.setVgap(6);
         addPluginMetadataRow(metadata, 0, i18n.get("plugins.field.id"), entry.metadata().id());
         addPluginMetadataRow(metadata, 1, i18n.get("plugins.field.version"), entry.metadata().version());
         addPluginMetadataRow(metadata, 2, i18n.get("plugins.field.hostRange"), entry.hostRange(i18n));
@@ -2379,19 +2458,34 @@ public class PreferencesDialog {
         addPluginMetadataRow(metadata, 4, i18n.get("plugins.store.runtimeState"),
                 i18n.get(entry.enabled() ? "plugins.store.enabled" : "plugins.store.disabled"));
 
-        VBox result = new VBox(18, heading, new Separator(), description, metadata);
+        VBox overview = new VBox(12, description);
         if (!isBlank(entry.metadata().compatibilityWarning())) {
             Label warning = new Label(entry.metadata().compatibilityWarning());
             warning.setWrapText(true);
             warning.getStyleClass().add("plugin-detail-warning");
-            result.getChildren().add(warning);
+            overview.getChildren().add(warning);
         }
         if (entry.settingsNode() != null) {
             Label settingsTitle = new Label(i18n.get("plugins.settings"));
             settingsTitle.getStyleClass().add("plugin-detail-section-title");
-            result.getChildren().addAll(new Separator(), settingsTitle, entry.settingsNode());
+            overview.getChildren().addAll(new Separator(), settingsTitle, entry.settingsNode());
         }
+        TabPane details = pluginDetailsTabs(i18n, overview, null, metadata);
+        VBox result = new VBox(12, heading, details);
+        VBox.setVgrow(details, Priority.ALWAYS);
         return result;
+    }
+
+    private static TabPane pluginDetailsTabs(I18nService i18n, javafx.scene.Node overview,
+                                            javafx.scene.Node notes, javafx.scene.Node metadata) {
+        TabPane tabs = new TabPane();
+        tabs.getStyleClass().add("plugin-detail-tabs");
+        tabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
+        tabs.getTabs().add(new Tab(i18n.get("plugins.store.overview"), overview));
+        if (notes != null) tabs.getTabs().add(new Tab(i18n.get("plugins.store.releaseNotes"), notes));
+        tabs.getTabs().add(new Tab(i18n.get("plugins.store.additionalInfo"), metadata));
+        tabs.setPrefHeight(380);
+        return tabs;
     }
 
     private static void addPluginMetadataRow(GridPane grid, int row, String key, String value) {
@@ -2416,16 +2510,8 @@ public class PreferencesDialog {
     private static Label pluginStateBadge(String text, String stateStyleClass) {
         Label badge = new Label(text);
         badge.getStyleClass().addAll("plugin-state-badge", stateStyleClass);
+        badge.setMaxWidth(javafx.scene.layout.Region.USE_PREF_SIZE);
         return badge;
-    }
-
-    private static StackPane pluginAvatar(String name) {
-        String text = name == null || name.isBlank() ? "P" : name.strip().substring(0, 1).toUpperCase(Locale.ROOT);
-        Label initial = new Label(text);
-        initial.getStyleClass().add("plugin-avatar-text");
-        StackPane avatar = new StackPane(initial);
-        avatar.getStyleClass().add("plugin-avatar");
-        return avatar;
     }
 
     private static StackPane pluginEmptyState(String text) {
@@ -2471,7 +2557,7 @@ public class PreferencesDialog {
         alert.setHeaderText(null);
         if (owner != null) alert.initOwner(owner);
         themeService.applyToDialog(alert);
-        return alert.showAndWait().orElse(cancel) == confirm;
+        return com.jlshell.ui.swing.SwingAlerts.showAndWait(alert, themeService, i18n).orElse(cancel) == confirm;
     }
 
     private static Runnable uiThreadAction(Runnable action) {
@@ -2525,7 +2611,7 @@ public class PreferencesDialog {
         return cause.getMessage() == null ? cause.getClass().getSimpleName() : cause.getMessage();
     }
 
-    private static List<PluginDocEntry> pluginDocEntries(I18nService i18n,
+    private static List<PluginDocEntry> pluginDocEntries(I18nService i18n, ThemeService themeService,
                                                          ProgramPluginManager programPluginManager,
                                                          PluginManager pluginManager) {
         List<PluginDocEntry> entries = new ArrayList<>();
@@ -2534,8 +2620,9 @@ public class PreferencesDialog {
                 for (var desc : programPluginManager.getInstalledPlugins()) {
                     try {
                         boolean enabled = programPluginManager.isPluginEnabled(desc.id());
-                        javafx.scene.Node settings = safeProgramPluginSettings(i18n, desc, enabled);
-                        entries.add(new PluginDocEntry(desc.metadata(), settings, enabled));
+                        javafx.scene.Node settings = safeProgramPluginSettings(i18n, themeService, desc, enabled);
+                        entries.add(new PluginDocEntry(desc.metadata(), settings, enabled, com.jlshell.ui.swing.PluginIcons.local(
+                                desc.instance() == null ? null : desc.instance().getClass())));
                     } catch (Throwable error) {
                         log.warn("Failed to inspect program plugin {} while building preferences",
                                 safePluginId(desc), error);
@@ -2550,7 +2637,8 @@ public class PreferencesDialog {
                 for (var desc : pluginManager.getInstalledPlugins()) {
                     try {
                         entries.add(new PluginDocEntry(desc.metadata(), null,
-                                pluginManager.isPluginEnabled(desc.id())));
+                                pluginManager.isPluginEnabled(desc.id()), com.jlshell.ui.swing.PluginIcons.local(
+                                desc.instance() == null ? null : desc.instance().getClass())));
                     } catch (Throwable error) {
                         log.warn("Failed to inspect session plugin {} while building preferences",
                                 safePluginId(desc), error);
@@ -2583,12 +2671,13 @@ public class PreferencesDialog {
      * 将失败降级为可见提示，避免整个 Preferences 页面无法打开。
      */
     private static javafx.scene.Node safeProgramPluginSettings(
-            I18nService i18n,
+            I18nService i18n, ThemeService themeService,
             com.jlshell.program.plugin.loader.ProgramPluginDescriptor desc,
             boolean enabled) {
         if (!enabled) return null;
         try {
-            return desc.instance().settingsView(desc.context());
+            return com.jlshell.ui.swing.SwingFxPanel.preservePluginView(
+                    desc.instance().settingsView(desc.context()), themeService);
         } catch (Throwable error) {
             log.warn("Failed to build settings view for program plugin {} version {}",
                     desc.id(), desc.version(), error);
@@ -2609,7 +2698,7 @@ public class PreferencesDialog {
     }
 
     private record PluginDocEntry(com.jlshell.plugin.api.PluginMetadata metadata,
-                                  javafx.scene.Node settingsNode, boolean enabled) {
+                                  javafx.scene.Node settingsNode, boolean enabled, com.jlshell.ui.swing.PluginIcons.Source icon) {
         com.jlshell.plugin.api.PluginScope scope() {
             return metadata.scope();
         }
@@ -2652,7 +2741,7 @@ public class PreferencesDialog {
 
     private static VBox buildImportPane(I18nService i18n,
                                         com.jlshell.ui.service.ConnectionProfileService connectionProfileService,
-                                        String activeProjectId) {
+                                        String activeProjectId, ThemeService themeService) {
         VBox pane = new VBox(16);
         pane.getStyleClass().add("settings-page");
 
@@ -2678,7 +2767,7 @@ public class PreferencesDialog {
         VBox xshellSection = buildXshellSection(i18n, connectionProfileService, activeProjectId, globalResult);
 
         // ── Manual section ──
-        VBox manualSection = buildManualSection(i18n, connectionProfileService, activeProjectId, globalResult);
+        VBox manualSection = buildManualSection(i18n, connectionProfileService, activeProjectId, globalResult, themeService);
 
         VBox cards = new VBox(14, mobaxtermSection, xshellSection, manualSection, globalResult);
         cards.getStyleClass().add("settings-card-grid");
@@ -2690,7 +2779,7 @@ public class PreferencesDialog {
                 new SettingsSectionLink(i18n.get("import.section.xshell"), xshellSection),
                 new SettingsSectionLink(i18n.get("import.section.manual"), manualSection)));
         BorderPane workspace = new BorderPane();
-        workspace.setLeft(directory);
+        if (!com.jlshell.ui.swing.SwingDialogHost.enabled()) workspace.setLeft(directory);
         workspace.setCenter(scroll);
         workspace.getStyleClass().add("settings-directory-workspace");
         BorderPane.setMargin(directory, new Insets(16, 0, 16, 18));
@@ -2723,7 +2812,9 @@ public class PreferencesDialog {
             fc.setTitle(i18n.get("import.mobaxterm.browse"));
             fc.getExtensionFilters().add(new javafx.stage.FileChooser.ExtensionFilter(
                     i18n.get("import.filter.ini"), "*.ini"));
-            java.io.File file = fc.showOpenDialog(browseBtn.getScene().getWindow());
+            java.io.File file = com.jlshell.ui.swing.SwingDialogHost.enabled()
+                    ? com.jlshell.ui.swing.SwingSettingsFileChooser.open(fc.getTitle(),false,"ini")
+                    : fc.showOpenDialog(browseBtn.getScene()==null?null:browseBtn.getScene().getWindow());
             if (file == null) return;
             try {
                 pending[0] = new com.jlshell.ui.service.importer.MobaXtermIniParser(projectId).parse(file.toPath());
@@ -2770,7 +2861,9 @@ public class PreferencesDialog {
             fc.setTitle(i18n.get("import.xshell.browse"));
             fc.getExtensionFilters().add(new javafx.stage.FileChooser.ExtensionFilter(
                     i18n.get("import.filter.xsh"), "*.xsh"));
-            java.io.File file = fc.showOpenDialog(browseBtn.getScene().getWindow());
+            java.io.File file = com.jlshell.ui.swing.SwingDialogHost.enabled()
+                    ? com.jlshell.ui.swing.SwingSettingsFileChooser.open(fc.getTitle(),false,"xsh")
+                    : fc.showOpenDialog(browseBtn.getScene()==null?null:browseBtn.getScene().getWindow());
             if (file == null) return;
             try {
                 pending[0] = new com.jlshell.ui.service.importer.XshellXshParser(projectId).parseFile(file.toPath());
@@ -2785,7 +2878,9 @@ public class PreferencesDialog {
         browseDirBtn.setOnAction(e -> {
             javafx.stage.DirectoryChooser dc = new javafx.stage.DirectoryChooser();
             dc.setTitle(i18n.get("import.xshell.browseDir"));
-            java.io.File dir = dc.showDialog(browseDirBtn.getScene().getWindow());
+            java.io.File dir = com.jlshell.ui.swing.SwingDialogHost.enabled()
+                    ? com.jlshell.ui.swing.SwingSettingsFileChooser.open(dc.getTitle(),true,null)
+                    : dc.showDialog(browseDirBtn.getScene()==null?null:browseDirBtn.getScene().getWindow());
             if (dir == null) return;
             try {
                 pending[0] = new com.jlshell.ui.service.importer.XshellXshParser(projectId).parseDirectory(dir.toPath());
@@ -2810,7 +2905,7 @@ public class PreferencesDialog {
 
     private static VBox buildManualSection(I18nService i18n,
                                            com.jlshell.ui.service.ConnectionProfileService service,
-                                           String projectId, Label globalResult) {
+                                           String projectId, Label globalResult, ThemeService themeService) {
         Label title = new Label(i18n.get("import.section.manual"));
         title.getStyleClass().add("settings-card-title");
 
@@ -2981,15 +3076,17 @@ public class PreferencesDialog {
         javafx.scene.control.Button pasteJsonBtn = new javafx.scene.control.Button(i18n.get("import.manual.pasteJson"));
         javafx.scene.control.Button importBtn = new javafx.scene.control.Button(i18n.get("import.button.import"));
 
-        sampleBtn.setOnAction(e -> showJsonSamplePopup(sampleBtn, i18n));
-        pasteJsonBtn.setOnAction(e -> showPasteJsonPopup(pasteJsonBtn, i18n, rows, projectId, service, globalResult));
+        sampleBtn.setOnAction(e -> showJsonSamplePopup(sampleBtn, i18n, themeService));
+        pasteJsonBtn.setOnAction(e -> showPasteJsonPopup(pasteJsonBtn, i18n, rows, projectId, service, globalResult, themeService));
 
         loadJsonBtn.setOnAction(e -> {
             javafx.stage.FileChooser fc = new javafx.stage.FileChooser();
             fc.setTitle(i18n.get("import.manual.browseJson"));
             fc.getExtensionFilters().add(new javafx.stage.FileChooser.ExtensionFilter(
                     i18n.get("import.filter.json"), "*.json"));
-            java.io.File file = fc.showOpenDialog(loadJsonBtn.getScene().getWindow());
+            java.io.File file = com.jlshell.ui.swing.SwingDialogHost.enabled()
+                    ? com.jlshell.ui.swing.SwingSettingsFileChooser.open(fc.getTitle(),false,"json")
+                    : fc.showOpenDialog(loadJsonBtn.getScene()==null?null:loadJsonBtn.getScene().getWindow());
             if (file == null) return;
             try {
                 java.util.List<com.jlshell.ui.model.ConnectionFormData> parsed =
@@ -3042,7 +3139,7 @@ public class PreferencesDialog {
      * 用户可一键复制。点空白处或复制后自动关闭。
      * 使用 CSS 样式类适配当前主题，不硬编码颜色。
      */
-    private static void showJsonSamplePopup(javafx.scene.control.Button anchor, I18nService i18n) {
+    private static void showJsonSamplePopup(javafx.scene.control.Button anchor, I18nService i18n, ThemeService themeService) {
         String sample =
                 "[\n"
                 + "  {\n"
@@ -3077,12 +3174,13 @@ public class PreferencesDialog {
         javafx.stage.Popup popup = new javafx.stage.Popup();
         popup.setAutoHide(true);
         popup.setAutoFix(true);
+        Runnable[] dismiss={popup::hide};
 
         copyBtn.setOnAction(ev -> {
             java.awt.Toolkit.getDefaultToolkit()
                     .getSystemClipboard()
                     .setContents(new java.awt.datatransfer.StringSelection(sample), null);
-            popup.hide();
+            dismiss[0].run();
         });
 
         VBox content = new VBox(8, codeArea, copyBtn);
@@ -3090,6 +3188,14 @@ public class PreferencesDialog {
         content.setPadding(new Insets(12));
         content.setPrefWidth(460);
 
+        if(com.jlshell.ui.swing.SwingDialogHost.enabled()) {
+            Dialog<Void> nativeDialog=new Dialog<>();nativeDialog.setTitle(i18n.get("preferences.tab.import"));
+            nativeDialog.getDialogPane().setContent(content);
+            nativeDialog.getDialogPane().getButtonTypes().add(ButtonType.CANCEL);
+            dismiss[0]=nativeDialog::close;
+            com.jlshell.ui.swing.SwingDialogHost.showNativeAndWait(nativeDialog,themeService,i18n,"jlshell.import.popup",500,360);
+            return;
+        }
         popup.getContent().add(content);
         // Popup 创建独立的 Scene，不会继承父窗口的样式表，需要手动添加
         popup.getScene().getStylesheets().addAll(anchor.getScene().getStylesheets());
@@ -3104,7 +3210,7 @@ public class PreferencesDialog {
     private static void showPasteJsonPopup(javafx.scene.control.Button anchor, I18nService i18n,
                                            ObservableList<ManualRow> rows, String projectId,
                                            com.jlshell.ui.service.ConnectionProfileService service,
-                                           Label globalResult) {
+                                           Label globalResult, ThemeService themeService) {
         javafx.scene.control.TextArea pasteArea = new javafx.scene.control.TextArea();
         pasteArea.setPromptText(i18n.get("import.manual.pasteJson.hint"));
         pasteArea.setWrapText(true);
@@ -3118,6 +3224,7 @@ public class PreferencesDialog {
         javafx.stage.Popup popup = new javafx.stage.Popup();
         popup.setAutoHide(true);
         popup.setAutoFix(true);
+        Runnable[] dismiss={popup::hide};
 
         importBtn.setOnAction(ev -> {
             String text = pasteArea.getText().trim();
@@ -3128,7 +3235,7 @@ public class PreferencesDialog {
                 if (shareService.isShareText(text)) {
                     com.jlshell.ui.model.ConnectionFormData form;
                     if (shareService.requiresShareCode(text)) {
-                        java.util.Optional<String> code = showShareCodeDialog(anchor, i18n);
+                        java.util.Optional<String> code = showShareCodeDialog(anchor, i18n, themeService);
                         if (code.isEmpty()) {
                             return;
                         }
@@ -3138,7 +3245,7 @@ public class PreferencesDialog {
                     }
                     performImport(service, projectId, java.util.List.of(form),
                             i18n.get("import.section.share"), globalResult, i18n);
-                    popup.hide();
+                    dismiss[0].run();
                     return;
                 }
 
@@ -3150,7 +3257,7 @@ public class PreferencesDialog {
                     rows.add(new ManualRow(f.displayName(), f.host(), String.valueOf(f.port()),
                             f.username(), f.authenticationType().name(), f.password(), f.passphrase()));
                 }
-                popup.hide();
+                dismiss[0].run();
                 globalResult.setText(i18n.get("import.found", parsed.size()));
             } catch (Exception ex) {
                 errorLabel.setText(ex.getMessage());
@@ -3162,6 +3269,14 @@ public class PreferencesDialog {
         content.setPadding(new Insets(12));
         content.setPrefWidth(460);
 
+        if(com.jlshell.ui.swing.SwingDialogHost.enabled()) {
+            Dialog<Void> nativeDialog=new Dialog<>();nativeDialog.setTitle(i18n.get("preferences.tab.import"));
+            nativeDialog.getDialogPane().setContent(content);
+            nativeDialog.getDialogPane().getButtonTypes().add(ButtonType.CANCEL);
+            dismiss[0]=nativeDialog::close;
+            com.jlshell.ui.swing.SwingDialogHost.showNativeAndWait(nativeDialog,themeService,i18n,"jlshell.import.popup",500,360);
+            return;
+        }
         popup.getContent().add(content);
         // Popup 创建独立的 Scene，不会继承父窗口的样式表，需要手动添加
         popup.getScene().getStylesheets().addAll(anchor.getScene().getStylesheets());
@@ -3169,7 +3284,7 @@ public class PreferencesDialog {
                 anchor.getScene().getWindow().getY() + anchor.getLayoutY() + anchor.getHeight() + 4);
     }
 
-    private static java.util.Optional<String> showShareCodeDialog(javafx.scene.Node owner, I18nService i18n) {
+    private static java.util.Optional<String> showShareCodeDialog(javafx.scene.Node owner, I18nService i18n, ThemeService themeService) {
         Dialog<String> dialog = new Dialog<>();
         dialog.setTitle(i18n.get("connection.share.importCodeTitle"));
         dialog.setHeaderText(i18n.get("connection.share.importCodeHeader"));
@@ -3195,7 +3310,9 @@ public class PreferencesDialog {
             }
         });
         dialog.setResultConverter(button -> button == importType ? codeField.getText().trim() : null);
-        return dialog.showAndWait();
+        return com.jlshell.ui.swing.SwingDialogHost.enabled()
+                ? com.jlshell.ui.swing.SwingDialogHost.showNativeAndWait(dialog,themeService,i18n,"jlshell.import.code",440,200)
+                : dialog.showAndWait();
     }
 
     /**
@@ -3466,7 +3583,7 @@ public class PreferencesDialog {
             confirm.setHeaderText(null);
             if (owner != null) confirm.initOwner(owner);
             themeService.applyToDialog(confirm);
-            if (confirm.showAndWait().orElse(ButtonType.NO) == ButtonType.YES) {
+            if (com.jlshell.ui.swing.SwingAlerts.showAndWait(confirm, themeService, i18n).orElse(ButtonType.NO) == ButtonType.YES) {
                 shortcutRegistry.resetAll();
                 rebuildList.run();
                 preferenceChanged.run();
@@ -3552,12 +3669,76 @@ public class PreferencesDialog {
         VBox.setVgrow(scrollPane, Priority.ALWAYS);
         BorderPane workspace = new BorderPane();
         workspace.getStyleClass().add("shortcut-workspace");
-        workspace.setLeft(directory);
+        if (!com.jlshell.ui.swing.SwingDialogHost.enabled()) workspace.setLeft(directory);
         workspace.setCenter(content);
         BorderPane.setMargin(directory, new Insets(0, 14, 0, 0));
         VBox.setVgrow(workspace, Priority.ALWAYS);
         pane.getChildren().add(workspace);
+        if (!"javafx".equalsIgnoreCase(System.getProperty("jlshell.ui.renderer", "swing"))) {
+            return shortcutActionsTree(shortcutsList, searchField, resetBtn);
+        }
         return pane;
+    }
+
+    private static VBox shortcutActionsTree(VBox groups, TextField search, Button reset) {
+        var tree = new javafx.scene.control.TreeView<javafx.scene.Node>();
+        tree.setShowRoot(false);
+        tree.setFixedCellSize(34);
+        tree.getStyleClass().add("idea-actions-tree");
+        tree.setCellFactory(view -> new javafx.scene.control.TreeCell<>() {
+            protected void updateItem(javafx.scene.Node item, boolean empty) {
+                if (getGraphic() instanceof Region previous) previous.prefWidthProperty().unbind();
+                super.updateItem(item, empty);
+                setText(null); setGraphic(empty ? null : item);
+                // TreeCell 的宽度包含图形自身的计算宽度；用它反向绑定会随着复用产生增长和裁切。
+                // 为两层缩进、内边距及滚动条预留固定空间，宽度只跟随实际视口。
+                if (item instanceof Region region) {
+                    region.setMinWidth(0);
+                    region.setMaxWidth(Region.USE_PREF_SIZE);
+                    region.prefWidthProperty().bind(tree.widthProperty().subtract(80));
+                }
+            }
+        });
+        Runnable rebuild = () -> {
+            var root = new javafx.scene.control.TreeItem<javafx.scene.Node>();
+            String query = search.getText().strip().toLowerCase(Locale.ROOT);
+            for (javafx.scene.Node group : groups.getChildren()) {
+                if (!(group instanceof VBox card)) continue;
+                HBox heading = (HBox) card.getChildren().get(0);
+                Label category = new Label(((Label) heading.getChildren().get(0)).getText());
+                category.getStyleClass().add("idea-actions-group");
+                var categoryItem = new javafx.scene.control.TreeItem<javafx.scene.Node>(category);
+                VBox rows = (VBox) card.getChildren().get(2);
+                for (javafx.scene.Node row : List.copyOf(rows.getChildren())) {
+                    VBox box = (VBox) row;
+                    HBox content = box.getProperties().get("idea.actions.row") instanceof HBox cached ? cached
+                            : (HBox) box.getChildren().get(0);
+                    box.getProperties().put("idea.actions.row", content);
+                    ShortcutDefinition definition = (ShortcutDefinition) box.getUserData();
+                    String name = ((Label) content.getChildren().get(0)).getText();
+                    if (query.isBlank() || (name + " " + definition.id() + " " + category.getText()).toLowerCase(Locale.ROOT).contains(query)) {
+                        if (!content.getStyleClass().contains("idea-actions-row")) content.getStyleClass().add("idea-actions-row");
+                        ((Label) content.getChildren().get(0)).setMinWidth(0);
+                        categoryItem.getChildren().add(new javafx.scene.control.TreeItem<>(content));
+                    }
+                }
+                if (!categoryItem.getChildren().isEmpty()) { categoryItem.setExpanded(true); root.getChildren().add(categoryItem); }
+            }
+            tree.setRoot(root);
+        };
+        rebuild.run();
+        javafx.animation.PauseTransition filter = new javafx.animation.PauseTransition(javafx.util.Duration.millis(150));
+        filter.setOnFinished(e -> rebuild.run());
+        search.textProperty().addListener((o, old, value) -> filter.playFromStart());
+        var originalReset = reset.getOnAction();
+        reset.setOnAction(event -> { originalReset.handle(event); rebuild.run(); });
+        HBox toolbar = new HBox(12, search, new Region(), reset);
+        HBox.setHgrow(toolbar.getChildren().get(1), Priority.ALWAYS);
+        VBox result = new VBox(12, toolbar, tree);
+        result.getStyleClass().add("idea-shortcuts-page");
+        result.setPadding(new Insets(0, 24, 24, 24));
+        VBox.setVgrow(tree, Priority.ALWAYS);
+        return result;
     }
 
     private static javafx.scene.control.ToggleButton shortcutDirectoryItem(String text, String category,
@@ -3631,6 +3812,7 @@ public class PreferencesDialog {
         // Primary shortcut button
         String primarySpec = registry.getEffectivePrimary(def.id());
         Button primaryBtn = new Button(primarySpec != null ? ShortcutConverter.toDisplayText(primarySpec) : i18n.get("shortcut.unassigned"));
+        primaryBtn.setId("shortcut."+def.id()+".primary");
         primaryBtn.getStyleClass().add("shortcut-key-button");
         primaryBtn.setMinWidth(148);
         primaryBtn.setPrefWidth(148);
@@ -3638,6 +3820,7 @@ public class PreferencesDialog {
         // Secondary shortcut button
         String secondarySpec = registry.getEffectiveSecondary(def.id());
         Button secondaryBtn = new Button(secondarySpec != null ? ShortcutConverter.toDisplayText(secondarySpec) : i18n.get("shortcut.unassigned"));
+        secondaryBtn.setId("shortcut."+def.id()+".secondary");
         secondaryBtn.getStyleClass().add("shortcut-key-button");
         secondaryBtn.setMinWidth(148);
         secondaryBtn.setPrefWidth(148);
@@ -3686,6 +3869,17 @@ public class PreferencesDialog {
     private static void setupKeyRecording(Button keyButton, ShortcutDefinition def, ShortcutRegistry registry,
                                            I18nService i18n, ThemeService themeService, Stage owner,
                                            boolean isPrimary, Button otherButton, Runnable preferenceChanged) {
+        if (com.jlshell.ui.swing.SwingDialogHost.enabled()) {
+            keyButton.getProperties().put(com.jlshell.ui.swing.SwingShortcutRecording.KEY,
+                    new com.jlshell.ui.swing.SwingShortcutRecording.Binding(i18n.get("shortcut.pressKey"), spec -> {
+                        if(registry==null)return null;
+                        var conflicts=registry.findConflicts(def.id(),spec);
+                        if(!conflicts.isEmpty())return i18n.get("shortcut.conflict",i18n.get(conflicts.getFirst().nameKey()));
+                        if(isPrimary)registry.setUserPrimary(def.id(),spec);else registry.setUserSecondary(def.id(),spec);
+                        keyButton.setText(ShortcutConverter.toDisplayText(spec));preferenceChanged.run();return null;
+                    }));
+            return;
+        }
         keyButton.setOnAction(e -> {
             if (registry == null) return;
 
@@ -3791,7 +3985,9 @@ public class PreferencesDialog {
         content.getStyleClass().add("about-content");
         content.setMaxWidth(920);
 
-        Label logo = new Label("JL");
+        Label logo = new Label();
+        var brandUrl=PreferencesDialog.class.getResource("/icons/brand/jlshell.png");
+        if(brandUrl!=null)logo.setGraphic(new javafx.scene.image.ImageView(new javafx.scene.image.Image(brandUrl.toExternalForm(),72,72,true,true)));
         logo.getStyleClass().add("about-logo");
         logo.setAlignment(Pos.CENTER);
 
@@ -3824,9 +4020,9 @@ public class PreferencesDialog {
         links.setHgap(10);
         links.setVgap(10);
         links.setMaxWidth(Double.MAX_VALUE);
-        for (int index = 0; index < 4; index++) {
+        for (int index = 0; index < 2; index++) {
             ColumnConstraints linkColumn = new ColumnConstraints();
-            linkColumn.setPercentWidth(25);
+            linkColumn.setPercentWidth(50);
             linkColumn.setHgrow(Priority.ALWAYS);
             linkColumn.setFillWidth(true);
             links.getColumnConstraints().add(linkColumn);
@@ -3848,24 +4044,12 @@ public class PreferencesDialog {
         );
         for (int index = 0; index < linkButtons.size(); index++) {
             Button linkButton = linkButtons.get(index);
-            links.add(linkButton, index, 0);
+            links.add(linkButton, index % 2, index / 2);
             GridPane.setHgrow(linkButton, Priority.ALWAYS);
             GridPane.setFillWidth(linkButton, true);
         }
         VBox linksCard = aboutCard(i18n.get("preferences.about.resources"),
                 i18n.get("preferences.about.resources.description"), links);
-
-        FlowPane capabilities = new FlowPane(7, 7);
-        capabilities.getStyleClass().add("about-chip-list");
-        List.of("SSH Terminal", "SFTP", i18n.get("preferences.about.capability.connections"),
-                        i18n.get("preferences.about.capability.plugins"), "JSON-RPC API")
-                .forEach(text -> capabilities.getChildren().add(aboutChip(text)));
-        Label tech = new Label("Java 21 · JavaFX 21 · SSHJ · JediTerm · JDBI 3 · SQLite");
-        tech.getStyleClass().add("about-tech-stack");
-        tech.setWrapText(true);
-        VBox capabilitiesBody = new VBox(6, capabilities, tech);
-        VBox capabilitiesCard = aboutCard(i18n.get("preferences.about.capabilities"),
-                i18n.get("preferences.about.capabilities.description"), capabilitiesBody);
 
         VBox projectInfo = new VBox(5,
                 aboutInfoRow(i18n.get("preferences.about.author"), "Voghost"),
@@ -3909,7 +4093,7 @@ public class PreferencesDialog {
         Label footer = new Label(i18n.get("preferences.about.footer"));
         footer.getStyleClass().add("about-footer");
         footer.setMaxWidth(Double.MAX_VALUE);
-        content.getChildren().addAll(hero, linksCard, capabilitiesCard, detailCards, footer);
+        content.getChildren().addAll(hero, linksCard, detailCards, footer);
 
         StackPane wrapper = new StackPane(content);
         wrapper.getStyleClass().add("about-page");
@@ -3918,7 +4102,7 @@ public class PreferencesDialog {
         scroll.getStyleClass().addAll("settings-scroll-pane", "about-scroll-pane");
         scroll.setFitToWidth(true);
         scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
-        scroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        scroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         return scroll;
     }
 
@@ -4082,6 +4266,16 @@ public class PreferencesDialog {
     }
 
     private static Region loadAboutSvgIcon(String resourcePath, double size) {
+        if(resourcePath.endsWith("about-home.svg")) {
+            javafx.scene.shape.SVGPath globe=new javafx.scene.shape.SVGPath();
+            globe.setContent("M21.5 12 A9.5 9.5 0 1 0 2.5 12 A9.5 9.5 0 1 0 21.5 12 M17 12 A5 9.5 0 1 0 7 12 A5 9.5 0 1 0 17 12 M2.5 12 H21.5");
+            globe.setFill(null);globe.setStroke(javafx.scene.paint.Color.GRAY);globe.setStrokeWidth(1.6);
+            globe.getTransforms().add(new javafx.scene.transform.Scale(size/24,size/24));
+            Region icon=new Region(){{getChildren().add(globe);}};
+            icon.setMinSize(size,size);icon.setPrefSize(size,size);icon.setMaxSize(size,size);
+            icon.getProperties().put("swing.aboutIcon","WEBSITE");
+            return icon;
+        }
         try (var stream = PreferencesDialog.class.getResourceAsStream(resourcePath)) {
             if (stream == null) return null;
             String svgContent = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
@@ -4107,6 +4301,8 @@ public class PreferencesDialog {
             shape.setContent(pathData.toString());
             Region icon = new Region();
             icon.setShape(shape);
+            if(resourcePath.contains("update"))icon.getProperties().put("swing.workbenchIcon","REFRESH");
+            else icon.getProperties().put("swing.aboutIcon",resourcePath.contains("github")?"GITHUB":resourcePath.contains("home")?"WEBSITE":resourcePath.contains("download")?"DOWNLOAD":"ISSUES");
             icon.setMinSize(size, size);
             icon.setPrefSize(size, size);
             icon.setMaxSize(size, size);
@@ -4137,6 +4333,7 @@ public class PreferencesDialog {
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
         HBox row = new HBox(8, keyLabel, spacer, valueLabel);
+        row.getStyleClass().add("about-info-row");
         row.setAlignment(Pos.TOP_LEFT);
         return row;
     }
@@ -4158,7 +4355,10 @@ public class PreferencesDialog {
         preview.setFont(Font.font(family, size));
     }
 
-    private static List<String> loadMonospacedFonts() {
+    private static List<String> cachedMonoFonts;
+
+    private static synchronized List<String> loadMonospacedFonts() {
+        if (cachedMonoFonts != null) return cachedMonoFonts;
         String[] all = GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames();
         List<String> result = PREFERRED_MONO.stream()
                 .filter(f -> Arrays.asList(all).contains(f))
@@ -4167,7 +4367,14 @@ public class PreferencesDialog {
             if (!result.contains(f) && isMonospaced(f)) result.add(f);
         }
         if (result.isEmpty()) result.add("Monospaced");
-        return result;
+        cachedMonoFonts = List.copyOf(result);
+        return cachedMonoFonts;
+    }
+
+    private static boolean isKnownMonospacedFamily(String family) {
+        String name = family.toLowerCase(Locale.ROOT);
+        return PREFERRED_MONO.contains(family) || name.contains("mono") || name.contains("code")
+                || name.contains("console") || name.contains("courier") || name.contains("typewriter");
     }
 
     private static boolean isMonospaced(String family) {

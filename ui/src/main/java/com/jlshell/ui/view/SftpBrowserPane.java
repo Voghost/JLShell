@@ -905,7 +905,7 @@ public class SftpBrowserPane extends BorderPane {
     private TreeItem<FileNode> findRecentlyExpanded(TreeView<FileNode> tree) {
         // Walk the expanded items to find one with a placeholder child
         for (TreeItem<FileNode> item : tree.getSelectionModel().getSelectedItems()) {
-            if (item.isExpanded() && item.getChildren().size() == 1
+            if (item != null && item.isExpanded() && item.getChildren().size() == 1
                     && item.getChildren().get(0).getValue().name().equals("\0")) {
                 return item;
             }
@@ -1164,7 +1164,7 @@ public class SftpBrowserPane extends BorderPane {
         Alert confirm = new Alert(Alert.AlertType.CONFIRMATION, msg, ButtonType.OK, ButtonType.CANCEL);
         confirm.setHeaderText(i18nService.get("sftp.delete.header"));
         themeService.applyToDialog(confirm);
-        confirm.showAndWait().filter(ButtonType.OK::equals).ifPresent(unused -> {
+        com.jlshell.ui.swing.SwingAlerts.showAndWait(confirm, themeService, i18nService).filter(ButtonType.OK::equals).ifPresent(unused -> {
             for (RemoteFileEntry e : selected) {
                 sftpService.delete(sshSession, e.path(), e.isDirectory())
                         .whenComplete((u, t) -> FxThread.run(() -> {
@@ -1209,7 +1209,7 @@ public class SftpBrowserPane extends BorderPane {
         Alert confirm = new Alert(Alert.AlertType.CONFIRMATION, msg, ButtonType.OK, ButtonType.CANCEL);
         confirm.setHeaderText(i18nService.get("sftp.delete.header"));
         themeService.applyToDialog(confirm);
-        confirm.showAndWait().filter(ButtonType.OK::equals).ifPresent(unused -> {
+        com.jlshell.ui.swing.SwingAlerts.showAndWait(confirm, themeService, i18nService).filter(ButtonType.OK::equals).ifPresent(unused -> {
             for (LocalFileEntry e : selected) {
                 try {
                     if (e.directory()) {
@@ -1305,7 +1305,7 @@ public class SftpBrowserPane extends BorderPane {
                 Alert alert = new Alert(Alert.AlertType.WARNING,
                         i18nService.get("sftp.newFolder.exists", name));
                 themeService.applyToDialog(alert);
-                alert.showAndWait();
+                com.jlshell.ui.swing.SwingAlerts.showAndWait(alert, themeService, i18nService);
                 return;
             }
             sftpService.createDirectory(sshSession, fullPath, false)
@@ -1347,7 +1347,7 @@ public class SftpBrowserPane extends BorderPane {
                 ButtonType.OK, ButtonType.CANCEL);
         confirm.setHeaderText(i18nService.get("sftp.deleteFolder.header"));
         themeService.applyToDialog(confirm);
-        confirm.showAndWait().filter(ButtonType.OK::equals).ifPresent(unused -> {
+        com.jlshell.ui.swing.SwingAlerts.showAndWait(confirm, themeService, i18nService).filter(ButtonType.OK::equals).ifPresent(unused -> {
             sftpService.delete(sshSession, folder.path(), true)
                     .whenComplete((u, t) -> FxThread.run(() -> {
                         if (t != null) viewModel.transferStatusProperty().set(
@@ -1408,7 +1408,7 @@ public class SftpBrowserPane extends BorderPane {
                 Alert alert = new Alert(Alert.AlertType.WARNING,
                         i18nService.get("sftp.newFolder.exists", name));
                 themeService.applyToDialog(alert);
-                alert.showAndWait();
+                com.jlshell.ui.swing.SwingAlerts.showAndWait(alert, themeService, i18nService);
                 return;
             }
             try {
@@ -1446,7 +1446,7 @@ public class SftpBrowserPane extends BorderPane {
                 ButtonType.OK, ButtonType.CANCEL);
         confirm.setHeaderText(i18nService.get("sftp.deleteFolder.header"));
         themeService.applyToDialog(confirm);
-        confirm.showAndWait().filter(ButtonType.OK::equals).ifPresent(unused -> {
+        com.jlshell.ui.swing.SwingAlerts.showAndWait(confirm, themeService, i18nService).filter(ButtonType.OK::equals).ifPresent(unused -> {
             try {
                 deleteLocalDirectory(Path.of(folder.path()).toFile());
                 String parentPath = Path.of(folder.path()).getParent().toString();

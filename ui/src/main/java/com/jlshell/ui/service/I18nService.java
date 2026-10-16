@@ -67,4 +67,12 @@ public class I18nService {
             return fallback;
         }
     }
+
+    /** 设置搜索索引只读取文本，无需创建对应页面和控件。 */
+    public String searchText(String... prefixes) {
+        return bundle.keySet().stream()
+                .filter(key -> java.util.Arrays.stream(prefixes).anyMatch(key::startsWith))
+                .map(bundle::getString)
+                .collect(java.util.stream.Collectors.joining(" "));
+    }
 }

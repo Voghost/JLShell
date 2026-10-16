@@ -540,7 +540,8 @@ public class ConnectionProfileService {
                 entity.getProjectId(),
                 entity.getConnectionType() != null ? entity.getConnectionType() : ConnectionType.SSH,
                 entity.getFolderId(),
-                entity.getVaultEntryId()
+                entity.getVaultEntryId(),
+                entity.getUpdatedAt() != null ? entity.getUpdatedAt() : Instant.EPOCH
         );
     }
 

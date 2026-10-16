@@ -15,7 +15,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Extends OpenSSHKnownHosts to prompt the user when a host key is unknown or has changed.
- * Accepted keys are persisted to the known_hosts file.
+ * Only keys explicitly trusted persistently are saved to the known_hosts file.
  */
 public class InteractiveHostKeyVerifier extends OpenSSHKnownHosts {
 
@@ -23,6 +23,8 @@ public class InteractiveHostKeyVerifier extends OpenSSHKnownHosts {
 
     private final HostKeyConfirmationCallback callback;
     private final HostKeyIdentity identity;
+    private String promptHostname;
+    private int promptPort;
 
     public InteractiveHostKeyVerifier(File khFile, HostKeyConfirmationCallback callback) throws IOException {
         this(khFile, callback, null);
@@ -36,7 +38,9 @@ public class InteractiveHostKeyVerifier extends OpenSSHKnownHosts {
     }
 
     @Override
-    public boolean verify(String hostname, int port, PublicKey key) {
+    public synchronized boolean verify(String hostname, int port, PublicKey key) {
+        promptHostname = hostname;
+        promptPort = port;
         return identity == null ? super.verify(hostname, port, key)
                 : super.verify(identity.knownHostsName(), identity.targetPort(), key);
     }
@@ -53,9 +57,9 @@ public class InteractiveHostKeyVerifier extends OpenSSHKnownHosts {
         String keyType = KeyType.fromKey(key).toString();
         log.info("Host key for {} is unknown (type={}, fp={})", hostname, keyType, fingerprint);
 
-        boolean accepted = callback.confirm(identity == null ? hostname : identity.displayName(),
-                identity == null ? 22 : identity.targetPort(), keyType, fingerprint, false);
-        if (accepted) {
+        var decision = callback.confirmDecision(identity == null ? promptHostname : identity.displayName(),
+                identity == null ? promptPort : identity.targetPort(), keyType, fingerprint, false);
+        if (decision == HostKeyConfirmationCallback.TrustDecision.TRUST_AND_SAVE) {
             try {
                 write(new HostEntry(null, hostname, KeyType.fromKey(key), key));
                 log.info("Host key for {} accepted and saved to known_hosts", hostname);
@@ -63,7 +67,7 @@ public class InteractiveHostKeyVerifier extends OpenSSHKnownHosts {
                 log.warn("Failed to save host key for {} to known_hosts: {}", hostname, e.getMessage());
             }
         }
-        return accepted;
+        return decision != null && decision.accepted();
     }
 
     @Override
@@ -72,9 +76,9 @@ public class InteractiveHostKeyVerifier extends OpenSSHKnownHosts {
         String keyType = KeyType.fromKey(key).toString();
         log.warn("Host key for {} has changed (type={}, fp={})", hostname, keyType, fingerprint);
 
-        boolean accepted = callback.confirm(identity == null ? hostname : identity.displayName(),
-                identity == null ? 22 : identity.targetPort(), keyType, fingerprint, true);
-        if (accepted) {
+        var decision = callback.confirmDecision(identity == null ? promptHostname : identity.displayName(),
+                identity == null ? promptPort : identity.targetPort(), keyType, fingerprint, true);
+        if (decision == HostKeyConfirmationCallback.TrustDecision.TRUST_AND_SAVE) {
             try {
                 write(new HostEntry(null, hostname, KeyType.fromKey(key), key));
                 log.info("Changed host key for {} accepted and saved to known_hosts", hostname);
@@ -82,6 +86,6 @@ public class InteractiveHostKeyVerifier extends OpenSSHKnownHosts {
                 log.warn("Failed to save changed host key for {} to known_hosts: {}", hostname, e.getMessage());
             }
         }
-        return accepted;
+        return decision != null && decision.accepted();
     }
 }

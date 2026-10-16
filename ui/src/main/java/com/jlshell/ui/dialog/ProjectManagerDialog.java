@@ -199,7 +199,8 @@ public class ProjectManagerDialog {
         TextArea descField = new TextArea();
         descField.getStyleClass().add("project-manager-input");
         descField.setPromptText(i18n.get("project.field.description"));
-        descField.setPrefRowCount(5);
+        descField.setPrefRowCount(4);
+        descField.setMaxHeight(120);
         descField.setWrapText(true);
 
         VBox contributionBox = new VBox(8);
@@ -242,7 +243,7 @@ public class ProjectManagerDialog {
                     ButtonType.OK, ButtonType.CANCEL);
             confirm.setHeaderText(i18n.get("project.switch.confirm", selected.name()));
             themeService.applyToDialog(confirm);
-            confirm.showAndWait().filter(ButtonType.OK::equals).ifPresent(unused -> {
+            com.jlshell.ui.swing.SwingAlerts.showAndWait(confirm, themeService, i18n).filter(ButtonType.OK::equals).ifPresent(unused -> {
                 if (onSwitchProject != null) onSwitchProject.accept(selected.id());
                 dialog.close();
             });
@@ -298,7 +299,7 @@ public class ProjectManagerDialog {
                     i18n.get("project.action.deleteConfirm").replace("{0}", selected.name()),
                     ButtonType.YES, ButtonType.NO);
             themeService.applyToDialog(confirm);
-            confirm.showAndWait().filter(b -> b == ButtonType.YES).ifPresent(b -> {
+            com.jlshell.ui.swing.SwingAlerts.showAndWait(confirm, themeService, i18n).filter(b -> b == ButtonType.YES).ifPresent(b -> {
                 service.deleteProject(selected.id());
                 refreshProjectItems(items, service, i18n);
                 nameField.clear();
@@ -367,9 +368,11 @@ public class ProjectManagerDialog {
         rebuildProjectContributions(contributionBox, contributionStates, nameField, descField);
         VBox form = new VBox(8, nameLabel, nameField, descLabel, descField, contributionBox);
         form.getStyleClass().add("project-manager-form");
-        VBox.setVgrow(descField, Priority.ALWAYS);
 
-        HBox editButtons = new HBox(8, newBtn, saveBtn, deleteBtn, importBtn, exportBtn);
+        javafx.scene.layout.FlowPane editButtons = new javafx.scene.layout.FlowPane(8, 6, newBtn, saveBtn, deleteBtn, importBtn, exportBtn);
+        editButtons.setMinWidth(0);
+        editButtons.setPrefWrapLength(380);
+        HBox.setHgrow(editButtons, Priority.ALWAYS);
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
         HBox bottomBar = new HBox(8, editButtons, spacer, switchBtn);
@@ -389,7 +392,11 @@ public class ProjectManagerDialog {
         content.getStyleClass().add("project-manager-content");
         content.setPadding(new Insets(14));
         dialog.getDialogPane().setContent(content);
-        dialog.showAndWait();
+        items.stream().filter(project -> Objects.equals(project.id(), activeProjectId)).findFirst()
+                .ifPresentOrElse(listView.getSelectionModel()::select, () -> listView.getSelectionModel().selectFirst());
+        if (com.jlshell.ui.swing.SwingDialogHost.enabled()) {
+            com.jlshell.ui.swing.SwingDialogHost.showAndWait(dialog, themeService, i18n, "jlshell.projects", 840, 480);
+        } else dialog.showAndWait();
     }
 
     private static void rebuildProjectContributions(VBox box, List<ContributionState> states,
@@ -931,7 +938,7 @@ public class ProjectManagerDialog {
         if (owner.getDialogPane().getScene() != null) {
             alert.initOwner(owner.getDialogPane().getScene().getWindow());
         }
-        alert.showAndWait();
+        com.jlshell.ui.swing.SwingAlerts.showAndWait(alert, themeService, i18n);
     }
 
     private static String showProjectPackageCodeDialog(Dialog<?> owner, I18nService i18n,
@@ -967,6 +974,6 @@ public class ProjectManagerDialog {
         if (owner.getDialogPane().getScene() != null) {
             alert.initOwner(owner.getDialogPane().getScene().getWindow());
         }
-        alert.showAndWait();
+        com.jlshell.ui.swing.SwingAlerts.showAndWait(alert, themeService, i18n);
     }
 }

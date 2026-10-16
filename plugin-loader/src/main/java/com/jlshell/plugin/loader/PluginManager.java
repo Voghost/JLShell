@@ -127,6 +127,10 @@ public class PluginManager {
 
     private void loadFromClassLoader(ClassLoader classLoader) {
         ServiceLoader.load(JlShellPlugin.class, classLoader).forEach(plugin -> {
+            if (plugins.stream().anyMatch(existing -> existing.id().equals(plugin.id()))) {
+                log.debug("Skipping duplicate plugin id {} from lower-priority directory", plugin.id());
+                return;
+            }
             plugins.add(toDescriptor(plugin));
             log.debug("Discovered plugin: {} ({})", plugin.displayName(), plugin.id());
         });
