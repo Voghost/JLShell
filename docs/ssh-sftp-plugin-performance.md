@@ -31,9 +31,10 @@ Program 会话贡献和普通 Session 插件共享这条路径。
 
 这不能保证任意私有插件都从 5 秒降到某个固定值：如果插件在请求页面前同步访问网络，
 或者 Swing 工厂本身同步做耗时工作，仍需要插件调整。新增日志能定位具体等待位置，
-无需上传公司内部源码。`fx-dispatch` 高说明 FX 排队，`swing-view-request` 与
-`context-ready` 差距大说明激活阶段慢，`edt-factory-start` 高说明 EDT 排队，
-`edt-factory-ready` 与 start 差距大说明页面工厂慢，`first-paint` 则覆盖布局绘制。
+无需上传公司内部源码。当前日志以 `Performance` 为关键字：`fx-queue` 和
+`edt-page-queue` 分别记录 FX/EDT 排队，`plugin-code`、`swing-view-factory` 分别记录插件
+激活和页面工厂执行，`swing-first-paint` 记录原生页面首帧；旧 JavaFX 页面单独记录
+`fx-first-layout`。完整字段和排查方法见 [启动与插件耗时排查](startup-plugin-performance.md)。
 
 ## 验证
 
