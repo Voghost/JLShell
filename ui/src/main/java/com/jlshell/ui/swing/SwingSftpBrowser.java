@@ -50,6 +50,7 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
     private boolean follow = true;
     private final JToggleButton followButton = new JToggleButton(new WorkbenchIcon(WorkbenchIcon.Kind.FOCUS));
     private String terminalPath;
+    private final Supplier<List<Path>> localRoots;
 
     /** Capture the FX model on its owning thread; construct Swing components lazily on EDT. */
     public static Supplier<SwingSftpBrowser> prepare(SshSession session, SftpService service, I18nService i18n,
@@ -75,7 +76,17 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
     }
 
     SwingSftpBrowser(SshSession session, SftpService service, I18nService i18n, String remoteStart, Path localStart) {
+        this(session, service, i18n, remoteStart, localStart, () -> {
+            List<Path> roots = new ArrayList<>();
+            FileSystems.getDefault().getRootDirectories().forEach(roots::add);
+            return roots;
+        });
+    }
+
+    SwingSftpBrowser(SshSession session, SftpService service, I18nService i18n, String remoteStart,
+                     Path localStart, Supplier<List<Path>> localRoots) {
         super(new BorderLayout());
+        this.localRoots = localRoots;
         this.session = session; this.service = service; this.i18n = i18n;
         setName("sftp.browser"); setMinimumSize(new Dimension(260, 260));
         local = new Browser(false); remote = new Browser(true);
@@ -329,14 +340,17 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
         }
         void showTree(Component anchor) {
             if (path == null) return;
-            showTree(anchor, isRemote ? "/" : Path.of(path).getRoot().toString(), path);
+            showTree(anchor, isRemote ? "/" : null, path);
         }
         void showTree(Component anchor, String rootPath, String selectedPath) {
+            // The local filesystem root breadcrumb also offers every drive, including UNC roots.
+            if (!isRemote && rootPath != null && Path.of(rootPath).getParent() == null) rootPath = null;
+            String rootLabel = rootPath == null ? t("sftp.localComputer") : rootPath;
             dismissPopups();
             JPanel content = new JPanel(new BorderLayout()); content.setBackground(SwingTheme.color("popup"));
             IdeaComponentPopup popup = new IdeaComponentPopup(content); popup.setName("sftp.directoryPopup");
             directoryPopups.add(popup);
-            FolderNode root = new FolderNode(rootPath, rootPath); root.add(new DefaultMutableTreeNode(t("sftp.loading")));
+            FolderNode root = new FolderNode(rootPath, rootLabel); root.add(new DefaultMutableTreeNode(t("sftp.loading")));
             DefaultTreeModel treeModel = new DefaultTreeModel(root); JTree tree = new JTree(treeModel);
             tree.setBackground(SwingTheme.color("popup"));
             tree.putClientProperty("FlatLaf.style", "selectionArc: 8; selectionInsets: 1,2,1,2");
@@ -353,7 +367,7 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
                 public void treeWillExpand(TreeExpansionEvent e) { if (e.getPath().getLastPathComponent() instanceof FolderNode node) loadNode(node, treeModel, tree, popup, null); }
                 public void treeWillCollapse(TreeExpansionEvent e) {}
             });
-            Runnable choose = () -> { if (tree.getLastSelectedPathComponent() instanceof FolderNode node) { popup.close(); navigate(node.path); } };
+            Runnable choose = () -> { if (tree.getLastSelectedPathComponent() instanceof FolderNode node && node.path != null) { popup.close(); navigate(node.path); } };
             tree.addMouseListener(new MouseAdapter() {
                 public void mouseReleased(MouseEvent event) {
                     if (!SwingUtilities.isLeftMouseButton(event) || event.getClickCount() != 2) return;
@@ -367,14 +381,23 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
             });
             tree.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "choose");
             tree.getActionMap().put("choose", new AbstractAction() { public void actionPerformed(ActionEvent e) { choose.run(); } });
-            JLabel label = new JLabel(rootPath, new FileActionIcon("tree"), JLabel.LEFT); label.setToolTipText(rootPath); label.setBorder(BorderFactory.createEmptyBorder(6, 7, 8, 7)); content.add(label, BorderLayout.NORTH);
+            JLabel label = new JLabel(rootLabel, new FileActionIcon("tree"), JLabel.LEFT); label.setToolTipText(rootLabel); label.setBorder(BorderFactory.createEmptyBorder(6, 7, 8, 7)); content.add(label, BorderLayout.NORTH);
             JScrollPane scroll = new JScrollPane(tree); scroll.setBorder(BorderFactory.createEmptyBorder());
             scroll.setPreferredSize(new Dimension(Math.max(260, Math.min(420, getWidth() - 20)), Math.max(140, Math.min(330, SwingSftpBrowser.this.getHeight() - 100)))); content.add(scroll);
             popup.show(anchor, 0, anchor.getHeight()); loadNode(root, treeModel, tree, popup, selectedPath); tree.requestFocusInWindow();
         }
         void loadNode(FolderNode node, DefaultTreeModel treeModel, JTree tree, IdeaComponentPopup popup, String revealTarget) {
             if (node.loading || node.loaded) return; node.loading = true;
-            readDirectory(isRemote, node.path).whenComplete((listing, error) -> SwingUtilities.invokeLater(() -> {
+            CompletableFuture<Listing> pending = node.path == null
+                    ? CompletableFuture.supplyAsync(() -> {
+                        Set<Path> roots = new LinkedHashSet<>(localRoots.get());
+                        if (revealTarget != null) roots.add(Path.of(revealTarget).getRoot());
+                        List<Entry> entries = roots.stream().filter(Objects::nonNull)
+                                .map(root -> new Entry(root.toString(), root.toString(), true, 0, Instant.EPOCH, ""))
+                                .toList();
+                        return new Listing(null, entries);
+                    }) : readDirectory(isRemote, node.path);
+            pending.whenComplete((listing, error) -> SwingUtilities.invokeLater(() -> {
                 if (closed || !popup.isShowing()) return;
                 node.loading = false; node.removeAllChildren(); node.loaded = true;
                 if (error != null) { node.add(new DefaultMutableTreeNode(t("sftp.error"))); failure(error); }
@@ -383,7 +406,7 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
                 }
                 treeModel.nodeStructureChanged(node); TreePath nodePath = new TreePath(node.getPath()); tree.expandPath(nodePath);
                 if (revealTarget != null) {
-                    if (node.path.equals(revealTarget)) { tree.setSelectionPath(nodePath); tree.scrollPathToVisible(nodePath); }
+                    if (Objects.equals(node.path, revealTarget)) { tree.setSelectionPath(nodePath); tree.scrollPathToVisible(nodePath); }
                     else for (int i = 0; i < node.getChildCount(); i++) if (node.getChildAt(i) instanceof FolderNode child && ancestors(revealTarget, isRemote).contains(child.path)) { loadNode(child, treeModel, tree, popup, revealTarget); break; }
                 }
             }));
@@ -533,8 +556,13 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
             TransferRequest request = from.isRemote ? new TransferRequest(Path.of(targetPath).resolve(file.name), file.path, TransferResumeMode.OVERWRITE, 64 * 1024)
                     : new TransferRequest(Path.of(file.path), join(targetPath, file.name), TransferResumeMode.OVERWRITE, 64 * 1024);
             TransferProgressListener listener = new TransferProgressListener() {
+                private long lastUpdate;
                 public boolean isCancelled() { return cancelled || closed; }
-                public void onProgress(TransferProgress p) { SwingUtilities.invokeLater(() -> { if (!closed) { progress.setValue((int) (p.progressRatio() * 1000)); status(file.name + " · " + formatSize(p.transferredBytes()) + " / " + formatSize(p.totalBytes())); } }); }
+                public void onProgress(TransferProgress p) {
+                    long now = System.nanoTime();
+                    if (now - lastUpdate < 100_000_000L && p.transferredBytes() < p.totalBytes()) return;
+                    lastUpdate = now;
+                    SwingUtilities.invokeLater(() -> { if (!closed) { progress.setValue((int) (p.progressRatio() * 1000)); status(file.name + " · " + formatSize(p.transferredBytes()) + " / " + formatSize(p.totalBytes())); } }); }
             };
             return from.isRemote ? service.download(session, request, listener) : service.upload(session, request, listener);
         });

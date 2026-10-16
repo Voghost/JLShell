@@ -544,15 +544,33 @@ jobs:
           sizes = [(16,16),(20,20),(24,24),(32,32),(40,40),(48,48),(64,64),(128,128),(256,256)]
           img.save('app/src/main/resources/icons/app_icon.ico', format='ICO', sizes=sizes)
 
+      - name: Add a second drive for local file browser regression
+        shell: pwsh
+        run: |
+          $path = Join-Path $env:RUNNER_TEMP 'jlshell-test-drive'
+          New-Item -ItemType Directory -Force -Path $path | Out-Null
+          Set-Content -Path (Join-Path $path 'drive-marker.txt') -Value 'JLShell drive test'
+          $drive = (90..71 | ForEach-Object { ([char]$_).ToString() + ':' } | Where-Object { -not (Test-Path ($_.ToString() + '\')) } | Select-Object -First 1)
+          if (-not $drive) { throw 'No free drive letter for file browser test' }
+          subst $drive $path
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to create test drive' }
+          "JLSHELL_TEST_DRIVE=$drive\" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Windows popup and workbench regression
         shell: bash
         run: >-
           mvn -B -pl app -am
-          -Dtest=WindowsWorkbenchPolishTest,IdeaPopupRenderingTest,SwingPluginPageTest,PluginIconsTest,SwingModalDialogTest,SwingPreferencesLoadingTest,SwingToolWindowMaximizeTest,UncaughtExceptionReporterTest
+          -Dtest=WindowsWorkbenchPolishTest,IdeaPopupRenderingTest,SwingPluginPageTest,SwingTransferAndPluginTest,PluginIconsTest,SwingModalDialogTest,SwingPreferencesLoadingTest,SwingToolWindowMaximizeTest,UncaughtExceptionReporterTest
           -Dsurefire.failIfNoSpecifiedTests=false
           -Djlshell.ui.smoke=true
           "-DargLine=--add-exports=java.desktop/sun.swing=ALL-UNNAMED --add-opens=java.desktop/sun.swing=ALL-UNNAMED --add-opens=java.desktop/javax.swing=ALL-UNNAMED"
           test
+
+      - name: Remove local file browser test drive
+        if: always()
+        shell: pwsh
+        run: |
+          if ($env:JLSHELL_TEST_DRIVE) { subst ($env:JLSHELL_TEST_DRIVE.TrimEnd('\')) /D }
 
       - name: Measure Windows workbench startup and idle memory
         shell: bash

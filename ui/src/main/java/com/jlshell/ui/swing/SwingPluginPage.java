@@ -14,6 +14,7 @@ final class SwingPluginPage extends JPanel implements AutoCloseable {
     private final JComponent content;
     private boolean closed;
     private JLabel titleLabel;
+    private com.jlshell.ui.support.PluginOpenTiming timing;
 
     private SwingPluginPage(JComponent content) {
         super(new BorderLayout()); this.content = content; setName("plugin.nativePage"); add(content);
@@ -21,6 +22,8 @@ final class SwingPluginPage extends JPanel implements AutoCloseable {
 
     static Prepared prepare(Tab tab, I18nService i18n, ThemeService themes) {
         String title = tab.getText(); boolean closable = tab.isClosable();
+        var timing = (com.jlshell.ui.support.PluginOpenTiming)
+                tab.getProperties().get(com.jlshell.ui.support.PluginOpenTiming.PROPERTY);
         Runnable closeTab = () -> com.jlshell.ui.support.FxThread.run(() -> {
             var owner = tab.getTabPane(); if (owner == null) return;
             owner.getTabs().remove(tab);
@@ -28,6 +31,7 @@ final class SwingPluginPage extends JPanel implements AutoCloseable {
         });
         java.util.function.Function<JComponent,SwingPluginPage> wrap = body -> {
             var page = new SwingPluginPage(body);
+            page.timing = timing;
             if (closable) {
                 JPanel header = new JPanel(new BorderLayout(8,0));
                 header.setBorder(BorderFactory.createEmptyBorder(8,12,8,8));
@@ -44,7 +48,14 @@ final class SwingPluginPage extends JPanel implements AutoCloseable {
             return new Prepared(() -> wrap.apply(factory.get()), () -> {});
         }
         if (tab.getProperties().get(PluginsTabView.NATIVE_VIEW) instanceof Supplier<?> supplier) {
-            return new Prepared(() -> wrap.apply((JComponent) supplier.get()), () -> {});
+            return new Prepared(() -> {
+                if (timing != null) timing.mark("edt-factory-start");
+                long started = System.nanoTime();
+                try { return wrap.apply((JComponent) supplier.get()); }
+                finally { if (timing != null) timing.mark("edt-factory-ready");
+                    org.slf4j.LoggerFactory.getLogger(SwingPluginPage.class).info(
+                        "Plugin Swing view created in {} ms", (System.nanoTime() - started) / 1_000_000); }
+            }, () -> {});
         }
         // openTab(Node) 是完整 JavaFX 页面契约。表单映射器只覆盖宿主已知的控件，
         // 会丢失第三方 Region（如 RichTextFX）、ListCell 图形和图标字体。
@@ -58,6 +69,11 @@ final class SwingPluginPage extends JPanel implements AutoCloseable {
     }
 
     void updateTitle(String title) { if (titleLabel != null) titleLabel.setText(title); }
+
+    @Override protected void paintChildren(java.awt.Graphics graphics) {
+        super.paintChildren(graphics);
+        if (timing != null) { timing.mark("first-paint"); timing = null; }
+    }
 
     @Override public void close() {
         if (closed) return; closed = true;

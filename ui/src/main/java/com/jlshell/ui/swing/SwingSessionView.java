@@ -67,9 +67,16 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
         model.getStyleClass().add("native-session-tabs");
         source.setContent(null);
         TerminalWorkspaceView initialTerminalView = source.getTerminalWorkspaceView();
-        var future = SwingExecutors.supplyOnEdtAsync(() -> new SwingSessionView(model, themes,
+        String connectionSummary = source.getConnectionProfile().summary();
+        var future = SwingExecutors.supplyOnEdtAsync(() -> {
+            var view = new SwingSessionView(model, themes,
                 i18n.get("workspace.monitoring"), initialTerminalView,
-                i18n.get("terminal.appearanceSettings"), i18n));
+                i18n.get("terminal.appearanceSettings"), i18n);
+            view.terminalBody.removeAll();
+            view.terminalBody.add(new SwingLoadingPanel(i18n.get("workspace.connecting"),
+                    connectionSummary, WorkbenchIcon.Kind.SSH));
+            return view;
+        });
         NativeTerminalHost host = new NativeTerminalHost() {
             public void attach(TerminalViewHandle handle) { future.thenAccept(view -> view.attach(handle)); }
             public void disconnected(String reason, Runnable reconnect) {
@@ -133,7 +140,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
         this.terminalView = terminalView;
         this.terminalSettingsLabel = terminalSettingsLabel;
 
-        terminalBody.add(new JLabel("…", JLabel.CENTER));
+        terminalBody.add(new SwingLoadingPanel(i18n.get("workspace.connecting"), "", WorkbenchIcon.Kind.SSH));
         terminal.add(terminalBody, BorderLayout.CENTER);
         // 终端独立于插件卡片；铺满只切换外层布局，不移除或重建终端。
         add(terminal, BorderLayout.CENTER);
@@ -166,6 +173,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
             }
         }
         if (reveal) showToolPage.accept(index);
+        rightHost.revalidate(); rightHost.repaint();
         navigation.revalidate(); navigation.repaint();
     }
 
@@ -330,7 +338,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
                 int pageIndex = openedIndex;
                 selector.addActionListener(event -> {
                     if (pageIndex >= 0 && selectedPageIndex == pageIndex) showToolPage.accept(pageIndex);
-                    else FxThread.run(shortcut.open());
+                    else shortcut.open().run();
                 });
                 group.add(selector); navigation.add(selector);
                 navigation.add(javax.swing.Box.createVerticalStrut(6));
