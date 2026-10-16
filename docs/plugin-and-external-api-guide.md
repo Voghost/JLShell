@@ -73,6 +73,7 @@ com.example.deploy.DeployToolsPlugin
 | `capabilityBus()` | 调用程序插件或同一会话中其他插件的能力 | 旧宿主可能返回 `null`，使用前检查 |
 | `storage()` | 插件私有持久化 KV 存储 | 旧宿主可能返回 `null`；不能读写其他插件数据 |
 | 主题、语言、`resolveI18n` | 读取主题/语言，并监听变更或取得宿主翻译 | 主题和语言 property 为只读 |
+| `fonts()` | 读取并跟随宿主终端/界面字体 | 只读，检查 `available()`；[字体 API 说明](plugin-fonts.md) |
 | 日志与通知 | `debug/info/warn/error`、`showNotification` | 日志可用；通知 UI 目前为宿主预留接口，勿将可靠业务流程依赖在通知回调上 |
 
 `SshSessionContext` 的远程操作包括：

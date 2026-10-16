@@ -270,6 +270,9 @@ public class ProgramPluginManager {
         }
         boolean pluginActivated = false;
         try {
+            if (descriptor.context() instanceof DefaultProgramPluginContext context && !context.fonts().available()) {
+                context.attachFonts(pluginManager.fontsForContext());
+            }
             if (descriptor.context() instanceof PluginContext pluginContext) {
                 pluginManager.adoptContext(null, descriptor.id(), pluginContext);
             }
@@ -386,6 +389,7 @@ public class ProgramPluginManager {
                 callbacks
         );
         ctx.setThemeName(themeName.get());
+        ctx.attachFonts(pluginManager.fontsForContext());
         ctx.setLocale(locale.get());
         return new ProgramPluginDescriptor(
                 plugin.id(),

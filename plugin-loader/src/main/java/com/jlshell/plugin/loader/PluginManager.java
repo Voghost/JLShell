@@ -52,6 +52,14 @@ public class PluginManager {
     private final PluginEnablementService enablementService;
     private final PluginAccessController accessController = new PluginAccessController();
     private volatile Function<String, SecureStorage> secureStorageFactory;
+    private com.jlshell.plugin.api.ui.PluginFonts fontService = com.jlshell.plugin.api.ui.PluginFonts.unavailable();
+
+    /** Install before activating plugins. Existing context views keep their original service. */
+    public void setFontService(com.jlshell.plugin.api.ui.PluginFonts fontService) {
+        this.fontService = java.util.Objects.requireNonNull(fontService);
+    }
+
+    public ScopedPluginFonts fontsForContext() { return new ScopedPluginFonts(fontService); }
     private final List<PluginDescriptor> plugins = new ArrayList<>();
     private final List<URLClassLoader> externalClassLoaders = new ArrayList<>();
     private final Map<String, SessionPluginSet> activeBySession = new ConcurrentHashMap<>();
@@ -317,6 +325,7 @@ public class PluginManager {
 
     private void attachRuntimeServices(String sessionId, String pluginId, PluginContext context) {
         if (context instanceof DefaultPluginContext defaultContext) {
+            defaultContext.attachFonts(fontsForContext());
             String ownerId = (sessionId == null ? GLOBAL_KEY : sessionId) + "/" + pluginId;
             defaultContext.attachRuntimeServices(
                     PluginRuntimeServices.hostEvents(ownerId),
@@ -371,12 +380,14 @@ public class PluginManager {
         SessionPluginSet set = activeBySession.remove(key);
         if (set == null) return;
         set.plugins.values().forEach(plugin -> {
-            disposeContext(set.contexts.get(plugin.id()));
+            disposeContext(set.contexts.remove(plugin.id()));
             PluginView view = plugin.view();
             if (view != null) view.onSessionClosed();
             plugin.deactivate();
         });
         set.plugins.clear();
+        // A context may have been adopted before activation was cancelled or disabled.
+        set.contexts.values().forEach(PluginManager::disposeContext);
         set.contexts.clear();
         set.registry.clear();
         log.debug("Deactivated all plugins in session {}", sessionId);
@@ -385,12 +396,13 @@ public class PluginManager {
     public void deactivateAll() {
         activeBySession.values().forEach(set -> {
             set.plugins.values().forEach(p -> {
-                disposeContext(set.contexts.get(p.id()));
+                disposeContext(set.contexts.remove(p.id()));
                 PluginView view = p.view();
                 if (view != null) view.onSessionClosed();
                 p.deactivate();
             });
             set.plugins.clear();
+            set.contexts.values().forEach(PluginManager::disposeContext);
             set.contexts.clear();
             set.registry.clear();
         });
