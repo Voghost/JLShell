@@ -11,7 +11,6 @@ import java.nio.file.StandardOpenOption;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 
@@ -156,10 +155,6 @@ public class SshjSftpService implements SftpService {
                 offset = 0L;
             }
 
-            Set<OpenMode> openModes = offset > 0
-                    ? EnumSet.of(OpenMode.WRITE, OpenMode.CREAT)
-                    : EnumSet.of(OpenMode.WRITE, OpenMode.CREAT, OpenMode.TRUNC);
-
             TransferProgress started = new TransferProgress(
                     TransferDirection.UPLOAD,
                     localPath.toString(),
@@ -183,20 +178,9 @@ public class SshjSftpService implements SftpService {
                 listener.onFailed(started, e);
                 throw e;
             } catch (IOException e) {
-                log.warn("Streaming upload failed, falling back to sftp.put(): {}", e.getMessage());
-                try (SFTPClient fallbackClient = newSftpClient(sshSession)) {
-                    fallbackClient.put(localPath.toString(), request.remotePath());
-                    listener.onCompleted(new TransferProgress(
-                            TransferDirection.UPLOAD,
-                            localPath.toString(),
-                            request.remotePath(),
-                            totalBytes,
-                            totalBytes
-                    ));
-                } catch (IOException fallbackEx) {
-                    listener.onFailed(started, fallbackEx);
-                    throw new SftpOperationException("Failed to upload file to remote path: " + request.remotePath(), fallbackEx);
-                }
+                // Do not retry with put(): it can overwrite a resumed file and bypass cancellation.
+                listener.onFailed(started, e);
+                throw new SftpOperationException("Failed to upload file to remote path: " + request.remotePath(), e);
             } catch (Throwable throwable) {
                 listener.onFailed(started, throwable);
                 throw throwable;
@@ -225,7 +209,17 @@ public class SshjSftpService implements SftpService {
                              : EnumSet.of(OpenMode.WRITE, OpenMode.CREAT, OpenMode.TRUNC))) {
 
             skipFully(inputStream, offset);
-            copyLocalToRemote(inputStream, remoteFile, offset, totalBytes, request, listener);
+            int packetSize = sftpClient.getSFTPEngine().getSubsystem().getRemoteMaxPacketSize()
+                    - remoteFile.getOutgoingPacketOverhead();
+            if (packetSize <= 0) throw new IOException("Invalid negotiated SFTP packet size");
+            // SSHJ does not split OutputStream writes. Respect the negotiated channel packet limit.
+            int bufferSize = Math.min(request.bufferSize(), Math.min(packetSize, 64 * 1024));
+            try (OutputStream outputStream = remoteFile.new RemoteFileOutputStream(offset, 16)) {
+                copyLocalToRemote(inputStream, outputStream, bufferSize, offset, totalBytes, request, listener);
+                // All outstanding WRITE responses must succeed before onCompleted can run.
+                outputStream.flush();
+                if (listener.isCancelled()) throw new TransferCancelledException();
+            }
         }
     }
 
@@ -287,14 +281,16 @@ public class SshjSftpService implements SftpService {
 
     private void copyLocalToRemote(
             InputStream inputStream,
-            RemoteFile remoteFile,
+            OutputStream outputStream,
+            int bufferSize,
             long offset,
             long totalBytes,
             TransferRequest request,
             TransferProgressListener listener
     ) throws IOException {
-        byte[] buffer = new byte[request.bufferSize()];
+        byte[] buffer = new byte[bufferSize];
         long position = offset;
+        if (listener.isCancelled()) throw new TransferCancelledException();
         int read;
         while ((read = inputStream.read(buffer)) >= 0) {
             if (read == 0) {
@@ -303,7 +299,7 @@ public class SshjSftpService implements SftpService {
             if (listener.isCancelled()) {
                 throw new TransferCancelledException();
             }
-            remoteFile.write(position, buffer, 0, read);
+            outputStream.write(buffer, 0, read);
             position += read;
             listener.onProgress(new TransferProgress(
                     TransferDirection.UPLOAD,
