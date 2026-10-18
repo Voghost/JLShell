@@ -59,18 +59,20 @@ class SftpLiveBenchmarkTest {
                 sftp.mkdir(directory); ownsDirectory = true;
             }
             try {
-                for (int depth : new int[]{16, 64}) {
+                // Warm both paths, then measure in both orders to reduce JIT/order bias.
+                int[][] orders = {{16, 64}, {16, 64}, {64, 16}};
+                for (int round = 0; round < orders.length; round++) for (int depth : orders[round]) {
                     var service = new SshjSftpService(worker, depth);
                     String destination = directory + "/depth-" + depth + ".bin";
-                    created.add(destination);
+                    if (!created.contains(destination)) created.add(destination);
                     long start = System.nanoTime();
                     service.upload(context, new TransferRequest(local, destination, TransferResumeMode.OVERWRITE, 64 * 1024), null)
                             .get(180, TimeUnit.SECONDS);
                     double seconds = (System.nanoTime() - start) / 1e9;
                     String actual = service.md5(context, destination, () -> false).get(180, TimeUnit.SECONDS);
                     assertEquals(expected, actual, "Uploaded bytes must match the local MD5");
-                    System.out.printf(Locale.ROOT, "SFTP_LIVE_UPLOAD depth=%d bytes=%d seconds=%.3f MiBps=%.2f md5Match=true%n",
-                            depth, Files.size(local), seconds, sizeMiB / seconds);
+                    if (round > 0) System.out.printf(Locale.ROOT, "SFTP_LIVE_UPLOAD round=%d depth=%d bytes=%d seconds=%.3f MiBps=%.2f md5Match=true%n",
+                            round, depth, Files.size(local), seconds, sizeMiB / seconds);
                 }
             } finally {
                 if (ownsDirectory && ssh.isConnected()) try (var cleanup = ssh.newSFTPClient()) {

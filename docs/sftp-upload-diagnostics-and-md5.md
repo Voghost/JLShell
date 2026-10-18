@@ -6,7 +6,8 @@
 - [x] 增加上传分阶段日志，帮助定位本地、线程队列、通道建立及写入等待。
 - [x] 本地、远程文件右键菜单增加“计算 MD5”；支持多选、复制结果、取消。
 - [x] 使用应用真实 SFTP 服务进行延迟链路测试，校验上传内容。
-- [ ] 在用户指定公网服务器测试：2026-10-18 已使用公网 IPv4 直连，系统路由经物理 Wi-Fi 网卡，SSH TCP 端口返回 Connection refused，未进入公钥认证。待服务器端口可达后补测。
+- [x] 按用户后续指定的本机 SSH 进行真实服务测试：严格 host key、公钥认证、生产 SFTP 实现上传及 MD5。
+- 公网服务器此前直连返回 Connection refused；本机结果不作为其线路测速结论。
 
 ## 上传调整
 
@@ -47,6 +48,26 @@ mvn -pl sftp -am test \
   -Dsurefire.failIfNoSpecifiedTests=false \
   -Djlshell.sftp.benchmark=true
 ```
+
+## 本机真实 OpenSSH 测试
+
+2026-10-18 按用户指定改用本机 SSH 服务（OpenSSH 10.3 / macOS），严格验证 host key 并使用已有公钥认证。使用生产 `SshjSftpService` 上传 64 MiB 随机文件；每个深度先预热一次，随后正序、逆序测试，每次都通过服务端 MD5 核对：
+
+| 深度 | 正序用时 / 吞吐 | 逆序用时 / 吞吐 |
+| --- | --- | --- |
+| 16 | 0.343 s / 186.86 MiB/s | 0.247 s / 259.35 MiB/s |
+| 64 | 0.284 s / 225.39 MiB/s | 0.251 s / 255.08 MiB/s |
+
+本机低延迟下没有稳定的深度提升收益；后续轮次受到预热和缓存影响。该结果表明此环境下生产传输代码能达到约 187–259 MiB/s，不能据此排除用户 Windows、公网链路或目标服务器的独立瓶颈。
+
+实际 Swing 文件页面也已在同一真实本机 SSH 上验证：选中 64 MiB 随机文件，点击上传，等远程列表刷新，再从远程文件右键菜单计算 MD5。
+
+- 点击到远程列表刷新：**0.739 秒 / 86.59 MiB/s**（包含界面调度和列表刷新）。
+- 上传任务：627 ms，其中排队 2 ms、通道建立 28 ms；数据阶段 589 ms。
+- 数据阶段累计本地读取 63 ms、写入调用 513 ms、进度回调 10 ms、最终确认不足 1 ms。分项有毫秒取整，不要求严格相加等于总时间。
+- 原生服务端 MD5：181 ms，与本地摘要一致；日志确认 `server-hash-used`。
+- 测试使用新 JVM，未对 UI 上传进行额外预热，因此不能把它与已预热的纯服务测试差值都归因于 UI。
+- 本轮测试文件及自建远端目录均已清理。
 
 ## 诊断日志
 
@@ -93,7 +114,7 @@ mvn -pl sftp -am test \
   -Djlshell.sftp.live.key='<可用的SSH私钥路径>'
 ```
 
-默认 16 MiB，可用 `jlshell.sftp.live.sizeMiB` 设置 1–128。严格校验 known_hosts；不会信任任意公网 host key。未指定 key 时使用 SSHJ 默认密钥路径；该测试不实现交互式密钥解锁或系统 SSH agent，不修改连接配置和代理设置。
+测试先预热 16/64 两种深度，再正序与逆序各测一轮，所有上传均校验 MD5。默认 16 MiB，可用 `jlshell.sftp.live.sizeMiB` 设置 1–128。严格校验 known_hosts；不会信任任意公网 host key。未指定 key 时使用 SSHJ 默认密钥路径；该测试不实现交互式密钥解锁或系统 SSH agent，不修改连接配置和代理设置。
 
 ## 验证范围
 
@@ -101,3 +122,19 @@ mvn -pl sftp -am test \
 - 真实 SSH exec + shell：通过 stdin 执行原生 MD5，避免传回文件内容；特殊路径包含中文、引号、换行。
 - 摘要：空文件、标准向量、读取长度变化、取消、严格解析和文件变化检测。
 - 真实 Swing：本地/远程右键菜单、目录禁用、后台计算、复制结果、取消、迟到结果和 owner 关闭行为。
+
+## 实际 Swing 文件页面实测入口
+
+以下测试不模拟网络或上传服务：展示生产 `SwingSftpBrowser`，选中文件、点击上传按钮、等待远程列表刷新，再从远程文件右键菜单触发 MD5 并核对结果。`SshSession` 仅作为真实 SSHClient 的接口适配，不替换传输。测试默认跳过，需同时开启两个开关并提供已核验的 SSH 参数；只操作自建的随机临时文件及远端 `/tmp/jlshell-sftp-ui-probe-<UUID>`。
+
+```bash
+mvn -pl app -am test \
+  -Dtest=SftpLiveUiUploadTest -Dsurefire.failIfNoSpecifiedTests=false \
+  -Djlshell.ui.smoke=true -Djlshell.sftp.live=true \
+  -Djlshell.sftp.live.host='<SSH地址>' \
+  -Djlshell.sftp.live.user='<用户名>' \
+  -Djlshell.sftp.live.knownHosts='<已核验的known_hosts文件>' \
+  -Djlshell.sftp.live.sizeMiB=64
+```
+
+`clickToRefreshedListSeconds` 包含按钮事件、任务调度、上传、进度 UI 和远程列表刷新，不能与只测数据阶段的日志速率直接等同。
