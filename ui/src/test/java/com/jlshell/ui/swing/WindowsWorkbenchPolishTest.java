@@ -24,6 +24,46 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @EnabledIfSystemProperty(named="jlshell.ui.smoke", matches="true")
 class WindowsWorkbenchPolishTest {
+    @Test void cyclicFolderRecordsRemainVisibleInTheSwingConnectionList() throws Exception {
+        var reference = new AtomicReference<SwingWorkbench>();
+        var treeRef = new AtomicReference<JTree>(); var searchRef = new AtomicReference<JTextField>();
+        try {
+            SwingExecutors.runOnEdtAsync(() -> {
+                SwingTheme.install(AppTheme.DARK, "#3574f0", null, 13);
+                Runnable noop = () -> {};
+                var actions = new SwingWorkbench.Actions(noop,noop,noop,noop,noop,noop,noop,noop,noop,
+                        profile -> {}, items -> {}, project -> {}, collapsed -> {}, tab -> {}, (tab,index) -> {},
+                        (items,parent) -> {}, (item,reply) -> reply.accept(List.of()), (tab,reply) -> reply.accept(List.of()));
+                var view = new SwingWorkbench(actions, Map.of()); reference.set(view);
+                var folders = List.of(new FolderProfile("self","Self","self",null,0),
+                        new FolderProfile("a","A","b",null,0), new FolderProfile("b","B","a",null,0),
+                        new FolderProfile("child","Child","b",null,0), new FolderProfile("orphan","Orphan","missing",null,0));
+                var connections = folders.stream().map(folder -> profile("conn-"+folder.id(),folder.id())).toList();
+                view.updateConnections(folders,connections,Set.of()); view.show();
+                JTree tree=descendants(view.frame()).stream().filter(JTree.class::isInstance).map(JTree.class::cast).findFirst().orElseThrow();
+                treeRef.set(tree);
+                var root=(DefaultMutableTreeNode)tree.getModel().getRoot();
+                assertEquals(11, java.util.Collections.list(root.preorderEnumeration()).size());
+                view.focusConnection("conn-child"); assertEquals("conn-child",selectedId(tree));
+                JTextField search=descendants(view.frame()).stream().filter(JTextField.class::isInstance).map(JTextField.class::cast)
+                        .filter(field -> "sidebar.search.prompt".equals(field.getClientProperty("JTextField.placeholderText"))).findFirst().orElseThrow();
+                searchRef.set(search); search.setText("no match");
+            }).get(15,TimeUnit.SECONDS);
+            awaitTreeSize(treeRef.get(),1);
+            SwingExecutors.runOnEdtAsync(() -> searchRef.get().setText("")).get(5,TimeUnit.SECONDS);
+            awaitTreeSize(treeRef.get(),11);
+        } finally { if(reference.get()!=null) SwingExecutors.runOnEdtAsync(reference.get()::close).get(10,TimeUnit.SECONDS); }
+    }
+
+    private static void awaitTreeSize(JTree tree,int expected) throws Exception {
+        for(int attempt=0;attempt<100;attempt++) {
+            boolean ready=SwingExecutors.supplyOnEdtAsync(() -> java.util.Collections.list(
+                    ((DefaultMutableTreeNode)tree.getModel().getRoot()).preorderEnumeration()).size()==expected).get(5,TimeUnit.SECONDS);
+            if(ready) return; Thread.sleep(20);
+        }
+        fail("Connection search did not update the recovered hierarchy");
+    }
+
     @Test void activeTabFocusUsesExactIdAndHoverDoesNotChangeSelection() throws Exception {
         var reference = new AtomicReference<SwingWorkbench>();
         var active = new AtomicReference<Object>();

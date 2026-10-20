@@ -278,6 +278,7 @@ public class ConnectionProfileService {
                     : dao.findById(id)
                     .orElseThrow(() -> new IllegalArgumentException("Folder not found: " + id));
 
+            validateFolderParent(dao, isNew ? null : entity.getId(), blankToNull(parentId), blankToNull(projectId));
             entity.setName(name);
             entity.setParentId(blankToNull(parentId));
             entity.setProjectId(blankToNull(projectId));
@@ -329,40 +330,63 @@ public class ConnectionProfileService {
     }
 
     public void moveFolderToParent(String folderId, String targetParentId) {
-        jdbi.useHandle(h -> h.attach(ConnectionFolderDao.class)
-                .updateParentId(folderId, blankToNull(targetParentId), Instant.now()));
+        jdbi.useTransaction(h -> {
+            var dao = h.attach(ConnectionFolderDao.class);
+            var folder = dao.findById(folderId).orElseThrow(() -> new IllegalArgumentException("Folder not found"));
+            String parent = blankToNull(targetParentId);
+            validateFolderParent(dao, folderId, parent, folder.getProjectId());
+            dao.updateParentId(folderId, parent, Instant.now());
+        });
+    }
+
+    private void validateFolderParent(ConnectionFolderDao dao, String folderId, String parentId, String projectId) {
+        var visited = new java.util.HashSet<String>();
+        for (String current = parentId; current != null;) {
+            if (current.equals(folderId) || !visited.add(current))
+                throw new IllegalArgumentException("Folder cannot be moved into itself, a descendant or a cyclic hierarchy");
+            var parent = dao.findById(current).orElseThrow(() -> new IllegalArgumentException("Parent folder not found"));
+            if (!java.util.Objects.equals(blankToNull(parent.getProjectId()), blankToNull(projectId)))
+                throw new IllegalArgumentException("Parent folder must belong to the same project");
+            current = blankToNull(parent.getParentId());
+        }
     }
 
     /** Collect all connection names under a folder (recursively, including subfolders). */
     public List<String> collectConnectionNamesUnderFolder(String folderId) {
         return jdbi.withHandle(h -> {
             List<String> names = new ArrayList<>();
-            collectConnectionNamesRecursive(h, folderId, names);
+            collectConnectionNames(h, folderId, names);
             return names;
         });
     }
 
-    private void collectConnectionNamesRecursive(org.jdbi.v3.core.Handle h, String folderId, List<String> names) {
-        names.addAll(h.attach(ConnectionDao.class).findNamesByFolderId(folderId));
-        List<String> childFolderIds = h.attach(ConnectionFolderDao.class).findChildIdsByParentId(folderId);
-        for (String childId : childFolderIds) {
-            collectConnectionNamesRecursive(h, childId, names);
-        }
+    private void collectConnectionNames(org.jdbi.v3.core.Handle h, String folderId, List<String> names) {
+        for (String id : descendantFolderIds(h, folderId))
+            names.addAll(h.attach(ConnectionDao.class).findNamesByFolderId(id));
     }
 
     public void deleteFolder(String id) {
         jdbi.useTransaction(h -> {
-            deleteFolderRecursive(h, id);
+            var dao = h.attach(ConnectionFolderDao.class);
+            var ids = descendantFolderIds(h, id);
+            // Detach only the folders explicitly being deleted, including legacy cycles.
+            for (String folder : ids) {
+                dao.updateParentId(folder, null, Instant.now());
+                h.attach(ConnectionDao.class).clearFolderIdForFolder(folder);
+            }
+            for (String folder : ids) dao.deleteById(folder);
         });
     }
 
-    private void deleteFolderRecursive(org.jdbi.v3.core.Handle h, String folderId) {
-        List<String> childIds = h.attach(ConnectionFolderDao.class).findChildIdsByParentId(folderId);
-        for (String childId : childIds) {
-            deleteFolderRecursive(h, childId);
+    private List<String> descendantFolderIds(org.jdbi.v3.core.Handle h, String folderId) {
+        var ids = new java.util.LinkedHashSet<String>();
+        var pending = new java.util.ArrayDeque<String>(); pending.add(folderId);
+        var dao = h.attach(ConnectionFolderDao.class);
+        while (!pending.isEmpty()) {
+            String current = pending.removeFirst();
+            if (ids.add(current)) pending.addAll(dao.findChildIdsByParentId(current));
         }
-        h.attach(ConnectionDao.class).clearFolderIdForFolder(folderId);
-        h.attach(ConnectionFolderDao.class).deleteById(folderId);
+        return List.copyOf(ids);
     }
 
     public void deleteConnections(List<String> ids) {

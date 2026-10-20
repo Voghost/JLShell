@@ -4,6 +4,7 @@ import com.jlshell.core.model.ConnectionType;
 import com.jlshell.ui.model.ConnectionProfile;
 import com.jlshell.ui.model.FavoriteConnectionProfile;
 import com.jlshell.ui.model.FolderProfile;
+import com.jlshell.ui.model.FolderHierarchy;
 import com.jlshell.ui.model.ProjectProfile;
 import com.jlshell.ui.model.RecentSessionProfile;
 import com.jlshell.ui.model.SidebarItem;
@@ -192,6 +193,7 @@ public final class SwingWorkbench implements AutoCloseable {
     private final Map<Component, Object> viewTabs = new IdentityHashMap<>();
     private List<ConnectionProfile> profiles = List.of();
     private List<FolderProfile> folders = List.of();
+    private FolderHierarchy folderHierarchy = FolderHierarchy.from(List.of());
     private Map<String, java.time.Instant> profileUpdatedAt = Map.of();
     private final Set<String> collapsed = new HashSet<>();
     private boolean rebuilding;
@@ -952,7 +954,8 @@ public final class SwingWorkbench implements AutoCloseable {
     }
 
     public void updateConnections(List<FolderProfile> folders, List<ConnectionProfile> profiles, Set<String> collapsed) {
-        this.folders = List.copyOf(folders); this.profiles = List.copyOf(profiles);
+        folderHierarchy = FolderHierarchy.from(folders);
+        this.folders = folderHierarchy.folders(); this.profiles = List.copyOf(profiles);
         this.profileUpdatedAt = profiles.stream().collect(java.util.stream.Collectors.toMap(ConnectionProfile::id,
                 profile -> profile.updatedAt() == null ? java.time.Instant.EPOCH : profile.updatedAt(), (left, right) -> left));
         this.collapsed.clear(); this.collapsed.addAll(collapsed);
@@ -1889,9 +1892,17 @@ public final class SwingWorkbench implements AutoCloseable {
         public boolean canImport(TransferSupport support) {
             if (!support.isDrop() || !support.isDataFlavorSupported(flavor) || !search.getText().isBlank()) return false;
             JTree.DropLocation location = (JTree.DropLocation) support.getDropLocation();
-            if (location.getPath() == null) return true;
-            var node = (DefaultMutableTreeNode) location.getPath().getLastPathComponent();
-            return node.getUserObject() == null || node.getUserObject() instanceof SidebarItem.FolderItem;
+            String target = null;
+            if (location.getPath() != null) {
+                var node = (DefaultMutableTreeNode) location.getPath().getLastPathComponent();
+                if (node.getUserObject() instanceof SidebarItem.FolderItem folder) target = folder.id();
+                else if (node.getUserObject() != null) return false;
+            }
+            try {
+                @SuppressWarnings("unchecked") List<SidebarItem> items =
+                        (List<SidebarItem>) support.getTransferable().getTransferData(flavor);
+                return folderHierarchy.canMove(items, target);
+            } catch (java.awt.datatransfer.UnsupportedFlavorException | java.io.IOException error) { return false; }
         }
 
         public boolean importData(TransferSupport support) {
@@ -1905,7 +1916,7 @@ public final class SwingWorkbench implements AutoCloseable {
                     var node = (DefaultMutableTreeNode) location.getPath().getLastPathComponent();
                     if (node.getUserObject() instanceof SidebarItem.FolderItem folder) target = folder.id();
                 }
-                // 循环与层级限制仍交给原有移动动作及服务处理。
+                // canImport rejects self/descendant targets; the service also validates persisted ancestry.
                 actions.move().accept(List.copyOf(items), target);
                 return true;
             } catch (java.awt.datatransfer.UnsupportedFlavorException | java.io.IOException error) {
