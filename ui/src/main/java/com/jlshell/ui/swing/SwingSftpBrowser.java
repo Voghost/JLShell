@@ -42,10 +42,11 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
     private final JButton cancel;
     private final List<IdeaListPopup> popups = new ArrayList<>();
     private final List<IdeaComponentPopup> directoryPopups = new ArrayList<>();
+    private final List<SftpChecksumDialog> checksumDialogs = new ArrayList<>();
     private Runnable unbind = () -> {};
     private volatile boolean closed;
     private boolean transferring;
-    private boolean connected = true;
+    private volatile boolean connected = true;
     private volatile boolean cancelled;
     private boolean follow = true;
     private final JToggleButton followButton = new JToggleButton(new WorkbenchIcon(WorkbenchIcon.Kind.FOCUS));
@@ -422,6 +423,9 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
             rows.add(menuRow(t("sftp.delete"), new WorkbenchIcon(WorkbenchIcon.Kind.DELETE), null, editable && !selected.isEmpty(), this::delete));
             rows.add(menuRow(t("sftp.copyPath"), null, null, path != null,
                     () -> Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(selected.isEmpty() ? Objects.toString(path, "") : selected.getFirst().path), null)));
+            rows.add(menuRow(t("sftp.md5.calculate"), new FileActionIcon("checksum"), "",
+                    (!isRemote || connected) && !transferring && !selected.isEmpty() && selected.stream().noneMatch(Entry::directory),
+                    () -> calculateMd5(isRemote, selected)));
             if (isRemote) {
                 rows.add(menuRow(t("sftp.followTerminal"), follow ? new WorkbenchIcon(WorkbenchIcon.Kind.CHECK) : null, "", connected, () -> {
                     setFollow(!follow);
@@ -571,6 +575,21 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
             if (cancelled) status(t("sftp.cancelled")); else if (error != null) failure(error); else status(t("status.transferCompleted")); target.refresh();
         }));
     }
+
+    private void calculateMd5(boolean isRemote, List<Entry> entries) {
+        if (closed || isRemote && !connected || entries.isEmpty()) return;
+        var files = entries.stream().filter(entry -> !entry.directory)
+                .map(entry -> new SftpChecksumDialog.File(entry.name, entry.path)).toList();
+        checksumDialogs.removeIf(dialog -> !dialog.isDisplayable());
+        checksumDialogs.add(new SftpChecksumDialog(this, files, i18n, (file, stopped) -> {
+            java.util.function.BooleanSupplier cancelled = () -> stopped.getAsBoolean() || closed || isRemote && !connected;
+            if (isRemote) return service.md5(session, file.path(), cancelled);
+            return CompletableFuture.supplyAsync(() -> {
+                try { return com.jlshell.sftp.service.FileChecksums.localMd5(Path.of(file.path()), cancelled); }
+                catch (java.io.IOException error) { throw new java.util.concurrent.CompletionException(error); }
+            });
+        }));
+    }
     private record DragSelection(Browser source, List<Entry> files) {}
     private static final DataFlavor INTERNAL = new DataFlavor(DragSelection.class, "JLShell files");
     private final class FileTransfer extends TransferHandler {
@@ -622,6 +641,9 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
                 java.awt.geom.Path2D arrow = new java.awt.geom.Path2D.Double();
                 arrow.moveTo(3.5, 7.5); arrow.lineTo(8, 3); arrow.lineTo(12.5, 7.5);
                 g.draw(arrow);
+            } else if (action.equals("checksum")) {
+                g.drawLine(6, 2, 4, 14); g.drawLine(12, 2, 10, 14);
+                g.drawLine(2, 6, 14, 6); g.drawLine(2, 10, 14, 10);
             } else {
                 boolean down = action.equals("download");
                 g.drawLine(8, 3, 8, 11);
@@ -649,5 +671,9 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
         remote.sequence++; remote.count.setText(t("sftp.disconnected")); status(t("sftp.disconnected"));
         dismissPopups();
     }
-    public void close() { if (closed) return; closed = true; cancelled = true; unbind.run(); dismissPopups(); local.sequence++; remote.sequence++; }
+    public void close() {
+        if (closed) return; closed = true; cancelled = true; unbind.run(); dismissPopups();
+        checksumDialogs.forEach(SftpChecksumDialog::dispose); checksumDialogs.clear();
+        local.sequence++; remote.sequence++;
+    }
 }

@@ -147,6 +147,103 @@ class SshjSftpServiceTest {
         releaseWrite.countDown(); future.get(10, TimeUnit.SECONDS);
         assertTrue(completed.get()); assertEquals(Files.size(source), Files.size(remote.resolve("gated")));
     }
+    @Test void remoteMd5WorksForSftpOnlyServersAndHandlesEmptyFiles() throws Exception {
+        byte[] bytes = new byte[2 * 1024 * 1024 + 19]; new Random(81).nextBytes(bytes);
+        Files.write(remote.resolve("checksum"), bytes);
+        Files.write(remote.resolve("empty"), new byte[0]);
+        String expected = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("MD5").digest(bytes));
+        assertEquals(expected, service.md5(session, "/checksum", () -> false).get(15, TimeUnit.SECONDS));
+        assertEquals("d41d8cd98f00b204e9800998ecf8427e", service.md5(session, "/empty", () -> false).get(15, TimeUnit.SECONDS));
+        assertTrue(writes.get() == 0, "Checksum must not write to the remote file");
+        assertArrayEquals(bytes, Files.readAllBytes(remote.resolve("checksum")));
+        assertThrows(ExecutionException.class, () -> service.md5(session, "/", () -> false).get(15, TimeUnit.SECONDS));
+        assertThrows(ExecutionException.class, () -> service.md5(session, "/absent", () -> false).get(15, TimeUnit.SECONDS));
+    }
+
+    @Test void cancelledRemoteMd5DoesNotReadTheFile() throws Exception {
+        Files.writeString(remote.resolve("cancel-checksum"), "abc");
+        var error = assertThrows(ExecutionException.class,
+                () -> service.md5(session, "/cancel-checksum", () -> true).get(15, TimeUnit.SECONDS));
+        assertInstanceOf(com.jlshell.sftp.exception.TransferCancelledException.class, error.getCause());
+        assertEquals(0, opens.get());
+    }
+
+    @Test
+    @org.junit.jupiter.api.condition.EnabledOnOs({org.junit.jupiter.api.condition.OS.MAC, org.junit.jupiter.api.condition.OS.LINUX})
+    void nativeMd5RunsThroughRealSshExecAndStdinWithoutDownloading() throws Exception {
+        Path file = Files.writeString(temporary.resolve("native '中文'\nchecksum"), "abc");
+        server.setFileSystemFactory(new VirtualFileSystemFactory(Path.of("/")));
+        server.setCommandFactory((channel, command) -> {
+            assertEquals("sh -s", command, "Filenames must never be interpolated into an SSH exec request");
+            return org.apache.sshd.server.shell.ProcessShellCommandFactory.INSTANCE.createCommand(channel, command);
+        });
+        try (var nativeClient = new SSHClient()) {
+            nativeClient.addHostKeyVerifier(new net.schmizz.sshj.transport.verification.PromiscuousVerifier());
+            nativeClient.connect("127.0.0.1", server.getPort()); nativeClient.authPassword("test", "test");
+            when(session.unwrap(SSHClient.class)).thenReturn(Optional.of(nativeClient));
+            assertEquals("900150983cd24fb0d6963f7d28e17f72",
+                    service.md5(session, file.toString(), () -> false).get(15, TimeUnit.SECONDS));
+        }
+        assertEquals(0, opens.get(), "Native MD5 must avoid an SFTP read of the file");
+        assertEquals("abc", Files.readString(file));
+    }
+
+    @Test void serverSideMd5DoesNotDownloadTheFileAndClosesItsCommandChannel() throws Exception {
+        Files.writeString(remote.resolve("server-checksum"), "abc");
+        var ssh = mock(SSHClient.class);
+        var exec = mock(net.schmizz.sshj.connection.channel.direct.Session.class);
+        var command = mock(net.schmizz.sshj.connection.channel.direct.Session.Command.class);
+        when(ssh.startSession()).thenReturn(exec);
+        when(exec.exec(anyString())).thenReturn(command);
+        when(command.getOutputStream()).thenReturn(new java.io.ByteArrayOutputStream());
+        when(command.getExitStatus()).thenReturn(0);
+        when(command.getInputStream()).thenReturn(new java.io.ByteArrayInputStream(
+                "900150983cd24fb0d6963f7d28e17f72  -\n".getBytes(java.nio.charset.StandardCharsets.US_ASCII)));
+        try (var sftp = client.newSFTPClient()) {
+            assertEquals("900150983cd24fb0d6963f7d28e17f72", RemoteFileChecksums.md5(ssh, sftp, "/server-checksum", () -> false));
+        }
+        assertEquals(0, opens.get(), "Server-side hash should only stat, not open an SFTP READ handle");
+        verify(exec).exec("sh -s");
+        verify(exec).close();
+    }
+
+    @Test void serverMd5CancellationClosesExecWithoutStartingFallbackDownload() throws Exception {
+        Files.writeString(remote.resolve("server-cancel"), "abc");
+        var ssh = mock(SSHClient.class);
+        var exec = mock(net.schmizz.sshj.connection.channel.direct.Session.class);
+        var command = mock(net.schmizz.sshj.connection.channel.direct.Session.Command.class);
+        when(ssh.startSession()).thenReturn(exec);
+        when(exec.exec(anyString())).thenReturn(command);
+        when(command.getOutputStream()).thenReturn(new java.io.ByteArrayOutputStream());
+        when(command.isOpen()).thenReturn(true);
+        var checks = new AtomicInteger();
+        try (var sftp = client.newSFTPClient()) {
+            assertThrows(com.jlshell.sftp.exception.TransferCancelledException.class,
+                    () -> RemoteFileChecksums.md5(ssh, sftp, "/server-cancel", () -> checks.incrementAndGet() > 1));
+        }
+        verify(exec).exec("sh -s");
+        verify(exec).close();
+        assertEquals(0, opens.get());
+    }
+
+    @Test void serverMd5RejectsFileThatChangedDuringCalculation() throws Exception {
+        Path file = Files.writeString(remote.resolve("server-changed"), "abc");
+        var ssh = mock(SSHClient.class);
+        var exec = mock(net.schmizz.sshj.connection.channel.direct.Session.class);
+        var command = mock(net.schmizz.sshj.connection.channel.direct.Session.Command.class);
+        when(ssh.startSession()).thenReturn(exec);
+        when(exec.exec(anyString())).thenAnswer(call -> { Files.writeString(file, "changed length"); return command; });
+        when(command.getOutputStream()).thenReturn(new java.io.ByteArrayOutputStream());
+        when(command.getExitStatus()).thenReturn(0);
+        when(command.getInputStream()).thenReturn(new java.io.ByteArrayInputStream(
+                "900150983cd24fb0d6963f7d28e17f72  -\n".getBytes(java.nio.charset.StandardCharsets.US_ASCII)));
+        try (var sftp = client.newSFTPClient()) {
+            assertThrows(IOException.class, () -> RemoteFileChecksums.md5(ssh, sftp, "/server-changed", () -> false));
+        }
+        verify(exec).exec("sh -s");
+        verify(exec).close();
+    }
+
     @Test
     @org.junit.jupiter.api.condition.EnabledIfSystemProperty(named = "jlshell.sftp.benchmark", matches = "true")
     void compareSynchronousAndPipelinedUploadsOverDelayedTransport() throws Exception {
@@ -173,6 +270,33 @@ class SshjSftpServiceTest {
             assertArrayEquals(data, Files.readAllBytes(remote.resolve("synchronous")));
             System.out.printf("SFTP 1 MiB / 30 ms injected RTT: synchronous=%.1f ms, pipelined=%.1f ms, speedup=%.2fx%n",
                     baseline / 1e6, pipelined / 1e6, (double) baseline / pipelined);
+        }
+    }
+
+    @Test
+    @org.junit.jupiter.api.condition.EnabledIfSystemProperty(named = "jlshell.sftp.benchmark", matches = "true")
+    void comparePipelineDepthsOverDelayedTransport() throws Exception {
+        byte[] data = new byte[8 * 1024 * 1024]; new Random(18).nextBytes(data);
+        Path source = Files.write(temporary.resolve("depth-benchmark"), data);
+        for (int delay : new int[]{0, 40}) {
+            try (var proxy = new DelayedProxy(server.getPort(), delay); var delayed = new SSHClient()) {
+                delayed.addHostKeyVerifier(new net.schmizz.sshj.transport.verification.PromiscuousVerifier());
+                delayed.connect("127.0.0.1", proxy.port()); delayed.authPassword("test", "test");
+                when(session.unwrap(SSHClient.class)).thenReturn(Optional.of(delayed));
+                // Warm every candidate before measurement, then reverse order to reduce JIT/order bias.
+                int[][] orders = {{16, 64, 128}, {16, 64, 128}, {128, 64, 16}};
+                for (int round = 0; round < orders.length; round++) for (int depth : orders[round]) {
+                    var candidate = new SshjSftpService(worker, depth);
+                    String target = "/depth-" + delay + "-" + depth;
+                    long start = System.nanoTime();
+                    candidate.upload(session, new TransferRequest(source, target, TransferResumeMode.OVERWRITE, 64 * 1024), null)
+                            .get(60, TimeUnit.SECONDS);
+                    double seconds = (System.nanoTime() - start) / 1e9;
+                    assertArrayEquals(data, Files.readAllBytes(remote.resolve(target.substring(1))));
+                    if (round > 0) System.out.printf(Locale.ROOT, "SFTP_DEPTH_BENCH round=%d bytes=%d injectedRttMs=%d depth=%d seconds=%.3f MiBps=%.2f verified=true%n",
+                            round, data.length, delay * 2, depth, seconds, data.length / 1048576.0 / seconds);
+                }
+            }
         }
     }
 

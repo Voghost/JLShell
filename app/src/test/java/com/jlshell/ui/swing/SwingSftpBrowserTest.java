@@ -50,6 +50,65 @@ class SwingSftpBrowserTest {
             Path output = Path.of("../ui/target/review/" + file); Files.createDirectories(output.getParent()); javax.imageio.ImageIO.write(image, "png", output.toFile());
         } catch (Exception error) { throw new RuntimeException(error); }
     }
+    @Test void fileMenusCalculateLocalAndRemoteMd5AndRejectFolders() throws Exception {
+        Files.writeString(temporary.resolve("abc.txt"), "abc");
+        Files.createDirectory(temporary.resolve("folder"));
+        var session = mock(SshSession.class);
+        var service = mock(SftpService.class);
+        when(service.listDirectory(eq(session), anyString())).thenReturn(CompletableFuture.completedFuture(
+                new RemoteDirectoryListing("/fixture", List.of(dir("/fixture/folder", "folder"), file("/fixture/abc.txt", "abc.txt")))));
+        when(service.md5(eq(session), eq("/fixture/abc.txt"), any()))
+                .thenReturn(CompletableFuture.completedFuture("900150983cd24fb0d6963f7d28e17f72"));
+        var browser = edt(() -> {
+            SwingTheme.install(AppTheme.DARK, "#3574f0", null, 13);
+            return new SwingSftpBrowser(session, service, new I18nService(Locale.SIMPLIFIED_CHINESE), ".", temporary);
+        });
+        var frame = edt(() -> { var f = new JFrame("MD5 menus"); f.setContentPane(browser); f.setSize(650, 760); f.setVisible(true); return f; });
+        try {
+            for (String side : List.of("local", "remote")) {
+                var table = (JTable) edt(() -> named(browser, "sftp." + side + ".table"));
+                await(() -> table.getRowCount() == 2);
+                edt(() -> {
+                    table.setRowSelectionInterval(0, 0);
+                    showContext(table, 0);
+                    assertFalse(md5Row().enabled(), "A directory cannot be hashed from the file menu");
+                    SwingUtilities.getWindowAncestor(popupList()).setVisible(false);
+                    table.setRowSelectionInterval(1, 1);
+                    showContext(table, 1);
+                    var row = md5Row(); assertTrue(row.enabled());
+                    SwingUtilities.getWindowAncestor(popupList()).setVisible(false);
+                    row.action().run();
+                    return null;
+                });
+                await(() -> {
+                    for (Window window : frame.getOwnedWindows()) if (window.isShowing() && "sftp.md5.dialog".equals(window.getName())) {
+                        var results = (JTable) named(window, "sftp.md5.results");
+                        if ("900150983cd24fb0d6963f7d28e17f72".equals(results.getValueAt(0, 1))) return true;
+                    }
+                    return false;
+                });
+                edt(() -> { for (Window window : frame.getOwnedWindows()) if ("sftp.md5.dialog".equals(window.getName())) window.dispose(); return null; });
+            }
+            verify(service).md5(eq(session), eq("/fixture/abc.txt"), any());
+            edt(() -> { assertTrue(frame.isShowing()); assertEquals(0, frame.getExtendedState() & JFrame.ICONIFIED); return null; });
+        } finally { edt(() -> { browser.close(); frame.dispose(); return null; }); }
+    }
+
+    private static void showContext(JTable table, int row) {
+        Rectangle cell = table.getCellRect(row, 0, true);
+        table.dispatchEvent(new java.awt.event.MouseEvent(table, java.awt.event.MouseEvent.MOUSE_RELEASED,
+                System.currentTimeMillis(), 0, cell.x + 30, cell.y + 10, 1, true, java.awt.event.MouseEvent.BUTTON3));
+    }
+
+    private static com.jlshell.ui.swing.idea.IdeaListPopup.Row md5Row() {
+        JList<?> popup = popupList(); assertNotNull(popup);
+        for (int index = 0; index < popup.getModel().getSize(); index++) {
+            Object value = popup.getModel().getElementAt(index);
+            if (value instanceof com.jlshell.ui.swing.idea.IdeaListPopup.Row row && row.title().contains("MD5")) return row;
+        }
+        throw new AssertionError("MD5 menu action missing");
+    }
+
     @Test void followsCurrentTerminalOnOpenAndDirectoryChangesAndCanBePaused() throws Exception {
         var fxReady = new CompletableFuture<Void>();
         try { javafx.application.Platform.startup(() -> { javafx.application.Platform.setImplicitExit(false); fxReady.complete(null); }); }

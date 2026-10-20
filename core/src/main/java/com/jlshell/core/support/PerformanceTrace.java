@@ -41,6 +41,8 @@ public final class PerformanceTrace {
         return new PerformanceTrace(operation, subject, id, clock, sink);
     }
 
+    public String id() { return id; }
+
     public Span step(String stage) { return new Span(safe(stage) + "#" + steps.incrementAndGet()); }
 
     public void mark(String stage) {

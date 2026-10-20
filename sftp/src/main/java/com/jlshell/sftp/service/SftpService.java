@@ -25,4 +25,10 @@ public interface SftpService {
     CompletableFuture<Void> delete(SshSession sshSession, String remotePath, boolean recursive);
 
     CompletableFuture<Void> createDirectory(SshSession sshSession, String remotePath, boolean recursive);
+
+    /** Hash on the server when available, otherwise stream via SFTP; never modifies the file. */
+    default CompletableFuture<String> md5(SshSession sshSession, String remotePath,
+                                           java.util.function.BooleanSupplier cancelled) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("Remote MD5 is unavailable"));
+    }
 }
