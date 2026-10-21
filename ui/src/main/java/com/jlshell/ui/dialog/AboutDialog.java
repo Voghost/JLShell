@@ -32,6 +32,8 @@ public class AboutDialog {
         dialog.getDialogPane().setContent(PreferencesDialog.buildAboutPane(i18n, dialogCheckUpdatesAction));
         dialog.getDialogPane().setPrefSize(860, 680);
         dialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
-        dialog.showAndWait();
+        if (com.jlshell.ui.swing.SwingDialogHost.enabled()) {
+            com.jlshell.ui.swing.SwingDialogHost.showNativeAndWait(dialog, themeService, i18n, "jlshell.about", 820, 760);
+        } else dialog.showAndWait();
     }
 }

@@ -1,0 +1,112 @@
+IntelliJ IDEA UI adaptations
+Copyright 2000-2026 JetBrains s.r.o. and contributors.
+Licensed under the Apache License, Version 2.0.
+License text: third-party/idea-LICENSE.txt
+
+Source: local intellij-community-master checkout.
+Original SVGs and copyright headers retained in icons/idea/.
+Connection-list rail: platform/icons/src/expui/nodes/ssh.svg and ssh_dark.svg.
+Top-level account, view and help icons additionally reference:
+platform/icons/src/expui/general/user.svg
+platform/icons/src/expui/general/layout.svg
+platform/icons/src/expui/general/help.svg
+IdeaIconShapes.java adapts their path data for native Swing/Java2D painting.
+Palette, rounded tab painting and island geometry reference:
+platform/platform-resources/src/themes/islands/ManyIslandsDark.theme.json
+platform/platform-resources/src/themes/islands/ManyIslandsLight.theme.json
+platform/platform-impl/src/com/intellij/openapi/application/impl/islands/IslandsUICustomization.kt
+platform/platform-impl/src/com/intellij/openapi/application/impl/islands/IslandsTabPainter.kt
+
+TabDragController.java and the integrated desktop menu layout reference:
+platform/platform-api/src/com/intellij/ui/tabs/impl/DragHelper.java
+platform/platform-impl/src/com/intellij/openapi/wm/impl/customFrameDecorations/header/toolbar/IdeMenuHelper.kt
+IntelliJ services are replaced with the host's existing session callbacks.
+
+SelectablePanel.java is a Java port of the Swing-only SelectablePanel.kt below.
+IdeaPopupRenderer.java adapts the grouped separator, icon/text/shortcut columns,
+and ProjectWidgetRenderer two-line project rows; platform actions are replaced
+with JLShell's existing action callbacks and project metadata.
+IdeaListPopup.java and SwingPreferencesDialog.java adapt navigation/layout for
+JLShell without introducing IntelliJ platform services or plugin interfaces.
+
+platform/platform-api/src/com/intellij/ui/popup/list/SelectablePanel.kt
+platform/platform-api/src/com/intellij/ui/popup/list/GroupedItemsListRenderer.java
+platform/platform-api/src/com/intellij/ui/GroupedElementsRenderer.java
+platform/platform-impl/src/com/intellij/openapi/wm/impl/headertoolbar/ProjectToolbarWidgetAction.kt
+platform/platform-impl/src/com/intellij/ide/actions/SettingsEntryPointAction.java
+platform/platform-impl/src/com/intellij/openapi/options/newEditor/SettingsDialog.java
+platform/platform-impl/src/com/intellij/openapi/options/newEditor/SettingsEditor.java
+platform/platform-impl/src/com/intellij/openapi/options/newEditor/SettingsTreeView.java
+
+IdeaGroupHeaderSeparator.java ports the independent separator geometry.
+IdeaMouseMovementTracker.java ports the mouse tracking/towards-rectangle algorithm.
+IdeaPopupDispatcher.java adapts active root/child chains and outside-click/focus
+dispatch to AWTEventListener/KeyEventDispatcher instead of IdeEventQueue.
+IdeaListPopup.java adapts ListPopupImpl's independent popup-window selection and
+250ms hover behavior. IdeaPopupSurface.java implements the referenced JBR native
+8px outline with OpenJDK translucent windows and a Java2D software shadow;
+it does not include IntelliJ's platform-dependent native window implementation.
+
+platform/platform-api/src/com/intellij/ui/GroupHeaderSeparator.java
+platform/util/ui/src/com/intellij/ui/MouseMovementTracker.java
+platform/util/ui/src/com/intellij/ui/ScreenUtil.java
+platform/util/ui/src/com/intellij/util/ui/JBUI.java
+platform/platform-impl/src/com/intellij/ui/popup/list/ListPopupImpl.java
+platform/platform-impl/src/com/intellij/ui/popup/list/PopupListElementRenderer.java
+platform/platform-impl/src/com/intellij/ui/popup/PopupDispatcher.java
+platform/platform-impl/src/com/intellij/ui/popup/AbstractPopup.java
+platform/platform-impl/src/com/intellij/ui/WindowRoundedCornersManager.java
+platform/util/ui/src/com/intellij/ui/PopupBorder.java
+platform/util/ui/src/com/intellij/ui/paint/RectanglePainter2D.java
+platform/util/ui/src/com/intellij/ui/paint/PaintUtil.java
+platform/platform-impl/src/com/intellij/ide/ui/laf/intellij/IdeaPopupMenuUI.java
+
+Settings/font/keymap layout, scrollbar repaint scope and macOS menu model
+separation reference the following sources. Their platform services are not
+copied; original JLShell settings, shortcut recording and terminal actions remain.
+platform/platform-impl/src/com/intellij/openapi/keymap/impl/ui/KeymapPanel.java
+platform/platform-impl/src/com/intellij/openapi/keymap/impl/ui/KeyboardShortcutDialog.java
+platform/platform-impl/src/com/intellij/ui/FontComboBox.java
+platform/platform-impl/src/com/intellij/application/options/editor/fonts/AppFontConfigurable.java
+platform/platform-impl/src/com/intellij/ide/ui/AppearanceConfigurable.kt
+platform/platform-api/src/com/intellij/ui/components/DefaultScrollBarUI.kt
+platform/platform-impl/src/com/intellij/platform/ide/menu/MacNativeActionMenu.kt
+
+Themed dialog title/content integration and compact form spacing reference:
+platform/platform-impl/src/com/intellij/openapi/wm/impl/customFrameDecorations/header/DialogHeader.kt
+platform/platform-impl/src/com/intellij/openapi/ui/impl/DialogWrapperPeerImpl.java
+platform/platform-api/src/com/intellij/ui/dsl/builder/SpacingConfiguration.kt
+platform/platform-impl/src/com/intellij/ide/actions/AboutDialog.java
+SwingDialogChrome and SwingDialogHost use JLShell's existing FX dialog models,
+events and plugin nodes; no IntelliJ services or JBR native APIs are included.
+
+Plugin page header/content separation, compact rows and independent detail actions
+reference these Apache-2.0 sources. JLShell's existing marketplace client,
+installer, enablement callbacks and external plugin settings Node are retained.
+platform/platform-impl/src/com/intellij/ide/plugins/PluginManagerConfigurablePanel.kt
+platform/platform-impl/src/com/intellij/ide/plugins/newui/TabbedPaneHeaderComponent.java
+platform/platform-impl/src/com/intellij/ide/plugins/newui/ListPluginComponent.kt
+platform/platform-impl/src/com/intellij/ide/plugins/newui/PluginDetailsPageComponent.kt
+plugins/svn4idea/src/org/jetbrains/idea/svn/dialogs/ServerSSHDialog.java
+
+Nested editor groups, group-scoped close/split/move/unsplit actions and compact
+tab context-menu columns reference the following sources. Existing JLShell
+terminal/session/plugin components are moved intact; no IntelliJ editor,
+connection service or action-system implementation is included.
+platform/platform-impl/src/com/intellij/openapi/fileEditor/impl/EditorWindow.kt
+platform/platform-impl/src/com/intellij/ide/actions/SplitAction.java
+platform/platform-impl/src/com/intellij/ide/actions/SplitterAction.java
+platform/platform-impl/src/com/intellij/openapi/fileEditor/impl/MoveEditorToOppositeTabGroupAction.kt
+platform/platform-impl/resources/idea/PlatformActions.xml (EditorTabPopupMenu)
+platform/platform-impl/src/com/intellij/ide/ui/laf/darcula/ui/DarculaMenuItemUIBase.java
+Original split icons are retained under icons/idea/ and their geometry is adapted
+in WorkbenchIcon.java:
+platform/icons/src/expui/general/splitVertically.svg
+platform/icons/src/expui/general/splitHorizontally.svg
+
+The project/session selector chevron reproduces the 16px path from the
+Apache-2.0 IDEA icon below; the selected tool stripe follows the pressed
+background and rounded arc in SquareStripeButtonLook, drawn with JLShell colors.
+platform/icons/src/expui/general/chevronDown.svg
+platform/platform-impl/src/com/intellij/openapi/wm/impl/SquareStripeButtonLook.kt
+platform/platform-impl/src/com/intellij/openapi/wm/impl/headertoolbar/ProjectToolbarWidgetAction.kt

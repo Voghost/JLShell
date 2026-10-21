@@ -55,6 +55,9 @@ public class JlshellJediTermWidget extends JediTermWidget {
     private final Function<String, String> i18n;
     private RefreshableTerminalPanel terminalPanel;
     private JScrollBar themedScrollBar;
+    private ThemedSearchComponent activeSearch;
+    private final java.util.concurrent.atomic.AtomicReference<java.util.concurrent.CompletableFuture<Void>> pendingRefresh =
+            new java.util.concurrent.atomic.AtomicReference<>();
 
     private JlshellJediTermWidget(int columns, int rows, JlshellSettingsProvider settingsProvider,
                                   Function<String, String> i18n) {
@@ -110,7 +113,8 @@ public class JlshellJediTermWidget extends JediTermWidget {
     protected JScrollBar createScrollBar() {
         JScrollBar scrollBar = new JScrollBar();
         scrollBar.setUI(new ThemedScrollBarUI());
-        scrollBar.setOpaque(false);
+        scrollBar.setOpaque(true);
+        scrollBar.setBackground(activeSettingsProvider().backgroundColor());
         scrollBar.setBorder(BorderFactory.createEmptyBorder());
         // TerminalPanel 使用文本选择光标；Swing 子组件未显式设置时会继承该光标。
         // 滚动条需要覆盖为默认箭头，避免轨道和 thumb 上仍显示 I-beam。
@@ -155,8 +159,9 @@ public class JlshellJediTermWidget extends JediTermWidget {
 
         @Override
         protected void paintTrack(Graphics g, JComponent c, Rectangle trackBounds) {
-            // track 透明 — 不绘制背景
-            // 但需要绘制搜索匹配标记
+            // 不透明窄轨道避免 thumb 拖动把脏区域向上扩大到整个终端。
+            g.setColor(activeSettingsProvider().backgroundColor());
+            g.fillRect(trackBounds.x, trackBounds.y, trackBounds.width, trackBounds.height);
             if (terminalPanel == null) return;
             com.jediterm.terminal.ui.TerminalPanel panel = getTerminalPanel();
             com.jediterm.terminal.SubstringFinder.FindResult result = panel.getFindResult();
@@ -211,7 +216,8 @@ public class JlshellJediTermWidget extends JediTermWidget {
 
     @Override
     protected @NotNull JediTermSearchComponent createSearchComponent() {
-        return new ThemedSearchComponent();
+        activeSearch = new ThemedSearchComponent();
+        return activeSearch;
     }
 
     /**
@@ -241,7 +247,7 @@ public class JlshellJediTermWidget extends JediTermWidget {
             setFocusable(true);
 
             // 文本输入框
-            Font termFont = settingsProvider.getTerminalFont();
+            Font termFont = new Font(Font.SANS_SERIF, Font.PLAIN, 13);
             FontMetrics fm = getFontMetrics(termFont);
             int charW = fm != null ? fm.charWidth('W') : 8;
             int charH = fm != null ? fm.getHeight() : 16;
@@ -274,6 +280,7 @@ public class JlshellJediTermWidget extends JediTermWidget {
             ignoreCaseCheckBox.setForeground(fg);
             ignoreCaseCheckBox.setBorder(BorderFactory.createEmptyBorder());
             ignoreCaseCheckBox.setFocusPainted(false);
+            ignoreCaseCheckBox.setFont(termFont);
             add(ignoreCaseCheckBox);
 
             // 结果标签
@@ -288,6 +295,25 @@ public class JlshellJediTermWidget extends JediTermWidget {
             add(createCloseButton());
 
             listenForChanges();
+            applyPalette();
+        }
+
+        private void applyPalette() {
+            Color bg = settingsProvider.backgroundColor();
+            Color fg = settingsProvider.foregroundColor();
+            for (java.awt.Component child : getComponents()) {
+                child.setBackground(bg);
+                child.setForeground(fg);
+            }
+            textField.setBackground(blend(bg, fg, 0.08f));
+            textField.setCaretColor(fg);
+            textField.setSelectionColor(blend(bg, fg, 0.3f));
+            textField.setSelectedTextColor(fg);
+            textField.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(blend(bg, fg, 0.25f), 1, true),
+                    BorderFactory.createEmptyBorder(2, 6, 2, 6)));
+            resultLabel.setForeground(blend(bg, fg, 0.6f));
+            repaint();
         }
 
         /** 自绘圆角背景和边框 */
@@ -367,6 +393,8 @@ public class JlshellJediTermWidget extends JediTermWidget {
             } else if (!result.getItems().isEmpty()) {
                 SubstringFinder.FindResult.FindItem selectedItem = result.selectedItem();
                 resultLabel.setText(selectedItem.getIndex() + " / " + result.getItems().size());
+            } else {
+                resultLabel.setText("0 / 0");
             }
         }
 
@@ -415,6 +443,24 @@ public class JlshellJediTermWidget extends JediTermWidget {
 
     // ── 刷新视觉 ──────────────────────────────────────────────────
 
+    /** 同一 EDT 调度周期内合并字体、配色更新，调用方仍可等待实际刷新完成。 */
+    public java.util.concurrent.CompletableFuture<Void> requestVisualRefresh() {
+        while (true) {
+            var existing = pendingRefresh.get();
+            if (existing != null) return existing;
+            var future = new java.util.concurrent.CompletableFuture<Void>();
+            if (!pendingRefresh.compareAndSet(null, future)) continue;
+            SwingExecutors.runOnEdtAsync(() -> {
+                pendingRefresh.compareAndSet(future, null);
+                refreshVisuals();
+            }).whenComplete((unused, error) -> {
+                if (error == null) future.complete(null);
+                else future.completeExceptionally(error);
+            });
+            return future;
+        }
+    }
+
     public void refreshVisuals() {
         java.awt.Color bg = settingsProvider.backgroundColor();
         java.awt.Color fg = settingsProvider.foregroundColor();
@@ -431,8 +477,10 @@ public class JlshellJediTermWidget extends JediTermWidget {
         getTerminalPanel().revalidate();
         getTerminalPanel().repaint();
         if (themedScrollBar != null) {
+            themedScrollBar.setBackground(bg);
             themedScrollBar.repaint();
         }
+        if (activeSearch != null) activeSearch.applyPalette();
         revalidate();
         repaint();
     }

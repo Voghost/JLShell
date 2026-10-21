@@ -15,6 +15,10 @@ public final class RuntimePluginDirectories {
 
     public static List<Path> resolve(String userPluginsDir, String bundledDirectoryName) {
         List<Path> dirs = new ArrayList<>();
+        // 源码预览可优先加载本轮构建的独立副本，不覆盖用户已安装或运行中的 JAR。
+        String preview = System.getProperty("jlshell.preview.plugins", "");
+        if (Boolean.getBoolean("jlshell.ui.preview") && "plugins".equals(bundledDirectoryName) && !preview.isBlank())
+            addDistinct(dirs, Path.of(preview));
         if (userPluginsDir != null && !userPluginsDir.isBlank()) {
             addDistinct(dirs, Path.of(userPluginsDir));
         }

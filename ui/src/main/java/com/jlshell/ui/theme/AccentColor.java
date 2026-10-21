@@ -7,7 +7,7 @@ public enum AccentColor {
     GRAPHITE("GRAPHITE", "Graphite", "#71717a", "#52525b", "#2d2d32", "#e4e4e7"),
     ZINC("ZINC", "Zinc", "#8b8f98", "#6b7280", "#30343b", "#e5e7eb"),
     STONE("STONE", "Stone", "#78716c", "#57534e", "#332f2c", "#e7e5e4"),
-    SKY("SKY", "Sky Blue", "#4d9cf8", "#3670b8", "#1f3f63", "#dbeafe"),
+    SKY("SKY", "Sky Blue", "#3574f0", "#467ff2", "#2e436e", "#d4e2ff"),
     BLUE("BLUE", "Azure", "#3b82f6", "#2563eb", "#1e3a5f", "#dbeafe"),
     INDIGO("INDIGO", "Indigo", "#6366f1", "#4f46e5", "#2f336f", "#e0e7ff"),
     CYAN("CYAN", "Cyan", "#06b6d4", "#0891b2", "#164e63", "#cffafe"),

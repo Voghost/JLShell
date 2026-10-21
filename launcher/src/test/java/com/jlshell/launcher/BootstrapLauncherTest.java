@@ -30,9 +30,11 @@ class BootstrapLauncherTest {
 
         assertEquals(java.toString(), command.get(0));
         assertTrue(command.contains("-Djlshell.runtime.isolated=true"));
-        assertEquals("-jar", command.get(7));
-        assertEquals(launcher.toString(), command.get(8));
-        assertEquals(List.of("--open", "host-a"), command.subList(9, 11));
+        assertTrue(command.contains("--add-exports=java.desktop/sun.swing=ALL-UNNAMED"));
+        int jar = command.indexOf("-jar");
+        assertTrue(jar > 0);
+        assertEquals(launcher.toString(), command.get(jar+1));
+        assertEquals(List.of("--open", "host-a"), command.subList(jar+2, command.size()));
     }
 
     @Test

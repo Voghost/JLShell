@@ -10,7 +10,7 @@ import org.slf4j.LoggerFactory;
  * Loads bundled Nerd Font TTF files so they are available to both
  * JavaFX (via Font.loadFont) and AWT/Swing terminal (via Font.createFont).
  *
- * JavaFX 字体在启动时同步加载（CSS -fx-font-family 需要它）；
+ * JavaFX 字体按旧插件页面需要加载（CSS -fx-font-family 需要它）；
  * AWT 注册延迟到首次创建终端时（{@link #ensureAwtRegistered()}），
  * 把 2MB TTF 的二次 I/O 从启动路径移到首次开终端。
  */
@@ -20,20 +20,24 @@ public final class BundledFontLoader {
 
     public static final String BUNDLED_FONT_FAMILY = "SauceCodePro Nerd Font Mono";
 
+    private static final Object FX_LOCK = new Object();
+    private static final Object AWT_LOCK = new Object();
     private static volatile boolean javafxLoaded = false;
     private static volatile boolean awtRegistered = false;
 
     private BundledFontLoader() {}
 
     /** 加载 JavaFX 字体。必须在 JavaFX init 阶段调用（FX 线程或 FX init 线程）。 */
-    public static synchronized void load() {
+    public static void load() {
         if (javafxLoaded) return;
+        synchronized (FX_LOCK) {
+            if (javafxLoaded) return;
+            loadFont("/fonts/SauceCodeProNerdFontMono-Regular.ttf");
+            loadFont("/fonts/SauceCodeProNerdFontMono-Bold.ttf");
 
-        loadFont("/fonts/SauceCodeProNerdFontMono-Regular.ttf");
-        loadFont("/fonts/SauceCodeProNerdFontMono-Bold.ttf");
-
-        javafxLoaded = true;
-        log.info("Bundled JavaFX fonts loaded: {}", BUNDLED_FONT_FAMILY);
+            javafxLoaded = true;
+            log.info("Bundled JavaFX fonts loaded: {}", BUNDLED_FONT_FAMILY);
+        }
     }
 
     /**
@@ -43,7 +47,7 @@ public final class BundledFontLoader {
      */
     public static void ensureAwtRegistered() {
         if (awtRegistered) return;
-        synchronized (BundledFontLoader.class) {
+        synchronized (AWT_LOCK) {
             if (awtRegistered) return;
             registerAwtFont("/fonts/SauceCodeProNerdFontMono-Regular.ttf");
             registerAwtFont("/fonts/SauceCodeProNerdFontMono-Bold.ttf");

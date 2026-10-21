@@ -22,7 +22,7 @@ import java.awt.Color;
  */
 public class ColorSchemeEditDialog {
 
-    public static TerminalColorScheme show(Stage owner, ThemeService themeService,
+    public static TerminalColorScheme show(Stage owner, ThemeService themeService, com.jlshell.ui.service.I18nService i18n,
                                             TerminalColorScheme initial, boolean isNew) {
         Dialog<TerminalColorScheme> dialog = new Dialog<>();
         dialog.setTitle(isNew ? "New Color Scheme" : "Edit Color Scheme");
@@ -130,7 +130,9 @@ public class ColorSchemeEditDialog {
             return null;
         });
 
-        return dialog.showAndWait().orElse(null);
+        return (com.jlshell.ui.swing.SwingDialogHost.enabled()
+                ? com.jlshell.ui.swing.SwingDialogHost.showNativeAndWait(dialog,themeService,i18n,"jlshell.colors",720,700)
+                : dialog.showAndWait()).orElse(null);
     }
 
     private static TerminalColorScheme buildScheme(String name, ColorPicker bg, ColorPicker fg,

@@ -11,11 +11,11 @@ import java.nio.file.StandardOpenOption;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 
 import com.jlshell.core.session.SshSession;
+import com.jlshell.core.support.PerformanceTrace;
 import com.jlshell.sftp.exception.SftpOperationException;
 import com.jlshell.sftp.exception.TransferCancelledException;
 import com.jlshell.sftp.model.RemoteDirectoryListing;
@@ -44,9 +44,16 @@ public class SshjSftpService implements SftpService {
     private static final Logger log = LoggerFactory.getLogger(SshjSftpService.class);
 
     private final ExecutorService executorService;
+    private final int uploadPipelineDepth;
 
     public SshjSftpService(ExecutorService executorService) {
+        this(executorService, Math.max(1, Math.min(128, Integer.getInteger("jlshell.sftp.uploadPipelineDepth", 64))));
+    }
+
+    SshjSftpService(ExecutorService executorService, int uploadPipelineDepth) {
+        if (uploadPipelineDepth < 1 || uploadPipelineDepth > 128) throw new IllegalArgumentException("Invalid upload pipeline depth");
         this.executorService = executorService;
+        this.uploadPipelineDepth = uploadPipelineDepth;
     }
 
     @Override
@@ -89,7 +96,54 @@ public class SshjSftpService implements SftpService {
             TransferProgressListener listener
     ) {
         TransferProgressListener progressListener = listener == null ? TransferProgressListener.NO_OP : listener;
-        return CompletableFuture.runAsync(() -> doUpload(sshSession, request, progressListener), executorService);
+        var timing = PerformanceTrace.start("sftp-upload", "file");
+        var queue = timing.step("executor-queue");
+        try {
+            return CompletableFuture.runAsync(() -> {
+                queue.close();
+                var metrics = new UploadMetrics();
+                try {
+                    doUpload(sshSession, request, progressListener, timing, metrics);
+                    metrics.success = true;
+                    timing.finish("success");
+                } catch (TransferCancelledException cancelled) {
+                    timing.finish("cancelled");
+                    throw cancelled;
+                } catch (RuntimeException | Error error) {
+                    timing.failed(error);
+                    throw error;
+                } finally { metrics.log(timing.id()); }
+            }, executorService);
+        } catch (RuntimeException rejected) {
+            queue.failed(rejected);
+            queue.close();
+            timing.failed(rejected);
+            return CompletableFuture.failedFuture(rejected);
+        }
+    }
+
+    @Override
+    public CompletableFuture<String> md5(SshSession sshSession, String remotePath,
+                                          java.util.function.BooleanSupplier cancelled) {
+        return CompletableFuture.supplyAsync(() -> {
+            var timing = PerformanceTrace.start("sftp-md5", "file");
+            try {
+                com.jlshell.sftp.service.FileChecksums.checkCancelled(cancelled);
+                String result;
+                try (SFTPClient client = newSftpClient(sshSession)) {
+                    SSHClient ssh = sshSession.unwrap(SSHClient.class).orElseThrow();
+                    result = RemoteFileChecksums.md5(ssh, client, remotePath, cancelled, timing);
+                }
+                timing.finish("success");
+                return result;
+            } catch (TransferCancelledException stopped) {
+                timing.finish("cancelled");
+                throw stopped;
+            } catch (IOException error) {
+                timing.failed(error);
+                throw new SftpOperationException("Failed to calculate remote MD5", error);
+            } catch (RuntimeException | Error error) { timing.failed(error); throw error; }
+        }, executorService);
     }
 
     @Override
@@ -139,26 +193,25 @@ public class SshjSftpService implements SftpService {
         }, executorService);
     }
 
-    private void doUpload(SshSession sshSession, TransferRequest request, TransferProgressListener listener) {
+    private void doUpload(SshSession sshSession, TransferRequest request, TransferProgressListener listener,
+                          PerformanceTrace timing, UploadMetrics metrics) {
         Path localPath = request.localPath();
         if (!Files.exists(localPath) || Files.isDirectory(localPath)) {
             throw new SftpOperationException("Local upload source must be an existing file: " + localPath);
         }
 
-        try (SFTPClient sftpClient = newSftpClient(sshSession)) {
+        try (SFTPClient sftpClient = timing.call("sftp-channel-open", () -> newSftpClient(sshSession))) {
             Files.createDirectories(localPath.toAbsolutePath().getParent());
 
             long totalBytes = Files.size(localPath);
+            metrics.fileBytes = totalBytes;
             long offset = request.resumeMode() == TransferResumeMode.RESUME_IF_POSSIBLE
                     ? existingRemoteSize(sftpClient, request.remotePath())
                     : 0L;
             if (offset > totalBytes) {
                 offset = 0L;
             }
-
-            Set<OpenMode> openModes = offset > 0
-                    ? EnumSet.of(OpenMode.WRITE, OpenMode.CREAT)
-                    : EnumSet.of(OpenMode.WRITE, OpenMode.CREAT, OpenMode.TRUNC);
+            metrics.resumedBytes = offset;
 
             TransferProgress started = new TransferProgress(
                     TransferDirection.UPLOAD,
@@ -170,7 +223,7 @@ public class SshjSftpService implements SftpService {
             listener.onStarted(started);
 
             try {
-                uploadStreaming(sftpClient, localPath, request, offset, totalBytes, listener);
+                uploadStreaming(sftpClient, localPath, request, offset, totalBytes, listener, timing, metrics);
                 listener.onCompleted(new TransferProgress(
                         TransferDirection.UPLOAD,
                         localPath.toString(),
@@ -183,20 +236,9 @@ public class SshjSftpService implements SftpService {
                 listener.onFailed(started, e);
                 throw e;
             } catch (IOException e) {
-                log.warn("Streaming upload failed, falling back to sftp.put(): {}", e.getMessage());
-                try (SFTPClient fallbackClient = newSftpClient(sshSession)) {
-                    fallbackClient.put(localPath.toString(), request.remotePath());
-                    listener.onCompleted(new TransferProgress(
-                            TransferDirection.UPLOAD,
-                            localPath.toString(),
-                            request.remotePath(),
-                            totalBytes,
-                            totalBytes
-                    ));
-                } catch (IOException fallbackEx) {
-                    listener.onFailed(started, fallbackEx);
-                    throw new SftpOperationException("Failed to upload file to remote path: " + request.remotePath(), fallbackEx);
-                }
+                // Do not retry with put(): it can overwrite a resumed file and bypass cancellation.
+                listener.onFailed(started, e);
+                throw new SftpOperationException("Failed to upload file to remote path: " + request.remotePath(), e);
             } catch (Throwable throwable) {
                 listener.onFailed(started, throwable);
                 throw throwable;
@@ -216,7 +258,9 @@ public class SshjSftpService implements SftpService {
             TransferRequest request,
             long offset,
             long totalBytes,
-            TransferProgressListener listener
+            TransferProgressListener listener,
+            PerformanceTrace timing,
+            UploadMetrics metrics
     ) throws IOException {
         try (InputStream inputStream = new BufferedInputStream(Files.newInputStream(localPath), request.bufferSize());
              RemoteFile remoteFile = sftpClient.open(request.remotePath(),
@@ -225,7 +269,23 @@ public class SshjSftpService implements SftpService {
                              : EnumSet.of(OpenMode.WRITE, OpenMode.CREAT, OpenMode.TRUNC))) {
 
             skipFully(inputStream, offset);
-            copyLocalToRemote(inputStream, remoteFile, offset, totalBytes, request, listener);
+            int packetSize = sftpClient.getSFTPEngine().getSubsystem().getRemoteMaxPacketSize()
+                    - remoteFile.getOutgoingPacketOverhead();
+            if (packetSize <= 0) throw new IOException("Invalid negotiated SFTP packet size");
+            // SSHJ does not split OutputStream writes. Respect the negotiated channel packet limit.
+            int bufferSize = Math.min(request.bufferSize(), Math.min(packetSize, 64 * 1024));
+            metrics.packetBytes = bufferSize;
+            metrics.pendingWrites = uploadPipelineDepth;
+            try (OutputStream outputStream = remoteFile.new RemoteFileOutputStream(offset, uploadPipelineDepth)) {
+                long writing = System.nanoTime();
+                copyLocalToRemote(inputStream, outputStream, bufferSize, offset, totalBytes, request, listener, metrics);
+                // All outstanding WRITE responses must succeed before onCompleted can run.
+                long flushing = System.nanoTime();
+                timing.call("final-write-confirmations", () -> { outputStream.flush(); return null; });
+                metrics.finalAckNanos = System.nanoTime() - flushing;
+                metrics.payloadNanos = System.nanoTime() - writing;
+                if (listener.isCancelled()) throw new TransferCancelledException();
+            }
         }
     }
 
@@ -287,24 +347,35 @@ public class SshjSftpService implements SftpService {
 
     private void copyLocalToRemote(
             InputStream inputStream,
-            RemoteFile remoteFile,
+            OutputStream outputStream,
+            int bufferSize,
             long offset,
             long totalBytes,
             TransferRequest request,
-            TransferProgressListener listener
+            TransferProgressListener listener,
+            UploadMetrics metrics
     ) throws IOException {
-        byte[] buffer = new byte[request.bufferSize()];
+        byte[] buffer = new byte[bufferSize];
         long position = offset;
+        if (listener.isCancelled()) throw new TransferCancelledException();
         int read;
-        while ((read = inputStream.read(buffer)) >= 0) {
+        while (true) {
+            long reading = System.nanoTime();
+            read = inputStream.read(buffer);
+            metrics.readNanos += System.nanoTime() - reading;
+            if (read < 0) break;
             if (read == 0) {
                 continue;
             }
             if (listener.isCancelled()) {
                 throw new TransferCancelledException();
             }
-            remoteFile.write(position, buffer, 0, read);
+            long writing = System.nanoTime();
+            outputStream.write(buffer, 0, read);
+            metrics.writeNanos += System.nanoTime() - writing;
+            metrics.queuedBytes += read;
             position += read;
+            long notifying = System.nanoTime();
             listener.onProgress(new TransferProgress(
                     TransferDirection.UPLOAD,
                     request.localPath().toString(),
@@ -312,6 +383,23 @@ public class SshjSftpService implements SftpService {
                     position,
                     totalBytes
             ));
+            metrics.listenerNanos += System.nanoTime() - notifying;
+        }
+    }
+
+    private static final class UploadMetrics {
+        long fileBytes, resumedBytes, queuedBytes, readNanos, writeNanos, listenerNanos, finalAckNanos, payloadNanos;
+        int packetBytes, pendingWrites;
+        boolean success;
+
+        void log(String traceId) {
+            if (!Boolean.parseBoolean(System.getProperty("jlshell.performance.enabled", "true"))) return;
+            double rate = success && payloadNanos > 0 ? queuedBytes / 1048576.0 / (payloadNanos / 1e9) : 0;
+            log.info("SFTP upload traceId={} success={} fileBytes={} resumedBytes={} queuedBytes={} packetBytes={} pendingWrites={} localReadMs={} writeMs={} listenerMs={} finalAckMs={} payloadMs={} MiBps={}",
+                    traceId, success, fileBytes, resumedBytes, queuedBytes, packetBytes, pendingWrites,
+                    readNanos / 1_000_000, writeNanos / 1_000_000, listenerNanos / 1_000_000,
+                    finalAckNanos / 1_000_000, payloadNanos / 1_000_000,
+                    String.format(java.util.Locale.ROOT, "%.2f", rate));
         }
     }
 

@@ -3,6 +3,7 @@ package com.jlshell.ui.model;
 import com.jlshell.core.model.ConnectionType;
 import com.jlshell.core.model.HostKeyVerificationMode;
 import com.jlshell.data.entity.AuthenticationType;
+import java.time.Instant;
 
 /**
  * 连接列表项模型。
@@ -21,8 +22,19 @@ public record ConnectionProfile(
         String projectId,
         ConnectionType connectionType,
         String folderId,
-        String vaultEntryId
+        String vaultEntryId,
+        Instant updatedAt
 ) {
+
+    /** Compatibility constructor for callers that do not carry persistence timestamps. */
+    public ConnectionProfile(String id, String displayName, String host, int port, String username,
+                             AuthenticationType authenticationType, HostKeyVerificationMode hostKeyVerificationMode,
+                             String description, String defaultRemotePath, boolean favorite, String projectId,
+                             ConnectionType connectionType, String folderId, String vaultEntryId) {
+        this(id, displayName, host, port, username, authenticationType, hostKeyVerificationMode,
+                description, defaultRemotePath, favorite, projectId, connectionType, folderId, vaultEntryId,
+                Instant.EPOCH);
+    }
 
     public String summary() {
         if (connectionType == ConnectionType.LOCAL_SHELL) {

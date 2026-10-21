@@ -1,4 +1,5 @@
 name: Release
+run-name: "${{ inputs.channel }} v${{ inputs.version }} · ${{ github.ref_name }}${{ inputs.build_only && ' · build only' || '' }}"
 
 on:
   workflow_dispatch:
@@ -7,6 +8,11 @@ on:
         description: 'Release version (e.g. 1.0.0)'
         required: true
         default: '0.1.0'
+      build_only:
+        description: 'Build and validate all packages without creating a Release, uploading OSS, or notifying the website'
+        required: true
+        default: false
+        type: boolean
       previous_tag:
         description: 'Optional change-audit baseline tag (e.g. v0.1.56; default: latest reachable release tag)'
         required: false
@@ -42,10 +48,11 @@ on:
 
 env:
   VERSION: ${{ github.event.inputs.version }}
+  RELEASE_BUILD_ONLY: ${{ github.event.inputs.build_only }}
   RELEASE_CHANNEL: ${{ github.event.inputs.channel }}
   RELEASE_PUBLISH: ${{ github.event.inputs.publish }}
   RELEASE_ASSET_VISIBLE: ${{ github.event.inputs.asset_visible }}
-  MODULES: "java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.management.rmi,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.transaction.xa,java.xml,java.xml.crypto,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.httpserver,jdk.jfr,jdk.localedata,jdk.management,jdk.naming.dns,jdk.net,jdk.unsupported,jdk.unsupported.desktop,jdk.zipfs,javafx.base,javafx.controls,javafx.fxml,javafx.graphics,javafx.swing"
+  MODULES: "java.base,java.compiler,java.desktop,java.logging,java.management,java.naming,java.net.http,java.prefs,java.scripting,java.security.jgss,java.sql,java.xml,jdk.crypto.ec,jdk.httpserver,jdk.jfr,jdk.localedata,jdk.naming.dns,jdk.net,jdk.unsupported,jdk.unsupported.desktop,jdk.zipfs,javafx.controls,javafx.swing"
 
 jobs:
   validate-release-notes:
@@ -61,6 +68,18 @@ jobs:
           # The audit compares this release with the latest reachable release tag.
           fetch-depth: 0
 
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21.0.11'
+          distribution: 'liberica'
+          java-package: 'jdk+fx'
+          cache: maven
+
+      - name: Test before release
+        run: |
+          python -m unittest discover -s .github/scripts -p 'test_*.py'
+          mvn -B -pl app,launcher -am test
+
       - name: Validate and prepare release metadata
         id: prepare
         shell: bash
@@ -68,6 +87,16 @@ jobs:
           RELEASE_OUTPUT_DIR: ${{ runner.temp }}/release-metadata
           PREVIOUS_RELEASE_TAG: ${{ github.event.inputs.previous_tag }}
         run: |
+          python - <<'PY'
+          import os
+          channel = os.environ["RELEASE_CHANNEL"]
+          if channel not in ("stable", "beta"):
+              raise SystemExit("Invalid release channel")
+          if os.environ.get("RELEASE_BUILD_ONLY") != "true":
+              required_branch = "beta" if channel == "beta" else "main"
+              if os.environ.get("GITHUB_REF_NAME") != required_branch:
+                  raise SystemExit(f"Publish {channel} releases only from {required_branch}")
+          PY
           python .github/scripts/prepare_release_metadata.py
           cat "$RELEASE_OUTPUT_DIR/release-change-summary.md" >> "$GITHUB_STEP_SUMMARY"
 
@@ -83,7 +112,7 @@ jobs:
 
   # ── macOS ───────────────────────────────────────────────────────────────────
   build-mac:
-    name: Build macOS (arm64 + x64)
+    name: Build macOS (runner native architecture)
     needs: [validate-release-notes]
     runs-on: macos-latest
     steps:
@@ -112,17 +141,25 @@ jobs:
           # Discover the built jar dynamically (no hardcoded version)
           JAR=$(ls app/target/jlshell-app-*.jar | head -1)
           LAUNCHER_JAR=$(ls launcher/target/jlshell-launcher-*.jar | head -1)
+          mkdir -p dist
+          python .github/scripts/slim_distribution.py "$JAR" "dist/jlshell-app-${VERSION}.jar"
+          python .github/scripts/slim_distribution.py "$JAR" dist/jlshell-app-native.jar --target native --provided-javafx "$HOME/.m2/repository/org/openjfx"
+          JAR=dist/jlshell-app-native.jar
           echo "JAR=$JAR" >> $GITHUB_ENV
           echo "LAUNCHER_JAR=$LAUNCHER_JAR" >> $GITHUB_ENV
 
           JDK=$JAVA_HOME
+
+          python -c 'import platform,json; print(json.dumps({"arch":"arm64" if platform.machine().lower() in ("arm64","aarch64") else "x64"}))' > dist/mac-platform.json
 
           # jlink a custom JRE
           $JDK/bin/jlink \
             --module-path $JDK/jmods \
             --add-modules $MODULES \
             --output dist/jre \
-            --strip-debug --no-man-pages --no-header-files --compress zip-6
+            --strip-debug --no-man-pages --no-header-files --vm=server --compress zip-9 --include-locales=en,zh
+
+          "dist/jre/bin/java" --add-modules=javafx.controls,javafx.swing -Djava.awt.headless=true -cp "$JAR" com.jlshell.app.DistributionSmoke
 
           # Build AppIcon.icns (needed by jpackage)
           ICON_PNG=app/src/main/resources/icons/app_icon.png
@@ -157,9 +194,17 @@ jobs:
             --icon dist/AppIcon.icns \
             --vendor JLShell \
             --description "JLShell SSH Client" \
-            --java-options "-Xms64m" \
+            --java-options "--add-modules=javafx.controls,javafx.swing" \
+            --java-options "--add-exports=java.desktop/sun.swing=ALL-UNNAMED" \
+            --java-options "--add-opens=java.desktop/sun.swing=ALL-UNNAMED" \
+            --java-options "--add-opens=java.desktop/javax.swing=ALL-UNNAMED" \
+            --java-options "-Xms32m" \
             --java-options "-Xmx512m" \
             --java-options "-XX:+ExplicitGCInvokesConcurrent" \
+            --java-options "-XX:+UseG1GC" \
+            --java-options "-XX:G1PeriodicGCInterval=30000" \
+            --java-options "-XX:MinHeapFreeRatio=20" \
+            --java-options "-XX:MaxHeapFreeRatio=40" \
             --java-options "--add-opens java.base/java.lang=ALL-UNNAMED" \
             --java-options "--add-opens java.desktop/sun.awt=ALL-UNNAMED" \
             --java-options "-Dapple.laf.useScreenMenuBar=true" \
@@ -237,7 +282,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: mac-package
-          path: dist/JLShell-${{ env.VERSION }}-mac.zip
+          path: |
+            dist/JLShell-${{ env.VERSION }}-mac.zip
+            dist/mac-platform.json
 
   # ── Linux ───────────────────────────────────────────────────────────────────
   build-linux:
@@ -269,6 +316,10 @@ jobs:
           # Discover the built jar dynamically (no hardcoded version)
           JAR=$(ls app/target/jlshell-app-*.jar | head -1)
           LAUNCHER_JAR=$(ls launcher/target/jlshell-launcher-*.jar | head -1)
+          mkdir -p dist
+          python .github/scripts/slim_distribution.py "$JAR" "dist/jlshell-app-${VERSION}.jar"
+          python .github/scripts/slim_distribution.py "$JAR" dist/jlshell-app-native.jar --target native --provided-javafx "$HOME/.m2/repository/org/openjfx"
+          JAR=dist/jlshell-app-native.jar
           echo "JAR=$JAR" >> $GITHUB_ENV
           echo "LAUNCHER_JAR=$LAUNCHER_JAR" >> $GITHUB_ENV
 
@@ -278,12 +329,14 @@ jobs:
             --module-path $JDK/jmods \
             --add-modules $MODULES \
             --output dist/runtime \
-            --strip-debug --no-man-pages --no-header-files --compress zip-6
+            --strip-debug --no-man-pages --no-header-files --vm=server --compress zip-9 --include-locales=en,zh
+
+          "dist/runtime/bin/java" --add-modules=javafx.controls,javafx.swing -Djava.awt.headless=true -cp "$JAR" com.jlshell.app.DistributionSmoke
 
           cp "$LAUNCHER_JAR" dist/jlshell-launcher.jar
           mkdir -p dist/app
           cp "$JAR" dist/app/jlshell-app-bundled.jar
-          cp "$JAR" "dist/jlshell-app-${VERSION}.jar"
+          # Standalone update JAR was curated separately before native trimming.
 
       # ── tar.gz ──────────────────────────────────────────────────────────────
       - name: Package tar.gz
@@ -295,15 +348,19 @@ jobs:
           cat > dist/linux-work/JLShell/JLShell.vmoptions <<'EOF'
           # JLShell JVM options. One option per line.
           # User override path on Linux: ~/.config/jlshell/JLShell.vmoptions
-          -Xms64m
+          -Xms32m
           -Xmx512m
           -XX:+ExplicitGCInvokesConcurrent
+          -XX:+UseG1GC
+          -XX:G1PeriodicGCInterval=30000
+          -XX:MinHeapFreeRatio=20
+          -XX:MaxHeapFreeRatio=40
           EOF
 
           cat > dist/linux-work/JLShell/JLShell.sh <<'EOF'
           #!/bin/bash
           DIR="$(cd "$(dirname "$0")" && pwd)"
-          DEFAULT_VM_OPTS=(-Xms64m -Xmx512m -XX:+ExplicitGCInvokesConcurrent)
+          DEFAULT_VM_OPTS=(-Xms32m -Xmx512m -XX:+ExplicitGCInvokesConcurrent -XX:+UseG1GC -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40)
           USER_VMOPTIONS="${XDG_CONFIG_HOME:-$HOME/.config}/jlshell/JLShell.vmoptions"
           BUNDLED_VMOPTIONS="$DIR/JLShell.vmoptions"
           VMOPTIONS_FILE=""
@@ -326,13 +383,17 @@ jobs:
             fi
           fi
           exec "$DIR/runtime/bin/java" "${VM_OPTS[@]}" \
+            --add-modules=javafx.controls,javafx.swing \
+            --add-exports=java.desktop/sun.swing=ALL-UNNAMED \
+            --add-opens=java.desktop/sun.swing=ALL-UNNAMED \
+            --add-opens=java.desktop/javax.swing=ALL-UNNAMED \
             --add-opens java.base/java.lang=ALL-UNNAMED \
             --add-opens java.desktop/sun.awt=ALL-UNNAMED \
             -jar "$DIR/jlshell-launcher.jar" "$@"
           EOF
           chmod +x dist/linux-work/JLShell/JLShell.sh
 
-          cd dist/linux-work && tar czf ../JLShell-${VERSION}-linux-x64.tar.gz JLShell
+          cd dist/linux-work && tar --use-compress-program='gzip -9' -cf ../JLShell-${VERSION}-linux-x64.tar.gz JLShell
 
       # ── .deb ────────────────────────────────────────────────────────────────
       - name: Package .deb
@@ -350,15 +411,19 @@ jobs:
           cat > $PKG/opt/jlshell/JLShell.vmoptions <<'EOF'
           # JLShell JVM options. One option per line.
           # User override path on Linux: ~/.config/jlshell/JLShell.vmoptions
-          -Xms64m
+          -Xms32m
           -Xmx512m
           -XX:+ExplicitGCInvokesConcurrent
+          -XX:+UseG1GC
+          -XX:G1PeriodicGCInterval=30000
+          -XX:MinHeapFreeRatio=20
+          -XX:MaxHeapFreeRatio=40
           EOF
 
           cat > $PKG/opt/jlshell/JLShell.sh <<'EOF'
           #!/bin/bash
           DIR="$(cd "$(dirname "$0")" && pwd)"
-          DEFAULT_VM_OPTS=(-Xms64m -Xmx512m -XX:+ExplicitGCInvokesConcurrent)
+          DEFAULT_VM_OPTS=(-Xms32m -Xmx512m -XX:+ExplicitGCInvokesConcurrent -XX:+UseG1GC -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40)
           USER_VMOPTIONS="${XDG_CONFIG_HOME:-$HOME/.config}/jlshell/JLShell.vmoptions"
           BUNDLED_VMOPTIONS="$DIR/JLShell.vmoptions"
           VMOPTIONS_FILE=""
@@ -381,6 +446,10 @@ jobs:
             fi
           fi
           exec "$DIR/runtime/bin/java" "${VM_OPTS[@]}" \
+            --add-modules=javafx.controls,javafx.swing \
+            --add-exports=java.desktop/sun.swing=ALL-UNNAMED \
+            --add-opens=java.desktop/sun.swing=ALL-UNNAMED \
+            --add-opens=java.desktop/javax.swing=ALL-UNNAMED \
             --add-opens java.base/java.lang=ALL-UNNAMED \
             --add-opens java.desktop/sun.awt=ALL-UNNAMED \
             -jar "$DIR/jlshell-launcher.jar" "$@"
@@ -420,7 +489,7 @@ jobs:
           Priority: optional
           EOF
 
-          fakeroot dpkg-deb --build $PKG dist/JLShell-${VERSION}-linux-x64.deb
+          fakeroot dpkg-deb -Zxz -z9 --build $PKG dist/JLShell-${VERSION}-linux-x64.deb
 
       # ── AppImage ─────────────────────────────────────────────────────────────
       - name: Package AppImage
@@ -441,16 +510,20 @@ jobs:
           cat > $APPDIR/usr/JLShell.vmoptions <<'EOF'
           # JLShell JVM options. One option per line.
           # User override path on Linux: ~/.config/jlshell/JLShell.vmoptions
-          -Xms64m
+          -Xms32m
           -Xmx512m
           -XX:+ExplicitGCInvokesConcurrent
+          -XX:+UseG1GC
+          -XX:G1PeriodicGCInterval=30000
+          -XX:MinHeapFreeRatio=20
+          -XX:MaxHeapFreeRatio=40
           EOF
 
           # AppRun
           cat > $APPDIR/AppRun <<'EOF'
           #!/bin/bash
           HERE="$(cd "$(dirname "$0")" && pwd)"
-          DEFAULT_VM_OPTS=(-Xms64m -Xmx512m -XX:+ExplicitGCInvokesConcurrent)
+          DEFAULT_VM_OPTS=(-Xms32m -Xmx512m -XX:+ExplicitGCInvokesConcurrent -XX:+UseG1GC -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40)
           USER_VMOPTIONS="${XDG_CONFIG_HOME:-$HOME/.config}/jlshell/JLShell.vmoptions"
           BUNDLED_VMOPTIONS="$HERE/usr/JLShell.vmoptions"
           VMOPTIONS_FILE=""
@@ -473,6 +546,10 @@ jobs:
             fi
           fi
           exec "$HERE/usr/runtime/bin/java" "${VM_OPTS[@]}" \
+            --add-modules=javafx.controls,javafx.swing \
+            --add-exports=java.desktop/sun.swing=ALL-UNNAMED \
+            --add-opens=java.desktop/sun.swing=ALL-UNNAMED \
+            --add-opens=java.desktop/javax.swing=ALL-UNNAMED \
             --add-opens java.base/java.lang=ALL-UNNAMED \
             --add-opens java.desktop/sun.awt=ALL-UNNAMED \
             -jar "$HERE/usr/jlshell-launcher.jar" "$@"
@@ -541,10 +618,14 @@ jobs:
       - name: Build fat jar + jlink runtime
         shell: bash
         run: |
-          mvn package -DskipTests -pl launcher,app -am -P dist -q
+          mvn package -DskipTests -pl launcher,app -am -q
 
           JAR=$(ls app/target/jlshell-app-*.jar | head -1)
           LAUNCHER_JAR=$(ls launcher/target/jlshell-launcher-*.jar | head -1)
+          mkdir -p dist
+          python .github/scripts/slim_distribution.py "$JAR" "dist/jlshell-app-${VERSION}.jar"
+          python .github/scripts/slim_distribution.py "$JAR" dist/jlshell-app-native.jar --target native --provided-javafx "$HOME/.m2/repository/org/openjfx"
+          JAR=dist/jlshell-app-native.jar
           echo "JAR=$JAR" >> $GITHUB_ENV
           echo "LAUNCHER_JAR=$LAUNCHER_JAR" >> $GITHUB_ENV
 
@@ -554,7 +635,12 @@ jobs:
             --module-path "$JDK/jmods" \
             --add-modules $MODULES \
             --output dist/runtime \
-            --strip-debug --no-man-pages --no-header-files --compress zip-6
+            --strip-debug --no-man-pages --no-header-files --vm=server --compress zip-9 --include-locales=en,zh
+
+      - name: Verify native runtime and curated application
+        shell: bash
+        run: |
+          dist/runtime/bin/java --add-modules=javafx.controls,javafx.swing -Djava.awt.headless=true -cp "$JAR" com.jlshell.app.DistributionSmoke
 
       - name: Package Windows app image and installer
         shell: bash
@@ -580,9 +666,17 @@ jobs:
             --icon app/src/main/resources/icons/app_icon.ico \
             --vendor JLShell \
             --description "JLShell SSH Client" \
-            --java-options "-Xms64m" \
+            --java-options "--add-modules=javafx.controls,javafx.swing" \
+            --java-options "--add-exports=java.desktop/sun.swing=ALL-UNNAMED" \
+            --java-options "--add-opens=java.desktop/sun.swing=ALL-UNNAMED" \
+            --java-options "--add-opens=java.desktop/javax.swing=ALL-UNNAMED" \
+            --java-options "-Xms32m" \
             --java-options "-Xmx512m" \
             --java-options "-XX:+ExplicitGCInvokesConcurrent" \
+            --java-options "-XX:+UseG1GC" \
+            --java-options "-XX:G1PeriodicGCInterval=30000" \
+            --java-options "-XX:MinHeapFreeRatio=20" \
+            --java-options "-XX:MaxHeapFreeRatio=40" \
             --java-options "--add-opens java.base/java.lang=ALL-UNNAMED" \
             --java-options "--add-opens java.desktop/sun.awt=ALL-UNNAMED" \
             --dest dist/win-image
@@ -594,7 +688,7 @@ jobs:
           JLShell will automatically discover and load them on startup.
           EOF
 
-          cd dist/win-image && 7z a -tzip "../JLShell-${VERSION}-win-x64.zip" JLShell && cd ../..
+          cd dist/win-image && 7z a -tzip -mx=9 "../JLShell-${VERSION}-win-x64.zip" JLShell && cd ../..
 
           # jpackage 21 always invokes WiX with the en-us culture. The
           # resource directory intentionally provides its Chinese strings
@@ -610,9 +704,17 @@ jobs:
             --icon app/src/main/resources/icons/app_icon.ico \
             --vendor JLShell \
             --description "JLShell SSH Client" \
-            --java-options "-Xms64m" \
+            --java-options "--add-modules=javafx.controls,javafx.swing" \
+            --java-options "--add-exports=java.desktop/sun.swing=ALL-UNNAMED" \
+            --java-options "--add-opens=java.desktop/sun.swing=ALL-UNNAMED" \
+            --java-options "--add-opens=java.desktop/javax.swing=ALL-UNNAMED" \
+            --java-options "-Xms32m" \
             --java-options "-Xmx512m" \
             --java-options "-XX:+ExplicitGCInvokesConcurrent" \
+            --java-options "-XX:+UseG1GC" \
+            --java-options "-XX:G1PeriodicGCInterval=30000" \
+            --java-options "-XX:MinHeapFreeRatio=20" \
+            --java-options "-XX:MaxHeapFreeRatio=40" \
             --java-options "--add-opens java.base/java.lang=ALL-UNNAMED" \
             --java-options "--add-opens java.desktop/sun.awt=ALL-UNNAMED" \
             --win-dir-chooser \
@@ -637,6 +739,7 @@ jobs:
   # ── Create GitHub Release ────────────────────────────────────────────────────
   release:
     name: Create Release
+    if: ${{ github.event.inputs.build_only != 'true' }}
     needs: [build-mac, build-linux, build-windows]
     runs-on: ubuntu-latest
     permissions:
@@ -651,9 +754,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.VERSION }}
-          name: JLShell v${{ env.VERSION }}
+          name: JLShell v${{ env.VERSION }} ${{ github.event.inputs.channel == 'beta' && 'Beta' || '' }}
           draft: false
-          prerelease: false
+          target_commitish: ${{ github.sha }}
+          prerelease: ${{ github.event.inputs.channel == 'beta' }}
+          make_latest: ${{ github.event.inputs.channel == 'beta' && 'false' || 'true' }}
           body_path: artifacts/github-release-body.md
           files: |
             artifacts/JLShell-${{ env.VERSION }}-mac.zip
@@ -670,7 +775,6 @@ jobs:
     needs: [release]
     runs-on: ubuntu-latest
     if: ${{ github.event.inputs.upload_to_oss == 'true' }}
-    continue-on-error: true
     permissions:
       contents: read
     steps:
@@ -688,7 +792,6 @@ jobs:
 
       - name: Upload release assets to Aliyun OSS
         id: oss_upload
-        continue-on-error: true
         env:
           OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
           OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
@@ -716,6 +819,8 @@ jobs:
           access_key_id = os.environ.get("OSS_ACCESS_KEY_ID")
           access_key_secret = os.environ.get("OSS_ACCESS_KEY_SECRET")
           prefix = (os.environ.get("JLSHELL_OSS_RELEASE_PREFIX") or "releases").strip("/")
+          if os.environ.get("RELEASE_CHANNEL") == "beta":
+              prefix += "/beta"
           public_base_url = (os.environ.get("JLSHELL_OSS_PUBLIC_BASE_URL") or "").rstrip("/")
 
           required = {
@@ -816,7 +921,7 @@ jobs:
               asset(jar_name, "windows", "any", "jar"),
               asset(jar_name, "linux", "any", "jar"),
               asset(jar_name, "mac", "any", "jar"),
-              asset(f"JLShell-{version}-mac.zip", "mac", "any", "zip"),
+              asset(f"JLShell-{version}-mac.zip", "mac", json.loads((artifacts / "mac-platform.json").read_text())["arch"], "zip"),
               asset(f"JLShell-{version}-linux-x64.tar.gz", "linux", "x64", "tar.gz"),
               asset(f"JLShell-{version}-linux-x64.deb", "linux", "x64", "deb"),
               asset(f"JLShell-{version}-linux-x86_64.AppImage", "linux", "x64", "appimage"),
@@ -863,18 +968,21 @@ jobs:
                   "visible": os.environ.get("RELEASE_ASSET_VISIBLE", "false").lower() == "true",
               })
 
-          retained_versions, deleted_versions, deleted_object_count = prune_old_release_assets()
+          if os.environ.get("RELEASE_CHANNEL") == "beta":
+              retained_versions, deleted_versions, deleted_object_count = [version], [], 0
+          else:
+              retained_versions, deleted_versions, deleted_object_count = prune_old_release_assets()
 
           payload = {
               "version": version,
               "channel": os.environ.get("RELEASE_CHANNEL") or "stable",
-              "updateType": "jar",
+              "updateType": "full",
               "title": release_metadata["title"],
               "summary": release_metadata["summary"],
               "releaseNotes": release_metadata["releaseNotes"],
               "releaseUrl": release_metadata["releaseUrl"],
               "mandatory": False,
-              "requiresFullInstaller": False,
+              "requiresFullInstaller": True,
               "minLauncherVersion": "0.1.0",
               "publish": os.environ.get("RELEASE_PUBLISH", "false").lower() == "true",
               "assets": payload_assets,
@@ -902,7 +1010,6 @@ jobs:
       - name: Notify JLShell website
         id: website_notify
         if: ${{ github.event.inputs.notify_website == 'true' && steps.oss_upload.outcome == 'success' }}
-        continue-on-error: true
         env:
           JLSHELL_SITE_URL: ${{ vars.JLSHELL_SITE_URL }}
           JLSHELL_ACTION_WEBHOOK_SECRET: ${{ secrets.JLSHELL_ACTION_WEBHOOK_SECRET }}
@@ -923,18 +1030,18 @@ jobs:
             -H "X-JLShell-Signature: $sig" \
             --data "$body"
 
-      - name: Report optional OSS publish result
+      - name: Verify OSS and website publication
         if: ${{ always() }}
         run: |
           if [[ "${{ steps.oss_upload.outcome }}" != "success" ]]; then
-            echo "::warning::Optional OSS upload failed or was skipped. GitHub Release artifacts were already produced."
-            exit 0
+            echo "::error::Requested OSS upload failed."
+            exit 1
           fi
           if [[ "${{ github.event.inputs.notify_website }}" == "true" && "${{ steps.website_notify.outcome }}" != "success" ]]; then
-            echo "::warning::Optional website notification failed or was skipped. OSS upload artifacts were already produced."
-            exit 0
+            echo "::error::Requested website notification failed."
+            exit 1
           fi
-          echo "Optional OSS publish completed."
+          echo "OSS and requested website publication completed."
 
       - uses: actions/upload-artifact@v4
         if: ${{ always() && steps.oss_upload.outcome == 'success' }}

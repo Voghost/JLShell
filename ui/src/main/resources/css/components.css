@@ -1,0 +1,3123 @@
+/* Shared IDEA New UI component geometry. Theme files supply only semantic colors.
+   Implemented for JavaFX; no IntelliJ platform runtime dependency. */
+.root {
+    -fx-font-family: "System";
+    -fx-font-size: 13px;
+    -fx-base: -jl-panel;
+    -fx-background: -jl-canvas;
+    -fx-control-inner-background: -jl-canvas;
+    -fx-background-color: -jl-canvas;
+    -fx-text-fill: -jl-text;
+    -fx-accent: -jl-accent;
+    -fx-focus-color: -jl-accent;
+    -fx-faint-focus-color: transparent;
+}
+.label { -fx-text-fill: -jl-text; }
+.app-root {
+    -fx-background-color: -jl-canvas;
+}
+
+.app-root.win-undecorated {
+    -fx-background-color: -jl-canvas;
+    -fx-background-insets: 0;
+    -fx-background-radius: 4;
+    -fx-border-color: -jl-border;
+    -fx-border-width: 1;
+    -fx-border-radius: 4;
+    -fx-padding: 1;
+}
+
+.app-root.win-undecorated.win-maximized {
+    -fx-background-radius: 0;
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+    -fx-border-radius: 0;
+    -fx-padding: 0;
+}
+
+.menu-bar {
+    -fx-background-color: -jl-panel;
+    -fx-border-color: transparent transparent -jl-hover transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 0 4;
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+}
+
+.menu {
+    -fx-background-color: transparent;
+    -fx-padding: 4 8;
+}
+
+.menu:hover,
+.menu:focused,
+.menu:showing {
+    -fx-background-color: -jl-hover;
+    -fx-background-radius: 4;
+}
+
+.menu .label,
+.menu-item .label {
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 1em;
+}
+
+.context-menu {
+    -fx-background-color: -jl-panel;
+    -fx-border-color: -jl-border;
+    -fx-border-width: 1;
+    -fx-border-radius: 6;
+    -fx-background-radius: 6;
+    -fx-background-insets: 0;
+    -fx-padding: 2 0;
+    -fx-effect: null;
+}
+
+.context-menu .separator .line {
+    -fx-border-color: -jl-border;
+    -fx-border-width: 1 0 0 0;
+}
+
+.menu-item {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-padding: 5 12;
+    -fx-background-radius: 4;
+    -fx-border-radius: 4;
+}
+
+.menu-item:hover,
+.menu-item:focused {
+    -fx-background-color: -jl-hover;
+}
+
+.menu-item:hover .label,
+.menu-item:focused .label {
+    -fx-text-fill: -jl-text;
+}
+
+.separator .line {
+    -fx-border-color: -jl-border;
+    -fx-border-width: 1 0 0 0;
+}
+
+.top-shell {
+    -fx-background-color: -jl-panel;
+    -fx-border-color: transparent transparent -jl-hover transparent;
+    -fx-border-width: 0 0 1 0;
+}
+
+.tool-bar {
+    -fx-background-color: -jl-panel;
+    -fx-padding: 3 8;
+    -fx-spacing: 2;
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+    -fx-border-color: transparent;
+}
+
+.button {
+    -fx-background-color: -jl-hover;
+    -fx-text-fill: -jl-text;
+    -fx-background-radius: 6;
+    -fx-border-radius: 6;
+    -fx-border-color: -jl-border;
+    -fx-border-width: 1;
+    -fx-padding: 3 10;
+    -fx-font-size: 1em;
+    -fx-font-weight: normal;
+    -fx-cursor: hand;
+}
+
+.button:hover {
+    -fx-background-color: -jl-hover;
+    -fx-border-color: -jl-border;
+}
+
+.button:pressed {
+    -fx-background-color: -jl-accent-subtle;
+    -fx-border-color: -jl-accent;
+}
+
+.button:focused {
+    -fx-border-color: -jl-accent;
+    -fx-background-color: -jl-hover;
+}
+
+.button-primary {
+    -fx-background-color: -jl-accent;
+    -fx-text-fill: -jl-white;
+    -fx-border-color: -jl-accent;
+}
+
+.button-primary:hover {
+    -fx-background-color: -jl-accent-hover;
+}
+
+.sidebar {
+    -fx-background-color: -jl-panel;
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+    -fx-padding: 8 6;
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+}
+
+.sidebar > .label {
+    -fx-text-fill: -jl-secondary;
+    -fx-font-size: 1em;
+    -fx-font-weight: bold;
+    -fx-padding: 4 4 6 4;
+}
+
+.sidebar-list-panel {
+    -fx-background-color: -jl-canvas;
+    -fx-background-radius: 4;
+    -fx-border-color: -jl-text;
+    -fx-border-width: 1;
+    -fx-border-radius: 4;
+    -fx-padding: 2 8 8 8;
+}
+
+.sidebar-list-panel:hover {
+    -fx-background-color: -jl-panel;
+    -fx-border-color: -jl-text;
+}
+
+.list-view {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-padding: 0;
+}
+
+.list-view .scroll-bar:vertical {
+    -fx-background-color: transparent;
+    -fx-pref-width: 8;
+}
+
+.list-view .scroll-bar:vertical .thumb {
+    -fx-background-color: -jl-border;
+    -fx-background-radius: 4;
+}
+
+.list-cell {
+    -fx-background-color: transparent;
+    -fx-text-fill: -jl-text;
+    -fx-padding: 5 8;
+    -fx-font-size: 1em;
+    -fx-border-color: transparent;
+}
+
+.list-cell:odd {
+    -fx-background-color: transparent;
+}
+
+.list-cell:hover {
+    -fx-background-color: -jl-hover;
+    -fx-background-radius: 6;
+}
+
+.list-cell:filled:selected {
+    -fx-background-color: -jl-accent-subtle;
+    -fx-background-radius: 6;
+    -fx-text-fill: -jl-text;
+}
+
+.list-cell:filled:selected:focused {
+    -fx-background-color: -jl-accent-subtle;
+}
+
+.tab-pane {
+    -fx-background-color: -jl-canvas;
+    -fx-tab-min-height: 28px;
+    -fx-tab-max-height: 28px;
+}
+
+.tab-pane .tab-header-area {
+    -fx-background-color: -jl-panel;
+    -fx-border-color: transparent transparent -jl-hover transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 0;
+}
+
+.tab-pane .tab-header-area .tab-header-background {
+    -fx-background-color: -jl-panel;
+}
+
+.tab-pane .tab {
+    -fx-background-color: transparent;
+    -fx-background-radius: 0;
+    -fx-border-color: transparent;
+    -fx-padding: 4 6 4 8;
+    -fx-focus-color: transparent;
+    -fx-faint-focus-color: transparent;
+}
+
+.tab-pane .tab .tab-label {
+    -fx-text-fill: -jl-secondary;
+    -fx-font-size: 1em;
+    -fx-padding: 0 8 2 0;
+    -fx-border-color: transparent;
+    -fx-border-width: 0 0 1 0;
+}
+
+.tab-pane .tab:selected {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-focus-color: transparent;
+    -fx-faint-focus-color: transparent;
+}
+
+.tab-pane .tab:selected .tab-label {
+    -fx-text-fill: -jl-text;
+    -fx-border-color: transparent transparent -jl-accent transparent;
+}
+
+.tab-pane .tab:hover .tab-label {
+    -fx-text-fill: -jl-text;
+}
+
+.tab-pane .tab-close-button {
+    -fx-background-color: -jl-muted;
+    -fx-shape: "M 0,0 H1 L 4,3 7,0 H8 V1 L 5,4 8,7 V8 H7 L 4,5 1,8 H0 V7 L 3,4 0,1 Z";
+    -fx-scale-shape: true;
+    -fx-pref-width: 8;
+    -fx-pref-height: 8;
+    -fx-padding: 3;
+    -fx-opacity: 0.62;
+    -fx-cursor: hand;
+}
+
+.tab-pane .tab-close-button:hover {
+    -fx-background-color: -jl-red;
+    -fx-opacity: 1;
+}
+
+.tab-pane .tab:hover .tab-close-button {
+    -fx-background-color: -jl-secondary;
+    -fx-opacity: 0.95;
+}
+
+.tab-pane .tab:hover .tab-close-button:hover {
+    -fx-background-color: -jl-red;
+    -fx-opacity: 1;
+}
+
+.preferences-tabs {
+    -fx-background-color: transparent;
+}
+
+.preferences-tabs > .tab-header-area {
+    -fx-background-color: -jl-panel;
+    -fx-background-radius: 4;
+    -fx-border-color: -jl-text;
+    -fx-border-width: 1;
+    -fx-border-radius: 4;
+    -fx-padding: 7 10 6 10;
+}
+
+.preferences-tabs > .tab-header-area .tab-header-background {
+    -fx-background-color: transparent;
+}
+
+.preferences-tabs > .tab-header-area .headers-region .tab {
+    -fx-background-radius: 6;
+    -fx-padding: 5 10 5 10;
+}
+
+.preferences-tabs > .tab-header-area .headers-region .tab:hover {
+    -fx-background-color: -jl-text;
+}
+
+.preferences-tabs > .tab-header-area .headers-region .tab:selected {
+    -fx-background-color: -jl-blue;
+}
+
+.workspace-tabs {
+    -fx-tab-min-height: 24px;
+    -fx-tab-max-height: 24px;
+}
+
+.workspace-tabs > .tab-header-area {
+    -fx-background-color: -jl-canvas;
+    -fx-border-color: transparent transparent -jl-panel transparent;
+    -fx-padding: 2 8 0 8;
+}
+
+.workspace-tabs > .tab-header-area > .tab-header-background {
+    -fx-background-color: -jl-canvas;
+}
+
+.workspace-tabs > .tab-header-area .headers-region {
+    -fx-spacing: 4;
+}
+
+.workspace-tabs > .tab-header-area .tab {
+    -fx-background-color: transparent;
+    -fx-background-radius: 5;
+    -fx-border-color: transparent;
+    -fx-border-width: 1;
+    -fx-border-radius: 5;
+    -fx-padding: 1 2 2 10;
+}
+
+.workspace-tabs > .tab-header-area .tab:hover {
+    -fx-background-color: -jl-panel;
+    -fx-border-color: -jl-hover;
+}
+
+.workspace-tabs > .tab-header-area .tab:selected {
+    -fx-background-color: -jl-tab-accent-bg;
+    -fx-border-color: -jl-tab-accent-border;
+    -fx-border-width: 1;
+    -fx-border-radius: 5;
+}
+
+.workspace-tabs > .tab-header-area .tab .tab-label {
+    -fx-text-fill: -jl-secondary;
+    -fx-font-size: 0.91em;
+    -fx-font-weight: 600;
+    -fx-padding: 0 8 1 0;
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+}
+
+.workspace-tabs > .tab-header-area .tab:selected .tab-label {
+    -fx-text-fill: -jl-text;
+    -fx-border-color: transparent;
+}
+
+.workspace-tabs > .tab-header-area .tab:hover .tab-label {
+    -fx-text-fill: -jl-text;
+}
+
+.workspace-tabs .workspace-tab-header {
+    -fx-alignment: center;
+}
+
+.workspace-tabs .workspace-tab-title {
+    -fx-text-fill: -jl-secondary;
+    -fx-font-size: 0.91em;
+    -fx-font-weight: 600;
+}
+
+.workspace-tabs > .tab-header-area .tab:selected .workspace-tab-title {
+    -fx-text-fill: -jl-text;
+}
+
+.workspace-tabs > .tab-header-area .tab:hover .workspace-tab-title {
+    -fx-text-fill: -jl-text;
+}
+
+.workspace-tabs .workspace-tab-close {
+    -fx-min-width: 18;
+    -fx-pref-width: 18;
+    -fx-max-width: 18;
+    -fx-min-height: 18;
+    -fx-pref-height: 18;
+    -fx-max-height: 18;
+    -fx-padding: 0;
+    -fx-background-color: transparent;
+    -fx-background-radius: 999;
+    -fx-background-insets: 0;
+    -fx-border-color: transparent;
+    -fx-content-display: graphic-only;
+    -fx-alignment: center;
+    -fx-graphic-text-gap: 0;
+    -fx-snap-to-pixel: false;
+    -fx-opacity: 0.78;
+    -fx-cursor: hand;
+}
+
+.workspace-tabs .workspace-tab-close-graphic {
+    -fx-min-width: 18;
+    -fx-pref-width: 18;
+    -fx-max-width: 18;
+    -fx-min-height: 18;
+    -fx-pref-height: 18;
+    -fx-max-height: 18;
+    -fx-alignment: center;
+}
+
+.workspace-tabs .workspace-tab-close-glyph {
+    -fx-text-fill: -jl-secondary;
+    -fx-font-size: 16px;
+    -fx-font-weight: 300;
+    -fx-padding: 0 0 1 0;
+    -fx-alignment: center;
+}
+
+.workspace-tabs > .tab-header-area .tab:selected .workspace-tab-close {
+    -fx-opacity: 0.86;
+}
+
+.workspace-tabs > .tab-header-area .tab:selected .workspace-tab-close-glyph {
+    -fx-text-fill: -jl-text;
+}
+
+.workspace-tabs .workspace-tab-close:hover {
+    -fx-background-color: -jl-secondary;
+    -fx-opacity: 1;
+    -fx-effect: null;
+}
+
+.workspace-tabs .workspace-tab-close:hover .workspace-tab-close-glyph {
+    -fx-text-fill: -jl-text;
+}
+
+.workspace-tabs .workspace-tab-close:pressed {
+    -fx-background-color: -jl-secondary;
+    -fx-effect: null;
+}
+
+.workspace-tabs > .tab-header-area .tab-close-button {
+    -fx-background-color: -jl-secondary;
+    -fx-opacity: 0.70;
+    -fx-pref-width: 8;
+    -fx-pref-height: 8;
+    -fx-padding: 4;
+}
+
+.workspace-tabs > .tab-header-area .tab:hover .tab-close-button,
+.workspace-tabs > .tab-header-area .tab:selected .tab-close-button {
+    -fx-opacity: 0.92;
+    -fx-background-color: -jl-text;
+}
+
+.workspace-tabs > .tab-header-area .tab-close-button:hover {
+    -fx-background-color: -jl-text;
+    -fx-opacity: 1;
+    -fx-effect: null;
+}
+
+.workspace-tabs > .tab-header-area .tab-close-button:pressed {
+    -fx-background-color: -jl-secondary;
+    -fx-effect: null;
+}
+
+.session-inner-tabs {
+    -fx-tab-min-height: 26px;
+    -fx-tab-max-height: 26px;
+}
+
+.session-inner-tabs > .tab-header-area {
+    -fx-background-color: -jl-canvas;
+    -fx-border-color: transparent transparent -jl-panel transparent;
+    -fx-padding: 2 42 0 12;
+}
+
+.session-inner-tabs > .tab-header-area > .tab-header-background {
+    -fx-background-color: -jl-canvas;
+}
+
+.session-inner-tabs > .tab-header-area .tab {
+    -fx-background-color: transparent;
+    -fx-background-radius: 5;
+    -fx-border-color: transparent;
+    -fx-padding: 3 12 3 9;
+}
+
+.session-inner-tabs > .tab-header-area .tab:hover {
+    -fx-background-color: -jl-panel;
+}
+
+.session-inner-tabs > .tab-header-area .tab:selected {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+}
+
+.session-inner-tabs > .tab-header-area .tab .tab-label {
+    -fx-text-fill: -jl-secondary;
+    -fx-font-size: 1em;
+    -fx-font-weight: 600;
+    -fx-padding: 0 9 4 0;
+    -fx-border-width: 0 0 2 0;
+}
+
+.session-inner-tabs > .tab-header-area .tab:selected .tab-label {
+    -fx-text-fill: -jl-text;
+    -fx-border-color: transparent transparent -jl-accent transparent;
+}
+
+.workspace-panel {
+    -fx-background-color: -jl-canvas;
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+    -fx-border-color: transparent;
+    -fx-padding: 0;
+}
+
+.top-shell-menu-row {
+    -fx-alignment: center-left;
+}
+
+.toolbar-strip {
+    -fx-alignment: center-left;
+    -fx-background-color: -jl-canvas;
+    -fx-border-color: -jl-panel transparent -jl-panel transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 4 12;
+    -fx-spacing: 4;
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+}
+
+.terminal-status-area {
+    -fx-background-color: transparent;
+}
+
+.terminal-status-bar {
+    -fx-alignment: center-left;
+    -fx-background-color: -jl-canvas;
+    -fx-border-color: -jl-hover transparent transparent transparent;
+    -fx-border-width: 1 0 0 0;
+    -fx-padding: 3 8 3 10;
+    -fx-spacing: 2;
+    -fx-min-height: 31;
+    -fx-pref-height: 31;
+}
+
+.terminal-status-item {
+    -fx-alignment: center-left;
+    -fx-spacing: 5;
+    -fx-padding: 3 7;
+    -fx-background-radius: 5;
+    -fx-cursor: hand;
+}
+
+.terminal-status-item:hover {
+    -fx-background-color: -jl-hover;
+}
+
+.terminal-status-item .action-bar-icon {
+    -fx-background-color: -jl-muted;
+}
+
+.terminal-status-item:hover .action-bar-icon {
+    -fx-background-color: -jl-accent;
+}
+
+.terminal-status-title {
+    -fx-text-fill: -jl-muted;
+    -fx-font-size: 0.82em;
+}
+
+.terminal-status-value {
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 0.84em;
+    -fx-font-weight: 600;
+}
+
+.terminal-status-value.resource-warning,
+.resource-usage-percent.resource-warning {
+    -fx-text-fill: -jl-orange;
+}
+
+.terminal-status-value.resource-danger,
+.resource-usage-percent.resource-danger {
+    -fx-text-fill: -jl-red;
+}
+
+.terminal-server-time {
+    -fx-text-fill: -jl-secondary;
+    -fx-font-size: 0.82em;
+    -fx-font-family: "JetBrains Mono", "Menlo", "Consolas", monospace;
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+
+.terminal-status-hide {
+    -fx-opacity: 0.55;
+    -fx-padding: 3 6;
+}
+
+.terminal-status-hide:hover {
+    -fx-opacity: 0.95;
+}
+
+.terminal-status-reveal {
+    -fx-opacity: 0.38;
+    -fx-padding: 4 8;
+    -fx-background-color: -jl-panel;
+    -fx-border-color: -jl-muted;
+    -fx-border-width: 1;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+}
+
+.terminal-status-reveal:hover {
+    -fx-opacity: 0.92;
+    -fx-background-color: -jl-hover;
+    -fx-border-color: -jl-accent;
+}
+
+.split-pane {
+    -fx-background-color: -jl-canvas;
+    -fx-padding: 0;
+}
+
+.split-pane-divider {
+    -fx-background-color: -jl-panel;
+    -fx-background-insets: 0, 0 1;
+    -fx-background-radius: 0, 2;
+    -fx-padding: 0 2;
+}
+
+.split-pane-divider:hover {
+    -fx-background-color: -jl-panel;
+}
+
+.split-pane.sidebar-collapsed > .split-pane-divider {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+
+.text-field,
+.password-field,
+.text-area {
+    -fx-background-color: -jl-canvas;
+    -fx-text-fill: -jl-text;
+    -fx-prompt-text-fill: -jl-muted;
+    -fx-background-radius: 5;
+    -fx-border-radius: 5;
+    -fx-border-color: -jl-border;
+    -fx-border-width: 1;
+    -fx-padding: 5 8;
+    -fx-font-size: 1em;
+}
+
+.text-field:focused,
+.password-field:focused,
+.text-area:focused {
+    -fx-border-color: -jl-accent;
+    -fx-background-color: -jl-canvas;
+}
+
+.combo-box {
+    -fx-background-color: -jl-border;
+    -fx-border-color: -jl-border;
+    -fx-border-radius: 5;
+    -fx-background-radius: 5;
+    -fx-padding: 2 4;
+}
+
+.combo-box .list-cell {
+    -fx-text-fill: -jl-text;
+    -fx-background-color: transparent;
+    -fx-padding: 3 6;
+}
+
+.combo-box-popup .list-view {
+    -fx-background-color: -jl-hover;
+    -fx-border-color: -jl-border;
+    -fx-border-radius: 5;
+    -fx-background-radius: 5;
+}
+
+.combo-box-popup .list-cell {
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 1em;
+    -fx-padding: 4 8;
+}
+
+.combo-box-popup .list-cell:hover {
+    -fx-background-color: -jl-border;
+    -fx-text-fill: -jl-text;
+}
+
+.combo-box-popup .list-cell:filled:selected {
+    -fx-background-color: -jl-accent-subtle;
+    -fx-text-fill: -jl-text;
+}
+
+.label {
+    -fx-text-fill: -jl-text;
+}
+
+.status-bar {
+    -fx-background-color: -jl-canvas;
+    -fx-border-color: -jl-panel transparent transparent transparent;
+    -fx-border-width: 1 0 0 0;
+    -fx-padding: 2 10;
+    -fx-min-height: 22px;
+    -fx-pref-height: 22px;
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+}
+
+.win-undecorated > .status-bar {
+    -fx-background-radius: 0 0 9 9;
+}
+
+.win-undecorated.win-maximized > .status-bar {
+    -fx-background-radius: 0;
+}
+
+.status-label {
+    -fx-text-fill: -jl-secondary;
+    -fx-font-size: 1em;
+}
+
+.status-dot {
+    -fx-background-color: -jl-green;
+    -fx-background-radius: 999;
+    -fx-min-width: 7px;
+    -fx-min-height: 7px;
+    -fx-pref-width: 7px;
+    -fx-pref-height: 7px;
+    -fx-max-width: 7px;
+    -fx-max-height: 7px;
+}
+
+.status-dot-error {
+    -fx-background-color: -jl-red;
+}
+
+.dialog-pane {
+    -fx-background-color: -jl-hover;
+    -fx-border-color: -jl-border;
+    -fx-border-radius: 0;
+    -fx-background-radius: 0;
+}
+
+.dialog-pane .header-panel {
+    -fx-background-color: -jl-hover;
+    -fx-background-radius: 0;
+}
+
+.dialog-pane .button-bar {
+    -fx-background-color: -jl-hover;
+    -fx-background-radius: 0;
+}
+
+.dialog-pane .content {
+    -fx-background-color: -jl-hover;
+    -fx-background-radius: 0;
+}
+
+.dialog-pane .header-panel .label {
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 1.08em;
+    -fx-font-weight: bold;
+}
+
+.dialog-pane .content.label {
+    -fx-text-fill: -jl-secondary;
+    -fx-font-size: 1em;
+}
+
+.dialog-pane .button-bar .button {
+    -fx-min-width: 72px;
+}
+
+.scroll-bar {
+    -fx-background-color: transparent;
+}
+
+.scroll-bar .thumb {
+    -fx-background-color: -jl-border;
+    -fx-background-radius: 4;
+}
+
+.scroll-bar .thumb:hover {
+    -fx-background-color: -jl-muted;
+}
+
+.scroll-bar .increment-button,
+.scroll-bar .decrement-button {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+
+.scroll-bar .increment-arrow,
+.scroll-bar .decrement-arrow {
+    -fx-shape: "";
+    -fx-padding: 0;
+}
+
+.icon-btn {
+    -fx-background-color: transparent;
+    -fx-text-fill: -jl-secondary;
+    -fx-background-radius: 5;
+    -fx-border-radius: 5;
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+    -fx-padding: 3 7;
+    -fx-font-size: 1em;
+    -fx-min-width: 28px;
+    -fx-min-height: 28px;
+    -fx-cursor: hand;
+}
+
+.action-bar-icon {
+    -fx-background-color: -jl-secondary;
+}
+
+.icon-btn:hover .action-bar-icon {
+    -fx-background-color: -jl-text;
+}
+
+.icon-btn-primary .action-bar-icon {
+    -fx-background-color: -jl-text;
+}
+
+.icon-btn:hover {
+    -fx-background-color: -jl-panel;
+    -fx-border-color: transparent;
+    -fx-text-fill: -jl-text;
+}
+
+.icon-btn:pressed {
+    -fx-background-color: -jl-accent-subtle;
+    -fx-text-fill: -jl-text;
+}
+
+.icon-btn-primary {
+    -fx-background-color: -jl-accent;
+    -fx-text-fill: -jl-white;
+    -fx-border-color: transparent;
+    -fx-font-weight: bold;
+    -fx-padding: 3 10;
+}
+
+.icon-btn-primary:hover {
+    -fx-background-color: -jl-accent-hover;
+}
+
+.sidebar-action-bar {
+    -fx-background-color: -jl-canvas;
+    -fx-background-radius: 4;
+    -fx-border-color: -jl-text;
+    -fx-border-width: 1;
+    -fx-border-radius: 4;
+    -fx-padding: 7 8;
+    -fx-spacing: 6;
+    -fx-alignment: center-left;
+    -fx-effect: null;
+}
+
+.sidebar-action-bar:hover {
+    -fx-background-color: -jl-panel;
+    -fx-border-color: -jl-text;
+}
+
+.sidebar-section-label {
+    -fx-text-fill: -jl-muted;
+    -fx-font-size: 1em;
+    -fx-font-weight: bold;
+    -fx-padding: 8 4 5 4;
+}
+
+.sidebar-section-header {
+    -fx-padding: 3 0 2 0;
+    -fx-alignment: center-left;
+}
+
+.sidebar-section-header .sidebar-section-label {
+    -fx-padding: 5 4;
+}
+
+.sidebar-tree-action {
+    -fx-min-width: 24px;
+    -fx-pref-width: 24px;
+    -fx-min-height: 24px;
+    -fx-pref-height: 24px;
+    -fx-padding: 4px;
+    -fx-opacity: 0.55;
+}
+
+.sidebar-tree-action:hover {
+    -fx-opacity: 0.86;
+}
+
+.sidebar-tree-action:disabled {
+    -fx-opacity: 0.24;
+}
+
+.sidebar-search-row {
+    -fx-background-color: -jl-canvas;
+    -fx-border-color: -jl-border;
+    -fx-border-width: 1;
+    -fx-background-radius: 4;
+    -fx-border-radius: 4;
+    -fx-padding: 3 6;
+    -fx-spacing: 6;
+    -fx-alignment: center-left;
+    -fx-max-width: 420;
+}
+
+.sidebar-search-field {
+    -fx-background-color: transparent;
+    -fx-text-fill: -jl-text;
+    -fx-prompt-text-fill: -jl-muted;
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+    -fx-padding: 3 0;
+    -fx-font-size: 1em;
+}
+
+.sidebar-search-field:focused {
+    -fx-border-color: transparent;
+}
+
+.sidebar-search-row:hover {
+    -fx-border-color: -jl-blue;
+}
+
+.sidebar-search-icon {
+    -fx-background-color: -jl-muted;
+}
+
+.sidebar-search-clear {
+    -fx-background-color: transparent;
+    -fx-text-fill: -jl-muted;
+    -fx-background-radius: 4;
+    -fx-border-radius: 4;
+    -fx-border-color: transparent;
+    -fx-padding: 2 4;
+    -fx-min-width: 20px;
+    -fx-font-size: 1em;
+    -fx-cursor: hand;
+}
+
+.sidebar-search-clear:hover {
+    -fx-background-color: -jl-hover;
+    -fx-text-fill: -jl-text;
+}
+
+.sidebar-reveal-btn {
+    -fx-background-color: transparent;
+    -fx-text-fill: -jl-secondary;
+    -fx-background-radius: 3;
+    -fx-border-radius: 3;
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+    -fx-padding: 2 3;
+    -fx-cursor: hand;
+    -fx-opacity: 0.3;
+}
+
+.sidebar-reveal-btn:hover {
+    -fx-background-color: -jl-hover;
+    -fx-border-color: -jl-hover;
+    -fx-border-width: 1;
+    -fx-opacity: 0.9;
+}
+
+.conn-cell-name {
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 1em;
+}
+
+.conn-cell-summary {
+    -fx-text-fill: -jl-muted;
+    -fx-font-size: 1em;
+}
+
+.list-cell:filled:selected .conn-cell-name {
+    -fx-text-fill: -jl-text;
+}
+
+.list-cell:filled:selected .conn-cell-summary {
+    -fx-text-fill: -jl-text;
+}
+
+.tree-view {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-padding: 0;
+}
+
+.tree-view .scroll-bar:vertical {
+    -fx-background-color: transparent;
+    -fx-pref-width: 8;
+}
+
+.tree-view .scroll-bar:vertical .thumb {
+    -fx-background-color: -jl-border;
+    -fx-background-radius: 4;
+}
+
+.tree-cell {
+    -fx-background-color: transparent;
+    -fx-text-fill: -jl-text;
+    -fx-padding: 3 6;
+    -fx-font-size: 1em;
+    -fx-border-color: transparent;
+    -fx-indent: 12;
+}
+
+.tree-cell:filled:hover {
+    -fx-background-color: -jl-hover;
+    -fx-background-radius: 6;
+}
+
+.tree-cell:filled:selected {
+    -fx-background-color: -jl-accent-subtle;
+    -fx-background-radius: 6;
+}
+
+.tree-cell:filled:selected:focused {
+    -fx-background-color: -jl-accent-subtle;
+}
+
+.tree-cell .tree-disclosure-node .arrow {
+    -fx-background-color: -jl-secondary;
+    -fx-padding: 3;
+}
+
+.tree-cell:filled:selected .tree-disclosure-node .arrow {
+    -fx-background-color: -jl-text;
+}
+
+.folder-item {
+    -fx-alignment: center-left;
+    -fx-spacing: 4;
+}
+
+.folder-item-name {
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 1em;
+}
+
+.tree-cell:filled:selected .folder-item-name {
+    -fx-text-fill: -jl-text;
+}
+
+.connection-item {
+    -fx-alignment: center-left;
+    -fx-spacing: 6;
+}
+
+.tree-cell:filled:selected .conn-cell-name {
+    -fx-text-fill: -jl-text;
+}
+
+.tree-cell:filled:selected .conn-cell-summary {
+    -fx-text-fill: -jl-text;
+}
+
+.action-bar-icon {
+    -fx-background-color: -jl-secondary;
+}
+
+.icon-btn:hover .action-bar-icon {
+    -fx-background-color: -jl-text;
+}
+
+.icon-btn:pressed .action-bar-icon,
+.icon-btn-primary .action-bar-icon {
+    -fx-background-color: -jl-text;
+}
+
+.sidebar-icon-folder {
+    -fx-background-color: -jl-orange;
+}
+
+.sidebar-icon-server {
+    -fx-background-color: -jl-blue;
+}
+
+.sidebar-icon-terminal {
+    -fx-background-color: -jl-green;
+}
+
+.tree-cell:filled:selected .sidebar-icon-folder,
+.tree-cell:filled:selected .sidebar-icon-server,
+.tree-cell:filled:selected .sidebar-icon-terminal {
+    -fx-background-color: -jl-text;
+}
+
+.sysinfo-sep {
+    -fx-background-color: -jl-hover;
+    -fx-pref-width: 1;
+    -fx-min-width: 1;
+    -fx-max-width: 1;
+    -fx-pref-height: 14;
+    -fx-min-height: 14;
+    -fx-max-height: 14;
+    -fx-translate-y: 0;
+}
+
+.sysinfo-section {
+    -fx-alignment: center-left;
+    -fx-spacing: 4;
+    -fx-padding: 3 8;
+    -fx-cursor: hand;
+    -fx-background-color: transparent;
+    -fx-background-radius: 6;
+}
+
+.sysinfo-section .sysinfo-label {
+    -fx-text-fill: -jl-secondary;
+    -fx-font-size: 1em;
+    -fx-font-weight: 600;
+}
+
+.sysinfo-section .action-bar-icon {
+    -fx-background-color: -jl-secondary;
+}
+
+.sysinfo-section:hover {
+    -fx-background-color: -jl-panel;
+}
+
+.sysinfo-section:hover .sysinfo-label {
+    -fx-text-fill: -jl-text;
+}
+
+.sysinfo-section:hover .action-bar-icon {
+    -fx-background-color: -jl-accent;
+}
+
+.hover-card {
+    -fx-background-color: -jl-hover;
+    -fx-border-color: -jl-border;
+    -fx-border-width: 1;
+    -fx-border-radius: 6;
+    -fx-background-radius: 6;
+    -fx-effect: null;
+}
+
+.hover-card-scroll > .viewport {
+    -fx-background-color: transparent;
+}
+
+.hover-card-scroll {
+    -fx-padding: 0;
+    -fx-background-insets: 0;
+}
+
+.card-live-val {
+    -fx-text-fill: -jl-text;
+}
+
+.plugin-quick-item {
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 1em;
+    -fx-padding: 5 10;
+    -fx-cursor: hand;
+    -fx-background-radius: 4;
+}
+
+.plugin-quick-item:hover {
+    -fx-background-color: -jl-border;
+    -fx-text-fill: -jl-text;
+}
+
+.sysinfo-sep-group {
+    -fx-background-color: -jl-hover;
+    -fx-pref-width: 1;
+    -fx-margin: 0 4;
+    -fx-min-height: 14;
+    -fx-pref-height: 14;
+    -fx-max-height: 14;
+    -fx-alignment: center;
+}
+
+.plugin-pinned-btn {
+    -fx-alignment: center-left;
+    -fx-spacing: 4;
+    -fx-padding: 3 8;
+    -fx-cursor: hand;
+    -fx-background-radius: 6;
+}
+
+.plugin-pinned-btn:hover {
+    -fx-background-color: -jl-panel;
+}
+
+.plugin-pinned-btn:hover .sysinfo-label {
+    -fx-text-fill: -jl-text;
+}
+
+.plugin-pinned-btn:hover .action-bar-icon {
+    -fx-background-color: -jl-accent;
+}
+
+.card-row {
+    -fx-alignment: center-left;
+    -fx-spacing: 6;
+    -fx-padding: 2 0;
+}
+
+.card-key {
+    -fx-text-fill: -jl-secondary;
+    -fx-font-size: 1em;
+    -fx-pref-width: 130px;
+    -fx-min-width: 130px;
+}
+
+.card-val {
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 1em;
+    -fx-font-family: "JetBrains Mono", "Menlo", "Consolas", monospace;
+}
+
+.card-section {
+    -fx-text-fill: -jl-accent;
+    -fx-font-size: 1em;
+    -fx-font-weight: bold;
+    -fx-padding: 6 0 2 0;
+}
+
+.card-mono {
+    -fx-text-fill: -jl-secondary;
+    -fx-font-size: 0.77em;
+    -fx-font-family: "JetBrains Mono", "Menlo", "Consolas", monospace;
+}
+
+.card-bar-track {
+    -fx-background-color: -jl-border;
+    -fx-background-radius: 3;
+}
+
+.resource-usage-row {
+    -fx-padding: 1 0 5 0;
+}
+
+.resource-usage-progress {
+    -fx-pref-height: 7;
+    -fx-min-height: 7;
+    -fx-max-height: 7;
+}
+
+.resource-usage-progress > .track {
+    -fx-background-color: -jl-border;
+    -fx-background-radius: 4;
+}
+
+.resource-usage-progress > .bar {
+    -fx-background-color: -jl-green;
+    -fx-background-insets: 0;
+    -fx-background-radius: 4;
+    -fx-padding: 0;
+}
+
+.resource-usage-progress.resource-warning > .bar {
+    -fx-background-color: -jl-orange;
+}
+
+.resource-usage-progress.resource-danger > .bar {
+    -fx-background-color: -jl-red;
+}
+
+.process-table {
+    -fx-background-color: -jl-panel;
+    -fx-border-color: -jl-border;
+    -fx-border-width: 1;
+    -fx-border-radius: 5;
+    -fx-background-radius: 5;
+}
+
+.process-table-row {
+    -fx-alignment: center-left;
+    -fx-padding: 5 7;
+    -fx-border-color: transparent transparent -jl-border transparent;
+    -fx-border-width: 0 0 1 0;
+}
+
+.process-table-header {
+    -fx-background-color: -jl-panel;
+}
+
+.process-table-header-label {
+    -fx-text-fill: -jl-secondary;
+    -fx-font-size: 0.76em;
+    -fx-font-weight: 700;
+}
+
+.process-table-title {
+    -fx-padding: 0;
+}
+
+.process-copy-hint {
+    -fx-text-fill: -jl-muted;
+    -fx-font-size: 0.72em;
+}
+
+.process-table-value {
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 0.75em;
+    -fx-font-family: "JetBrains Mono", "Menlo", "Consolas", monospace;
+}
+
+.process-pid-value {
+    -fx-text-fill: -jl-blue;
+    -fx-cursor: hand;
+}
+
+.process-pid-value:hover {
+    -fx-text-fill: -jl-blue;
+    -fx-underline: true;
+}
+
+.process-pid-value.process-pid-copied {
+    -fx-text-fill: -jl-green;
+    -fx-underline: false;
+}
+
+.process-table-empty {
+    -fx-text-fill: -jl-muted;
+    -fx-font-size: 0.78em;
+    -fx-padding: 8;
+}
+
+.disk-table {
+    -fx-background-color: -jl-panel;
+    -fx-border-color: -jl-border;
+    -fx-border-width: 1;
+    -fx-border-radius: 5;
+    -fx-background-radius: 5;
+}
+
+.disk-table-header {
+    -fx-padding: 7 9;
+    -fx-background-color: -jl-panel;
+    -fx-border-color: transparent transparent -jl-border transparent;
+    -fx-border-width: 0 0 1 0;
+}
+
+.disk-table-header-label {
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 0.82em;
+    -fx-font-weight: 700;
+}
+
+.disk-table-row {
+    -fx-padding: 7 9;
+    -fx-border-color: transparent transparent -jl-border transparent;
+    -fx-border-width: 0 0 1 0;
+}
+
+.disk-table-row:hover {
+    -fx-background-color: -jl-hover;
+}
+
+.disk-table-path,
+.disk-table-capacity {
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 0.82em;
+}
+
+.disk-table-capacity {
+    -fx-font-family: "JetBrains Mono", "Menlo", "Consolas", monospace;
+}
+
+.disk-table-progress-track {
+    -fx-background-color: -jl-border;
+    -fx-background-radius: 2;
+}
+
+.disk-table-progress-fill {
+    -fx-background-color: -jl-green;
+    -fx-background-radius: 2;
+}
+
+.disk-table-progress-fill.disk-progress-warning {
+    -fx-background-color: -jl-orange;
+}
+
+.disk-table-progress-fill.disk-progress-danger {
+    -fx-background-color: -jl-red;
+}
+
+.disk-table-scroll,
+.disk-table-scroll > .viewport {
+    -fx-background-color: transparent;
+}
+
+.disk-table-scroll {
+    -fx-border-color: transparent;
+    -fx-padding: 0;
+}
+
+.sftp-pane-header {
+    -fx-text-fill: -jl-secondary;
+    -fx-font-size: 1em;
+    -fx-font-weight: bold;
+    -fx-padding: 0 0 4 0;
+}
+
+.sftp-nav-bar {
+    -fx-background-color: -jl-hover;
+    -fx-border-color: transparent transparent -jl-border transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 3 4;
+    -fx-spacing: 4;
+    -fx-alignment: center-left;
+}
+
+.sftp-follow-cwd-checkbox {
+    -fx-font-size: 1em;
+    -fx-text-fill: -jl-secondary;
+}
+
+.sftp-path-field {
+    -fx-background-color: -jl-hover;
+    -fx-text-fill: -jl-secondary;
+    -fx-font-size: 1em;
+    -fx-border-color: -jl-border;
+    -fx-border-radius: 3;
+    -fx-background-radius: 3;
+    -fx-padding: 2 6;
+}
+
+.sftp-path-field:focused {
+    -fx-border-color: -jl-accent;
+    -fx-text-fill: -jl-text;
+}
+
+.sftp-section-label {
+    -fx-text-fill: -jl-muted;
+    -fx-font-size: 1em;
+    -fx-font-weight: bold;
+    -fx-padding: 4 4 2 4;
+}
+
+.sftp-file-table {
+    -fx-background-color: -jl-canvas;
+    -fx-border-color: -jl-border;
+    -fx-border-width: 1;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+}
+
+.sftp-file-table .column-header-background {
+    -fx-background-color: -jl-hover;
+}
+
+.sftp-file-table .column-header {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent -jl-border transparent transparent;
+    -fx-border-width: 0 1 0 0;
+}
+
+.sftp-file-table .column-header .label {
+    -fx-text-fill: -jl-secondary;
+    -fx-font-size: 1em;
+    -fx-font-weight: bold;
+    -fx-alignment: center-left;
+}
+
+.sftp-file-table .table-row-cell {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-table-cell-border-color: transparent;
+}
+
+.sftp-file-table .table-row-cell:odd {
+    -fx-background-color: -jl-panel;
+}
+
+.sftp-file-table .table-row-cell:hover {
+    -fx-background-color: -jl-border;
+}
+
+.sftp-file-table .table-row-cell:selected {
+    -fx-background-color: -jl-accent-subtle;
+}
+
+.sftp-file-table .table-cell {
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 1em;
+    -fx-padding: 3 6;
+    -fx-border-color: transparent;
+}
+
+.sftp-file-table .table-row-cell:selected .table-cell {
+    -fx-text-fill: -jl-text;
+}
+
+.sidebar-project-label {
+    -fx-text-fill: -jl-secondary;
+    -fx-font-size: 0.9em;
+    -fx-font-weight: 700;
+    -fx-padding: 0;
+}
+
+.sidebar-project-row {
+    -fx-background-color: -jl-panel;
+    -fx-background-radius: 4;
+    -fx-border-color: -jl-accent-border, -jl-text;
+    -fx-border-insets: 0, 1;
+    -fx-border-width: 1;
+    -fx-border-radius: 4;
+    -fx-padding: 10 12;
+    -fx-alignment: center-left;
+    -fx-spacing: 8;
+    -fx-effect: null;
+}
+
+.sidebar-project-row:hover {
+    -fx-background-color: -jl-panel;
+    -fx-border-color: -jl-accent-border, -jl-text;
+}
+
+.sidebar-project-combo {
+    -fx-background-color: -jl-canvas;
+    -fx-border-color: -jl-secondary;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+    -fx-padding: 3 8;
+    -fx-font-size: 0.9em;
+    -fx-font-weight: 700;
+    -fx-text-fill: -jl-text;
+}
+
+.sidebar-project-combo:hover {
+    -fx-background-color: -jl-canvas;
+    -fx-border-color: -jl-secondary;
+}
+
+.sidebar-project-combo:focused,
+.sidebar-project-combo:showing {
+    -fx-background-color: -jl-canvas;
+    -fx-border-color: -jl-secondary;
+}
+
+.sidebar-project-combo .arrow {
+    -fx-background-color: -jl-text;
+}
+
+.sidebar-project-combo .arrow-button {
+    -fx-padding: 0 0 0 6;
+}
+
+.sidebar-project-row .icon-btn .action-bar-icon {
+    -fx-background-color: -jl-secondary;
+}
+
+.sidebar-project-row .icon-btn:hover .action-bar-icon {
+    -fx-background-color: -jl-text;
+}
+
+.sidebar-project-combo .list-cell,
+.sidebar-project-cell {
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 0.9em;
+    -fx-font-weight: 700;
+    -fx-background-color: transparent;
+    -fx-padding: 2 4;
+}
+
+.combo-box-popup .sidebar-project-combo-popup {
+    -fx-background-color: -jl-panel;
+    -fx-border-color: -jl-blue, -jl-text;
+    -fx-border-insets: 0, 1;
+    -fx-border-width: 1;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+    -fx-padding: 4;
+    -fx-effect: null;
+}
+
+.combo-box-popup .sidebar-project-combo-popup .list-cell,
+.sidebar-project-cell:filled {
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 1em;
+    -fx-font-weight: normal;
+    -fx-padding: 6 10;
+    -fx-background-radius: 6;
+}
+
+.combo-box-popup .sidebar-project-combo-popup .list-cell:hover,
+.sidebar-project-cell:filled:hover {
+    -fx-background-color: -jl-text;
+}
+
+.combo-box-popup .sidebar-project-combo-popup .list-cell:filled:selected,
+.sidebar-project-cell:filled:selected {
+    -fx-background-color: -jl-blue;
+    -fx-text-fill: -jl-text;
+}
+
+.sidebar-project-inline-label {
+    -fx-text-fill: -jl-secondary;
+    -fx-font-size: 1em;
+    -fx-font-weight: bold;
+}
+
+.welcome-pane {
+    -fx-background-color: -jl-canvas;
+    -fx-alignment: center;
+}
+
+.welcome-pane .welcome-title {
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 2.15em;
+    -fx-font-weight: bold;
+}
+
+.welcome-pane .welcome-subtitle {
+    -fx-text-fill: -jl-secondary;
+    -fx-font-size: 1.08em;
+}
+
+.welcome-pane .welcome-section-label {
+    -fx-text-fill: -jl-secondary;
+    -fx-font-size: 1em;
+    -fx-font-weight: bold;
+}
+
+.welcome-pane .action-btn {
+    -fx-background-color: -jl-accent-subtle;
+    -fx-text-fill: -jl-white;
+    -fx-border-color: -jl-accent;
+    -fx-background-radius: 6;
+    -fx-border-radius: 6;
+    -fx-padding: 8 24;
+    -fx-font-size: 1.08em;
+    -fx-cursor: hand;
+}
+
+.welcome-pane .action-btn:hover {
+    -fx-background-color: -jl-accent-hover;
+}
+
+.welcome-pane .action-btn-secondary {
+    -fx-background-color: -jl-border;
+    -fx-text-fill: -jl-text;
+    -fx-border-color: -jl-border;
+    -fx-background-radius: 6;
+    -fx-border-radius: 6;
+    -fx-padding: 8 24;
+    -fx-font-size: 1.08em;
+    -fx-cursor: hand;
+}
+
+.welcome-pane .action-btn-secondary:hover {
+    -fx-background-color: -jl-border;
+}
+
+.welcome-pane .welcome-help-item {
+    -fx-text-fill: -jl-muted;
+    -fx-font-size: 1em;
+}
+
+.welcome-pane .separator .line {
+    -fx-border-color: -jl-border;
+    -fx-border-width: 1 0 0 0;
+}
+
+.welcome-pane .welcome-connection-row {
+    -fx-alignment: center-left;
+    -fx-spacing: 8;
+    -fx-padding: 6 10;
+    -fx-cursor: hand;
+    -fx-background-color: transparent;
+    -fx-background-radius: 4;
+}
+
+.welcome-pane .welcome-connection-row:hover {
+    -fx-background-color: derive(-jl-canvas, 15%);
+}
+
+.welcome-pane .welcome-conn-name {
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 1em;
+}
+
+.welcome-pane .welcome-conn-summary {
+    -fx-text-fill: -jl-muted;
+    -fx-font-size: 1em;
+}
+
+.welcome-pane .welcome-conn-folder {
+    -fx-text-fill: -jl-secondary;
+    -fx-font-size: 1em;
+}
+
+.welcome-pane .welcome-conn-time {
+    -fx-text-fill: -jl-muted;
+    -fx-font-size: 0.77em;
+    -fx-alignment: center-right;
+}
+
+.welcome-pane .welcome-empty-label {
+    -fx-text-fill: -jl-muted;
+    -fx-font-size: 1em;
+    -fx-padding: 8 0;
+}
+
+.welcome-pane .welcome-scroll-pane {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-fit-to-width: true;
+}
+
+.welcome-pane .welcome-scroll-pane .viewport {
+    -fx-background-color: transparent;
+}
+
+.welcome-pane .welcome-scroll-pane .scroll-bar:vertical .thumb {
+    -fx-background-color: derive(-jl-canvas, 25%);
+    -fx-background-radius: 4;
+}
+
+.progress-bar {
+    -fx-indeterminate-bar-length: 60;
+    -fx-indeterminate-bar-escape: true;
+}
+
+.progress-bar > .track {
+    -fx-background-color: -jl-border;
+    -fx-background-radius: 3;
+}
+
+.progress-bar > .bar {
+    -fx-background-color: -jl-blue;
+    -fx-background-insets: 0;
+    -fx-background-radius: 3;
+}
+
+.progress-bar > .bar:disabled {
+    -fx-opacity: 0.4;
+}
+
+.custom-title-bar {
+    -fx-background-color: -jl-hover;
+    -fx-background-radius: 9 9 0 0;
+    -fx-border-color: transparent transparent -jl-border transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 0 4 0 0;
+    -fx-pref-height: 32px;
+    -fx-alignment: center-left;
+}
+
+.win-maximized > .custom-title-bar {
+    -fx-background-radius: 0;
+}
+
+.custom-title-bar .embedded-menu-bar {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-padding: 0;
+}
+
+.custom-title-bar .title-label {
+    -fx-text-fill: -jl-secondary;
+    -fx-font-size: 1em;
+    -fx-padding: 0 8;
+}
+
+.custom-title-bar .window-btn {
+    -fx-background-color: transparent;
+    -fx-text-fill: -jl-secondary;
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+    -fx-border-color: transparent;
+    -fx-padding: 0;
+    -fx-min-width: 46px;
+    -fx-min-height: 32px;
+    -fx-font-size: 1em;
+    -fx-cursor: hand;
+}
+
+.custom-title-bar .window-btn:hover {
+    -fx-background-color: -jl-border;
+    -fx-text-fill: -jl-text;
+}
+
+.custom-title-bar .window-btn-close:hover {
+    -fx-background-color: -jl-red-subtle;
+    -fx-text-fill: -jl-text;
+}
+
+.import-manual-table {
+    -fx-background-color: -jl-canvas;
+    -fx-border-color: -jl-border;
+    -fx-border-width: 1;
+    -fx-table-cell-border-color: transparent;
+}
+
+.import-manual-table .column-header-background {
+    -fx-background-color: -jl-hover;
+}
+
+.import-manual-table .column-header {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent -jl-border transparent transparent;
+    -fx-border-width: 0 1 0 0;
+    -fx-padding: 6 8;
+}
+
+.import-manual-table .column-header .label {
+    -fx-text-fill: -jl-secondary;
+    -fx-font-size: 1em;
+    -fx-font-weight: bold;
+    -fx-alignment: center-left;
+}
+
+.import-manual-table .table-row-cell {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-table-cell-border-color: transparent;
+}
+
+.import-manual-table .table-row-cell:odd {
+    -fx-background-color: -jl-panel;
+}
+
+.import-manual-table .table-row-cell:hover {
+    -fx-background-color: -jl-border;
+}
+
+.import-manual-table .table-row-cell:selected {
+    -fx-background-color: -jl-accent-subtle;
+}
+
+.import-manual-table .table-cell {
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 1em;
+    -fx-padding: 4 8;
+    -fx-border-color: transparent;
+    -fx-alignment: center-left;
+}
+
+.import-manual-table .table-row-cell:selected .table-cell {
+    -fx-text-fill: -jl-text;
+}
+
+.import-manual-table .text-field,
+.import-manual-table .combo-box {
+    -fx-background-color: -jl-hover;
+    -fx-text-fill: -jl-text;
+    -fx-border-color: -jl-accent;
+}
+
+.import-manual-table .combo-box-popup .list-view,
+.import-manual-table .combo-box-popup .list-cell {
+    -fx-background-color: -jl-hover;
+    -fx-text-fill: -jl-text;
+}
+
+.import-manual-table .combo-box-popup .list-cell:hover {
+    -fx-background-color: -jl-border;
+}
+
+.import-json-sample {
+    -fx-background-color: -jl-hover;
+    -fx-border-color: -jl-border;
+    -fx-border-width: 1;
+    -fx-background-radius: 4;
+    -fx-border-radius: 4;
+    -fx-effect: null;
+}
+
+.import-json-sample .label {
+    -fx-text-fill: -jl-text;
+}
+
+.import-json-code {
+    -fx-background-color: -jl-canvas;
+    -fx-text-fill: -jl-text;
+    -fx-prompt-text-fill: -jl-muted;
+    -fx-font-family: "JetBrains Mono", "SauceCodePro Nerd Font Mono", monospace;
+    -fx-font-size: 1em;
+    -fx-border-color: -jl-border;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+}
+
+.import-json-code:focused {
+    -fx-border-color: -jl-accent;
+}
+
+.disconnect-overlay {
+    -fx-background-color: -jl-canvas;
+}
+
+.disconnect-card {
+    -fx-background-color: -jl-hover;
+    -fx-border-color: -jl-border;
+    -fx-border-width: 1;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+    -fx-padding: 24 32 24 32;
+    -fx-spacing: 10;
+}
+
+.disconnect-reason {
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 1.08em;
+}
+
+.disconnect-reconnect-btn {
+    -fx-background-color: -jl-accent;
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 1em;
+    -fx-font-weight: bold;
+    -fx-padding: 8 20 8 20;
+    -fx-background-radius: 6;
+    -fx-cursor: hand;
+}
+
+.disconnect-reconnect-btn:hover {
+    -fx-background-color: -jl-accent-hover;
+}
+
+.disconnect-reconnect-btn:pressed {
+    -fx-background-color: -jl-accent-hover;
+}
+
+.project-active-badge {
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 12px;
+    -fx-font-weight: 700;
+    -fx-padding: 2 7 2 7;
+    -fx-background-color: -jl-accent-subtle;
+    -fx-background-radius: 4;
+    -fx-effect: null;
+}
+
+.project-manager-content {
+    -fx-background-color: transparent;
+}
+
+.project-manager-list {
+    -fx-background-color: -jl-canvas;
+    -fx-background-radius: 4;
+    -fx-border-color: -jl-border;
+    -fx-border-radius: 4;
+    -fx-padding: 4;
+    -fx-max-width: 280;
+}
+
+.project-manager-search {
+    -fx-background-color: -jl-canvas;
+    -fx-background-radius: 4;
+    -fx-border-color: -jl-border;
+    -fx-border-radius: 4;
+    -fx-padding: 7 10;
+}
+
+.project-manager-search:focused {
+    -fx-border-color: -jl-accent;
+}
+
+.project-manager-list .list-cell {
+    -fx-background-color: transparent;
+    -fx-padding: 2 4 2 4;
+}
+
+.project-manager-list .list-cell:filled:selected .project-manager-item,
+.project-manager-list .list-cell:filled:hover .project-manager-item {
+    -fx-background-color: -jl-accent-subtle;
+    -fx-border-color: transparent;
+}
+
+.project-manager-item {
+    -fx-padding: 6 10 6 10;
+    -fx-background-radius: 4;
+    -fx-border-radius: 4;
+    -fx-border-color: transparent;
+    -fx-spacing: 2;
+    -fx-max-width: 246;
+}
+
+.project-manager-item-active {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+}
+
+.project-manager-list .list-cell:filled:selected .project-manager-item-active,
+.project-manager-list .list-cell:filled:hover .project-manager-item-active {
+    -fx-background-color: -jl-accent-subtle;
+    -fx-border-color: transparent;
+}
+
+.project-manager-item-name {
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 1em;
+    -fx-font-weight: 700;
+}
+
+.project-manager-item-description {
+    -fx-text-fill: -jl-secondary;
+    -fx-font-size: 12px;
+}
+
+.project-manager-form {
+    -fx-padding: 2 0 0 0;
+}
+
+.project-manager-field-label {
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 1em;
+    -fx-font-weight: 700;
+}
+
+.project-manager-input {
+    -fx-font-size: 1em;
+}
+
+/* IDEA TabbedPaneHeaderComponent / ListPluginComponent / PluginDetailsPageComponent.
+   页签和内容分离，列表采用 10px 内边距；不使用卡片轮廓或逐行亮色边框。 */
+.plugin-scope-badge, .plugin-state-badge {
+    -fx-font-size: 12px;
+    -fx-padding: 2 6;
+    -fx-background-radius: 4;
+    -fx-border-width: 0;
+    -fx-text-fill: -jl-text;
+    -fx-background-color: -jl-hover;
+}
+.plugin-version-label { -fx-font-size: 12px; -fx-text-fill: -jl-secondary; }
+.plugin-manager-pane { -fx-padding: 0; -fx-background-color: -jl-canvas; }
+.plugin-manager-tabs {
+    -fx-background-color: -jl-canvas;
+    -fx-border-width: 0;
+    -fx-tab-min-height: 28px;
+}
+.plugin-manager-tabs > .tab-header-area {
+    -fx-padding: 0 12 6 12;
+    -fx-background-color: -jl-canvas;
+}
+.plugin-manager-tabs > .tab-header-area > .tab-header-background { -fx-background-color: transparent; }
+.plugin-manager-tabs > .tab-header-area .tab {
+    -fx-background-color: transparent;
+    -fx-background-radius: 4;
+    -fx-padding: 4 12;
+}
+.plugin-manager-tabs > .tab-header-area .tab:hover { -fx-background-color: -jl-hover; }
+.plugin-manager-tabs > .tab-header-area .tab:selected { -fx-background-color: -jl-blue-subtle; }
+.plugin-manager-tabs > .tab-header-area .tab .tab-label { -fx-text-fill: -jl-text; }
+.plugin-external-tabs > .tab-header-area {
+    -fx-min-height: 0; -fx-pref-height: 0; -fx-max-height: 0; -fx-padding: 0;
+}
+.plugin-manager-tabs > .tab-content-area, .plugin-marketplace-root, .plugin-content-split {
+    -fx-background-color: -jl-canvas; -fx-padding: 0;
+}
+.plugin-content-split > .split-pane-divider {
+    -fx-background-color: -jl-border; -fx-padding: 0 0.5;
+}
+.plugin-list-pane { -fx-padding: 0; -fx-background-color: -jl-canvas; }
+.plugin-toolbar { -fx-alignment: center-left; -fx-padding: 4 8; }
+.plugin-toolbar .text-field, .plugin-toolbar .combo-box, .plugin-toolbar .button {
+    -fx-pref-height: 28px; -fx-font-size: 1em;
+}
+.plugin-toolbar .combo-box { -fx-min-width: 112px; -fx-pref-width: 112px; }
+.plugin-search-field { -fx-pref-height: 28px; }
+.plugin-manager-list {
+    -fx-background-color: -jl-canvas; -fx-border-width: 0; -fx-padding: 0;
+}
+.plugin-manager-list .list-cell, .plugin-manager-list .list-cell:odd {
+    -fx-padding: 0; -fx-background-color: -jl-canvas; -fx-border-width: 0;
+}
+.plugin-manager-list .list-cell:filled:hover { -fx-background-color: -jl-hover; }
+.plugin-manager-list .list-cell:filled:selected,
+.plugin-manager-list .list-cell:filled:selected:focused { -fx-background-color: -jl-blue-subtle; }
+.plugin-list-cell-content { -fx-padding: 10; -fx-min-height: 74px; }
+.plugin-avatar {
+    -fx-min-width: 40px; -fx-pref-width: 40px; -fx-max-width: 40px;
+    -fx-min-height: 40px; -fx-pref-height: 40px; -fx-max-height: 40px;
+    -fx-background-color: -jl-blue-subtle; -fx-background-radius: 6;
+}
+.plugin-avatar-text { -fx-text-fill: -jl-text; -fx-font-size: 20px; -fx-font-weight: bold; }
+.plugin-item-name { -fx-text-fill: -jl-text; -fx-font-size: 1em; -fx-font-weight: bold; }
+.plugin-item-description, .plugin-item-meta, .plugin-detail-author,
+.plugin-detail-meta, .plugin-detail-id { -fx-text-fill: -jl-secondary; }
+.plugin-item-description, .plugin-item-meta { -fx-font-size: 12px; }
+.plugin-detail-scroll, .plugin-detail-scroll > .viewport { -fx-background-color: -jl-canvas; }
+.plugin-detail-pane { -fx-padding: 16 20; -fx-spacing: 12; -fx-background-color: -jl-canvas; }
+.plugin-detail-title { -fx-text-fill: -jl-text; -fx-font-size: 20px; -fx-font-weight: bold; }
+.plugin-detail-description { -fx-text-fill: -jl-text; -fx-font-size: 1em; -fx-line-spacing: 2px; }
+.plugin-detail-section-title { -fx-text-fill: -jl-text; -fx-font-size: 1em; -fx-font-weight: bold; }
+.plugin-detail-meta-key { -fx-text-fill: -jl-secondary; -fx-min-width: 100px; }
+.plugin-detail-meta-value { -fx-text-fill: -jl-text; }
+.plugin-detail-warning {
+    -fx-text-fill: -jl-text; -fx-background-color: -jl-hover;
+    -fx-background-radius: 4; -fx-padding: 8 10;
+}
+.plugin-detail-pane .separator .line { -fx-border-color: -jl-border; }
+.plugin-install-button, .plugin-enable-button, .plugin-disable-button, .plugin-uninstall-button {
+    -fx-text-fill: -jl-text; -fx-background-color: -jl-canvas; -fx-border-color: -jl-border;
+    -fx-border-width: 1; -fx-border-radius: 4; -fx-background-radius: 4;
+    -fx-font-size: 1em; -fx-font-weight: normal; -fx-padding: 4 12;
+}
+.plugin-install-button { -fx-text-fill: white; -fx-background-color: -jl-accent; -fx-border-color: -jl-accent; }
+.plugin-install-button:hover { -fx-background-color: -jl-accent; -fx-border-color: -jl-accent-border; }
+.plugin-enable-button:hover, .plugin-disable-button:hover, .plugin-uninstall-button:hover {
+    -fx-text-fill: -jl-text; -fx-background-color: -jl-hover;
+}
+.plugin-install-progress {
+    -fx-pref-height: 5;
+    -fx-max-height: 5;
+}
+
+.plugin-status,
+.plugin-empty-state {
+    -fx-text-fill: -jl-muted;
+    -fx-font-size: 0.88em;
+}
+
+.settings-page,
+.settings-scroll-pane,
+.settings-scroll-pane > .viewport {
+    -fx-background-color: -jl-hover;
+}
+
+.settings-card-grid {
+    -fx-padding: 16 18 20 18;
+}
+
+.settings-card {
+    -fx-padding: 18 20 20 20;
+    -fx-spacing: 8;
+    -fx-background-color: -jl-panel;
+    -fx-border-color: -jl-border;
+    -fx-border-width: 1;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+}
+
+.settings-directory-workspace {
+    -fx-background-color: transparent;
+}
+
+.settings-directory {
+    -fx-padding: 14 12;
+    -fx-background-color: -jl-panel;
+    -fx-border-color: -jl-border;
+    -fx-border-width: 1;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+}
+
+.settings-directory-title {
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 1.02em;
+    -fx-font-weight: 800;
+}
+
+.settings-directory-hint {
+    -fx-text-fill: -jl-secondary;
+    -fx-font-size: 0.82em;
+}
+
+.settings-directory-item {
+    -fx-padding: 8 10;
+    -fx-background-color: transparent;
+    -fx-background-radius: 6;
+    -fx-text-fill: -jl-secondary;
+    -fx-font-weight: 600;
+}
+
+.settings-directory-item:hover {
+    -fx-background-color: -jl-hover;
+}
+
+.settings-directory-item:selected {
+    -fx-background-color: -jl-accent-subtle;
+    -fx-text-fill: -jl-text;
+}
+
+.settings-card-title {
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 1.12em;
+    -fx-font-weight: 800;
+}
+
+.settings-card-description {
+    -fx-text-fill: -jl-secondary;
+    -fx-font-size: 0.87em;
+}
+
+.account-status-badge {
+    -fx-padding: 3 8;
+    -fx-background-color: -jl-accent-subtle;
+    -fx-background-radius: 4;
+    -fx-text-fill: -jl-text;
+    -fx-font-weight: normal;
+}
+
+.settings-card .separator {
+    -fx-padding: 7 0 9 0;
+}
+
+.settings-card .separator .line {
+    -fx-border-color: -jl-hover;
+}
+
+.about-page,
+.about-scroll-pane,
+.about-scroll-pane > .viewport {
+    -fx-background-color: -jl-canvas;
+}
+
+.about-page {
+    -fx-padding: 12 18 14 18;
+}
+
+.about-content {
+    -fx-spacing: 8;
+}
+
+.about-hero {
+    -fx-padding: 12 16;
+    -fx-background-color: -jl-panel;
+    -fx-border-color: -jl-border;
+    -fx-border-width: 1;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+}
+
+.about-logo {
+    -fx-min-width: 72px;
+    -fx-min-height: 72px;
+    -fx-pref-width: 72px;
+    -fx-pref-height: 72px;
+    -fx-background-color: transparent;
+}
+
+.about-app-name {
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 1.35em;
+    -fx-font-weight: 900;
+}
+
+.about-description,
+.about-card-description,
+.about-link-description,
+.about-tech-stack,
+.about-footer {
+    -fx-text-fill: -jl-secondary;
+    -fx-font-size: 1em;
+}
+
+.about-version-badge {
+    -fx-padding: 4 9;
+    -fx-background-color: -jl-accent-subtle;
+    -fx-background-radius: 4;
+    -fx-text-fill: -jl-text;
+    -fx-font-weight: 700;
+}
+
+.about-compact-action {
+    -fx-min-height: 30px;
+    -fx-pref-height: 30px;
+    -fx-padding: 4 9;
+    -fx-background-color: transparent;
+    -fx-border-color: -jl-border;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 1em;
+    -fx-cursor: hand;
+}
+
+.about-compact-action .about-link-icon {
+    -fx-background-color: -jl-blue;
+}
+
+.about-compact-action:hover {
+    -fx-background-color: -jl-hover;
+    -fx-border-color: -jl-accent;
+}
+
+.about-runtime-copy {
+    -fx-min-height: 26px;
+    -fx-pref-height: 26px;
+    -fx-padding: 3 8;
+    -fx-font-size: 1em;
+}
+
+.about-card {
+    -fx-padding: 10 14 11 14;
+    -fx-spacing: 4;
+    -fx-background-color: transparent;
+    -fx-border-color: transparent transparent -jl-border transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+}
+
+.about-card-title {
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 1em;
+    -fx-font-weight: 800;
+}
+
+.about-card-description {
+    -fx-font-size: 12px;
+}
+
+.about-card .separator {
+    -fx-padding: 3 0 4 0;
+}
+
+.about-card .separator .line {
+    -fx-border-color: -jl-hover;
+}
+
+.about-links {
+    -fx-padding: 1 0 0 0;
+}
+
+.about-link-button {
+    -fx-min-width: 0;
+    -fx-min-height: 62px;
+    -fx-pref-height: 62px;
+    -fx-max-height: 62px;
+    -fx-padding: 8 10;
+    -fx-alignment: center-left;
+    -fx-background-color: -jl-canvas;
+    -fx-border-color: -jl-border;
+    -fx-border-width: 1;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+    -fx-cursor: hand;
+}
+
+.about-link-button:hover {
+    -fx-background-color: -jl-panel;
+    -fx-border-color: -jl-accent;
+}
+
+.about-link-icon-box {
+    -fx-background-color: transparent;
+    -fx-background-radius: 4;
+}
+
+.about-link-icon {
+    -fx-background-color: -jl-blue;
+}
+
+.about-link-button:hover .about-link-icon-box {
+    -fx-background-color: transparent;
+}
+
+.about-link-button:hover .about-link-icon {
+    -fx-background-color: -jl-blue;
+}
+
+.about-link-title {
+    -fx-text-fill: -jl-text;
+    -fx-font-weight: bold;
+}
+
+.about-link-button:hover .about-link-title {
+    -fx-text-fill: -jl-blue;
+}
+
+.about-link-description {
+    -fx-font-size: 12px;
+}
+
+.about-chip-list {
+    -fx-padding: 2 0 0 0;
+}
+
+.about-chip {
+    -fx-padding: 3 8;
+    -fx-background-color: -jl-hover;
+    -fx-background-radius: 4;
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 12px;
+}
+
+.about-tech-stack {
+    -fx-font-size: 12px;
+}
+
+.about-info-key {
+    -fx-text-fill: -jl-secondary;
+    -fx-font-size: 1em;
+}
+
+.about-info-value {
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 1em;
+    -fx-font-weight: 600;
+}
+
+.about-detail-cards > .about-card {
+    -fx-pref-width: 320px;
+}
+
+.about-footer {
+    -fx-padding: 2 0 0 0;
+    -fx-font-size: 12px;
+    -fx-alignment: center;
+}
+
+.settings-form {
+    -fx-padding: 2 0 0 0;
+}
+
+.settings-field-label {
+    -fx-text-fill: -jl-secondary;
+    -fx-font-size: 1em;
+}
+
+.settings-preview-box {
+    -fx-min-height: 44px;
+    -fx-padding: 8 12;
+    -fx-background-color: -jl-canvas;
+    -fx-border-color: -jl-border;
+    -fx-border-radius: 5;
+    -fx-background-radius: 5;
+}
+
+.api-config-row {
+    -fx-min-height: 34px;
+}
+
+.api-config-label,
+.api-config-hint {
+    -fx-text-fill: -jl-secondary;
+    -fx-font-size: 0.84em;
+}
+
+.api-config-label {
+    -fx-font-weight: 700;
+}
+
+.api-code-pane {
+    -fx-padding: 10 12 12 12;
+    -fx-background-color: -jl-canvas;
+    -fx-border-color: -jl-border;
+    -fx-border-width: 1;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+}
+
+.api-code-scroll,
+.api-code-scroll > .viewport,
+.api-code-canvas {
+    -fx-background-color: -jl-canvas;
+}
+
+.api-code-flow {
+    -fx-background-color: transparent;
+}
+
+.api-code-scroll {
+    -fx-border-color: -jl-hover;
+    -fx-border-width: 1;
+    -fx-border-radius: 5;
+    -fx-background-radius: 5;
+}
+
+.api-code-flow {
+    -fx-padding: 13 14;
+}
+
+.api-page-scroll {
+    -fx-padding: 0;
+    -fx-background-insets: 0;
+}
+
+.api-code-format-badge {
+    -fx-padding: 3 8;
+    -fx-background-color: -jl-blue;
+    -fx-background-radius: 999;
+    -fx-text-fill: -jl-blue;
+    -fx-font-size: 0.78em;
+    -fx-font-weight: 800;
+}
+
+.api-code-copy-button {
+    -fx-min-width: 82px;
+    -fx-pref-width: 82px;
+    -fx-padding: 4 10;
+}
+
+.api-copy-token-button {
+    -fx-min-width: 88px;
+}
+
+.api-inline-copy-button {
+    -fx-min-width: 62px;
+    -fx-pref-width: 62px;
+    -fx-min-height: 20px;
+    -fx-pref-height: 20px;
+    -fx-padding: 1 8;
+    -fx-background-color: -jl-blue;
+    -fx-border-color: -jl-blue;
+    -fx-border-width: 1;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+    -fx-text-fill: -jl-blue;
+    -fx-font-size: 0.74em;
+    -fx-font-weight: 700;
+    -fx-cursor: hand;
+}
+
+.api-inline-copy-button:hover {
+    -fx-background-color: -jl-blue;
+    -fx-border-color: -jl-blue;
+    -fx-text-fill: -jl-text;
+}
+
+.api-code-text {
+    -fx-font-family: monospace;
+    -fx-font-size: 0.91em;
+    -fx-fill: -jl-text;
+}
+
+.api-code-string {
+    -fx-fill: -jl-green;
+}
+
+.api-code-number {
+    -fx-fill: -jl-purple;
+}
+
+.api-code-keyword {
+    -fx-fill: -jl-orange;
+}
+
+.api-code-punctuation {
+    -fx-fill: -jl-blue;
+}
+
+.api-code-url {
+    -fx-fill: -jl-teal;
+}
+
+.shortcut-page {
+    -fx-background-color: -jl-hover;
+}
+
+.shortcut-workspace {
+    -fx-background-color: transparent;
+}
+
+.shortcut-overview-card,
+.shortcut-directory {
+    -fx-padding: 14 16;
+    -fx-background-color: -jl-panel;
+    -fx-border-color: -jl-border;
+    -fx-border-width: 1;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+}
+
+.shortcut-summary-title,
+.shortcut-directory-title {
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 1.08em;
+    -fx-font-weight: 800;
+}
+
+.shortcut-summary-description,
+.shortcut-directory-hint,
+.shortcut-result-count {
+    -fx-text-fill: -jl-secondary;
+    -fx-font-size: 0.84em;
+}
+
+.shortcut-summary-badge,
+.shortcut-category-count {
+    -fx-padding: 3 8;
+    -fx-background-color: -jl-hover;
+    -fx-background-radius: 999;
+    -fx-text-fill: -jl-secondary;
+    -fx-font-size: 0.78em;
+    -fx-font-weight: 700;
+}
+
+.shortcut-directory-item {
+    -fx-padding: 8 10;
+    -fx-background-color: transparent;
+    -fx-background-radius: 6;
+    -fx-text-fill: -jl-secondary;
+    -fx-font-weight: 600;
+}
+
+.shortcut-directory-item:hover {
+    -fx-background-color: -jl-text;
+}
+
+.shortcut-directory-item:selected {
+    -fx-background-color: -jl-blue;
+    -fx-text-fill: -jl-blue;
+}
+
+.shortcut-toolbar {
+    -fx-padding: 0 0 2 0;
+}
+
+.shortcut-column-header {
+    -fx-padding: 5 14 2 14;
+}
+
+.shortcut-column-title {
+    -fx-text-fill: -jl-muted;
+    -fx-font-size: 0.82em;
+    -fx-font-weight: 700;
+}
+
+.shortcut-scroll-pane,
+.shortcut-scroll-pane > .viewport,
+.shortcut-list-container {
+    -fx-background-color: transparent;
+}
+
+.shortcut-list-container {
+    -fx-padding: 2 2 14 0;
+}
+
+.shortcut-category-card {
+    -fx-padding: 14 0 4 0;
+    -fx-background-color: -jl-panel;
+    -fx-border-color: -jl-border;
+    -fx-border-width: 1;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+}
+
+.shortcut-category-title {
+    -fx-padding: 0 16 4 16;
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 1.05em;
+    -fx-font-weight: 800;
+}
+
+.shortcut-category-header {
+    -fx-padding: 0 16 4 16;
+}
+
+.shortcut-category-header .shortcut-category-title {
+    -fx-padding: 0;
+}
+
+.shortcut-category-card > .separator {
+    -fx-padding: 0 14 4 14;
+}
+
+.shortcut-category-card > .separator .line {
+    -fx-border-color: -jl-hover;
+}
+
+.shortcut-row {
+    -fx-padding: 9 14;
+    -fx-border-color: transparent transparent -jl-text transparent;
+    -fx-border-width: 0 0 1 0;
+}
+
+.shortcut-row:hover {
+    -fx-background-color: -jl-text;
+}
+
+.shortcut-command-name {
+    -fx-text-fill: -jl-text;
+    -fx-font-size: 0.96em;
+}
+
+.shortcut-key-button {
+    -fx-background-color: -jl-hover;
+    -fx-border-color: -jl-border;
+    -fx-border-width: 1;
+    -fx-border-radius: 6;
+    -fx-background-radius: 6;
+    -fx-font-family: monospace;
+    -fx-padding: 6 10;
+}
+
+.shortcut-key-button:hover {
+    -fx-background-color: -jl-hover;
+    -fx-border-color: -jl-muted;
+}
+
+.shortcut-clear-button {
+    -fx-min-width: 30px;
+    -fx-pref-width: 30px;
+    -fx-max-width: 30px;
+    -fx-padding: 6 0;
+    -fx-background-color: transparent;
+    -fx-text-fill: -jl-secondary;
+}
+
+.shortcut-clear-button:hover {
+    -fx-background-color: -jl-red;
+    -fx-text-fill: -jl-red;
+}
+
+/* IDEA workbench: logical pixels (JavaFX handles each monitor's DPI). */
+.ide-main-toolbar {
+    -fx-background-color: -jl-panel;
+    -fx-border-color: transparent transparent -jl-border transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 4 12;
+    -fx-min-height: 40;
+    -fx-pref-height: 40;
+}
+.ide-brand { -fx-font-weight: bold; -fx-padding: 0 12 0 0; }
+.ide-project-name { -fx-text-fill: -jl-secondary; }
+.ide-run-button .action-bar-icon { -fx-background-color: -jl-green; }
+.ide-tool-window-rail {
+    -fx-background-color: -jl-panel;
+    -fx-padding: 8 4;
+    -fx-pref-width: 40;
+    -fx-min-width: 40;
+    -fx-border-color: transparent -jl-border transparent transparent;
+    -fx-border-width: 0 1 0 0;
+}
+.ide-shell, .ide-workspace { -fx-background-color: -jl-canvas; }
+.ide-workspace { -fx-padding: 0; }
+.ide-workspace > .split-pane-divider { -fx-padding: 0 0.5; -fx-background-color: -jl-border; }
+.sidebar {
+    -fx-background-color: -jl-panel;
+    -fx-padding: 0;
+}
+.sidebar-project-row, .sidebar-project-row:hover {
+    -fx-background-color: -jl-panel;
+    -fx-background-radius: 0;
+    -fx-border-color: transparent transparent -jl-border transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-border-radius: 0;
+    -fx-padding: 4 8;
+    -fx-spacing: 4;
+    -fx-effect: null;
+}
+.sidebar-project-label { -fx-font-size: 1em; -fx-text-fill: -jl-secondary; }
+.sidebar-project-combo, .sidebar-project-combo:hover,
+.sidebar-project-combo:focused, .sidebar-project-combo:showing {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-padding: 0;
+    -fx-min-height: 28;
+}
+.sidebar-project-combo .list-cell { -fx-padding: 4 6; -fx-text-fill: -jl-text; }
+.sidebar-action-bar, .sidebar-action-bar:hover {
+    -fx-background-color: transparent;
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+    -fx-padding: 4 6;
+    -fx-spacing: 2;
+    -fx-effect: null;
+}
+.sidebar-list-panel, .sidebar-list-panel:hover {
+    -fx-background-color: transparent;
+    -fx-background-radius: 0;
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+    -fx-padding: 0 4;
+    -fx-effect: null;
+}
+.sidebar-section-header { -fx-padding: 2 4; }
+.sidebar-section-label { -fx-font-size: 1em; -fx-text-fill: -jl-text; -fx-font-weight: normal; }
+.sidebar-search-row, .sidebar-search-row:hover {
+    -fx-background-color: -jl-canvas;
+    -fx-border-color: -jl-border;
+    -fx-background-radius: 4;
+    -fx-border-radius: 4;
+    -fx-padding: 2 6;
+}
+.sidebar-search-field, .sidebar-search-field:focused {
+    -fx-font-size: 1em;
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-padding: 4 0;
+}
+.connection-tree { -fx-fixed-cell-size: 2.15em; -fx-padding: 4 0; }
+.connection-tree .tree-cell { -fx-font-size: 1em; -fx-padding: 0 4; -fx-indent: 16; }
+.connection-tree .tree-cell .conn-cell-name { -fx-font-size: 1em; }
+.connection-tree .tree-cell:filled:selected .conn-cell-name,
+.connection-tree .tree-cell:filled:selected .folder-item-name { -fx-text-fill: -jl-text; }
+.connection-tree .tree-cell:filled:hover { -fx-background-color: -jl-hover; -fx-background-radius: 4; }
+.connection-tree .tree-cell:filled:selected { -fx-background-color: -jl-accent-subtle; -fx-background-radius: 4; }
+.connection-tree .tree-cell:filled:selected .sidebar-icon-folder { -fx-background-color: -jl-yellow; }
+.connection-tree .tree-cell:filled:selected .sidebar-icon-server { -fx-background-color: -jl-blue; }
+.connection-tree .tree-disclosure-node { -fx-padding: 0 6 0 2; }
+.button, .toggle-button {
+    -fx-font-size: 1em;
+    -fx-background-color: -jl-panel;
+    -fx-text-fill: -jl-text;
+    -fx-border-color: -jl-border;
+    -fx-background-radius: 4;
+    -fx-border-radius: 4;
+    -fx-padding: 4 12;
+    -fx-min-height: 28;
+    -fx-effect: null;
+}
+.button:hover, .toggle-button:hover { -fx-background-color: -jl-hover; -fx-border-color: -jl-border; }
+.button:focused, .toggle-button:focused { -fx-border-color: -jl-accent; }
+.button:disabled { -fx-opacity: 0.45; }
+.button:default, .button-primary, .icon-btn-primary, .welcome-pane .action-btn {
+    -fx-background-color: -jl-accent;
+    -fx-text-fill: -jl-white;
+    -fx-border-color: -jl-accent;
+}
+.button:default:hover, .button-primary:hover, .welcome-pane .action-btn:hover {
+    -fx-background-color: -jl-accent-hover;
+}
+.icon-btn, .sidebar-project-row .icon-btn, .sidebar-tree-action {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+    -fx-padding: 6;
+    -fx-min-width: 28;
+    -fx-pref-width: 28;
+    -fx-min-height: 28;
+    -fx-pref-height: 28;
+    -fx-opacity: 1;
+}
+.icon-btn:hover, .sidebar-project-row .icon-btn:hover { -fx-background-color: -jl-hover; }
+.action-bar-icon, .sidebar-project-row .icon-btn .action-bar-icon { -fx-background-color: -jl-secondary; }
+.text-field, .password-field, .text-area {
+    -fx-font-size: 1em;
+    -fx-background-color: -jl-canvas;
+    -fx-text-fill: -jl-text;
+    -fx-prompt-text-fill: -jl-muted;
+    -fx-border-color: -jl-border;
+    -fx-background-radius: 4;
+    -fx-border-radius: 4;
+    -fx-padding: 4 8;
+    -fx-min-height: 28;
+}
+.text-field:focused, .password-field:focused, .text-area:focused { -fx-border-color: -jl-accent; }
+.combo-box, .choice-box { -fx-min-height: 28; -fx-background-radius: 4; -fx-border-radius: 4; }
+.workspace-tabs { -fx-padding: 0; -fx-tab-min-height: 36; -fx-tab-max-height: 36; }
+.workspace-tabs > .tab-header-area { -fx-padding: 0; -fx-background-color: -jl-panel; }
+.workspace-tabs > .tab-header-area > .tab-header-background { -fx-background-color: -jl-panel; }
+.workspace-tabs > .tab-header-area .tab {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-border-width: 0 0 2 0;
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+    -fx-padding: 0 12;
+}
+.workspace-tabs > .tab-header-area .tab:hover { -fx-background-color: -jl-hover; }
+.workspace-tabs > .tab-header-area .tab:selected {
+    -fx-background-color: -jl-canvas;
+    -fx-border-color: transparent transparent -jl-accent transparent;
+}
+.workspace-tabs > .tab-header-area .tab .tab-label { -fx-font-size: 1em; -fx-padding: 0; -fx-border-width: 0; }
+.workspace-tabs .workspace-tab-title { -fx-font-size: 1em; -fx-font-weight: normal; }
+.workspace-tabs > .tab-header-area .tab:selected .workspace-tab-title { -fx-text-fill: -jl-text; }
+.workspace-tabs .workspace-tab-close { -fx-background-color: transparent; -fx-border-width: 0; -fx-min-height: 20; }
+.workspace-tabs > .tab-header-area .tab:selected .workspace-tab-close { -fx-background-color: transparent; }
+.session-inner-tabs { -fx-tab-min-height: 30; -fx-tab-max-height: 30; }
+.session-inner-tabs > .tab-header-area, .session-inner-tabs > .tab-header-area > .tab-header-background {
+    -fx-background-color: -jl-canvas;
+    -fx-padding: 0;
+}
+.session-inner-tabs > .tab-header-area .tab { -fx-padding: 0 12; -fx-border-width: 0 0 2 0; }
+.session-inner-tabs > .tab-header-area .tab:selected { -fx-border-color: transparent transparent -jl-accent transparent; }
+.session-inner-tabs > .tab-header-area .tab .tab-label { -fx-font-size: 1em; -fx-border-width: 0; }
+.status-bar {
+    -fx-background-color: -jl-panel;
+    -fx-border-color: -jl-border transparent transparent transparent;
+    -fx-border-width: 1 0 0 0;
+    -fx-padding: 3 12;
+    -fx-min-height: 24;
+    -fx-pref-height: 24;
+}
+.status-label { -fx-font-size: 0.92em; -fx-text-fill: -jl-secondary; }
+.terminal-status-area, .terminal-status-bar { -fx-background-color: -jl-panel; -fx-background-radius: 0; }
+.terminal-status-bar { -fx-border-color: -jl-border transparent transparent transparent; -fx-border-width: 1 0 0 0; }
+.terminal-status-item { -fx-background-color: transparent; -fx-background-radius: 0; }
+.dialog-pane { -fx-background-color: -jl-panel; -fx-padding: 0; }
+.dialog-pane > .content { -fx-padding: 16; }
+.dialog-pane > .button-bar { -fx-padding: 12 16; -fx-background-color: -jl-panel; }
+.dialog-pane:header .header-panel { -fx-background-color: -jl-panel; }
+.ide-settings { -fx-background-color: -jl-canvas; }
+.ide-settings-navigation {
+    -fx-background-color: -jl-panel;
+    -fx-padding: 8;
+    -fx-border-color: transparent -jl-border transparent transparent;
+    -fx-border-width: 0 1 0 0;
+    -fx-fixed-cell-size: 2.46em;
+}
+.ide-settings-navigation .list-cell { -fx-font-size: 1em; -fx-padding: 4 12; }
+.ide-settings-navigation .list-cell:filled:selected { -fx-background-color: -jl-accent-subtle; -fx-text-fill: -jl-text; -fx-background-radius: 4; }
+.ide-settings-content { -fx-background-color: -jl-canvas; }
+.settings-page, .settings-scroll-pane, .settings-scroll-pane > .viewport { -fx-background-color: -jl-canvas; }
+.settings-card-grid { -fx-padding: 16 24; }
+.settings-card {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent transparent -jl-border transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+    -fx-padding: 12 0 20 0;
+}
+.settings-card-title { -fx-font-size: 1.08em; -fx-text-fill: -jl-text; }
+.settings-card-description { -fx-font-size: 1em; -fx-text-fill: -jl-secondary; }
+.settings-directory { -fx-background-color: -jl-panel; -fx-border-radius: 0; -fx-background-radius: 0; }
+.welcome-pane { -fx-background-color: -jl-canvas; }
+.welcome-pane .welcome-title { -fx-font-size: 1.85em; -fx-text-fill: -jl-text; -fx-font-weight: normal; }
+.welcome-pane .welcome-subtitle, .welcome-pane .welcome-help-item { -fx-font-size: 1em; -fx-text-fill: -jl-secondary; }
+.welcome-pane .welcome-section-label { -fx-font-size: 1em; -fx-text-fill: -jl-secondary; -fx-font-weight: normal; }
+.welcome-pane .welcome-connection-row { -fx-background-color: transparent; -fx-border-color: transparent; -fx-padding: 8; }
+.welcome-pane .welcome-connection-row:hover { -fx-background-color: -jl-hover; }
+.table-view { -fx-background-color: -jl-canvas; -fx-border-color: -jl-border; -fx-background-radius: 0; }
+.table-view .column-header-background, .table-view .column-header { -fx-background-color: -jl-panel; }
+.table-view .table-row-cell { -fx-background-color: -jl-canvas; -fx-cell-size: 28; }
+.table-view .table-row-cell:filled:hover { -fx-background-color: -jl-hover; }
+.table-view .table-row-cell:filled:selected { -fx-background-color: -jl-accent-subtle; }
+.table-view .table-cell { -fx-text-fill: -jl-text; -fx-border-color: transparent; }
+.scroll-bar { -fx-background-color: transparent; }
+.scroll-bar .track { -fx-background-color: transparent; }
+.scroll-bar .thumb { -fx-background-color: -jl-border; -fx-background-radius: 4; }
+.scroll-bar .thumb:hover { -fx-background-color: -jl-muted; }
+
+/* 保留触控板的亚像素滚动增量，避免 ScrollPane/虚拟列表在每帧把视口位置取整后产生跳动。 */
+.scroll-pane,
+.scroll-pane > .viewport,
+.list-view,
+.tree-view,
+.table-view {
+    -fx-snap-to-pixel: false;
+}
+.context-menu { -fx-background-color: -jl-panel; -fx-border-color: -jl-border; -fx-padding: 4; -fx-background-radius: 6; -fx-border-radius: 6; }
+.menu-item { -fx-padding: 5 12; }
+.menu-item:focused { -fx-background-color: -jl-accent-subtle; }
+.menu-item:focused .label { -fx-text-fill: -jl-text; }
+.tooltip { -fx-background-color: -jl-panel; -fx-text-fill: -jl-text; -fx-border-color: -jl-border; -fx-font-size: 1em; -fx-padding: 6 8; }
+
+/* SettingsEditor: single-column sections, with the navigation/breadcrumb/footer in Swing. */
+.idea-dialog-root { -jl-canvas: -jl-frame; -jl-panel: -jl-frame; }
+.idea-settings-content { -fx-background-color: -jl-canvas; -fx-font-size: 1em; }
+.idea-settings-content .settings-card-grid { -fx-padding: 0 20 20 20; }
+.idea-settings-content .settings-card { -fx-padding: 0; -fx-border-width: 0; -fx-spacing: 6; }
+.idea-settings-content .settings-card-title { -fx-font-size: 1em; -fx-font-weight: normal; }
+.idea-settings-content .settings-card-description { -fx-text-fill: -jl-secondary; }
+.idea-settings-content .settings-form { -fx-padding: 0 12; -fx-vgap: 6; }
+.idea-settings-content .settings-field-label { -fx-font-size: 1em; }
+.idea-settings-content .settings-card .separator { -fx-padding: 0; }
+.idea-settings-content .settings-card .separator .line { -fx-border-color: -jl-border; }
+.idea-settings-content .combo-box,
+.idea-settings-content .text-field {
+    -fx-background-color: -jl-frame;
+    -fx-border-color: -jl-border;
+    -fx-border-width: 1;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+    -fx-padding: 3 6;
+}
+.idea-settings-content .combo-box .list-cell { -fx-background-color: transparent; -fx-padding: 2 4; }
+.idea-settings-content .spinner { -fx-background-color: -jl-frame; -fx-border-color: -jl-border; -fx-border-radius: 4; }
+.idea-settings-content .spinner .text-field { -fx-border-width: 0; -fx-background-color: transparent; }
+.idea-settings-content .spinner .increment-arrow-button,
+.idea-settings-content .spinner .decrement-arrow-button { -fx-background-color: transparent; -fx-border-color: -jl-border; }
+.idea-actions-tree { -fx-background-color: -jl-canvas; -fx-border-color: -jl-border; }
+.idea-actions-tree .tree-cell { -fx-background-color: -jl-canvas; -fx-padding: 0 8; -fx-font-size: 1em; }
+.idea-actions-tree .tree-cell:selected { -fx-background-color: -jl-accent-subtle; }
+.idea-actions-group { -fx-font-weight: bold; -fx-text-fill: -jl-text; }
+.idea-actions-row { -fx-padding: 0; -fx-background-color: transparent; }
+.idea-actions-row .shortcut-key-button { -fx-background-color: transparent; -fx-border-color: transparent; -fx-text-fill: -jl-secondary; -fx-padding: 3 6; }
+.idea-actions-row .shortcut-key-button:hover { -fx-border-color: -jl-border; -fx-background-color: -jl-hover; }
+.idea-actions-row .shortcut-clear-button { -fx-background-color: transparent; -fx-padding: 2 4; }
+
+/* Connection editor follows IDEA's datasource dialog: identity header, compact tabs and a clear footer. */
+.connection-dialog-pane { -fx-background-color: -jl-canvas; }
+.connection-dialog-pane > .content { -fx-padding: 0; -fx-background-color: -jl-canvas; }
+.connection-editor { -fx-background-color: -jl-canvas; }
+.connection-identity-header { -fx-padding: 20 22 14 22; -fx-background-color: -jl-panel; }
+.connection-identity-label { -fx-text-fill: -jl-secondary; -fx-font-size: 0.92em; }
+.connection-subtitle { -fx-text-fill: -jl-secondary; -fx-font-size: 0.95em; }
+.connection-name-field { -fx-font-size: 1.12em; -fx-font-weight: bold; }
+.connection-type-box { -fx-font-size: 1em; }
+.connection-tabs { -fx-background-color: -jl-canvas; -fx-border-width: 0; }
+.connection-tabs > .tab-header-area { -fx-padding: 0 16; -fx-background-color: -jl-panel; }
+.connection-tabs > .tab-header-area .tab-header-background { -fx-background-color: -jl-panel; }
+.connection-tabs > .tab-header-area .tab { -fx-padding: 6 10; -fx-background-radius: 0; }
+.connection-tabs > .tab-header-area .tab:selected .tab-label { -fx-border-width: 0 0 2 0; -fx-padding: 0 0 5 0; }
+.connection-tabs > .tab-content-area { -fx-background-color: -jl-canvas; }
+.connection-tab-scroll, .connection-tab-scroll > .viewport { -fx-background-color: -jl-canvas; }
+.connection-tab-description { -fx-text-fill: -jl-secondary; -fx-wrap-text: true; -fx-padding: 0 0 8 0; }
+.connection-test-footer { -fx-padding: 10 20 12 20; -fx-background-color: -jl-panel; }
+.connection-dialog-pane > .button-bar { -fx-padding: 10 18; -fx-background-color: -jl-panel; }
+.connection-form .label { -fx-text-fill: -jl-text; -fx-font-size: 1em; }
+.connection-form .text-field, .connection-form .combo-box, .connection-form .text-area {
+    -fx-background-color: -jl-frame;
+    -fx-border-color: -jl-border;
+    -fx-border-width: 1;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+    -fx-font-size: 1em;
+    -fx-padding: 3 6;
+}
+.connection-form .text-field:focused, .connection-form .combo-box:focused, .connection-form .text-area:focused { -fx-border-color: -jl-accent; }
+.connection-form .combo-box .list-cell { -fx-background-color: transparent; -fx-text-fill: -jl-text; -fx-padding: 2 4; }
+.connection-form .text-area .content { -fx-background-color: -jl-frame; -fx-padding: 4; }
+.connection-form .hyperlink { -fx-text-fill: -jl-blue; -fx-font-size: 1em; }
+.connection-form .connection-field-label { -fx-text-fill: -jl-secondary; }
+
+.plugin-detail-tabs { -fx-background-color: transparent; -fx-border-width: 0; }
+.plugin-detail-tabs > .tab-header-area { -fx-padding: 0 0 8 0; }
+.plugin-detail-tabs > .tab-header-area .tab-header-background { -fx-background-color: transparent; }
+.plugin-detail-tabs > .tab-header-area .tab { -fx-padding: 4 10; -fx-background-radius: 4; -fx-border-width: 0; }
+.plugin-detail-tabs > .tab-header-area .tab:selected { -fx-background-color: -jl-blue-subtle; -fx-border-color: -jl-accent; -fx-border-width: 1; -fx-border-radius: 4; }
+.plugin-detail-tabs > .tab-header-area .tab .tab-label { -fx-text-fill: -jl-text; }
+.plugin-detail-tabs > .tab-content-area { -fx-padding: 12 0 0 0; }
+.plugin-manager-pane .plugin-install-button { -fx-background-color: -jl-accent; -fx-border-color: -jl-accent; -fx-text-fill: white; }
+.connection-form .combo-box:disabled { -fx-opacity: 1; }
+.connection-form .combo-box:disabled > .list-cell { -fx-opacity: 0.65; }
+.connection-form .text-field:disabled { -fx-opacity: 0.65; }
+
+.plugin-detail-tabs > .tab-header-area .tab .tab-label { -fx-border-width: 0; -fx-padding: 0; }
+
+/* Swing 会话导航是唯一入口；CSS 在 Scene/skin 重建及主题切换后持续生效。
+   仅针对宿主内层 TabPane，插件自己的 TabPane 不受影响。 */
+.native-session-tabs > .tab-header-area {
+    -fx-padding: 0;
+    -fx-min-height: 0;
+    -fx-pref-height: 0;
+    -fx-max-height: 0;
+    -fx-opacity: 0;
+}
+
+/* Session plugin cards use available width and grow vertically in the narrow right dock. */
+.session-plugin-card {
+    -fx-padding: 10;
+    -fx-background-color: -jl-panel;
+    -fx-background-radius: 6;
+    -fx-border-color: -jl-border;
+    -fx-border-radius: 6;
+}
+.session-plugin-card .plugin-name { -fx-font-weight: bold; }
+.session-plugin-card .plugin-desc { -fx-text-fill: -jl-secondary; }
+
+/* SettingsDialog / UI DSL: compact rows, section spacing and comments, shared across all settings pages. */
+.idea-settings-content {
+    -jl-canvas: -jl-settings-bg;
+    -jl-panel: -jl-settings-bg;
+    -fx-background-color: -jl-settings-bg;
+}
+.idea-settings-content .settings-card-grid { -fx-padding: 4 16 20 16; -fx-spacing: 20; }
+.idea-settings-content .settings-card { -fx-background-color: transparent; -fx-border-color: transparent; -fx-padding: 0; -fx-spacing: 8; }
+.idea-settings-content .settings-form { -fx-padding: 0; -fx-hgap: 12; -fx-vgap: 6; -fx-max-width: 620; }
+.idea-settings-content .settings-card-description { -fx-padding: 0 0 2 0; -fx-font-size: 0.92em; }
+.idea-settings-content .settings-field-label { -fx-text-fill: -jl-text; }
+.idea-settings-content .text-input {
+    -fx-background-color: -jl-settings-bg;
+    -fx-border-color: -jl-border;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+    -fx-padding: 4 8;
+}
+.idea-settings-content .combo-box { -fx-background-color: -jl-settings-control; -fx-padding: 3 6; }
+.idea-settings-content .text-input:hover, .idea-settings-content .combo-box:hover { -fx-border-color: -jl-secondary; }
+.idea-settings-content .text-input:focused, .idea-settings-content .combo-box:focused, .idea-settings-content .spinner:focused { -fx-border-color: -jl-accent; }
+.idea-settings-content .button { -fx-background-color: transparent; -fx-border-color: -jl-border; -fx-border-radius: 4; -fx-background-radius: 4; -fx-padding: 4 12; }
+.idea-settings-content .button:hover { -fx-background-color: -jl-hover; -fx-border-color: -jl-secondary; }
+.idea-settings-content .button:focused { -fx-border-color: -jl-accent; }
+.idea-settings-content .check-box { -fx-padding: 3 0; }
+.idea-settings-content .settings-preview-box { -fx-background-color: transparent; -fx-padding: 10 12; -fx-border-color: -jl-border; -fx-border-radius: 4; }
+.idea-settings-content .scroll-pane, .idea-settings-content .scroll-pane > .viewport { -fx-background-color: -jl-settings-bg; }
+.idea-settings-content .split-pane { -fx-background-color: -jl-settings-bg; -fx-padding: 0; }
+.idea-settings-content .split-pane > .split-pane-divider { -fx-background-color: -jl-border; -fx-padding: 0 1 0 0; }
+
+.idea-settings-content .button-primary { -fx-background-color: -jl-accent; -fx-border-color: -jl-accent; -fx-text-fill: white; }
+.idea-settings-content .button-primary:hover { -fx-background-color: -jl-accent; }
+
+.idea-settings-content .plugin-install-button,
+.idea-settings-content .plugin-install-button:hover { -fx-background-color: -jl-accent; -fx-border-color: -jl-accent; -fx-text-fill: white; }
+
+.idea-settings-content .idea-actions-row .shortcut-key-button,
+.idea-settings-content .idea-actions-row .shortcut-clear-button { -fx-background-color: transparent; -fx-border-color: transparent; -fx-text-fill: -jl-secondary; -fx-padding: 3 6; }
+.idea-settings-content .idea-actions-row .shortcut-key-button:hover { -fx-background-color: -jl-hover; -fx-border-color: -jl-border; }
+.idea-settings-content .idea-actions-row .shortcut-clear-button:hover { -fx-background-color: -jl-hover; -fx-text-fill: -jl-red; }
+.idea-settings-content .api-code-format-badge { -fx-background-color: -jl-blue-subtle; -fx-text-fill: -jl-blue; -fx-background-radius: 4; }
+
+.settings-font-preview { -fx-fill: -jl-text; }

@@ -220,6 +220,10 @@ public class JlshellSettingsProvider extends DefaultSettingsProvider {
         return new Font(profile.family(), Font.PLAIN, Math.max(1, (int) Math.round(profile.size())));
     }
 
+    public Font getTerminalFontFor(int codePoint, int style) {
+        return TerminalFontResolver.resolve(fontProfile.get(), codePoint, style);
+    }
+
     @Override
     public float getTerminalFontSize() {
         return (float) fontProfile.get().size();

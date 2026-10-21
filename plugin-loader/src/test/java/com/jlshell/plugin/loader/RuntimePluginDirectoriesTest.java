@@ -13,6 +13,21 @@ class RuntimePluginDirectoriesTest {
     @TempDir
     Path tempDir;
 
+    @Test void previewDirectoryPrecedesInstalledPluginsWithoutChangingNormalLaunch() {
+        String oldPreview=System.getProperty("jlshell.ui.preview"), oldDir=System.getProperty("jlshell.preview.plugins");
+        Path preview=tempDir.resolve("native-preview"), installed=tempDir.resolve("installed");
+        try {
+            System.setProperty("jlshell.preview.plugins",preview.toString());
+            System.setProperty("jlshell.ui.preview","true");
+            assertThat(RuntimePluginDirectories.resolve(installed.toString(),"plugins")).startsWith(preview,installed);
+            assertThat(RuntimePluginDirectories.resolve(installed.toString(),"program-plugins")).doesNotContain(preview);
+            System.setProperty("jlshell.ui.preview","false");
+            assertThat(RuntimePluginDirectories.resolve(installed.toString(),"plugins")).doesNotContain(preview).startsWith(installed);
+        } finally {
+            restoreProperty("jlshell.ui.preview",oldPreview); restoreProperty("jlshell.preview.plugins",oldDir);
+        }
+    }
+
     @Test
     void includesDistributionRootWhenCodeSourceLivesInAppDirectory() {
         Path root = tempDir.resolve("JLShell");

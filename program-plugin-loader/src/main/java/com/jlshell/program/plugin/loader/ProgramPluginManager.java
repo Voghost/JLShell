@@ -1,8 +1,8 @@
 package com.jlshell.program.plugin.loader;
 
-import java.io.File;
 import java.net.URL;
 import java.net.URLClassLoader;
+import com.jlshell.core.support.PerformanceTrace;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -161,22 +161,31 @@ public class ProgramPluginManager {
         this.connectionIntegrationRegistry = new ProgramConnectionIntegrationRegistry();
     }
 
-    public void ensureLoaded() {
+    public void ensureLoaded() { ensureLoaded(null); }
+
+    public void ensureLoaded(PerformanceTrace parent) {
         if (loaded) return;
         synchronized (this) {
             if (loaded) return;
-            loadPlugins();
-            activateAll();
+            loadPlugins(parent);
+            activateAll(parent);
             loaded = true;
         }
     }
 
-    public void loadPlugins() {
-        plugins.clear();
-        trustedPolicyPlugins.clear();
-        loadFromClassLoader(Thread.currentThread().getContextClassLoader(), true);
-        loadFromExternalDirs();
-        log.info("Loaded {} program plugin(s)", plugins.size());
+    public void loadPlugins() { loadPlugins(null); }
+
+    private void loadPlugins(PerformanceTrace parent) {
+        var timing = parent == null ? PerformanceTrace.start("plugin-scan", "program")
+                : parent.child("plugin-scan", "program");
+        try {
+            plugins.clear();
+            trustedPolicyPlugins.clear();
+            loadFromClassLoader(Thread.currentThread().getContextClassLoader(), true, timing);
+            loadFromExternalDirs(timing);
+            log.info("Loaded {} program plugin(s)", plugins.size());
+            timing.finish("success");
+        } catch (RuntimeException | Error error) { timing.failed(error); throw error; }
     }
 
     /** 商店安装 PROGRAM 插件后供下次启动前的管理页刷新使用。 */
@@ -186,34 +195,39 @@ public class ProgramPluginManager {
         ensureLoaded();
     }
 
-    private void loadFromClassLoader(ClassLoader classLoader, boolean trustedSource) {
-        ServiceLoader.load(JlShellProgramPlugin.class, classLoader).forEach(plugin -> {
-            plugins.add(toDescriptor(plugin));
-            if (trustedSource && plugin.accessPolicyProvider() != null) {
-                trustedPolicyPlugins.add(plugin);
-            }
-            log.debug("Discovered program plugin: {} ({})", plugin.displayName(), plugin.id());
-        });
-    }
-
-    private void loadFromExternalDirs() {
-        for (Path dir : RuntimePluginDirectories.resolve(userPluginsDir, "program-plugins")) {
-            loadFromDirectory(dir);
+    private void loadFromClassLoader(ClassLoader classLoader, boolean trustedSource, PerformanceTrace timing) {
+        var providers = timing.call("service-discovery", () ->
+                ServiceLoader.load(JlShellProgramPlugin.class, classLoader).stream().toList());
+        for (var provider : providers) {
+            var providerTiming = timing.child("program-plugin-provider", provider.type().getName());
+            try {
+                var plugin = providerTiming.call("constructor", provider::get);
+                plugins.add(providerTiming.call("metadata-and-context", () -> toDescriptor(plugin)));
+                if (trustedSource && plugin.accessPolicyProvider() != null) trustedPolicyPlugins.add(plugin);
+                providerTiming.mark("plugin-id-" + plugin.id());
+                providerTiming.finish("success");
+            } catch (RuntimeException | Error error) { providerTiming.failed(error); throw error; }
         }
     }
 
-    private void loadFromDirectory(Path dir) {
-        if (!Files.isDirectory(dir)) return;
-        for (Path jarPath : RuntimePluginDirectories.pluginJars(dir)) {
-            File jar = jarPath.toFile();
-            try {
-                PluginPackageValidator.validateForLoading(jarPath, PluginScope.PROGRAM);
-                URL[] urls = {jar.toURI().toURL()};
-                URLClassLoader loader = new URLClassLoader(urls, Thread.currentThread().getContextClassLoader());
-                loadFromClassLoader(loader, false);
-                log.info("Loaded program plugins from: {}", jar.getName());
-            } catch (Exception e) {
-                log.warn("Failed to load program plugin JAR: {}", jar.getName(), e);
+    private void loadFromExternalDirs(PerformanceTrace timing) {
+        var directories = timing.call("resolve-directories", () -> RuntimePluginDirectories.resolve(userPluginsDir, "program-plugins"));
+        for (Path dir : directories) {
+            if (!Files.isDirectory(dir)) continue;
+            var jars = timing.call("list-jars", () -> RuntimePluginDirectories.pluginJars(dir));
+            for (Path jarPath : jars) {
+                var jarTiming = timing.child("program-plugin-jar", jarPath.getFileName().toString());
+                try {
+                    jarTiming.call("validate-package", () -> { PluginPackageValidator.validateForLoading(jarPath, PluginScope.PROGRAM); return null; });
+                    URL[] urls = {jarPath.toUri().toURL()};
+                    URLClassLoader loader = jarTiming.call("classloader", () ->
+                            new URLClassLoader(urls, Thread.currentThread().getContextClassLoader()));
+                    loadFromClassLoader(loader, false, jarTiming);
+                    jarTiming.finish("success");
+                } catch (Exception error) {
+                    jarTiming.failed(error);
+                    log.warn("Failed to load program plugin JAR: {}", jarPath.getFileName(), error);
+                } catch (Error error) { jarTiming.failed(error); throw error; }
             }
         }
     }
@@ -246,40 +260,49 @@ public class ProgramPluginManager {
         }
     }
 
-    public void activateAll() {
+    public void activateAll() { activateAll(null); }
+
+    private void activateAll(PerformanceTrace parent) {
         plugins.stream()
                 .filter(descriptor -> isPluginEnabled(descriptor.id()))
                 .filter(descriptor -> trustedPolicyPlugins.contains(descriptor.instance()))
-                .forEach(descriptor -> activateDescriptor(descriptor, true));
+                .forEach(descriptor -> activateDescriptor(descriptor, true, parent));
         plugins.stream()
                 .filter(descriptor -> isPluginEnabled(descriptor.id()))
                 .filter(descriptor -> !trustedPolicyPlugins.contains(descriptor.instance()))
-                .forEach(descriptor -> activateDescriptor(descriptor, false));
+                .forEach(descriptor -> activateDescriptor(descriptor, false, parent));
     }
 
     private void activateDescriptor(ProgramPluginDescriptor descriptor, boolean trustedPolicyProvider) {
+        activateDescriptor(descriptor, trustedPolicyProvider, null);
+    }
+
+    private void activateDescriptor(ProgramPluginDescriptor descriptor, boolean trustedPolicyProvider, PerformanceTrace parent) {
         if (active.containsKey(descriptor.id())) return;
-        if (!trustedPolicyProvider) {
-            PluginAccessDecision decision = pluginManager.accessController().evaluate(new PluginAccessRequest(
-                    PluginOperation.ACTIVATE, PluginScope.PROGRAM, null, descriptor.id(), null));
-            if (decision.effect() == PluginAccessDecision.Effect.DENY) {
-                log.info("Activation denied for program plugin {}: {}", descriptor.id(), decision.reason());
-                disposeDescriptorContext(descriptor);
-                return;
-            }
-        }
         boolean pluginActivated = false;
+        var timing = parent == null ? PerformanceTrace.start("program-plugin-activate", descriptor.id())
+                : parent.child("program-plugin-activate", descriptor.id());
         try {
+            if (!trustedPolicyProvider) {
+                PluginAccessDecision decision = timing.call("access-policy", () -> pluginManager.accessController().evaluate(new PluginAccessRequest(
+                        PluginOperation.ACTIVATE, PluginScope.PROGRAM, null, descriptor.id(), null)));
+                if (decision.effect() == PluginAccessDecision.Effect.DENY) {
+                    log.info("Activation denied for program plugin {}: {}", descriptor.id(), decision.reason());
+                    disposeDescriptorContext(descriptor);
+                    timing.finish("denied");
+                    return;
+                }
+            }
             if (descriptor.context() instanceof DefaultProgramPluginContext context && !context.fonts().available()) {
                 context.attachFonts(pluginManager.fontsForContext());
             }
             if (descriptor.context() instanceof PluginContext pluginContext) {
                 pluginManager.adoptContext(null, descriptor.id(), pluginContext);
             }
-            descriptor.instance().activate(descriptor.context());
+            timing.run("plugin-code", () -> descriptor.instance().activate(descriptor.context()));
             pluginActivated = true;
             if (programApiContext != null && descriptor.instance() instanceof ProgramApiProvider provider) {
-                provider.activate(programApiContext);
+                timing.run("program-api-provider", () -> provider.activate(programApiContext));
             }
             if (trustedPolicyProvider) {
                 pluginManager.accessController().registerTrusted(
@@ -288,7 +311,9 @@ public class ProgramPluginManager {
                 log.warn("Ignored access policy provider from untrusted plugin {}", descriptor.id());
             }
             active.put(descriptor.id(), descriptor.instance());
+            timing.finish("success");
         } catch (Exception e) {
+            timing.failed(e);
             active.remove(descriptor.id(), descriptor.instance());
             pluginManager.accessController().unregister(descriptor.id());
             projectIntegrationRegistry.clearForPlugin(descriptor.id());
@@ -303,7 +328,7 @@ public class ProgramPluginManager {
             }
             disposeDescriptorContext(descriptor);
             log.warn("Failed to activate program plugin {}", descriptor.id(), e);
-        }
+        } catch (Error error) { timing.failed(error); throw error; }
     }
 
     private void deactivatePlugin(String pluginId) {

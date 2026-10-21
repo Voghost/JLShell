@@ -18,7 +18,7 @@ APP_VERSION="${APP_VERSION:-$(mvn help:evaluate -Dexpression=project.version -q 
 MAIN_CLASS="com.jlshell.launcher.BootstrapLauncher"
 LAUNCHER_MAIN_JAR="jlshell-launcher.jar"
 BUNDLED_APP_JAR="jlshell-app-bundled.jar"
-JLSHELL_JVM_XMS="${JLSHELL_JVM_XMS:-64m}"
+JLSHELL_JVM_XMS="${JLSHELL_JVM_XMS:-32m}"
 JLSHELL_JVM_XMX="${JLSHELL_JVM_XMX:-512m}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -47,6 +47,10 @@ write_vmoptions_file() {
 -Xms$JLSHELL_JVM_XMS
 -Xmx$JLSHELL_JVM_XMX
 -XX:+ExplicitGCInvokesConcurrent
+-XX:+UseG1GC
+-XX:G1PeriodicGCInterval=30000
+-XX:MinHeapFreeRatio=20
+-XX:MaxHeapFreeRatio=40
 EOF
 }
 
@@ -100,7 +104,7 @@ build_jar() {
 # ── Step 2: Required Java modules (fixed list, covers Spring Boot + JavaFX + SQLite + SSH) ──
 detect_modules() {
     # jdeps on a shaded fat jar can be unreliable; use a curated list that covers all runtime needs.
-    echo "java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.management.rmi,java.naming,java.net.http,jdk.httpserver,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.transaction.xa,java.xml,java.xml.crypto,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.jfr,jdk.localedata,jdk.management,jdk.naming.dns,jdk.net,jdk.unsupported,jdk.unsupported.desktop,jdk.zipfs"
+    echo "java.base,java.compiler,java.desktop,java.logging,java.management,java.naming,java.net.http,java.prefs,java.scripting,java.security.jgss,java.sql,java.xml,jdk.crypto.ec,jdk.httpserver,jdk.jfr,jdk.localedata,jdk.naming.dns,jdk.net,jdk.unsupported,jdk.unsupported.desktop,jdk.zipfs"
 }
 
 # ── Step 3: jlink ─────────────────────────────────────────────────────────────
@@ -119,7 +123,7 @@ run_jlink() {
     if [[ -n "$javafx_mods" && -d "$javafx_mods" ]]; then
         module_path="$javafx_mods:$module_path"
         # Add JavaFX modules
-        modules="$modules,javafx.base,javafx.controls,javafx.fxml,javafx.graphics,javafx.swing"
+        modules="$modules,javafx.base,javafx.controls,javafx.graphics,javafx.swing"
     fi
 
     log "Running jlink → $output"
@@ -130,7 +134,7 @@ run_jlink() {
         --strip-debug \
         --no-man-pages \
         --no-header-files \
-        --compress zip-6
+        --vm=server --compress zip-9
 
     ok "JRE size: $(du -sh "$output" | cut -f1)"
 }
@@ -198,6 +202,10 @@ assemble_mac() {
         --java-options "-Xms$JLSHELL_JVM_XMS" \
         --java-options "-Xmx$JLSHELL_JVM_XMX" \
         --java-options "-XX:+ExplicitGCInvokesConcurrent" \
+        --java-options "-XX:+UseG1GC" \
+        --java-options "-XX:G1PeriodicGCInterval=30000" \
+        --java-options "-XX:MinHeapFreeRatio=20" \
+        --java-options "-XX:MaxHeapFreeRatio=40" \
         --java-options "--add-opens java.base/java.lang=ALL-UNNAMED" \
         --java-options "--add-opens java.desktop/sun.awt=ALL-UNNAMED" \
         --java-options "-Dapple.laf.useScreenMenuBar=true" \
@@ -251,7 +259,7 @@ assemble_linux() {
     cat > "$work/JLShell.sh" <<LAUNCHER
 #!/bin/bash
 DIR="\$(cd "\$(dirname "\$0")" && pwd)"
-DEFAULT_VM_OPTS=(-Xms64m -Xmx512m -XX:+ExplicitGCInvokesConcurrent)
+DEFAULT_VM_OPTS=(-Xms32m -Xmx512m -XX:+ExplicitGCInvokesConcurrent -XX:+UseG1GC -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40)
 USER_VMOPTIONS="\${XDG_CONFIG_HOME:-\$HOME/.config}/jlshell/JLShell.vmoptions"
 BUNDLED_VMOPTIONS="\$DIR/JLShell.vmoptions"
 VMOPTIONS_FILE=""
@@ -320,7 +328,7 @@ assemble_win() {
 setlocal
 set DIR=%~dp0
 set JAVA=%DIR%runtime\bin\javaw.exe
-set VM_OPTS=-Xms64m -Xmx512m -XX:+ExplicitGCInvokesConcurrent
+set VM_OPTS=-Xms32m -Xmx512m -XX:+ExplicitGCInvokesConcurrent -XX:+UseG1GC -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40
 set USER_VMOPTIONS=%APPDATA%\JLShell\JLShell.vmoptions
 set BUNDLED_VMOPTIONS=%DIR%JLShell.vmoptions
 set VMOPTIONS_FILE=
