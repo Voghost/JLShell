@@ -186,7 +186,7 @@ public class CustomTitleBar extends HBox {
     }
 
     private Node loadAppIcon() {
-        var url = CustomTitleBar.class.getResource("/icons/app_icon.png");
+        var url = CustomTitleBar.class.getResource("/icons/brand/jlshell.png");
         if (url != null) {
             Image img = new Image(url.toExternalForm(), 16, 16, true, true);
             return new ImageView(img);
@@ -211,14 +211,6 @@ public class CustomTitleBar extends HBox {
         }
 
         return btn;
-    }
-
-    /**
-     * 控制菜单栏的显隐（顶栏折叠时隐藏菜单栏，保留窗口控制按钮和标题）。
-     */
-    public void setMenuBarVisible(boolean visible) {
-        menuBar.setManaged(visible);
-        menuBar.setVisible(visible);
     }
 
     public void setTitleText(String title) {

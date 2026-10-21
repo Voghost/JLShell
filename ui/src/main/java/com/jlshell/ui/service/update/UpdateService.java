@@ -52,12 +52,12 @@ public class UpdateService {
 
     private final AppSettingsService appSettings;
     private final ExecutorService executor;
-    private final HttpClient httpClient;
+    private final java.util.function.Supplier<HttpClient> httpClient;
     private final Path updatesDir;
     private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
 
     public UpdateService(AppSettingsService appSettings, ExecutorService executor) {
-        this(appSettings, executor, HttpClient.newBuilder()
+        this(appSettings, executor, () -> HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .executor(executor)
                 .followRedirects(HttpClient.Redirect.NORMAL)
@@ -65,9 +65,15 @@ public class UpdateService {
     }
 
     UpdateService(AppSettingsService appSettings, ExecutorService executor, HttpClient httpClient, Path updatesDir) {
+        this(appSettings, executor, () -> httpClient, updatesDir);
+        Objects.requireNonNull(httpClient);
+    }
+
+    UpdateService(AppSettingsService appSettings, ExecutorService executor,
+                  java.util.function.Supplier<HttpClient> httpClientFactory, Path updatesDir) {
         this.appSettings = Objects.requireNonNull(appSettings);
         this.executor = Objects.requireNonNull(executor);
-        this.httpClient = Objects.requireNonNull(httpClient);
+        this.httpClient = new com.jlshell.ui.support.LazyValue<>(httpClientFactory);
         this.updatesDir = Objects.requireNonNull(updatesDir);
     }
 
@@ -83,7 +89,7 @@ public class UpdateService {
                         .header("User-Agent", "JLShell-Updater/" + cleanVersion(currentVersion))
                         .GET()
                         .build();
-                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                HttpResponse<String> response = httpClient.get().send(request, HttpResponse.BodyHandlers.ofString());
                 if (response.statusCode() < 200 || response.statusCode() >= 300) {
                     log.warn("JLShell update API request failed: status={}, uri={}, response={}",
                             response.statusCode(), uri, abbreviate(response.body()));
@@ -246,7 +252,7 @@ public class UpdateService {
                 .GET()
                 .build();
         // 使用 InputStream 模式以支持进度回调
-        HttpResponse<InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+        HttpResponse<InputStream> response = httpClient.get().send(request, HttpResponse.BodyHandlers.ofInputStream());
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
             Files.deleteIfExists(destination);
             log.warn("JLShell update asset download failed: status={}, url={}", response.statusCode(), url);

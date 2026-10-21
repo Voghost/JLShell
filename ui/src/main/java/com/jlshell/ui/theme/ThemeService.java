@@ -14,6 +14,10 @@ import javafx.scene.control.Dialog;
 import javafx.scene.control.DialogEvent;
 import javafx.scene.control.DialogPane;
 import javafx.scene.Parent;
+import java.util.List;
+import java.util.Locale;
+import java.util.WeakHashMap;
+import java.util.Map;
 
 /**
  * 主题管理服务。
@@ -34,6 +38,9 @@ public class ThemeService {
     private final ObjectProperty<TerminalColorScheme> activeColorScheme;
     private final AppSettingsService appSettings;
     private final ColorSchemeRegistry registry;
+    private final Map<DialogPane, Boolean> dialogPanes = new WeakHashMap<>();
+    private final Map<Scene, Boolean> scenes = new WeakHashMap<>();
+    private static final String COMPONENT_STYLESHEET = "/css/components.css";
 
     public ThemeService(AppSettingsService appSettings, ColorSchemeRegistry registry, ExecutorService executor) {
         this.appSettings = appSettings;
@@ -42,6 +49,8 @@ public class ThemeService {
         String savedTheme = appSettings.get("ui.theme", "DARK");
         currentTheme.set("LIGHT".equals(savedTheme) ? AppTheme.LIGHT : AppTheme.DARK);
         accentColor.set(AccentColor.fromId(appSettings.get("ui.accentColor", AccentColor.SKY.id())));
+        currentTheme.addListener((obs, oldValue, newValue) -> refreshDialogs());
+        accentColor.addListener((obs, oldValue, newValue) -> refreshDialogs());
 
         // 占位：立即可用，避免启动时阻塞解析 305 主题 JSON
         this.activeColorScheme = new SimpleObjectProperty<>(TerminalColorScheme.dark());
@@ -107,8 +116,8 @@ public class ThemeService {
     }
 
     public void apply(Scene scene) {
-        scene.getStylesheets().clear();
-        scene.getStylesheets().add(getClass().getResource(currentTheme().stylesheet()).toExternalForm());
+        scenes.put(scene, Boolean.TRUE);
+        applyStylesheets(scene.getStylesheets());
         applyAccent(scene.getRoot());
     }
 
@@ -127,12 +136,41 @@ public class ThemeService {
         uiFont.set(new UiFont(family, Math.max(8, Math.min(24, size))));
     }
 
+    /** 设置应用后立即刷新已有表单字体；弱引用不延长插件 Scene 的生命周期。 */
+    public void refreshUi() {
+        List.copyOf(scenes.keySet()).forEach(this::apply);
+        refreshDialogs();
+    }
+    public String uiFontFamily() { return appSettings.get("ui.font.family", null); }
+    public int uiFontSize() {
+        try { return Math.max(8, Math.min(24, Integer.parseInt(appSettings.get("ui.font.size", "13")))); }
+        catch (NumberFormatException invalid) { return 13; }
+    }
+
     public void applyToDialog(DialogPane pane) {
-        String stylesheet = getClass().getResource(currentTheme().stylesheet()).toExternalForm();
-        if (!pane.getStylesheets().contains(stylesheet)) {
-            pane.getStylesheets().add(stylesheet);
-        }
+        dialogPanes.put(pane, Boolean.TRUE);
+        applyStylesheets(pane.getStylesheets());
         applyAccent(pane);
+    }
+
+    private void refreshDialogs() {
+        List.copyOf(dialogPanes.keySet()).forEach(this::applyToDialog);
+    }
+
+    private void applyStylesheets(javafx.collections.ObservableList<String> stylesheets) {
+        // 仅替换宿主主题，保留插件或视图自行添加的样式表。
+        List<String> themes = List.of(stylesheet(AppTheme.DARK.stylesheet()),
+                stylesheet(AppTheme.LIGHT.stylesheet()), stylesheet(COMPONENT_STYLESHEET));
+        List<String> active = List.of(stylesheet(currentTheme().stylesheet()), stylesheet(COMPONENT_STYLESHEET));
+        if (stylesheets.size() >= 2 && stylesheets.subList(0, 2).equals(active)) {
+            return;
+        }
+        stylesheets.removeAll(themes);
+        stylesheets.addAll(0, active);
+    }
+
+    private String stylesheet(String resource) {
+        return java.util.Objects.requireNonNull(getClass().getResource(resource), resource).toExternalForm();
     }
 
     public void applyToDialog(Dialog<?> dialog) {
@@ -150,7 +188,7 @@ public class ThemeService {
 
     public String accentStyle() {
         AccentColor accent = accentColor();
-        return String.format(
+        return String.format(Locale.ROOT,
                 "-jl-accent: %s; -jl-accent-hover: %s; -jl-accent-subtle: %s; -jl-accent-border: %s; "
                         + "-jl-tab-accent-bg: %s; -jl-tab-accent-border: %s;",
                 accent.color(),
@@ -168,13 +206,16 @@ public class ThemeService {
         int red = Integer.parseInt(hexColor.substring(1, 3), 16);
         int green = Integer.parseInt(hexColor.substring(3, 5), 16);
         int blue = Integer.parseInt(hexColor.substring(5, 7), 16);
-        return String.format("rgba(%d, %d, %d, %.2f)", red, green, blue, alpha);
+        return String.format(Locale.ROOT, "rgba(%d, %d, %d, %.2f)", red, green, blue, alpha);
     }
 
     public String uiStyle() {
         StringBuilder style = new StringBuilder();
         String family = uiFont().family();
-        if (family != null && !family.isBlank()) {
+        if (family == null || family.isBlank()) {
+            family = defaultUiFontFamily();
+        }
+        if (!family.isBlank()) {
             style.append("-fx-font-family: \"")
                     .append(family.replace("\\", "\\\\").replace("\"", "\\\""))
                     .append("\";");
@@ -184,5 +225,12 @@ public class ThemeService {
                 .append("px;");
         style.append(accentStyle());
         return style.toString();
+    }
+
+    public static String defaultUiFontFamily() {
+        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        if (os.contains("mac")) return "System";
+        if (os.contains("win")) return "Segoe UI";
+        return "SansSerif";
     }
 }

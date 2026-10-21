@@ -16,4 +16,15 @@ public interface HostKeyConfirmationCallback {
      * @return true to accept the key, false to reject
      */
     boolean confirm(String hostname, int port, String keyType, String fingerprint, boolean mismatch);
+
+    enum TrustDecision {
+        REJECT, TRUST_ONCE, TRUST_AND_SAVE;
+
+        public boolean accepted() { return this != REJECT; }
+    }
+
+    /** Legacy boolean callbacks retain their persistent-trust behavior. */
+    default TrustDecision confirmDecision(String hostname, int port, String keyType, String fingerprint, boolean mismatch) {
+        return confirm(hostname, port, keyType, fingerprint, mismatch) ? TrustDecision.TRUST_AND_SAVE : TrustDecision.REJECT;
+    }
 }

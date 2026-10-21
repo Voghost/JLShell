@@ -77,14 +77,17 @@ public class JediTermTerminalViewFactory implements TerminalViewFactory {
             TerminalViewRequest request,
             ShellChannel shellChannel
     ) {
-        return SwingExecutors.supplyOnEdtAsync(() -> {
+        ShellTtyConnector ttyConnector =
+                new ShellTtyConnector(sshSession.displayName(), shellChannel, executorService);
+        return CompletableFuture.runAsync(() -> {
+            try { ttyConnector.initializeDirectoryReporting(); }
+            catch (java.io.IOException error) { throw new CompletionException(error); }
+        }, executorService).thenCompose(unused -> SwingExecutors.<TerminalViewHandle>supplyOnEdtAsync(() -> {
             try {
                 awtFontReadyHook.run();
                 JlshellSettingsProvider settingsProvider =
                         new JlshellSettingsProvider(
                                 request.fontProfile(), request.colorScheme(), request.runtimeSettings(), shortcutRegistry);
-                ShellTtyConnector ttyConnector =
-                        new ShellTtyConnector(sshSession.displayName(), shellChannel, executorService);
                 JlshellJediTermWidget widget = JlshellJediTermWidget.create(
                         request.shellRequest().terminalSize().columns(),
                         request.shellRequest().terminalSize().rows(),
@@ -106,6 +109,8 @@ public class JediTermTerminalViewFactory implements TerminalViewFactory {
                 shellChannel.closeAsync();
                 throw new CompletionException(exception);
             }
+        })).whenComplete((handle, error) -> {
+            if (error != null) shellChannel.closeAsync();
         });
     }
 }

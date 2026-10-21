@@ -12,6 +12,7 @@ import java.util.function.Consumer;
 import com.jlshell.core.model.ConnectionType;
 import com.jlshell.ui.model.ConnectionProfile;
 import com.jlshell.ui.model.FolderProfile;
+import com.jlshell.ui.model.FolderHierarchy;
 import com.jlshell.ui.model.SidebarItem;
 import com.jlshell.ui.service.I18nService;
 import javafx.beans.property.ReadOnlyBooleanProperty;
@@ -48,6 +49,7 @@ public class SidebarTreeView {
     private final TreeView<SidebarItem> treeView;
     private final TreeItem<SidebarItem> root;
     private final int maxFolderDepth;
+    private FolderHierarchy hierarchy = FolderHierarchy.from(List.of());
     private final I18nService i18n;
 
     private Runnable onConnect;
@@ -74,6 +76,7 @@ public class SidebarTreeView {
     private final Map<TreeItem<SidebarItem>, List<TreeItem<SidebarItem>>> originalChildren = new HashMap<>();
     /** 当前搜索关键词（小写），null 或空表示不过滤。 */
     private String currentFilter;
+    private List<SidebarItem> nativeSelection;
 
     public SidebarTreeView(I18nService i18n, int maxFolderDepth) {
         this.i18n = i18n;
@@ -82,6 +85,7 @@ public class SidebarTreeView {
         root.setExpanded(true);
         treeView = new TreeView<>(root);
         treeView.setShowRoot(false);
+        treeView.getStyleClass().add("connection-tree");
         treeView.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
         treeView.setCellFactory(tv -> new SidebarTreeCell());
         treeView.setContextMenu(createEmptyAreaContextMenu());
@@ -113,48 +117,34 @@ public class SidebarTreeView {
         return menu;
     }
 
-    /** 从 SVG 文件提取 path 数据，返回 Region（通过 SVGPath shape 显示） */
     private static Region loadSvgShape(String resourcePath, double size) {
-        try (var is = SidebarTreeView.class.getResourceAsStream(resourcePath)) {
-            if (is == null) return null;
-            String content = new String(is.readAllBytes());
-            String pathData = extractSvgPath(content);
-            if (pathData == null) return null;
-            Region region = new Region();
-            region.setMinSize(size, size);
-            region.setMaxSize(size, size);
-            region.setPrefSize(size, size);
-            javafx.scene.shape.SVGPath svg = new javafx.scene.shape.SVGPath();
-            svg.setContent(pathData);
-            region.setShape(svg);
-            region.setStyle("-fx-scale-shape:true;");
-            return region;
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private static String extractSvgPath(String svgContent) {
-        StringBuilder sb = new StringBuilder();
-        int idx = 0;
-        while (idx < svgContent.length()) {
-            int start = svgContent.indexOf("d=\"", idx);
-            if (start == -1) break;
-            if (start > 0 && Character.isLetterOrDigit(svgContent.charAt(start - 1))) {
-                idx = start + 3;
-                continue;
-            }
-            start += 3;
-            int end = svgContent.indexOf("\"", start);
-            if (end == -1) break;
-            if (sb.length() > 0) sb.append(' ');
-            sb.append(svgContent.substring(start, end));
-            idx = end + 1;
-        }
-        return sb.isEmpty() ? null : sb.toString();
+        return com.jlshell.ui.support.SvgIcons.create(resourcePath, size);
     }
 
     public TreeView<SidebarItem> getTreeView() { return treeView; }
+
+    public void selectItems(List<SidebarItem> items) {
+        nativeSelection = List.copyOf(items);
+        Set<String> ids = items.stream().map(SidebarItem::id).collect(java.util.stream.Collectors.toSet());
+        treeView.getSelectionModel().clearSelection();
+        for (int row = 0; row < treeView.getExpandedItemCount(); row++) {
+            TreeItem<SidebarItem> item = treeView.getTreeItem(row);
+            if (item != null && item.getValue() != null && ids.contains(item.getValue().id())) {
+                treeView.getSelectionModel().select(item);
+            }
+        }
+    }
+
+    public ContextMenu contextMenuFor(SidebarItem item) {
+        SidebarTreeCell cell = new SidebarTreeCell();
+        return item instanceof SidebarItem.FolderItem folder
+                ? cell.buildFolderContextMenu(folder, folderDepths.getOrDefault(folder.id(), 0))
+                : cell.buildConnectionContextMenu((SidebarItem.ConnectionItem) item);
+    }
+
+    public void moveItems(List<SidebarItem> items, String folderId) {
+        if (onMove != null) onMove.accept(items, folderId);
+    }
 
     public void setOnConnect(Runnable v) { this.onConnect = v; }
     public void setOnEdit(Consumer<SidebarItem> v) { this.onEdit = v; }
@@ -173,8 +163,11 @@ public class SidebarTreeView {
 
     public void populate(List<FolderProfile> folders, List<ConnectionProfile> connections,
                          Set<String> persistedCollapsedFolderIds) {
+        hierarchy = FolderHierarchy.from(folders);
+        folders = hierarchy.folders();
         root.getChildren().clear();
         folderDepths.clear();
+        folderDepths.putAll(hierarchy.depths());
         folderItemsById.clear();
         collapsedFolderIds.clear();
         if (persistedCollapsedFolderIds != null) {
@@ -201,10 +194,8 @@ public class SidebarTreeView {
             TreeItem<SidebarItem> item = folderItems.get(folder.id());
             if (folder.parentId() != null && folderItems.containsKey(folder.parentId())) {
                 folderItems.get(folder.parentId()).getChildren().add(item);
-                folderDepths.put(folder.id(), folderDepths.getOrDefault(folder.parentId(), 0) + 1);
             } else {
                 root.getChildren().add(item);
-                folderDepths.put(folder.id(), 0);
             }
         }
 
@@ -407,6 +398,7 @@ public class SidebarTreeView {
     }
 
     private List<SidebarItem> getSelectedItems() {
+        if (nativeSelection != null) return nativeSelection;
         ObservableList<TreeItem<SidebarItem>> selected = treeView.getSelectionModel().getSelectedItems();
         List<SidebarItem> result = new ArrayList<>();
         for (TreeItem<SidebarItem> ti : selected) {
@@ -419,10 +411,31 @@ public class SidebarTreeView {
 
     private class SidebarTreeCell extends TreeCell<SidebarItem> {
 
+        private final Region icon = loadSvgShape("/icons/server.svg", 16);
+        private final Label name = new Label();
+        private final HBox row = new HBox(8, icon, name);
+        private final javafx.scene.control.Tooltip details = new javafx.scene.control.Tooltip();
+
         private static final String DROP_HIGHLIGHT =
                 "-fx-border-color: -jl-accent; -fx-border-width: 1; -fx-border-radius: 3;";
 
         SidebarTreeCell() {
+            row.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+            row.getStyleClass().add("connection-item");
+            name.setMinWidth(0);
+            name.setMaxWidth(Double.MAX_VALUE);
+            name.getStyleClass().add("conn-cell-name");
+            javafx.scene.layout.HBox.setHgrow(name, javafx.scene.layout.Priority.ALWAYS);
+            setOnContextMenuRequested(event -> {
+                SidebarItem item = getItem();
+                if (item == null) return;
+                if (!isSelected()) treeView.getSelectionModel().clearAndSelect(getIndex());
+                ContextMenu menu = item instanceof SidebarItem.FolderItem folder
+                        ? buildFolderContextMenu(folder, folderDepths.getOrDefault(folder.id(), 0))
+                        : buildConnectionContextMenu((SidebarItem.ConnectionItem) item);
+                menu.show(this, event.getScreenX(), event.getScreenY());
+                event.consume();
+            });
             setOnMouseClicked(event -> {
                 if (event.getClickCount() == 2 && getItem() instanceof SidebarItem.ConnectionItem) {
                     if (onConnect != null) onConnect.run();
@@ -453,7 +466,8 @@ public class SidebarTreeView {
             setOnDragOver(event -> {
                 if (event.getGestureSource() != this
                         && event.getDragboard().hasContent(DRAG_FORMAT)
-                        && getItem() instanceof SidebarItem.FolderItem) {
+                        && getItem() instanceof SidebarItem.FolderItem target
+                        && hierarchy.canMove(decodeDragPayload((String) event.getDragboard().getContent(DRAG_FORMAT)), target.id())) {
                     event.acceptTransferModes(TransferMode.MOVE);
                     setStyle(DROP_HIGHLIGHT);
                 }
@@ -467,7 +481,7 @@ public class SidebarTreeView {
                 boolean success = false;
                 if (db.hasContent(DRAG_FORMAT) && getItem() instanceof SidebarItem.FolderItem targetFolder) {
                     List<SidebarItem> dragged = decodeDragPayload((String) db.getContent(DRAG_FORMAT));
-                    if (!dragged.isEmpty() && onMove != null) {
+                    if (hierarchy.canMove(dragged, targetFolder.id()) && onMove != null) {
                         onMove.accept(dragged, targetFolder.id());
                         success = true;
                     }
@@ -514,19 +528,18 @@ public class SidebarTreeView {
             setStyle(null);
             if (empty || item == null) {
                 setText(null); setGraphic(null); setContextMenu(null);
+                setTooltip(null);
                 return;
             }
+            setText(null);
+            name.setText(item.displayName());
+            setGraphic(row);
+            icon.getStyleClass().removeAll("sidebar-icon-folder", "sidebar-icon-server", "sidebar-icon-terminal");
             switch (item) {
                 case SidebarItem.FolderItem folder -> {
-                    Region icon = loadSvgShape("/icons/folder.svg", 16);
+                    com.jlshell.ui.support.SvgIcons.setPath(icon, "/icons/folder.svg");
                     icon.getStyleClass().add("sidebar-icon-folder");
-                    Label name = new Label(folder.displayName());
-                    name.getStyleClass().add("folder-item-name");
-                    HBox box = new HBox(5, icon, name);
-                    box.getStyleClass().add("folder-item");
-                    setGraphic(box); setText(null);
-                    int depth = folderDepths.getOrDefault(folder.id(), 0);
-                    setContextMenu(buildFolderContextMenu(folder, depth));
+                    details.setText(folder.displayName());
                 }
                 case SidebarItem.ConnectionItem conn -> {
                     String iconPath;
@@ -542,19 +555,12 @@ public class SidebarTreeView {
                     } else {
                         iconPath = "/icons/server.svg";
                     }
-                    Region icon = loadSvgShape(iconPath, 16);
+                    com.jlshell.ui.support.SvgIcons.setPath(icon, iconPath);
                     icon.getStyleClass().add("sidebar-icon-server");
-                    Label name = new Label(conn.displayName());
-                    name.getStyleClass().add("conn-cell-name");
-                    Label summary = new Label(conn.summary());
-                    summary.getStyleClass().add("conn-cell-summary");
-                    VBox textBox = new VBox(1, name, summary);
-                    HBox box = new HBox(6, icon, textBox);
-                    box.getStyleClass().add("connection-item");
-                    setGraphic(box); setText(null);
-                    setContextMenu(buildConnectionContextMenu(conn));
+                    details.setText(conn.displayName() + "\n" + conn.summary());
                 }
             }
+            setTooltip(details);
         }
 
         private ContextMenu buildConnectionContextMenu(SidebarItem.ConnectionItem conn) {

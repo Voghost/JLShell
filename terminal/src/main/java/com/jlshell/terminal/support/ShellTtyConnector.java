@@ -8,8 +8,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import com.jediterm.core.util.TermSize;
 import com.jediterm.terminal.Questioner;
@@ -42,9 +40,11 @@ public class ShellTtyConnector implements TtyConnector {
     /** 终端当前工作目录，通过 OSC 7 序列追踪 */
     private final StringProperty cwdProperty = new SimpleStringProperty("");
 
-    /** 用于拼接可能跨 read() 调用的 OSC 序列 */
-    private StringBuilder oscBuffer;
-    private boolean inOscSequence;
+    private final Osc7DirectoryParser directoryParser = new Osc7DirectoryParser(path ->
+            Platform.runLater(() -> {
+                if (!path.equals(cwdProperty.get())) cwdProperty.set(path);
+            }));
+    private ShellDirectoryIntegration directoryIntegration;
 
     /** 过滤程序内部命令的单次 PTY 回显；正常终端输出仍原样交给 JediTerm。 */
     private final TerminalEchoSuppressor echoSuppressor = new TerminalEchoSuppressor();
@@ -84,6 +84,12 @@ public class ShellTtyConnector implements TtyConnector {
         echoSuppressor.suppressNext(text);
     }
 
+    /** Called on the I/O executor before JediTerm starts reading or accepting user input. */
+    public void initializeDirectoryReporting() throws IOException {
+        directoryIntegration = new ShellDirectoryIntegration();
+        write(directoryIntegration.command());
+    }
+
     @Override
     public int read(char[] buffer, int offset, int length) throws IOException {
         if (length == 0) {
@@ -96,17 +102,34 @@ public class ShellTtyConnector implements TtyConnector {
                     return queued;
                 }
 
+                if (directoryIntegration != null && directoryIntegration.pending()) {
+                    if (directoryIntegration.expired()) {
+                        appendFilteredOutput(directoryIntegration.release());
+                        continue;
+                    }
+                    if (!reader.ready()) {
+                        try { Thread.sleep(10); }
+                        catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new IOException(error); }
+                        continue;
+                    }
+                }
                 char[] raw = new char[Math.max(256, length)];
                 int read = reader.read(raw, 0, raw.length);
                 if (read < 0) {
+                    if (directoryIntegration != null && directoryIntegration.pending()) {
+                        appendFilteredOutput(directoryIntegration.release());
+                        int remaining = drainFilteredOutput(buffer, offset, length);
+                        if (remaining > 0) return remaining;
+                    }
                     log.info("[TtyConnector] '{}' received EOF (remote closed shell)", name);
                     markDisconnected(DisconnectReason.REMOTE_CLOSED);
                     return -1;
                 }
 
                 // 先扫描原始输出，确保被终端显示层过滤的内部命令不会影响 OSC 7 解析。
-                scanForOsc7(raw, 0, read);
-                appendFilteredOutput(echoSuppressor.filter(raw, 0, read));
+                directoryParser.accept(raw, 0, read);
+                String visible = echoSuppressor.filter(raw, 0, read);
+                appendFilteredOutput(directoryIntegration == null ? visible : directoryIntegration.filter(visible));
             }
         } catch (IOException exception) {
             String msg = exception.getMessage();
@@ -133,73 +156,6 @@ public class ShellTtyConnector implements TtyConnector {
         filteredOutput.getChars(0, count, target, offset);
         filteredOutput.delete(0, count);
         return count;
-    }
-
-    /**
-     * 扫描终端输出中的 OSC 7 序列以提取当前工作目录。
-     * OSC 7 格式: ESC ] 7 ; file://host/path BEL (0x07) 或 ST (ESC \)
-     */
-    private void scanForOsc7(char[] buffer, int offset, int length) {
-        for (int i = offset; i < offset + length; i++) {
-            char c = buffer[i];
-
-            if (inOscSequence) {
-                if (c == 0x07) {
-                    // BEL — OSC 结束
-                    processOsc7();
-                    inOscSequence = false;
-                } else if (c == 0x1B) {
-                    // 可能是 ST (ESC \)
-                    if (oscBuffer != null && oscBuffer.length() > 0
-                            && oscBuffer.charAt(oscBuffer.length() - 1) == 0x1B) {
-                        inOscSequence = false;
-                        oscBuffer = null;
-                    } else {
-                        if (oscBuffer == null) oscBuffer = new StringBuilder();
-                        oscBuffer.append(c);
-                    }
-                } else {
-                    if (oscBuffer != null && oscBuffer.length() > 0
-                            && oscBuffer.charAt(oscBuffer.length() - 1) == 0x1B && c == '\\') {
-                        oscBuffer.deleteCharAt(oscBuffer.length() - 1);
-                        processOsc7();
-                        inOscSequence = false;
-                    } else {
-                        if (oscBuffer == null) oscBuffer = new StringBuilder();
-                        oscBuffer.append(c);
-                    }
-                }
-            } else {
-                if (c == 0x1B && i + 1 < offset + length && buffer[i + 1] == ']') {
-                    inOscSequence = true;
-                    oscBuffer = new StringBuilder();
-                    i++; // 跳过 ']'
-                }
-            }
-        }
-    }
-
-    private void processOsc7() {
-        if (oscBuffer == null) return;
-        String content = oscBuffer.toString();
-        oscBuffer = null;
-
-        log.debug("[OSC7] 收到序列: {}", content);
-
-        if (content.startsWith("7;")) {
-            String url = content.substring(2);
-            Matcher matcher = Pattern.compile("file://[^/]*(.*)").matcher(url);
-            if (matcher.matches()) {
-                String path = matcher.group(1);
-                if (!path.isEmpty()) {
-                    String oldCwd = cwdProperty.get();
-                    if (!path.equals(oldCwd)) {
-                        log.debug("[OSC7] cwd 变化: {} -> {}", oldCwd, path);
-                        Platform.runLater(() -> cwdProperty.set(path));
-                    }
-                }
-            }
-        }
     }
 
     @Override

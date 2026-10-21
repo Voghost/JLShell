@@ -34,9 +34,10 @@ final class StartupDiagnostics {
                     property("java.vendor"),
                     property("java.runtime.version"),
                     property("java.home"));
-            log.info("Startup diagnostics: launcherJar={}, activeJar={}, bundledJar={}, updateDir={}",
+            log.info("Startup diagnostics: launcherJar={}, activeJar={}, runtimeJar={}, bundledJar={}, updateDir={}",
                     property("jlshell.launcher.jar"),
                     property("jlshell.active.jar"),
+                    property("jlshell.runtime.jar"),
                     property("jlshell.bundled.jar"),
                     firstNonBlank(property("jlshell.update.dir"), property("jlshell.updates.dir")));
             log.info("Startup diagnostics: javafx.runtime.version={}, javafx.version={}, javafx.graphics.module={}, glassScreenResource={}, nativeLibLoaderResource={}",

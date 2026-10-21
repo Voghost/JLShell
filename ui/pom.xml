@@ -14,6 +14,17 @@
     <name>JLShell UI</name>
 
     <dependencies>
+        <!-- macOS 原生应用菜单标题；通过公开的 Objective-C/AppKit API 设置。 -->
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna</artifactId>
+            <version>5.17.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.formdev</groupId>
+            <artifactId>flatlaf</artifactId>
+            <version>3.5.4</version>
+        </dependency>
         <dependency>
             <groupId>com.jlshell</groupId>
             <artifactId>core</artifactId>
@@ -47,10 +58,6 @@
         <dependency>
             <groupId>org.openjfx</groupId>
             <artifactId>javafx-controls</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.openjfx</groupId>
-            <artifactId>javafx-fxml</artifactId>
         </dependency>
         <dependency>
             <groupId>org.openjfx</groupId>

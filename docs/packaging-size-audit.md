@@ -1,0 +1,69 @@
+# 0.1.68 Beta 打包体积审计
+
+日期：2026-10-15。目标：在保持 SSH、SFTP、终端、插件及跨平台启动能力的前提下缩小分发体积。
+
+## 实测结果
+
+本机 macOS ARM64、Java 21 / JavaFX 21.0.11，大小使用 MiB（1,048,576 字节）。下表应用 JAR 来自同一轮源码构建；运行时使用相同 JDK 和 JavaFX jmods 对照构建。
+
+| 项目 | 优化前 | 优化后 | 说明 |
+| --- | ---: | ---: | --- |
+| 应用 fat JAR | 52.4 MiB | 32.9 MiB | 清理不支持的平台本地库、重复品牌资源，ZIP 最高压缩 |
+| macOS ARM64 安装包内应用 JAR | 52.4 MiB | 22.1 MiB | 仅自身平台本地库，JavaFX 类及资源由内置模块提供 |
+| 内置运行时（磁盘占用） | 67 MiB | 56 MiB | 收紧根模块、仅中英文 locale、jlink ZIP 9 |
+
+整套 Windows ZIP/MSI、macOS ZIP、Linux tar.gz/deb/AppImage 的最终大小以 GitHub Actions 产物为准。不能将应用 JAR 大小当作完整安装包大小。跨平台 JAR 保留支持平台的 SQLite/JNA/PTY 等原生资源；JavaFX 图形本地库仍受构建平台影响，本版必须使用完整安装包。
+
+## 已移除和优化的内容
+
+1. 当前宿主没有 FXML 加载入口，删除 app/ui 对 `javafx-fxml` 的直接依赖。JavaFX controls/swing 仍有模型、过渡界面与插件契约依赖，保留。
+2. SQLite、JNA、pty4j、FlatLaf 的本地库按 Windows x64、Linux x64、macOS x64/ARM64 筛选；安装包进一步只保留自身平台。未按包名前缀删除 Java 类。
+3. 统一运行时品牌图片入口为 `icons/brand/jlshell.png`，剔除打包用 ICO/ICNS、历史重复大图，保留界面实际使用的小尺寸图标。
+4. installer JAR 中不再重复携带由 jlink 提供的 JavaFX 类和本地库；所有启动入口显式解析 `javafx.controls,javafx.swing`，Windows 二次启动保留该参数。
+5. 使用 `--vm=server` 只保留实际使用的 Server JVM，避免 Liberica 将 Client JVM 一并复制到运行时。jlink 通过依赖闭包补齐根模块依赖，移除无使用证据的额外根模块，保留 HTTP、编译 API、脚本、JFR、加密、DNS、ZIP 文件系统及反射所需模块。locale 只打包当前支持的中文和英文。
+6. JAR 与运行时 ZIP 9 压缩；Linux tar.gz 使用 gzip 9、DEB 使用 xz 9，Windows ZIP 使用 7-Zip 最高压缩。
+
+## 必须保留的依赖
+
+- SSHJ / Bouncy Castle：SSH 密钥格式、签名、加密协商，不因静态调用少就裁剪算法。
+- SQLite JDBC / JDBI / Hikari：数据库及动态映射、服务发现和反射。
+- JediTerm / pty4j / JNA / Kotlin：终端、系统桥接和本地进程。
+- JavaFX controls/swing：尚未完成移除的模型与插件 API 依赖；插件需要额外 FXML 时必须声明自身依赖。
+- Nerd Font、终端配色与图标：终端主题和特殊字符显示的产品能力。
+- `META-INF/services`、第三方 LICENSE/NOTICE：运行时服务注册和第三方授权信息。
+
+不使用 shade `minimizeJar`。静态可达分析不能覆盖插件、JDBC、JNA、加密 Provider 和反射入口。
+
+## 发布隔离与兼容
+
+- 版本 `0.1.68`、`channel=beta`，GitHub Pre-release，`make_latest=false`。
+- OSS 路径 `<release-prefix>/beta/0.1.68/`；Beta 不触发旧稳定版本清理。
+- 网站通知使用现有 HMAC 签名 webhook，上传失败或网站通知失败会使 Action 失败。
+- 本版改变运行时和启动参数，网站设置 `updateType=full`、`requiresFullInstaller=true`，禁止仅替换旧安装中的 JAR。
+- macOS 包实际架构取 runner 的真实架构，网站不再把单架构包标为 `any`。
+- Beta 使用独立 `beta` 分支：从 `develop` 创建，经 PR 合入候选变更，在 `beta` 上触发工作流。稳定版从 `main` 发布；Beta 验证通过并经用户确认后再进入稳定合并流程。工作流对公开发布渠道和分支做强校验，`build_only=true` 可在功能分支验证。
+
+## 验证
+
+- Maven `mvn -pl app,launcher -am test` 及 package。
+- Python 资源裁剪矩阵测试、发布说明与变更范围校验、工作流 YAML / shell / 内嵌 Python 语法检查。
+- 使用精简运行时和精简 JAR 验证模块化 JavaFX、SQLite 内存建表、Bouncy Castle、JNA 与真实 PTY 子进程。
+- 使用相同精简运行时和 JAR（不添加 Maven 依赖类路径）冷启动真实 Launcher，验证数据库初始化、窗口显示、FX/EDT 响应、托盘及正常关闭。
+- 工作流提供 `build_only=true`：只构建可下载的 Actions 产物，不创建版本标签、不上传 OSS、不通知网站。
+- CI 三平台分别执行自己的打包运行时 smoke，任一平台失败均不进入 Release/OSS 发布。
+
+## Actions 完整安装包实测
+
+验证提交 `3b5bed010c21b7f2b3116817b5536019a3881fa0`，[构建记录](https://github.com/Voghost/JLShell/actions/runs/38660118151)，三平台均成功。与 v0.1.67 GitHub Release 的同类型产物比较；本轮只构建，无公开发布。
+
+| 产物 | v0.1.67 | 0.1.68 Beta | 减少 |
+| --- | ---: | ---: | ---: |
+| JLShell-0.1.68-linux-x64.deb | 101.34 MiB | 61.30 MiB | 39.5% |
+| JLShell-0.1.68-linux-x64.tar.gz | 107.28 MiB | 65.58 MiB | 38.9% |
+| JLShell-0.1.68-linux-x86_64.AppImage | 107.74 MiB | 66.05 MiB | 38.7% |
+| jlshell-app-0.1.68.jar | 45.98 MiB | 32.82 MiB | 28.6% |
+| JLShell-0.1.68-mac.zip | 99.27 MiB | 62.66 MiB | 36.9% |
+| JLShell-0.1.68-win-x64.msi | 101.58 MiB | 64.26 MiB | 36.7% |
+| JLShell-0.1.68-win-x64.zip | 99.93 MiB | 62.47 MiB | 37.5% |
+
+已下载并检查 Windows ZIP、Linux tar.gz、macOS ZIP：保留各自平台 SQLite，本地应用 JAR 不再重复 JavaFX，运行时没有 Client JVM。

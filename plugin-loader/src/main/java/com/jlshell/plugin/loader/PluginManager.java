@@ -1,8 +1,8 @@
 package com.jlshell.plugin.loader;
 
-import java.io.File;
 import java.net.URL;
 import java.net.URLClassLoader;
+import com.jlshell.core.support.PerformanceTrace;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -93,13 +93,20 @@ public class PluginManager {
      * 显式触发加载。通常由 {@link #ensureLoaded()} 在首次访问时自动调用，
      * 保留 public 仅供测试或特殊场景使用。
      */
-    public void loadPlugins() {
-        plugins.clear();
-        closeExternalClassLoaders();
-        loadFromClassLoader(Thread.currentThread().getContextClassLoader());
-        loadFromExternalDirs();
-        catalogRevision.set(catalogRevision.get() + 1);
-        log.info("Loaded {} plugin(s)", plugins.size());
+    public void loadPlugins() { loadPlugins(null); }
+
+    private void loadPlugins(PerformanceTrace parent) {
+        var timing = parent == null ? PerformanceTrace.start("plugin-scan", "session")
+                : parent.child("plugin-scan", "session");
+        try {
+            plugins.clear();
+            timing.run("close-classloaders", this::closeExternalClassLoaders);
+            loadFromClassLoader(Thread.currentThread().getContextClassLoader(), timing);
+            loadFromExternalDirs(timing);
+            catalogRevision.set(catalogRevision.get() + 1);
+            log.info("Loaded {} plugin(s)", plugins.size());
+            timing.finish("success");
+        } catch (RuntimeException | Error error) { timing.failed(error); throw error; }
     }
 
     /**
@@ -116,41 +123,54 @@ public class PluginManager {
      * 延迟加载入口：首次访问插件列表/激活插件时才扫描 JAR。
      * 把 4.7MB sysmon JAR 的加载从启动路径移到首次开终端/插件 Tab。
      */
-    public void ensureLoaded() {
+    public void ensureLoaded() { ensureLoaded(null); }
+
+    public void ensureLoaded(PerformanceTrace parent) {
         if (loaded) return;
         synchronized (this) {
             if (loaded) return;
-            loadPlugins();
+            loadPlugins(parent);
             loaded = true;
         }
     }
 
-    private void loadFromClassLoader(ClassLoader classLoader) {
-        ServiceLoader.load(JlShellPlugin.class, classLoader).forEach(plugin -> {
-            plugins.add(toDescriptor(plugin));
-            log.debug("Discovered plugin: {} ({})", plugin.displayName(), plugin.id());
-        });
-    }
-
-    private void loadFromExternalDirs() {
-        for (Path dir : RuntimePluginDirectories.resolve(userPluginsDir, "plugins")) {
-            loadFromDirectory(dir);
+    private void loadFromClassLoader(ClassLoader classLoader, PerformanceTrace timing) {
+        var providers = timing.call("service-discovery", () ->
+                ServiceLoader.load(JlShellPlugin.class, classLoader).stream().toList());
+        for (var provider : providers) {
+            var providerTiming = timing.child("plugin-provider", provider.type().getName());
+            try {
+                JlShellPlugin plugin = providerTiming.call("constructor", provider::get);
+                if (plugins.stream().anyMatch(existing -> existing.id().equals(plugin.id()))) {
+                    providerTiming.finish("duplicate");
+                    continue;
+                }
+                plugins.add(providerTiming.call("metadata", () -> toDescriptor(plugin)));
+                providerTiming.mark("plugin-id-" + plugin.id());
+                providerTiming.finish("success");
+            } catch (RuntimeException | Error error) { providerTiming.failed(error); throw error; }
         }
     }
 
-    private void loadFromDirectory(Path dir) {
-        if (!Files.isDirectory(dir)) return;
-        for (Path jarPath : RuntimePluginDirectories.pluginJars(dir)) {
-            File jar = jarPath.toFile();
-            try {
-                PluginPackageValidator.validateForLoading(jarPath, PluginScope.SESSION);
-                URL[] urls = {jar.toURI().toURL()};
-                URLClassLoader loader = new URLClassLoader(urls, Thread.currentThread().getContextClassLoader());
-                externalClassLoaders.add(loader);
-                loadFromClassLoader(loader);
-                log.info("Loaded plugins from: {}", jar.getName());
-            } catch (Exception e) {
-                log.warn("Failed to load plugin JAR: {}", jar.getName(), e.getMessage());
+    private void loadFromExternalDirs(PerformanceTrace timing) {
+        var directories = timing.call("resolve-directories", () -> RuntimePluginDirectories.resolve(userPluginsDir, "plugins"));
+        for (Path dir : directories) {
+            if (!Files.isDirectory(dir)) continue;
+            var jars = timing.call("list-jars", () -> RuntimePluginDirectories.pluginJars(dir));
+            for (Path jarPath : jars) {
+                var jarTiming = timing.child("plugin-jar", jarPath.getFileName().toString());
+                try {
+                    jarTiming.call("validate-package", () -> { PluginPackageValidator.validateForLoading(jarPath, PluginScope.SESSION); return null; });
+                    URL[] urls = {jarPath.toUri().toURL()};
+                    URLClassLoader loader = jarTiming.call("classloader", () ->
+                            new URLClassLoader(urls, Thread.currentThread().getContextClassLoader()));
+                    externalClassLoaders.add(loader);
+                    loadFromClassLoader(loader, jarTiming);
+                    jarTiming.finish("success");
+                } catch (Exception error) {
+                    jarTiming.failed(error);
+                    log.warn("Failed to load plugin JAR: {}", jarPath.getFileName(), error);
+                } catch (Error error) { jarTiming.failed(error); throw error; }
             }
         }
     }
@@ -212,12 +232,16 @@ public class PluginManager {
     }
 
     public void activatePlugin(String pluginId, PluginContext context) {
-        ensureLoaded();
+        activatePlugin(pluginId, context, null);
+    }
+
+    public void activatePlugin(String pluginId, PluginContext context, PerformanceTrace parent) {
+        ensureLoaded(parent);
         if (!isPluginEnabled(pluginId)) return;
         plugins.stream()
                 .filter(d -> d.id().equals(pluginId))
                 .findFirst()
-                .ifPresent(descriptor -> activateInstance(descriptor.instance(), context));
+                .ifPresent(descriptor -> activateInstance(descriptor.instance(), context, parent));
     }
 
     /**
@@ -225,37 +249,47 @@ public class PluginManager {
      * 若 context 是 DefaultPluginContext，按其 sessionId 路由；否则落到 __global__ 桶。
      */
     public void activateInstance(JlShellPlugin plugin, PluginContext context) {
-        ensureLoaded();
-        if (!isPluginEnabled(plugin.id())) return;
-        String sid = (context instanceof DefaultPluginContext dpc) ? dpc.sessionId() : null;
-        PluginAccessDecision decision = accessController.evaluate(new PluginAccessRequest(
-                PluginOperation.ACTIVATE, PluginScope.SESSION, sid, plugin.id(), null));
-        if (decision.effect() == PluginAccessDecision.Effect.DENY) {
-            log.info("Activation denied for session plugin {}: {}", plugin.id(), decision.reason());
-            discardContext(sid, plugin.id(), context);
-            if (context instanceof DefaultPluginContext defaultContext) {
-                defaultContext.disposeBindings();
-            }
-            return;
-        }
-        SessionPluginSet set = activeBySession.computeIfAbsent(
-                sid == null ? GLOBAL_KEY : sid, SessionPluginSet::new);
-        set.plugins.put(plugin.id(), plugin);
-        set.contexts.put(plugin.id(), context);
-        attachRuntimeServices(sid, plugin.id(), context);
+        activateInstance(plugin, context, null);
+    }
+
+    private void activateInstance(JlShellPlugin plugin, PluginContext context, PerformanceTrace parent) {
+        var timing = parent == null ? PerformanceTrace.start("plugin-activate", plugin.id())
+                : parent.child("plugin-activate", plugin.id());
         try {
-            plugin.activate(context);
-            log.debug("Activated plugin {} in session {}", plugin.id(), sid);
-        } catch (RuntimeException | Error error) {
-            set.plugins.remove(plugin.id(), plugin);
-            set.contexts.remove(plugin.id(), context);
-            set.registry.clearForPlugin(plugin.id());
-            disposeContext(context);
-            if (set.plugins.isEmpty() && set.contexts.isEmpty()) {
-                activeBySession.remove(sid == null ? GLOBAL_KEY : sid, set);
+            timing.run("ensure-catalog", () -> ensureLoaded(timing));
+            if (!isPluginEnabled(plugin.id())) { timing.finish("disabled"); return; }
+            String sid = (context instanceof DefaultPluginContext dpc) ? dpc.sessionId() : null;
+            PluginAccessDecision decision = timing.call("access-policy", () -> accessController.evaluate(new PluginAccessRequest(
+                    PluginOperation.ACTIVATE, PluginScope.SESSION, sid, plugin.id(), null)));
+            if (decision.effect() == PluginAccessDecision.Effect.DENY) {
+                log.info("Activation denied for session plugin {}: {}", plugin.id(), decision.reason());
+                timing.finish("denied");
+                discardContext(sid, plugin.id(), context);
+                if (context instanceof DefaultPluginContext defaultContext) {
+                    defaultContext.disposeBindings();
+                }
+                return;
             }
-            throw error;
-        }
+            SessionPluginSet set = activeBySession.computeIfAbsent(
+                    sid == null ? GLOBAL_KEY : sid, SessionPluginSet::new);
+            set.plugins.put(plugin.id(), plugin);
+            set.contexts.put(plugin.id(), context);
+            timing.run("runtime-services", () -> attachRuntimeServices(sid, plugin.id(), context));
+            try {
+                timing.run("plugin-code", () -> plugin.activate(context));
+                log.debug("Activated plugin {} in session {}", plugin.id(), sid);
+            } catch (RuntimeException | Error error) {
+                set.plugins.remove(plugin.id(), plugin);
+                set.contexts.remove(plugin.id(), context);
+                set.registry.clearForPlugin(plugin.id());
+                disposeContext(context);
+                if (set.plugins.isEmpty() && set.contexts.isEmpty()) {
+                    activeBySession.remove(sid == null ? GLOBAL_KEY : sid, set);
+                }
+                throw error;
+            }
+            timing.finish("success");
+        } catch (RuntimeException | Error error) { timing.failed(error); throw error; }
     }
 
     /** 供 CapabilityBus 用：按 sessionId 取该会话的 registry。sessionId 为 null 取全局桶。 */

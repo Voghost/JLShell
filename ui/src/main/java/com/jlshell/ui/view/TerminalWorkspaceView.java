@@ -2,16 +2,11 @@ package com.jlshell.ui.view;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
 
 import com.jlshell.core.model.CommandRequest;
 import com.jlshell.core.model.FontProfile;
@@ -20,15 +15,6 @@ import com.jlshell.core.model.TerminalSize;
 import com.jlshell.core.service.AppSettingsService;
 import com.jlshell.core.service.FontProfileService;
 import com.jlshell.core.session.SshSession;
-import com.jlshell.plugin.api.JlShellPlugin;
-import com.jlshell.plugin.api.SshSessionContext;
-import com.jlshell.plugin.loader.CapabilityRegistryImpl;
-import com.jlshell.plugin.loader.DefaultPluginContext;
-import com.jlshell.plugin.loader.PluginDescriptor;
-import com.jlshell.plugin.loader.PluginManager;
-import com.jlshell.plugin.api.rpc.CapabilityBus;
-import com.jlshell.plugin.api.storage.PluginStorage;
-import com.jlshell.sftp.service.SftpService;
 import com.jlshell.terminal.model.TerminalColorScheme;
 import com.jlshell.terminal.model.TerminalRuntimeSettings;
 import com.jlshell.terminal.model.TerminalViewRequest;
@@ -53,13 +39,11 @@ import javafx.geometry.Point2D;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
-import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressIndicator;
 import javafx.scene.control.ProgressBar;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Tab;
-import javafx.scene.control.TabPane;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
@@ -88,23 +72,14 @@ public class TerminalWorkspaceView extends BorderPane {
     private final AppSettingsService appSettingsService;
     private final I18nService i18nService;
     private final ThemeService themeService;
-    private final PluginManager pluginManager;
-    private final CapabilityBus capabilityBus;
-    private final SftpService sftpService;
-    private final java.util.function.Function<String, PluginStorage> storageFactory;
     private final java.util.function.Consumer<String> sessionDisconnectListener;
-    private final ChangeListener<Number> pluginCatalogRevisionListener;
-    /** 本工作区 Tab 对应的会话 id（SSH 会话或合成的 local-uuid），用于 per-session registry 路由 */
-    private final String sessionId;
     private final StackPane terminalHost = new StackPane();
     private final List<TerminalViewHandle> handles = new ArrayList<>();
     private final List<ChangeListener<String>> cwdListeners = new ArrayList<>();
-    private final Set<String> activatedPluginIds = ConcurrentHashMap.newKeySet();
 
     private Node primaryNode;
     private ChangeListener<Boolean> primaryFocusListener;
     private EventHandler<MouseEvent> primaryMouseClickHandler;
-    private TabPane workspaceTabPane;
 
     /**
      * 终端当前工作目录的可观察属性（来自主终端的 OSC 7 追踪）。
@@ -145,6 +120,52 @@ public class TerminalWorkspaceView extends BorderPane {
     private String remoteClockZone = "--";
     private String remoteClockOffset = "+0000";
     private StatusSummary lastStatusSummary;
+    private final javafx.beans.property.ReadOnlyObjectWrapper<com.jlshell.ui.model.ServerMonitorSnapshot> monitorSnapshot =
+            new javafx.beans.property.ReadOnlyObjectWrapper<>();
+    private boolean nativeMonitor;
+    private long monitorSample;
+    private double monitorNetworkRate;
+
+    public int monitorWarningThreshold() { return warningThreshold; }
+    public int monitorDangerThreshold() { return dangerThreshold; }
+
+    public javafx.beans.property.ReadOnlyObjectProperty<com.jlshell.ui.model.ServerMonitorSnapshot> monitorSnapshotProperty() {
+        return monitorSnapshot.getReadOnlyProperty();
+    }
+
+    /** Reuses the existing read-only SSH detail commands; caller must dispatch from the FX thread. */
+    public java.util.concurrent.CompletableFuture<String> queryMonitorDetail(String type) {
+        if (disconnected) return java.util.concurrent.CompletableFuture.failedFuture(new IllegalStateException("Disconnected"));
+        if (!java.util.Set.of("cpu", "mem", "ip", "os", "disk").contains(type))
+            return java.util.concurrent.CompletableFuture.failedFuture(new IllegalArgumentException("Unknown metric"));
+        return sshSession.execute(new CommandRequest(buildDetailCmd(type), java.time.Duration.ofSeconds(10), false, null))
+                .thenApply(output -> {
+                    if (output.exitCode() != null && output.exitCode() != 0 && (output.stdout() == null || output.stdout().isBlank()))
+                        throw new IllegalStateException(output.stderr());
+                    return output.stdout() == null ? "" : output.stdout();
+                });
+    }
+
+    private void publishMonitorSnapshot(String failure) {
+        StatusSummary summary = lastStatusSummary;
+        if (summary == null) {
+            var missing = new com.jlshell.ui.model.ServerMonitorSnapshot.Resource("—", "—", -1, -1);
+            monitorSnapshot.set(new com.jlshell.ui.model.ServerMonitorSnapshot(0, "—", "—", "—", "—", "—", "—",
+                    missing, missing, missing, missing, failure));
+            return;
+        }
+        var cpu = new com.jlshell.ui.model.ServerMonitorSnapshot.Resource(currentCpuUsage,
+                summary.cores() + " cores · Load " + formatDecimal(summary.load()), currentCpuPercent, currentCpuPercent);
+        int memory = usagePercent(summary.memUsed(), summary.memTotal());
+        var mem = new com.jlshell.ui.model.ServerMonitorSnapshot.Resource(memory < 0 ? "--" : memory + "%",
+                formatBytes(summary.memUsed()) + " / " + formatBytes(summary.memTotal()), memory, memory);
+        var network = new com.jlshell.ui.model.ServerMonitorSnapshot.Resource("↓ " + currentDownloadRate,
+                "↑ " + currentUploadRate, monitorNetworkRate, -1);
+        var disk = new com.jlshell.ui.model.ServerMonitorSnapshot.Resource(summary.diskPercent() < 0 ? "--" : summary.diskPercent() + "%",
+                formatBytes(summary.diskUsed()) + " / " + formatBytes(summary.diskTotal()), summary.diskPercent(), summary.diskPercent());
+        monitorSnapshot.set(new com.jlshell.ui.model.ServerMonitorSnapshot(monitorSample, summary.host(), summary.os(), summary.kernel(),
+                summary.ip(), summary.iface(), serverTimeLabel.getText(), cpu, mem, network, disk, failure));
+    }
 
     // Floating card state
     private javafx.stage.Popup floatingPopup;
@@ -157,12 +178,7 @@ public class TerminalWorkspaceView extends BorderPane {
     private VBox floatingProcessRows;
     private boolean floatingProcessRefreshInFlight;
     private long floatingProcessGeneration;
-    private Button pluginQuickLaunchBtn;
-    private HBox toolbar;
-    private Region pluginDivider;
-    private final List<HBox> pinnedPluginButtons = new ArrayList<>();
 
-    private static final String PINNED_PLUGINS_KEY = "toolbar.pinnedPlugins";
     public static final String STATUS_BAR_VISIBLE_KEY = "ui.terminal.statusBar.visible";
     private static final double NETWORK_STATUS_WIDTH = 165;
     private static final double OS_STATUS_WIDTH = 220;
@@ -171,7 +187,6 @@ public class TerminalWorkspaceView extends BorderPane {
     private static final double DISK_STATUS_WIDTH = 180;
     private static final double FLOATING_CARD_WIDTH = 400;
     private static final double FLOATING_CARD_BOTTOM_GAP = 2;
-    private static final int MAX_PINNED = 5;
     private static final java.time.Duration STATUS_COMMAND_TIMEOUT = java.time.Duration.ofSeconds(8);
     private final int warningThreshold;
     private final int dangerThreshold;
@@ -183,31 +198,35 @@ public class TerminalWorkspaceView extends BorderPane {
     private boolean disconnected = false;
     /** 重连回调，由 SessionWorkspaceTab 设置 */
     private Runnable onReconnect;
+    private com.jlshell.ui.swing.NativeTerminalHost nativeTerminalHost;
+
+    public void setNativeTerminalHost(com.jlshell.ui.swing.NativeTerminalHost host) {
+        nativeTerminalHost = host;
+    }
+
+    /** 只移动界面节点，原有插件按钮、状态采样和事件处理仍由本视图维护。 */
+
+    public Node takeNativeStatusBar() {
+        nativeMonitor = true;
+        Node node = getBottom();
+        setBottom(null);
+        return node;
+    }
 
     public TerminalWorkspaceView(
-            String sessionId,
             SshSession sshSession,
             TerminalViewFactory terminalViewFactory,
             FontProfileService fontProfileService,
             AppSettingsService appSettingsService,
             I18nService i18nService,
-            ThemeService themeService,
-            PluginManager pluginManager,
-            CapabilityBus capabilityBus,
-            SftpService sftpService,
-            java.util.function.Function<String, PluginStorage> storageFactory
+            ThemeService themeService
     ) {
-        this.sessionId = sessionId;
         this.sshSession = sshSession;
         this.terminalViewFactory = terminalViewFactory;
         this.fontProfileService = fontProfileService;
         this.appSettingsService = appSettingsService;
         this.i18nService = i18nService;
         this.themeService = themeService;
-        this.pluginManager = pluginManager;
-        this.capabilityBus = capabilityBus;
-        this.sftpService = sftpService;
-        this.storageFactory = storageFactory;
         ResourceThresholds thresholds = ResourceThresholds.of(
                 JlshellDefaults.statusWarningPercent(),
                 JlshellDefaults.statusDangerPercent()
@@ -222,22 +241,9 @@ public class TerminalWorkspaceView extends BorderPane {
         this.sshSession.addDisconnectListener(sessionDisconnectListener);
 
         getStyleClass().add("workspace-panel");
-        setTop(buildToolbar());
         setCenter(terminalHost);
         setBottom(buildSessionStatusArea());
         setStatusBarVisible(Boolean.parseBoolean(appSettingsService.get(STATUS_BAR_VISIBLE_KEY, "true")));
-        this.pluginCatalogRevisionListener = (obs, oldRevision, newRevision) -> {
-            if (Platform.isFxApplicationThread()) {
-                if (toolbar != null) rebuildPinnedPluginButtons();
-            } else {
-                Platform.runLater(() -> {
-                    if (toolbar != null) rebuildPinnedPluginButtons();
-                });
-            }
-        };
-        if (pluginManager != null) {
-            pluginManager.catalogRevisionProperty().addListener(pluginCatalogRevisionListener);
-        }
     }
 
     public CompletableFuture<Void> initialize() {
@@ -251,16 +257,6 @@ public class TerminalWorkspaceView extends BorderPane {
         }));
     }
 
-    /**
-     * 控制顶部工具栏（插件按钮 + 字体设置）的显隐。
-     * 顶栏折叠时隐藏，给终端更多垂直空间。
-     */
-    public void setToolbarVisible(boolean visible) {
-        if (toolbar != null) {
-            toolbar.setManaged(visible);
-            toolbar.setVisible(visible);
-        }
-    }
 
     /** 控制会话底部资源状态栏的显隐，并持久化用户选择。 */
     public void setStatusBarVisible(boolean visible) {
@@ -281,48 +277,15 @@ public class TerminalWorkspaceView extends BorderPane {
         }
     }
 
-    /**
-     * 为当前交互式 Shell 安装 OSC 7 目录上报钩子。
-     *
-     * <p>钩子只存在于本次远程 Shell 进程，不修改用户的 bashrc/zshrc。
-     * 发送时由终端连接器过滤命令自身的 PTY 回显，因此不会在终端留下整段内部命令。
-     */
-    private void installOsc7PromptHook(TerminalViewHandle handle) {
-        // bash: PROMPT_COMMAND 末尾可能已有分号（如 "history -a;"），直接追加会
-        // 产生 "history -a; ; _jlshell_osc7" 双分号语法错误，因此先 strip 尾部分号再追加。
-        String hook = ""
-                + ": __JLSHELL_OSC7_SETUP__;"
-                + " if [ -n \"$ZSH_VERSION\" ]; then"
-                + "   _jlshell_osc7() { printf '\\033]7;file://%s%s\\007' \"$HOSTNAME\" \"$PWD\"; };"
-                + "   chpwd_functions=(${chpwd_functions[@]} _jlshell_osc7);"
-                + "   _jlshell_osc7;"
-                + " elif [ -n \"$BASH_VERSION\" ]; then"
-                + "   _jlshell_osc7() { printf '\\033]7;file://%s%s\\007' \"$HOSTNAME\" \"$PWD\"; };"
-                + "   _PC=\"${PROMPT_COMMAND%%; }\"; _PC=\"${_PC%% ;}\"; _PC=\"${_PC%%;}\";"
-                + "   PROMPT_COMMAND=\"${_PC:+$_PC; }_jlshell_osc7\";"
-                + "   _jlshell_osc7;"
-                + " fi;"
-                + "\n";
-
-        handle.sendStringToTerminalSilently(hook);
-        log.debug("[OSC7] Prompt hook installed silently");
-    }
-
     public void applyColorScheme(TerminalColorScheme scheme) {
         handles.forEach(handle -> handle.updateColorScheme(scheme));
     }
 
-    public void setWorkspaceTabPane(TabPane tabPane) {
-        this.workspaceTabPane = tabPane;
-    }
 
     public CompletableFuture<Void> closeAsync() {
         hideFloatingCard();
         stopStatusSampling();
         sshSession.removeDisconnectListener(sessionDisconnectListener);
-        if (pluginManager != null) {
-            pluginManager.catalogRevisionProperty().removeListener(pluginCatalogRevisionListener);
-        }
         detachPrimarySwingNode();
         for (int i = 0; i < handles.size(); i++) {
             TerminalViewHandle handle = handles.get(i);
@@ -344,7 +307,6 @@ public class TerminalWorkspaceView extends BorderPane {
         hideFloatingCard();
         detachPrimarySwingNode();
         terminalHost.getChildren().clear();
-        pinnedPluginButtons.clear();
         handles.clear();
         cwdListeners.clear();
         primaryNode = null;
@@ -353,7 +315,6 @@ public class TerminalWorkspaceView extends BorderPane {
         disconnectOverlay = null;
         disconnectLabel = null;
         reconnectBtn = null;
-        toolbar = null;
         sessionStatusBar = null;
         sessionStatusArea = null;
         statusBarRevealButton = null;
@@ -367,8 +328,6 @@ public class TerminalWorkspaceView extends BorderPane {
         serverClockTimeline = null;
         floatingUsageBars.clear();
         floatingProcessRows = null;
-        pluginQuickLaunchBtn = null;
-        pluginDivider = null;
         onReconnect = null;
     }
 
@@ -412,6 +371,12 @@ public class TerminalWorkspaceView extends BorderPane {
 
         long startedAt = System.nanoTime();
         disconnected = true;
+        if (nativeTerminalHost != null) {
+            nativeTerminalHost.disconnected(reasonText, () -> {
+                hideDisconnectOverlay();
+                if (onReconnect != null) onReconnect.run();
+            });
+        }
         stopStatusSampling();
         log.warn("[Terminal] Session {} disconnected, reason={}, handles={}, primaryNode={}",
                 sshSession.sessionId(), reason, handles.size(),
@@ -492,7 +457,7 @@ public class TerminalWorkspaceView extends BorderPane {
     /** 标记已重连（清除断连状态，由 SessionWorkspaceTab 在重连成功后调用） */
     public void markReconnected() {
         hideDisconnectOverlay();
-        if (sessionStatusBar != null && sessionStatusBar.isVisible()) {
+        if (sessionStatusBar != null && (nativeMonitor || sessionStatusBar.isVisible())) {
             startStatusSampling();
         }
     }
@@ -504,24 +469,6 @@ public class TerminalWorkspaceView extends BorderPane {
 
     // ── Toolbar ──────────────────────────────────────────────────────────────
 
-    private HBox buildToolbar() {
-        Button fontSettings = iconBtn("/icons/font.svg", i18nService.get("terminal.fontSettings"), this::openFontSettings);
-
-        Region spacer = new Region();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
-
-        Button pluginBtn = iconBtn("/icons/add.svg", i18nService.get("workspace.plugins"), this::showPluginPicker);
-        pluginQuickLaunchBtn = pluginBtn;
-
-        pluginDivider = new Region();
-        pluginDivider.getStyleClass().add("sysinfo-sep-group");
-
-        toolbar = new HBox(4, pluginDivider);
-        rebuildPinnedPluginButtons();
-        toolbar.getChildren().addAll(spacer, pluginBtn, fontSettings);
-        toolbar.getStyleClass().add("toolbar-strip");
-        return toolbar;
-    }
 
     private StackPane buildSessionStatusArea() {
         ipValueLabel = statusValueLabel("--");
@@ -603,65 +550,8 @@ public class TerminalWorkspaceView extends BorderPane {
         return box;
     }
 
-    private List<String> loadPinnedPluginIds() {
-        String raw = appSettingsService.get(PINNED_PLUGINS_KEY, "");
-        if (raw.isBlank()) return Collections.emptyList();
-        return Arrays.stream(raw.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .limit(MAX_PINNED)
-                .collect(Collectors.toList());
-    }
 
-    private void savePinnedPluginIds(List<String> ids) {
-        appSettingsService.set(PINNED_PLUGINS_KEY, String.join(",", ids));
-    }
 
-    private void rebuildPinnedPluginButtons() {
-        // Remove old pinned buttons (between pluginDivider and spacer)
-        toolbar.getChildren().removeAll(pinnedPluginButtons);
-        pinnedPluginButtons.clear();
-
-        if (pluginManager == null) {
-            pluginDivider.setVisible(false);
-            pluginDivider.setManaged(false);
-            return;
-        }
-
-        List<String> pinned = loadPinnedPluginIds();
-        List<PluginDescriptor> allPlugins = pluginManager.getAvailablePlugins();
-
-        for (String id : pinned) {
-            allPlugins.stream()
-                    .filter(d -> d.id().equals(id))
-                    .findFirst()
-                    .ifPresent(desc -> {
-                        JlShellPlugin plugin = desc.instance();
-                        Label lbl = new Label(plugin.displayName(i18nService.getLocale()));
-                        lbl.getStyleClass().add("sysinfo-label");
-                        HBox btn = new HBox(2, loadSvgShape("/icons/plugins.svg", 14), lbl);
-                        if (btn.getChildren().get(0) != null) {
-                            btn.getChildren().get(0).getStyleClass().add("action-bar-icon");
-                        }
-                        btn.getStyleClass().add("plugin-pinned-btn");
-                        btn.setOnMouseClicked(e -> {
-                            e.consume();
-                            activatePlugin(desc);
-                        });
-                        pinnedPluginButtons.add(btn);
-                    });
-        }
-
-        boolean hasPinned = !pinnedPluginButtons.isEmpty();
-        pluginDivider.setVisible(hasPinned);
-        pluginDivider.setManaged(hasPinned);
-
-        // Insert after pluginDivider, before spacer
-        int insertIdx = toolbar.getChildren().indexOf(pluginDivider) + 1;
-        for (int i = 0; i < pinnedPluginButtons.size(); i++) {
-            toolbar.getChildren().add(insertIdx + i, pinnedPluginButtons.get(i));
-        }
-    }
 
     private HBox sysinfoSection(Region icon, Label label, String type) {
         if (icon != null) icon.getStyleClass().add("action-bar-icon");
@@ -683,7 +573,7 @@ public class TerminalWorkspaceView extends BorderPane {
     // ── Realtime status sampling ─────────────────────────────────────────────
 
     private void startStatusSampling() {
-        if (primaryNode == null || sessionStatusBar == null || !sessionStatusBar.isVisible() || disconnected) {
+        if (primaryNode == null || sessionStatusBar == null || (!nativeMonitor && !sessionStatusBar.isVisible()) || disconnected) {
             return;
         }
         if (statusRefreshTimeline == null) {
@@ -727,8 +617,8 @@ public class TerminalWorkspaceView extends BorderPane {
 
     private void refreshStatusSummary() {
         // Tab 未选中时不向远端持续发命令；再次显示后由定时器自动恢复。
-        if (statusRefreshInFlight || disconnected || getScene() == null
-                || sessionStatusBar == null || !sessionStatusBar.isVisible()) {
+        if (statusRefreshInFlight || disconnected || (getScene() == null && nativeTerminalHost == null)
+                || sessionStatusBar == null || (!nativeMonitor && !sessionStatusBar.isVisible())) {
             return;
         }
         statusRefreshInFlight = true;
@@ -740,6 +630,7 @@ public class TerminalWorkspaceView extends BorderPane {
                     }
                     statusRefreshInFlight = false;
                     if (throwable != null) {
+                        publishMonitorSnapshot(throwable.getMessage());
                         log.debug("Unable to refresh terminal status for session {}: {}",
                                 sshSession.sessionId(), throwable.getMessage());
                         return;
@@ -899,6 +790,7 @@ public class TerminalWorkspaceView extends BorderPane {
                     && previousRxBytes >= 0 && previousTxBytes >= 0) {
                 currentDownloadRate = formatRate((summary.rxBytes() - previousRxBytes) / elapsedSeconds);
                 currentUploadRate = formatRate((summary.txBytes() - previousTxBytes) / elapsedSeconds);
+                monitorNetworkRate = (summary.rxBytes() - previousRxBytes + summary.txBytes() - previousTxBytes) / elapsedSeconds;
             }
         }
         if (previousCpuTotal >= 0 && summary.cpuTotal() > previousCpuTotal) {
@@ -930,6 +822,8 @@ public class TerminalWorkspaceView extends BorderPane {
         updateResourceSeverity(cpuValueLabel, currentCpuPercent);
         updateResourceSeverity(memValueLabel, usagePercent(summary.memUsed(), summary.memTotal()));
         updateResourceSeverity(diskValueLabel, summary.diskPercent());
+        monitorSample++;
+        publishMonitorSnapshot(null);
         updateFloatingLiveSummary(summary);
         refreshOpenProcessDetails();
     }
@@ -942,6 +836,7 @@ public class TerminalWorkspaceView extends BorderPane {
                 .atOffset(offset)
                 .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss", java.util.Locale.ROOT));
         serverTimeLabel.setText(time + " " + remoteClockZone);
+        publishMonitorSnapshot(monitorSnapshot.get() == null ? null : monitorSnapshot.get().failure());
     }
 
     static java.time.ZoneOffset parseRemoteZoneOffset(String rawOffset) {
@@ -1874,7 +1769,7 @@ public class TerminalWorkspaceView extends BorderPane {
         return btn;
     }
 
-    private void openFontSettings() {
+    public void openFontSettings() {
         Window owner = getScene() != null ? getScene().getWindow() : null;
         Stage stage = owner instanceof Stage ? (Stage) owner : null;
         // 从终端 Tab 打开偏好设置时没有 ConnectionProfileService 上下文，
@@ -1886,130 +1781,9 @@ public class TerminalWorkspaceView extends BorderPane {
         handles.forEach(h -> h.updateFontProfile(profile));
     }
 
-    // ── Plugin quick launch ─────────────────────────────────────────────────
 
-    private void showPluginPicker() {
-        if (pluginManager == null) return;
-        List<PluginDescriptor> plugins = pluginManager.getAvailablePlugins();
-        if (plugins.isEmpty()) return;
 
-        hideFloatingCard();
 
-        List<String> currentPinned = loadPinnedPluginIds();
-
-        VBox content = new VBox(4);
-        content.setPadding(new Insets(8));
-        content.setPrefWidth(220);
-        content.getStyleClass().add("hover-card");
-
-        Label header = new Label(i18nService.getOrDefault("plugin.pinToToolbar", "Pin to Toolbar"));
-        header.getStyleClass().add("card-section");
-        content.getChildren().add(header);
-
-        List<CheckBox> boxes = new ArrayList<>();
-        for (PluginDescriptor desc : plugins) {
-            JlShellPlugin plugin = desc.instance();
-            CheckBox cb = new CheckBox(plugin.displayName(i18nService.getLocale()));
-            cb.setSelected(currentPinned.contains(desc.id()));
-            cb.setUserData(desc.id());
-            cb.selectedProperty().addListener((obs, oldVal, newVal) -> {
-                long selectedCount = boxes.stream().filter(CheckBox::isSelected).count();
-                if (selectedCount > MAX_PINNED) {
-                    cb.setSelected(false);
-                }
-            });
-            boxes.add(cb);
-            content.getChildren().add(cb);
-        }
-
-        javafx.stage.Popup popup = new javafx.stage.Popup();
-        popup.getContent().setAll(content);
-        popup.setAutoHide(true);
-        popup.setAutoFix(true);
-
-        // Save on close: listen for when popup hides
-        popup.setOnHiding(e -> {
-            List<String> newPinned = boxes.stream()
-                    .filter(CheckBox::isSelected)
-                    .map(cb -> (String) cb.getUserData())
-                    .limit(MAX_PINNED)
-                    .collect(Collectors.toList());
-            savePinnedPluginIds(newPinned);
-            rebuildPinnedPluginButtons();
-        });
-
-        if (pluginQuickLaunchBtn == null) return;
-        Point2D pos = pluginQuickLaunchBtn.localToScreen(0, pluginQuickLaunchBtn.getHeight() + 4);
-        popup.show(pluginQuickLaunchBtn, pos.getX(), pos.getY());
-        floatingPopup = popup;
-    }
-
-    private void activatePlugin(PluginDescriptor desc) {
-        if (workspaceTabPane == null) return;
-
-        // Prevent duplicate: if already open, just select
-        for (Tab tab : workspaceTabPane.getTabs()) {
-            String existingId = (String) tab.getProperties().get("pluginId");
-            if (existingId != null && existingId.equals(desc.id())) {
-                workspaceTabPane.getSelectionModel().select(tab);
-                return;
-            }
-        }
-
-        Optional<SshSessionContext> sshCtx = Optional.of(
-                new com.jlshell.plugin.loader.SshSessionContextAdapter(sshSession, sftpService));
-        CapabilityRegistryImpl sessionRegistry = pluginManager.registryForSession(sessionId);
-        com.jlshell.plugin.api.storage.PluginStorage pluginStorage =
-                storageFactory != null ? storageFactory.apply(desc.id()) : null;
-        DefaultPluginContext ctx = new DefaultPluginContext(desc.id(), sessionId, sessionRegistry, capabilityBus, pluginStorage, sshCtx, new DefaultPluginContext.Callbacks() {
-            private Tab openedTab;
-
-            @Override
-            public void openTab(String title, Node content) {
-                Platform.runLater(() -> {
-                    openedTab = new Tab(title, content);
-                    openedTab.setClosable(true);
-                    openedTab.getProperties().put("pluginId", desc.id());
-                    workspaceTabPane.getTabs().add(openedTab);
-                    workspaceTabPane.getSelectionModel().select(openedTab);
-                });
-            }
-
-            @Override
-            public void closeTab() {
-                if (openedTab != null) {
-                    Platform.runLater(() -> {
-                        if (openedTab.getTabPane() != null) {
-                            openedTab.getTabPane().getTabs().remove(openedTab);
-                        }
-                        openedTab = null;
-                    });
-                }
-            }
-
-            @Override
-            public void updateTabTitle(String title) {
-                if (openedTab != null) {
-                    Platform.runLater(() -> openedTab.setText(title));
-                }
-            }
-
-            @Override
-            public String resolveI18n(String key, String fallback) {
-                return i18nService.getOrDefault(key, fallback);
-            }
-        });
-        ctx.writableThemeNameProperty().bind(pluginManager.themeNameProperty());
-        ctx.writableLocaleProperty().bind(pluginManager.localeProperty());
-        pluginManager.adoptContext(sessionId, desc.id(), ctx);
-        pluginManager.activatePlugin(desc.id(), ctx);
-        activatedPluginIds.add(desc.id());
-    }
-
-    public void stopPlugins() {
-        activatedPluginIds.forEach(id -> pluginManager.deactivatePlugin(sessionId, id));
-        activatedPluginIds.clear();
-    }
 
     // ── Terminal node creation ────────────────────────────────────────────────
 
@@ -2037,9 +1811,9 @@ public class TerminalWorkspaceView extends BorderPane {
                     if (handle instanceof DefaultTerminalViewHandle dvh) {
                         dvh.setOnDisconnected(this::onTerminalDisconnected);
                     }
-                    // 文件页可能稍后才首次创建；连接建立时先静默启用目录上报，
-                    // 文件页的复选框只控制是否跟随，不再打断用户弹窗确认。
-                    installOsc7PromptHook(handle);
+                    // 目录上报由终端工厂在开始渲染之前初始化，避免回显和重复提示符。
+                    String initialCwd = handle.cwdProperty().get();
+                    if (initialCwd != null && !initialCwd.isBlank()) cwdProperty.set(initialCwd);
                     return FxThread.supplyAsync(() -> createEmbeddedTerminalNode(handle));
                 });
     }
@@ -2056,8 +1830,15 @@ public class TerminalWorkspaceView extends BorderPane {
     }
 
     private Node createEmbeddedTerminalNode(TerminalViewHandle handle) {
+        if (nativeTerminalHost != null) {
+            nativeTerminalHost.attach(handle);
+            return new javafx.scene.layout.Pane();
+        }
         log.info("Attaching SwingNode terminal component for session {}", sshSession.sessionId());
         javax.swing.JComponent component = handle.component();
+        String appearanceLabel = i18nService.get("terminal.appearanceSettings");
+        javax.swing.SwingUtilities.invokeLater(() -> com.jlshell.ui.swing.TerminalPopupBridge.install(component,
+                appearanceLabel, () -> FxThread.run(this::openFontSettings)));
         SwingNode swingNode = new SwingNode();
         swingNode.setFocusTraversable(true);
         swingNode.getStyleClass().add(TERMINAL_SWING_NODE_STYLE_CLASS);
