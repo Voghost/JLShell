@@ -12,6 +12,7 @@ import java.util.function.Consumer;
 import com.jlshell.core.model.ConnectionType;
 import com.jlshell.ui.model.ConnectionProfile;
 import com.jlshell.ui.model.FolderProfile;
+import com.jlshell.ui.model.FolderHierarchy;
 import com.jlshell.ui.model.SidebarItem;
 import com.jlshell.ui.service.I18nService;
 import javafx.beans.property.ReadOnlyBooleanProperty;
@@ -48,6 +49,7 @@ public class SidebarTreeView {
     private final TreeView<SidebarItem> treeView;
     private final TreeItem<SidebarItem> root;
     private final int maxFolderDepth;
+    private FolderHierarchy hierarchy = FolderHierarchy.from(List.of());
     private final I18nService i18n;
 
     private Runnable onConnect;
@@ -161,8 +163,11 @@ public class SidebarTreeView {
 
     public void populate(List<FolderProfile> folders, List<ConnectionProfile> connections,
                          Set<String> persistedCollapsedFolderIds) {
+        hierarchy = FolderHierarchy.from(folders);
+        folders = hierarchy.folders();
         root.getChildren().clear();
         folderDepths.clear();
+        folderDepths.putAll(hierarchy.depths());
         folderItemsById.clear();
         collapsedFolderIds.clear();
         if (persistedCollapsedFolderIds != null) {
@@ -189,10 +194,8 @@ public class SidebarTreeView {
             TreeItem<SidebarItem> item = folderItems.get(folder.id());
             if (folder.parentId() != null && folderItems.containsKey(folder.parentId())) {
                 folderItems.get(folder.parentId()).getChildren().add(item);
-                folderDepths.put(folder.id(), folderDepths.getOrDefault(folder.parentId(), 0) + 1);
             } else {
                 root.getChildren().add(item);
-                folderDepths.put(folder.id(), 0);
             }
         }
 
@@ -463,7 +466,8 @@ public class SidebarTreeView {
             setOnDragOver(event -> {
                 if (event.getGestureSource() != this
                         && event.getDragboard().hasContent(DRAG_FORMAT)
-                        && getItem() instanceof SidebarItem.FolderItem) {
+                        && getItem() instanceof SidebarItem.FolderItem target
+                        && hierarchy.canMove(decodeDragPayload((String) event.getDragboard().getContent(DRAG_FORMAT)), target.id())) {
                     event.acceptTransferModes(TransferMode.MOVE);
                     setStyle(DROP_HIGHLIGHT);
                 }
@@ -477,7 +481,7 @@ public class SidebarTreeView {
                 boolean success = false;
                 if (db.hasContent(DRAG_FORMAT) && getItem() instanceof SidebarItem.FolderItem targetFolder) {
                     List<SidebarItem> dragged = decodeDragPayload((String) db.getContent(DRAG_FORMAT));
-                    if (!dragged.isEmpty() && onMove != null) {
+                    if (hierarchy.canMove(dragged, targetFolder.id()) && onMove != null) {
                         onMove.accept(dragged, targetFolder.id());
                         success = true;
                     }
