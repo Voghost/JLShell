@@ -36,6 +36,9 @@ public class LocalShellLauncher {
     private final Function<String, String> i18n;
     private final Runnable awtFontReadyHook;
     private final ShortcutRegistry shortcutRegistry;
+    private com.jlshell.terminal.service.TerminalHighlightService highlights;
+    public void setHighlights(com.jlshell.terminal.service.TerminalHighlightService highlights) { this.highlights = highlights; }
+
 
     public LocalShellLauncher(
             FontProfileService fontProfileService,
@@ -106,6 +109,7 @@ public class LocalShellLauncher {
                 JlshellSettingsProvider settingsProvider =
                         new JlshellSettingsProvider(
                                 request.fontProfile(), request.colorScheme(), request.runtimeSettings(), shortcutRegistry);
+                settingsProvider.setHighlights(highlights);
                 LocalShellTtyConnector ttyConnector =
                         new LocalShellTtyConnector(displayName, command, cols, rows, executorService, charset);
                 JlshellJediTermWidget widget = JlshellJediTermWidget.create(

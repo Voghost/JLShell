@@ -37,6 +37,8 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
     private final SftpService service;
     private final I18nService i18n;
     private final Browser local, remote;
+    private final JSplitPane browserSplit;
+    private double verticalRatio = .5, horizontalRatio = .5;
     private final JLabel message = new JLabel(" ");
     private final JProgressBar progress = new JProgressBar(0, 1000);
     private final JButton cancel;
@@ -92,6 +94,7 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
         setName("sftp.browser"); setMinimumSize(new Dimension(260, 260));
         local = new Browser(false); remote = new Browser(true);
         JSplitPane split = new ResizeSplitPane(JSplitPane.VERTICAL_SPLIT, local, remote);
+        browserSplit = split;
         split.setName("sftp.verticalSplit"); split.setResizeWeight(.5); split.setDividerSize(5);
         split.setBorder(BorderFactory.createEmptyBorder()); split.setContinuousLayout(true);
         add(split);
@@ -111,6 +114,25 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
                 dismissPopups();
         });
         remote.navigate(remoteStart == null || remoteStart.isBlank() ? "." : remoteStart);
+    }
+
+    /** Reuse both browser views and in-flight transfers while adapting to the tool's dock. EDT only. */
+    void setBottomDocked(boolean bottom) {
+        int orientation = bottom ? JSplitPane.HORIZONTAL_SPLIT : JSplitPane.VERTICAL_SPLIT;
+        if (browserSplit.getOrientation() == orientation) return;
+        int extent = browserSplit.getOrientation() == JSplitPane.VERTICAL_SPLIT
+                ? browserSplit.getHeight() : browserSplit.getWidth();
+        if (extent > browserSplit.getDividerSize() && browserSplit.getDividerLocation() > 0) {
+            double ratio = Math.max(.15, Math.min(.85, browserSplit.getDividerLocation() / (double)(extent - browserSplit.getDividerSize())));
+            if (bottom) verticalRatio = ratio; else horizontalRatio = ratio;
+        }
+        browserSplit.setOrientation(orientation);
+        setMinimumSize(bottom ? new Dimension(460, 160) : new Dimension(260, 260));
+        revalidate();
+        SwingUtilities.invokeLater(() -> {
+            if (!closed && browserSplit.getOrientation() == orientation)
+                browserSplit.setDividerLocation(bottom ? horizontalRatio : verticalRatio);
+        });
     }
 
     private void cancelTransfer() { cancelled = true; cancel.setEnabled(false); }

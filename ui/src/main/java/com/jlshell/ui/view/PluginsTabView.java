@@ -146,6 +146,16 @@ public class PluginsTabView extends BorderPane {
         com.jlshell.ui.support.FxThread.run(() -> { if (!disposed) activate(item, timing); else timing.finish("disposed"); });
     }
 
+    /** 当前会话可用的插件入口，供主菜单在 FX 线程生成。 */
+    public List<javafx.scene.control.MenuItem> createMenuItems() {
+        return listView.getItems().stream().map(item -> {
+            var menuItem = new javafx.scene.control.MenuItem(item.displayName(i18nService.getLocale()));
+            menuItem.getProperties().put("jlshell.pluginId", item.tabKey());
+            menuItem.setOnAction(event -> requestOpen(item));
+            return menuItem;
+        }).toList();
+    }
+
     private void activate(LaunchItem item, com.jlshell.ui.support.PluginOpenTiming timing) {
         timing.mark("fx-dispatch");
         for (Tab tab : workspaceTabs.getTabs()) {

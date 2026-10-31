@@ -250,6 +250,7 @@ public class PreferencesDialog {
         String[] pendingApiPort = { appSettings.get("api.port", "0") };
         String[] pendingUiFontFamily = { appSettings.get("ui.font.family", null) };
         String[] pendingUiFontSize = { appSettings.get("ui.font.size", "13") };
+        String[] pendingHighlights = { themeService.terminalHighlights().config().serialize() };
         String[] pendingScrollbackLines = { appSettings.get("terminal.scrollback.lines",
                 String.valueOf(TerminalRuntimeSettings.DEFAULT_SCROLLBACK_LINES)) };
         String[] pendingUpdateAutoCheck = { appSettings.get(UpdateService.SETTINGS_AUTO_CHECK, "true") };
@@ -268,7 +269,7 @@ public class PreferencesDialog {
                 connectionProfileService, activeProjectId, apiServer, capabilityBus, programPluginManager, pluginManager,
                 selectedSessionId,
                 pendingApiEnabled, pendingApiPort,
-                pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines,
+                pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines, pendingHighlights,
                 pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl,
                 pendingAccountSyncEnabled, pendingAccountBaseUrl,
                 accountService, shortcutRegistry, owner,
@@ -288,13 +289,13 @@ public class PreferencesDialog {
                 : (Button) dialog.getDialogPane().lookupButton(applyBtnType);
         PreferencesSnapshot[] lastApplied = { snapshotOf(pending, pendingLang, pendingTheme, pendingAccent,
                 pendingConnTimeout, pendingKeepAlive, pendingScheme, pendingApiEnabled, pendingApiPort,
-                pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines,
+                pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines, pendingHighlights,
                 pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl,
                 pendingAccountSyncEnabled, pendingAccountBaseUrl, shortcutRegistry) };
         updateApplyState[0] = () -> applyButton.setDisable(!hasPendingSettingsChanges(lastApplied[0],
                 snapshotOf(pending, pendingLang, pendingTheme, pendingAccent, pendingConnTimeout, pendingKeepAlive,
                          pendingScheme, pendingApiEnabled, pendingApiPort,
-                        pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines,
+                        pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines, pendingHighlights,
                         pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl,
                         pendingAccountSyncEnabled, pendingAccountBaseUrl, shortcutRegistry)));
         updateApplyState[0].run();
@@ -303,11 +304,11 @@ public class PreferencesDialog {
             boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending,
                     pendingLang, pendingTheme, pendingAccent, pendingConnTimeout, pendingKeepAlive,
                      pendingScheme, pendingApiEnabled, pendingApiPort, pendingUiFontFamily,
-                    pendingUiFontSize, pendingScrollbackLines, pendingUpdateAutoCheck, pendingUpdateChannel,
+                    pendingUiFontSize, pendingScrollbackLines, pendingHighlights, pendingUpdateAutoCheck, pendingUpdateChannel,
                     pendingUpdateBaseUrl, pendingAccountSyncEnabled, pendingAccountBaseUrl);
             lastApplied[0] = snapshotOf(pending, pendingLang, pendingTheme, pendingAccent,
                     pendingConnTimeout, pendingKeepAlive, pendingScheme, pendingApiEnabled, pendingApiPort,
-                    pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines,
+                    pendingUiFontFamily, pendingUiFontSize, pendingScrollbackLines, pendingHighlights,
                     pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl,
                     pendingAccountSyncEnabled, pendingAccountBaseUrl, shortcutRegistry);
             updateApplyState[0].run();
@@ -318,7 +319,7 @@ public class PreferencesDialog {
             boolean needRestart = applyPendingSettings(fontProfileService, appSettings, themeService, pending,
                     pendingLang, pendingTheme, pendingAccent, pendingConnTimeout, pendingKeepAlive,
                     pendingScheme, pendingApiEnabled, pendingApiPort, pendingUiFontFamily, pendingUiFontSize,
-                    pendingScrollbackLines, pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl,
+                    pendingScrollbackLines, pendingHighlights, pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl,
                     pendingAccountSyncEnabled, pendingAccountBaseUrl);
             if (needRestart) showRestartPrompt(owner, i18n, themeService);
         };
@@ -361,7 +362,7 @@ public class PreferencesDialog {
                                               TerminalColorScheme[] pendingScheme,
                                               String[] pendingApiEnabled, String[] pendingApiPort,
                                               String[] pendingUiFontFamily, String[] pendingUiFontSize,
-                                              String[] pendingScrollbackLines,
+                                              String[] pendingScrollbackLines, String[] pendingHighlights,
                                               String[] pendingUpdateAutoCheck, String[] pendingUpdateChannel,
                                               String[] pendingUpdateBaseUrl,
                                               String[] pendingAccountSyncEnabled, String[] pendingAccountBaseUrl) {
@@ -397,6 +398,7 @@ public class PreferencesDialog {
         appSettings.set("ui.font.size", pendingUiFontSize[0]);
         themeService.refreshUiFont();
         appSettings.set("terminal.scrollback.lines", pendingScrollbackLines[0]);
+        themeService.terminalHighlights().update(com.jlshell.terminal.model.TerminalHighlightConfig.parse(pendingHighlights[0]));
         appSettings.set(UpdateService.SETTINGS_AUTO_CHECK, pendingUpdateAutoCheck[0]);
         appSettings.set(UpdateService.SETTINGS_CHANNEL, pendingUpdateChannel[0]);
         appSettings.set(UpdateService.SETTINGS_BASE_URL, pendingUpdateBaseUrl[0]);
@@ -420,6 +422,7 @@ public class PreferencesDialog {
             String uiFontFamily,
             String uiFontSize,
             String scrollbackLines,
+            String highlights,
             String updateAutoCheck,
             String updateChannel,
             String updateBaseUrl,
@@ -434,7 +437,7 @@ public class PreferencesDialog {
                                                   TerminalColorScheme[] pendingScheme,
                                                   String[] pendingApiEnabled, String[] pendingApiPort,
                                                   String[] pendingUiFontFamily, String[] pendingUiFontSize,
-                                                  String[] pendingScrollbackLines,
+                                                  String[] pendingScrollbackLines, String[] pendingHighlights,
                                                   String[] pendingUpdateAutoCheck, String[] pendingUpdateChannel,
                                                   String[] pendingUpdateBaseUrl,
                                                   String[] pendingAccountSyncEnabled, String[] pendingAccountBaseUrl,
@@ -452,6 +455,7 @@ public class PreferencesDialog {
                 normalizeNullableBlank(pendingUiFontFamily[0]),
                 pendingUiFontSize[0],
                 pendingScrollbackLines[0],
+                pendingHighlights[0],
                 pendingUpdateAutoCheck[0],
                 pendingUpdateChannel[0],
                 pendingUpdateBaseUrl[0],
@@ -502,7 +506,7 @@ public class PreferencesDialog {
                                          String selectedSessionId,
                                          String[] pendingApiEnabled, String[] pendingApiPort,
                                          String[] pendingUiFontFamily, String[] pendingUiFontSize,
-                                         String[] pendingScrollbackLines,
+                                         String[] pendingScrollbackLines, String[] pendingHighlights,
                                          String[] pendingUpdateAutoCheck, String[] pendingUpdateChannel,
                                          String[] pendingUpdateBaseUrl,
                                          String[] pendingAccountSyncEnabled, String[] pendingAccountBaseUrl,
@@ -531,7 +535,7 @@ public class PreferencesDialog {
         Tab terminalTab = new Tab(i18n.get("preferences.tab.terminal"));
         terminalTab.setContent(new com.jlshell.ui.support.DeferredSettingsPage(
                 () -> buildTerminalPane(appSettings, fontProfileService.activeProfile(), i18n, themeService,
-                pending, pendingScheme, pendingScrollbackLines, preferenceChanged, owner), i18n.searchText("preferences.terminal.", "terminal.", "colorScheme.")));
+                pending, pendingScheme, pendingScrollbackLines, pendingHighlights, preferenceChanged, owner), i18n.searchText("preferences.terminal.", "terminal.", "colorScheme.", "highlight.")));
         tabPane.getTabs().add(terminalTab);
 
         Tab importTab = new Tab(i18n.get("preferences.tab.import"));
@@ -1207,7 +1211,7 @@ public class PreferencesDialog {
                                            FontProfile current, I18nService i18n,
                                            ThemeService themeService,
                                            FontProfile[] pending, TerminalColorScheme[] pendingScheme,
-                                           String[] pendingScrollbackLines,
+                                           String[] pendingScrollbackLines, String[] pendingHighlights,
                                            Runnable preferenceChanged, Stage owner) {
         // ── Font section ──
         List<String> monoFonts = loadMonospacedFonts();
@@ -1505,7 +1509,10 @@ public class PreferencesDialog {
                 i18n.get("preferences.terminal.typographySection.description"), fontGrid);
         VBox colorsCard = settingsCard(i18n.get("preferences.terminal.colorsSection"),
                 i18n.get("preferences.terminal.colorsSection.description"), schemeSection);
-        VBox cards = new VBox(14, typographyCard, colorsCard);
+        VBox highlightCard = settingsCard(i18n.get("highlight.title"), i18n.get("highlight.description"),
+                TerminalHighlightEditor.create(com.jlshell.terminal.model.TerminalHighlightConfig.parse(pendingHighlights[0]),
+                        i18n, config -> { pendingHighlights[0] = config.serialize(); preferenceChanged.run(); }));
+        VBox cards = new VBox(14, typographyCard, highlightCard, colorsCard);
         cards.getStyleClass().add("settings-card-grid");
         ScrollPane scroll = new ScrollPane(cards);
         scroll.setFitToWidth(true);

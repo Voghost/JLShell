@@ -54,6 +54,25 @@ public class RefreshableTerminalPanel extends TerminalPanel {
     private final JlshellSettingsProvider jlshellSettings;
     private final Function<String, String> i18n;
     private boolean ignoreNextShiftInsertTyped;
+    private final TerminalGlyphGraphics.LayoutCache glyphLayouts = new TerminalGlyphGraphics.LayoutCache();
+    private final TerminalScrollAnimation scrolling = new TerminalScrollAnimation();
+    private final javax.swing.Timer scrollTimer = new javax.swing.Timer(7, event -> advanceScroll());
+    private final java.util.function.LongSupplier scrollClock;
+    private final TerminalWheelInput wheelInput;
+    private com.jediterm.terminal.model.TerminalLine scrollAnchor;
+    private int scrollExtent;
+    private int scrollOrigin;
+    private int scrollMinimum, scrollMaximum;
+    private final java.util.concurrent.atomic.AtomicLong outputScrollRows = new java.util.concurrent.atomic.AtomicLong();
+    private long scrollCoordinateRows;
+    private final TerminalScrollDiagnostics scrollDiagnostics = Boolean.getBoolean("jlshell.terminal.traceScroll")
+            ? new TerminalScrollDiagnostics() : null;
+    private boolean updatingScrollModel;
+    private boolean paintingScrollEdge;
+    private TextStyle drawingStyle;
+    private final Runnable highlightChanged = () -> SwingUtilities.invokeLater(this::repaint);
+    private com.jlshell.terminal.model.TerminalHighlightConfig highlightConfig;
+    private TerminalLogHighlighter logHighlighter;
     private Font lastVisualFont;
     private float lastVisualLineSpacing;
     public record PopupAction(String label, String shortcut, boolean enabled, boolean separator, Runnable action) {}
@@ -76,9 +95,286 @@ public class RefreshableTerminalPanel extends TerminalPanel {
             JlshellSettingsProvider jlshellSettings,
             Function<String, String> i18n
     ) {
+        this(settingsProvider, terminalTextBuffer, styleState, jlshellSettings, i18n,
+                new TerminalWheelInput(System.getProperty("os.name", "").startsWith("Mac")));
+    }
+
+    RefreshableTerminalPanel(SettingsProvider settingsProvider, TerminalTextBuffer terminalTextBuffer,
+            StyleState styleState, JlshellSettingsProvider jlshellSettings, Function<String, String> i18n,
+            TerminalWheelInput wheelInput) {
+        this(settingsProvider, terminalTextBuffer, styleState, jlshellSettings, i18n, wheelInput, System::nanoTime);
+    }
+
+    RefreshableTerminalPanel(SettingsProvider settingsProvider, TerminalTextBuffer terminalTextBuffer,
+            StyleState styleState, JlshellSettingsProvider jlshellSettings, Function<String, String> i18n,
+            TerminalWheelInput wheelInput, java.util.function.LongSupplier scrollClock) {
         super(settingsProvider, terminalTextBuffer, styleState);
         this.jlshellSettings = jlshellSettings;
         this.i18n = i18n;
+        this.wheelInput = wheelInput;
+        this.scrollClock = scrollClock;
+        scrollTimer.setCoalesce(true);
+        getVerticalScrollModel().addChangeListener(event -> scrollModelChanged());
+        if (jlshellSettings != null && jlshellSettings.highlights() != null)
+            jlshellSettings.highlights().listen(highlightChanged);
+    }
+
+    @Override
+    protected void handleMouseWheelEvent(@NotNull java.awt.event.MouseWheelEvent event, @NotNull javax.swing.JScrollBar scrollBar) {
+        if (event.isShiftDown() || event.isControlDown() || event.isAltDown() || event.isMetaDown()
+                || getTerminalTextBuffer().isUsingAlternateBuffer() || !isLocalMouseAction(event)) {
+            stopScrolling(); super.handleMouseWheelEvent(event, scrollBar); return;
+        }
+        // JetBrains TouchScrollUtil uses phases 2/3/4 for begin/update/end and pixel deltas.
+        int phase=event.getScrollType();
+        if (phase == 2) { stopScrollTimer(); scrolling.freeze(); event.consume(); return; }
+        if (phase == 4) { event.consume(); return; } // Native touch has no application-generated tail to finish.
+        var model = getVerticalScrollModel();
+        int min = -getTerminalTextBuffer().getHistoryLinesCount();
+        long now = scrollClock.getAsLong();
+        var motion = wheelInput.motion(event, myCharSize.height, getTerminalTextBuffer().getHeight(), now);
+        if (motion.rows() == 0) return;
+        if (scrollDiagnostics != null) scrollDiagnostics.input(now, motion.rows() * myCharSize.height);
+        if (!scrolling.active()) scrollCoordinateRows = outputScrollRows.get();
+        if (motion.direct()) scrolling.directWheel(motion.rows(), model.getValue(), min, 0, now);
+        else scrolling.wheel(motion.rows(), motion.precise(), model.getValue(), min, 0, now);
+        applyScrollPosition();
+        if (scrolling.animating()) startScrollTimer(); else stopScrollTimer();
+        event.consume();
+    }
+
+    boolean scrollBarTo(int target) {
+        if (getTerminalTextBuffer().isUsingAlternateBuffer()) return false;
+        var model = getVerticalScrollModel();
+        if (!scrolling.active()) scrollCoordinateRows = outputScrollRows.get();
+        scrolling.dragTo(target, model.getValue(), model.getMinimum(), 0, scrollClock.getAsLong());
+        applyScrollPosition();
+        if (scrolling.animating()) startScrollTimer();
+        return true;
+    }
+
+    private void startScrollTimer() {
+        if(!scrollTimer.isRunning())AnimationTimerPrecision.shared().request(this);
+        scrollTimer.start();
+    }
+    private void stopScrollTimer() {
+        scrollTimer.stop();AnimationTimerPrecision.shared().cancel(this);
+    }
+
+    private void advanceScroll() {
+        if (!isShowing() || getTerminalTextBuffer().isUsingAlternateBuffer()) { stopScrolling(); return; }
+        scrolling.advance(scrollClock.getAsLong()); applyScrollPosition();
+        if (!scrolling.animating()) stopScrollTimer();
+    }
+
+    private void applyScrollPosition() {
+        applyScrollPosition(true);
+    }
+
+    private void applyScrollPosition(boolean requestFrame) {
+        var model = getVerticalScrollModel();
+        var buffer = getTerminalTextBuffer();
+        buffer.lock();
+        try {
+            int value = Math.max(model.getMinimum(), Math.min(0, renderedScrollOrigin()));
+            updatingScrollModel = true;
+            try { model.setValue(value); }
+            finally { updatingScrollModel = false; }
+            // Output can arrive between two wheel events, before JediTerm drains its scrollDy.
+            // Capture the line in the pending output's coordinates, not the stale scrollbar grid.
+            long anchorRow = value + outputScrollRows.get() - scrollCoordinateRows;
+            scrollAnchor = value < 0 && anchorRow < 0 && anchorRow >= -buffer.getHistoryLinesCount()
+                    ? buffer.getLine((int)anchorRow) : null;
+            scrollExtent = model.getExtent();
+            scrollOrigin = model.getValue();
+            scrollMinimum = model.getMinimum(); scrollMaximum = model.getMaximum();
+        } finally { buffer.unlock(); }
+        if (requestFrame) javax.swing.RepaintManager.currentManager(this).addDirtyRegion(this, 0, 0, getWidth(), getHeight());
+    }
+
+    private void scrollModelChanged() {
+        if (updatingScrollModel || !scrolling.active()) return;
+        var model = getVerticalScrollModel();
+        var buffer = getTerminalTextBuffer();
+        buffer.lock();
+        try {
+            int value = model.getValue();
+            // Press/release toggles valueIsAdjusting without moving the viewport. In particular,
+            // releasing the thumb must not discard the final interpolation segment.
+            if (value == scrollOrigin && model.getExtent() == scrollExtent
+                    && model.getMinimum() == scrollMinimum && model.getMaximum() == scrollMaximum) return;
+            // JediTerm compensates history coordinates when output arrives, including when its
+            // history ring is full. Retain the fraction only if the same line is still at the top.
+            // A scrollbar/search/key jump, resize, clear or discarded anchor cancels the old offset.
+            if (model.getExtent() == scrollExtent && scrollAnchor != null
+                    && value < 0 && value >= -buffer.getHistoryLinesCount()
+                    && buffer.getLine(value) == scrollAnchor) {
+                scrolling.shift(value - scrollOrigin, model.getMinimum(), 0);
+                scrollOrigin = value;
+                scrollMinimum = model.getMinimum(); scrollMaximum = model.getMaximum();
+                scrollCoordinateRows = outputScrollRows.get();
+                if (scrollDiagnostics != null) scrollDiagnostics.historyAdjusted();
+            } else {
+                if (scrollDiagnostics != null) scrollDiagnostics.externalReset();
+                stopScrolling();
+            }
+        } finally { buffer.unlock(); }
+    }
+
+    private void stopScrolling() {
+        stopScrollTimer(); scrolling.cancel(getVerticalScrollModel().getValue()); scrollAnchor = null;
+    }
+
+    @Override public void scrollArea(int top, int size, int dy) {
+        // Called by JediTerm's output thread while it holds the text buffer lock.
+        outputScrollRows.addAndGet(dy);
+        super.scrollArea(top, size, dy);
+    }
+
+    @Override public void dispose() {
+        stopScrolling();
+        if (scrollDiagnostics != null) scrollDiagnostics.close();
+        glyphLayouts.clear(); super.dispose();
+    }
+    @Override public void terminalMouseModeSet(@NotNull com.jediterm.terminal.emulator.mouse.MouseMode mode) {
+        super.terminalMouseModeSet(mode);
+        SwingUtilities.invokeLater(this::stopScrolling);
+    }
+    @Override protected void processMouseEvent(java.awt.event.MouseEvent event) {
+        if (event.getID() == java.awt.event.MouseEvent.MOUSE_PRESSED) { stopScrollTimer(); scrolling.freeze(); }
+        int pixels = event.getButton() == java.awt.event.MouseEvent.BUTTON1 ? scrollingPixels() : 0;
+        event.translatePoint(0, pixels);
+        try { super.processMouseEvent(event); } finally { event.translatePoint(0, -pixels); }
+    }
+    @Override protected void processMouseMotionEvent(java.awt.event.MouseEvent event) {
+        // Match hit testing to the fractional viewport, without snapping the text under the pointer.
+        int pixels = scrollingPixels(); event.translatePoint(0, pixels);
+        try { super.processMouseMotionEvent(event); } finally { event.translatePoint(0, -pixels); }
+    }
+
+    private int scrollingPixels() {
+        if (!scrolling.active() || myCharSize.height <= 0 || getTerminalTextBuffer().isUsingAlternateBuffer()) return 0;
+        return (int)Math.floorMod(Math.round(scrolling.position() * myCharSize.height), myCharSize.height);
+    }
+
+    private int renderedScrollOrigin() {
+        return (int)Math.floorDiv(Math.round(scrolling.position() * Math.max(1, myCharSize.height)),
+                Math.max(1, myCharSize.height));
+    }
+
+    @Override
+    public void paintComponent(Graphics graphics) {
+        long started = scrollDiagnostics == null ? 0 : System.nanoTime();
+        try { paintViewport(graphics); }
+        finally {
+            if (scrollDiagnostics != null) scrollDiagnostics.painted(started, System.nanoTime());
+        }
+    }
+
+    private void paintViewport(Graphics graphics) {
+        if (scrolling.animating()) {
+            // Sample at paint time as well as timer time. A queued repaint must not display a
+            // stale timer position when the EDT had other work to finish before this frame.
+            scrolling.advance(scrollClock.getAsLong());
+            applyScrollPosition(false);
+            if (!scrolling.animating()) stopScrollTimer();
+        }
+        int pixels = scrollingPixels();
+        if (pixels == 0) {
+            paintTerminal(graphics); return;
+        }
+        // Paint two clipped grid views instead of allocating full-viewport animation images.
+        // The second pass supplies the exposed bottom strip, so no blank line flashes between rows.
+        int origin = getVerticalScrollModel().getValue();
+        Graphics2D first = (Graphics2D) graphics.create();
+        getTerminalTextBuffer().lock();
+        try {
+            first.translate(0, -pixels); paintTerminal(first);
+            // The first pass drains JediTerm's pending history compensation. Restore that new
+            // origin after the edge pass, never the stale origin captured before painting.
+            origin = getVerticalScrollModel().getValue();
+            if (scrollingPixels() != pixels) {
+                // A resize or discarded history anchor can cancel the fractional viewport in
+                // updateScrolling. Repaint the settled viewport in this frame, not one frame later.
+                paintTerminal(graphics);
+                return;
+            }
+            updatingScrollModel = true; paintingScrollEdge = true;
+            getVerticalScrollModel().setValue(Math.min(0, origin + 1));
+            Graphics2D edge = (Graphics2D) graphics.create();
+            try {
+                int translation = myCharSize.height - pixels;
+                edge.translate(0, translation);
+                java.awt.Rectangle clip = new java.awt.Rectangle(0, getHeight() - pixels - translation, getWidth(), pixels);
+                var existing = edge.getClip();
+                java.awt.geom.Area limit = new java.awt.geom.Area(clip);
+                if (existing != null) limit.intersect(new java.awt.geom.Area(existing));
+                paintTerminal(new HighlightGraphics(edge, (x, y, original) -> null, limit));
+            } finally { edge.dispose(); }
+        } finally {
+            getVerticalScrollModel().setValue(origin); updatingScrollModel = false; paintingScrollEdge = false;
+            getTerminalTextBuffer().unlock(); first.dispose();
+        }
+    }
+
+    private void paintTerminal(Graphics graphics) {
+        var glyphs = new TerminalGlyphGraphics((Graphics2D)graphics.create(),glyphLayouts);
+        try { paintTerminalContent(glyphs); } finally { glyphs.dispose(); }
+    }
+
+    private void paintTerminalContent(Graphics graphics) {
+        var config = jlshellSettings == null || jlshellSettings.highlights() == null
+                ? com.jlshell.terminal.model.TerminalHighlightConfig.defaults()
+                : jlshellSettings.highlights().config();
+        if (!config.equals(highlightConfig)) {
+            highlightConfig = config;
+            logHighlighter = new TerminalLogHighlighter(config);
+        }
+        if (!config.enabled() || getTerminalTextBuffer().isUsingAlternateBuffer() || myCharSize.height <= 0 || myCharSize.width <= 0) {
+            super.paintComponent(graphics);
+            return;
+        }
+        java.util.Map<Integer, java.util.Map<Integer, Color>> visible = new java.util.HashMap<>();
+        Graphics2D copy = (Graphics2D) graphics.create();
+        try {
+            super.paintComponent(new HighlightGraphics(copy, (x, baseline, original) -> {
+                // Preserve explicit ANSI colors, hyperlinks, selection, search matches and inverse cursor.
+                TextStyle style = drawingStyle;
+                if (style == null || style instanceof com.jediterm.terminal.HyperlinkStyle
+                        || style.hasOption(TextStyle.Option.INVERSE) || style.hasOption(TextStyle.Option.DIM)
+                        || !java.util.Objects.equals(original, jlshellSettings.foregroundColor())) return null;
+                int row = Math.floorDiv(baseline - 1, myCharSize.height) + myClientScrollOrigin;
+                int column = Math.floorDiv(x - getInsetX(), myCharSize.width);
+                if (getSelection() != null && getSelection().intersect(column, row, 1) != null) return null;
+                if (style.getBackground() != null
+                        && !style.getBackground().equals(jlshellSettings.getDefaultBackground())) return null;
+                return visible.computeIfAbsent(row, this::highlightRow).get(column);
+            }));
+        } finally { copy.dispose(); }
+    }
+
+    private java.util.Map<Integer, Color> highlightRow(int row) {
+        String cells = getTerminalTextBuffer().getLine(row).getText();
+        StringBuilder text = new StringBuilder(cells.length());
+        int[] columns = new int[cells.length()];
+        for (int i = 0; i < cells.length(); i++) {
+            if (cells.charAt(i) != CharUtils.DWC) {
+                columns[text.length()] = i;
+                text.append(cells.charAt(i));
+            }
+        }
+        java.util.Map<Integer, Color> result = new java.util.HashMap<>();
+        for (var span : logHighlighter.match(text.toString())) {
+            for (int i = span.start(); i < span.end(); i++) result.put(columns[i], span.color());
+        }
+        return result;
+    }
+
+    @Override
+    public void repaint() {
+        // Temporary scrollbar positions used by the clipped edge pass are not real user scrolls.
+        // Scheduling another repaint here would create a perpetual redraw loop at fractional offsets.
+        if (!paintingScrollEdge) super.repaint();
     }
 
     @Override
@@ -435,6 +731,7 @@ public class RefreshableTerminalPanel extends TerminalPanel {
      */
     @Override
     public void processKeyEvent(KeyEvent e) {
+        if (e.getID() == KeyEvent.KEY_PRESSED) stopScrolling();
         int id = e.getID();
         int code = e.getKeyCode();
         char c = e.getKeyChar();
@@ -590,6 +887,7 @@ public class RefreshableTerminalPanel extends TerminalPanel {
      */
     @Override
     protected @NotNull Font getFontToDisplay(char[] text, int start, int end, @NotNull TextStyle style) {
+        drawingStyle = style;
         Font baseFont = super.getFontToDisplay(text, start, end, style);
         if (jlshellSettings == null) return baseFont;
         for (int i = start; i < end;) {

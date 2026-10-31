@@ -33,6 +33,9 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
     private final JPanel monitoring = new JPanel(new BorderLayout());
     private final String monitoringTitle;
     private IntConsumer showToolPage = index -> {};
+    private Runnable toolPagesChanged = () -> {};
+
+    void setToolPagesChanged(Runnable callback) { toolPagesChanged = callback; }
     private final I18nService i18n;
     private final java.util.Map<Tab, SwingPluginPage.Prepared> preparedPages = new java.util.IdentityHashMap<>();
     private final java.util.Map<Tab, SwingPluginPage> pluginPages = new java.util.IdentityHashMap<>();
@@ -44,6 +47,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
     private final JPanel rightHost = new JPanel(new java.awt.CardLayout());
     private java.util.function.Supplier<SwingSftpBrowser> filesFactory;
     private SwingSftpBrowser files;
+    private java.awt.Component fileComponent;
     private final ThemeService themes;
     private TerminalWorkspaceView terminalView;
     private final String terminalSettingsLabel;
@@ -177,6 +181,40 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
         navigation.revalidate(); navigation.repaint();
     }
 
+    String toolKey(int index) {
+        if (index == 0) return "monitor";
+        if (index == 1) return "files";
+        if (index == 2) return "plugins";
+        return index < pagePluginIds.size() && pagePluginIds.get(index) != null
+                ? "plugin:" + pagePluginIds.get(index) : null;
+    }
+
+    int toolIndex(String key) {
+        if ("monitor".equals(key)) return 0;
+        for (int i = 1; i < pageTabs.size(); i++) if (java.util.Objects.equals(key, toolKey(i))) return i;
+        return -1;
+    }
+
+    String toolTitle(String key) {
+        int index = toolIndex(key);
+        return index == 0 ? monitoringTitle : index > 0 ? pageTitles.get(index) : "";
+    }
+
+    java.awt.Component toolComponent(String key) {
+        int index = toolIndex(key);
+        if (index == 0) return monitoring;
+        if (index < 0) return null;
+        int selected = selectedPageIndex;
+        selectPage(index, false);
+        java.awt.Component result = index == 1 ? (files != null ? files : fileComponent) : pluginPages.get(pageTabs.get(index));
+        // Layout test fixtures can provide a local file panel without a network-backed browser.
+        if (index == 1 && result == null) for (var child : rightHost.getComponents())
+            if (!pluginPages.containsValue(child)) { result = child; break; }
+        if (index == 1) fileComponent = result;
+        selectPage(selected, false);
+        return result;
+    }
+
     /** 底部工具窗只保留会话监控；文件和插件页交由右侧工具窗显示。 */
     public JPanel toolWindow() { return monitoring; }
 
@@ -187,6 +225,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
         if (files != null) { rightHost.remove(files); files.close(); files = null; }
         filesFactory = factory;
         selectPage(selectedPageIndex, false);
+        toolPagesChanged.run();
     }
 
     /** EDT 使用的页面标识快照；不读取 FX Tab 属性。 */
@@ -225,6 +264,15 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
 
     int selectedPageIndex() { return selectedPageIndex; }
 
+    record ToolPageOption(int index, String title) {}
+
+    List<ToolPageOption> toolPageOptions() {
+        var result = new java.util.ArrayList<ToolPageOption>();
+        for (int index = 1; index < pageTitles.size(); index++)
+            result.add(new ToolPageOption(index, pageTitles.get(index)));
+        return List.copyOf(result);
+    }
+
     String selectedPageTitle() {
         int index = selectedPageIndex;
         return index >= 0 && index < pageTitles.size() ? pageTitles.get(index) : "";
@@ -262,7 +310,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
             ChangeListener<Node> listener = (obs, old, next) -> {
                 var prepared = preparedPages.remove(tab); if (prepared != null) prepared.releaseModel().run();
                 SwingUtilities.invokeLater(() -> {
-                    var page = pluginPages.remove(tab); if (page != null) { rightHost.remove(page); page.close(); }
+                    var page = pluginPages.remove(tab); if (page != null) { if (page.getParent() != null) page.getParent().remove(page); page.close(); }
                 });
                 publishPages();
             };
@@ -295,7 +343,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
             nativePrepared = prepared;
             pluginPages.entrySet().removeIf(entry -> {
                 if (tabs.contains(entry.getKey())) return false;
-                rightHost.remove(entry.getValue()); entry.getValue().close(); return true;
+                if (entry.getValue().getParent() != null) entry.getValue().getParent().remove(entry.getValue()); entry.getValue().close(); return true;
             });
             navigation.removeAll();
             ButtonGroup group = new ButtonGroup();
@@ -344,6 +392,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
                 navigation.add(javax.swing.Box.createVerticalStrut(6));
             }
             selectPage(selected, false);
+            toolPagesChanged.run();
             navigation.revalidate();
             navigation.repaint();
         });
@@ -399,6 +448,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
         closed = true;
         handle = null;
         showToolPage = index -> {};
+        toolPagesChanged = () -> {};
         terminalBody.removeAll();
         pluginPages.values().forEach(SwingPluginPage::close); pluginPages.clear();
         nativePrepared = java.util.Map.of();

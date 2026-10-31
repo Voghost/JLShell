@@ -35,7 +35,6 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollBar;
 import javax.swing.JTextField;
-import javax.swing.plaf.basic.BasicScrollBarUI;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 
@@ -111,7 +110,7 @@ public class JlshellJediTermWidget extends JediTermWidget {
 
     @Override
     protected JScrollBar createScrollBar() {
-        JScrollBar scrollBar = new JScrollBar();
+        JScrollBar scrollBar = new InterpolatingTerminalScrollBar(terminalPanel);
         scrollBar.setUI(new ThemedScrollBarUI());
         scrollBar.setOpaque(true);
         scrollBar.setBackground(activeSettingsProvider().backgroundColor());
@@ -129,7 +128,7 @@ public class JlshellJediTermWidget extends JediTermWidget {
      * - track 透明，仅绘制搜索匹配标记
      * - thumb 圆角，半透明主题色
      */
-    private class ThemedScrollBarUI extends BasicScrollBarUI {
+    private class ThemedScrollBarUI extends TerminalScrollBarUI {
 
         ThemedScrollBarUI() {}
 

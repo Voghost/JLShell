@@ -18,6 +18,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.junit.jupiter.api.io.TempDir;
 import javax.swing.*;
+import java.awt.Component;
+import java.awt.Container;
+import java.awt.Dimension;
+import java.awt.Rectangle;
 import java.awt.Window;
 import java.awt.image.BufferedImage;
 import java.nio.file.*;
@@ -96,6 +100,21 @@ class DialogUiSmokeTest {
             closed.get(10,TimeUnit.SECONDS);
             assertFalse(edt(dialog::isShowing));
         }
+        static void assertAboutComplete(JDialog dialog, String pageName) {
+            dialog.validate();
+            JScrollPane scroll = (JScrollPane) named(dialog, pageName);
+            assertNotNull(scroll);
+            assertFalse(scroll.getVerticalScrollBar().isVisible(), () -> "关于页出现纵向滚动条，viewport="
+                    + scroll.getViewport().getExtentSize() + ", content=" + scroll.getViewport().getView().getPreferredSize());
+            for (String name : java.util.List.of("about.resources", "about.details", "about.footer")) {
+                Component component = named(scroll, name);
+                assertNotNull(component, name);
+                Rectangle bounds = SwingUtilities.convertRectangle(component.getParent(), component.getBounds(), scroll.getViewport().getView());
+                assertTrue(scroll.getViewport().getViewRect().contains(bounds), name + " 必须完整显示: " + bounds);
+            }
+            assertEquals(4, ((Container) named(scroll, "about.resources")).getComponentCount());
+            assertEquals(12, ((Container) named(scroll, "about.details")).getComponentCount());
+        }
         public static void main(String[] args) {
             try{verify();System.exit(0);}catch(Throwable e){e.printStackTrace();System.exit(2);}
         }
@@ -129,9 +148,18 @@ class DialogUiSmokeTest {
                 var aboutClosed=open(()->AboutDialog.show(owner,i18n,themes,checks::incrementAndGet));
                 JDialog about=window("jlshell.about");
                 assertFalse(edt(workbench.frame()::isEnabled));
-                edt(()->{NativeSettingsProbe.assertNative(about);assertTrue(NativeSettingsProbe.all(about,JLabel.class).stream().anyMatch(label->"JLShell".equals(label.getText())&&label.getFont().getSize()>=30));return null;});
+                edt(()->{NativeSettingsProbe.assertNative(about);assertTrue(NativeSettingsProbe.all(about,JLabel.class).stream().anyMatch(label->"JLShell".equals(label.getText())&&label.getFont().getSize()>=30));assertAboutComplete(about,"dialog.content");return null;});
                 capture(about,"about-"+theme.name().toLowerCase());
                 if(theme==AppTheme.DARK) {
+                    Dimension original = edt(about::getSize);
+                    edt(()->{about.setSize(560,350);about.validate();return null;});
+                    edt(()->{JScrollPane scroll=(JScrollPane)named(about,"dialog.content");
+                        assertTrue(scroll.getVerticalScrollBar().isVisible(),"小窗口需要保留滚动以访问全部内容");
+                        scroll.getVerticalScrollBar().setValue(scroll.getVerticalScrollBar().getMaximum());
+                        Component footer=named(scroll,"about.footer");
+                        Rectangle bounds=SwingUtilities.convertRectangle(footer.getParent(),footer.getBounds(),scroll.getViewport().getView());
+                        assertTrue(scroll.getViewport().getViewRect().contains(bounds),"小窗口滚动后页脚应可见");return null;});
+                    edt(()->{about.setSize(original);about.validate();((JScrollPane)named(about,"dialog.content")).getVerticalScrollBar().setValue(0);return null;});
                     edt(()->{NativeSettingsProbe.button(about,i18n.get("menu.help.checkUpdates")).doClick();return null;});
                     aboutClosed.get(10,TimeUnit.SECONDS);
                     assertEquals(1,checks.get(),"Original check-updates action must close its dialog and run once");

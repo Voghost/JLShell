@@ -25,6 +25,47 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @EnabledIfSystemProperty(named = "jlshell.ui.smoke", matches = "true")
 class SwingWorkspaceSplitTest {
+    @Test void emptySplitHasVisibleCloseActionAndRestoresTheRemainingSession() throws Exception {
+        SwingExecutors.runOnEdtAsync(() -> {
+            SwingTheme.install(AppTheme.DARK, "#3574f0", "SansSerif", 13);
+            var selected = new java.util.concurrent.atomic.AtomicReference<Object>();
+            var closed = new AtomicInteger();
+            Runnable noop = () -> {};
+            var actions = new SwingWorkbench.Actions(noop, noop, noop, noop, noop, noop, noop, noop, noop,
+                    connection -> fail("Closing an empty split must not create a connection"), items -> {}, project -> {}, folders -> {}, selected::set,
+                    (tab, position) -> {}, (items, folder) -> {},
+                    (item, reply) -> reply.accept(List.of()), (tab, reply) -> reply.accept(List.of()));
+            var view = new SwingWorkbench(actions, Map.of("tab.closeEmptyGroup", "关闭空分屏"));
+            var terminal = new JTextArea("unsaved terminal content");
+            try {
+                view.addTab("terminal", "Terminal", terminal, closed::incrementAndGet);
+                view.show();
+                Container originalHost = terminal.getParent();
+                WorkspaceSplitLayout layout = layout(view.frame());
+                for (int orientation : new int[]{JSplitPane.VERTICAL_SPLIT, JSplitPane.HORIZONTAL_SPLIT}) {
+                    view.splitTab("terminal", orientation);
+                    view.frame().validate();
+                    assertEquals(2, layout.groups().size());
+                    JTabbedPane empty = layout.groups().stream().filter(group -> group.getTabCount() == 0).findFirst().orElseThrow();
+                    JPanel trailing = (JPanel) empty.getClientProperty("JTabbedPane.trailingComponent");
+                    JButton close = java.util.Arrays.stream(trailing.getComponents())
+                            .filter(JButton.class::isInstance).map(JButton.class::cast)
+                            .filter(button -> "workspace.closeEmptyGroup".equals(button.getName())).findFirst().orElseThrow();
+                    assertTrue(close.isShowing(), "空分屏必须显示可点击的关闭入口");
+                    assertEquals("关闭空分屏", close.getText());
+                    empty.dispatchEvent(new MouseEvent(empty, MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(),
+                            MouseEvent.BUTTON1_DOWN_MASK, 8, 40, 1, false, MouseEvent.BUTTON1));
+                    close.doClick(); view.frame().validate();
+                    assertEquals(1, layout.groups().size());
+                    assertEquals("terminal", selected.get());
+                    assertSame(originalHost, terminal.getParent());
+                    assertEquals("unsaved terminal content", terminal.getText());
+                    assertEquals(0, closed.get(), "关闭空分屏不能关闭现有会话");
+                }
+            } finally { view.close(); }
+        }).get(15, TimeUnit.SECONDS);
+    }
+
     @Test void splitTabsDistinguishTheActiveGroupAndFollowBodyAndHeaderFocus() throws Exception {
         var reference = new java.util.concurrent.atomic.AtomicReference<SwingWorkbench>();
         var first = new JTextArea("First terminal body");

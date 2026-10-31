@@ -31,17 +31,17 @@ final class SwingAboutPage {
         var updates=nodes.stream().filter(n->n instanceof Button&&n.getStyleClass().contains("about-compact-action")&&!n.getStyleClass().contains("about-runtime-copy")).findFirst().map(renderer::prepare).orElse(null);
         String resources=i18n.get("preferences.about.resources"),runtime=i18n.get("preferences.about.details"),footer=i18n.get("preferences.about.footer");
         return ()->{
-            JPanel page=new JPanel(new GridBagLayout());page.setOpaque(false);page.setBorder(BorderFactory.createEmptyBorder(24,28,24,28));
+            JPanel page=new JPanel(new GridBagLayout());page.setName("about.page");page.setOpaque(false);page.setBorder(BorderFactory.createEmptyBorder(12,24,12,24));
             JPanel content=new JPanel(new GridBagLayout());content.setOpaque(false);
             GridBagConstraints row=new GridBagConstraints();row.gridx=0;row.gridy=0;row.weightx=1;row.fill=GridBagConstraints.HORIZONTAL;row.anchor=GridBagConstraints.NORTHWEST;
-            Surface hero=new Surface(true);hero.setLayout(new BorderLayout(24,0));hero.setBorder(BorderFactory.createEmptyBorder(30,28,30,28));
-            JLabel mark=new JLabel(new SwingBrandIcon(96));hero.add(mark,BorderLayout.WEST);
-            JPanel identity=vertical(8);identity.add(heading("JLShell",36));identity.add(secondary(description,14));
+            Surface hero=new Surface(true);hero.setLayout(new BorderLayout(20,0));hero.setBorder(BorderFactory.createEmptyBorder(16,20,16,20));
+            JLabel mark=new JLabel(new SwingBrandIcon(72));hero.add(mark,BorderLayout.WEST);
+            JPanel identity=vertical(6);identity.add(heading("JLShell",32));identity.add(secondary(description,14));
             JPanel versionRow=new JPanel(new FlowLayout(FlowLayout.LEFT,0,0));versionRow.setOpaque(false);versionRow.add(secondary(version,12));
             if(updates!=null){versionRow.add(Box.createHorizontalStrut(16));JButton update=(JButton)updates.get();update.removeAll();update.setLayout(null);update.setIcon(new WorkbenchIcon(WorkbenchIcon.Kind.REFRESH));update.setContentAreaFilled(false);update.setBorderPainted(false);versionRow.add(update);}
             identity.add(versionRow);hero.add(identity,BorderLayout.CENTER);
-            content.add(hero,row);row.gridy++;row.insets=new Insets(28,0,12,0);content.add(heading(resources,15),row);
-            JPanel resourceGrid=new JPanel(new GridLayout(0,2,12,12));resourceGrid.setOpaque(false);
+            content.add(hero,row);row.gridy++;row.insets=new Insets(12,0,8,0);content.add(heading(resources,15),row);
+            JPanel resourceGrid=new JPanel(new GridLayout(0,2,8,8));resourceGrid.setName("about.resources");resourceGrid.setOpaque(false);
             AboutLinkIcon.Kind[] icons={AboutLinkIcon.Kind.WEBSITE,AboutLinkIcon.Kind.GITHUB,AboutLinkIcon.Kind.DOWNLOAD,AboutLinkIcon.Kind.ISSUES};
             for(int i=0;i<links.size();i++) {
                 JButton button=(JButton)links.get(i).get();button.removeAll();button.setLayout(new BorderLayout(14,0));button.setText(null);
@@ -51,25 +51,25 @@ final class SwingAboutPage {
                 button.putClientProperty(com.formdev.flatlaf.FlatClientProperties.STYLE, null);
                 button.putClientProperty("jlshell.ideaForm", false);
                 button.setBorder(new ResourceBorder());
-                button.setPreferredSize(new Dimension(250,78));button.setMinimumSize(new Dimension(160,78));
+                button.setPreferredSize(new Dimension(250,64));button.setMinimumSize(new Dimension(160,64));
                 forward(text,button);resourceGrid.add(button);
             }
             row.gridy++;row.insets=new Insets(0,0,0,0);content.add(resourceGrid,row);
-            row.gridy++;row.insets=new Insets(26,0,12,0);
+            row.gridy++;row.insets=new Insets(12,0,8,0);
             JPanel runtimeHeader=new JPanel(new BorderLayout());runtimeHeader.setOpaque(false);runtimeHeader.add(heading(runtime,15),BorderLayout.WEST);
             if(copy!=null)runtimeHeader.add(copy.get(),BorderLayout.EAST);content.add(runtimeHeader,row);
-            Surface details=new Surface(false);details.setLayout(new GridBagLayout());details.setBorder(BorderFactory.createEmptyBorder(14,18,14,18));
+            Surface details=new Surface(false);details.setName("about.details");details.setLayout(new GridBagLayout());details.setBorder(BorderFactory.createEmptyBorder(10,16,10,16));
             int line=0;for(List<String> entry:info)if(entry.size()>=2) {
-                GridBagConstraints c=new GridBagConstraints();c.gridx=0;c.gridy=line++;c.anchor=GridBagConstraints.WEST;c.insets=new Insets(5,0,5,24);
-                details.add(secondary(entry.getFirst(),12),c);c.gridx=1;c.weightx=1;c.fill=GridBagConstraints.HORIZONTAL;c.insets=new Insets(5,0,5,0);
+                GridBagConstraints c=new GridBagConstraints();c.gridx=0;c.gridy=line++;c.anchor=GridBagConstraints.WEST;c.insets=new Insets(1,0,1,24);
+                details.add(secondary(entry.getFirst(),12),c);c.gridx=1;c.weightx=1;c.fill=GridBagConstraints.HORIZONTAL;c.insets=new Insets(1,0,1,0);
                 JLabel value=new JLabel(entry.get(1));value.setFont(UIManager.getFont("defaultFont").deriveFont(12f));details.add(value,c);
             }
             row.gridy++;row.insets=new Insets(0,0,0,0);content.add(details,row);
-            row.gridy++;row.insets=new Insets(20,0,0,0);content.add(secondary(footer,12),row);
+            row.gridy++;row.insets=new Insets(12,0,0,0);JLabel footerLabel=secondary(footer,12);footerLabel.setName("about.footer");content.add(footerLabel,row);
             GridBagConstraints body=new GridBagConstraints();body.gridx=0;body.gridy=0;body.weightx=1;body.fill=GridBagConstraints.HORIZONTAL;body.anchor=GridBagConstraints.NORTH;
             page.add(content,body);body.gridy=1;body.weighty=1;page.add(Box.createVerticalGlue(),body);
             page.addComponentListener(new java.awt.event.ComponentAdapter(){public void componentResized(java.awt.event.ComponentEvent event){
-                ((GridLayout)resourceGrid.getLayout()).setColumns(page.getWidth()<620?1:2);resourceGrid.revalidate();
+                ((GridLayout)resourceGrid.getLayout()).setColumns(page.getWidth()<480?1:2);resourceGrid.revalidate();
             }});
             JScrollPane scroll=new JScrollPane(new Tracking(page));scroll.setBorder(BorderFactory.createEmptyBorder());scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);scroll.getVerticalScrollBar().setUnitIncrement(18);return scroll;
         };
@@ -107,8 +107,8 @@ final class SwingAboutPage {
         }finally{g.dispose();}super.paintComponent(graphics);}
     }
     private static final class ResourceBorder extends javax.swing.border.AbstractBorder {
-        public Insets getBorderInsets(Component c){return new Insets(16,16,16,16);}
-        public Insets getBorderInsets(Component c,Insets insets){insets.set(16,16,16,16);return insets;}
+        public Insets getBorderInsets(Component c){return new Insets(10,14,10,14);}
+        public Insets getBorderInsets(Component c,Insets insets){insets.set(10,14,10,14);return insets;}
         public void paintBorder(Component c,Graphics graphics,int x,int y,int width,int height){
             Graphics2D g=(Graphics2D)graphics.create();try{g.setRenderingHint(RenderingHints.KEY_ANTIALIASING,RenderingHints.VALUE_ANTIALIAS_ON);
                 g.setColor(SwingTheme.color("border"));g.draw(new RoundRectangle2D.Double(x+.5,y+.5,width-1,height-1,12,12));

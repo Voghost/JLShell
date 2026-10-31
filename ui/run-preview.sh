@@ -3,11 +3,13 @@ set -euo pipefail
 preview_repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 preview_renderer=swing
 preview_build=true
+preview_trace_scroll=false
 for option in "$@"; do
     case "$option" in
         --javafx) preview_renderer=javafx ;;
         --no-build) preview_build=false ;;
-        *) echo "用法：ui/run-preview.sh [--javafx] [--no-build]" >&2; exit 2 ;;
+        --trace-scroll) preview_trace_scroll=true ;;
+        *) echo "用法：ui/run-preview.sh [--javafx] [--no-build] [--trace-scroll]" >&2; exit 2 ;;
     esac
 done
 preview_java_home="${JLSHELL_PREVIEW_JAVA_HOME:-${JAVA_HOME:-}}"
@@ -50,6 +52,7 @@ fi
 echo "预览渲染器：$preview_renderer"
 echo "独立用户目录：$preview_home"
 echo "独立运行包：$preview_jar"
+echo "滚动诊断：$preview_trace_scroll"
 "$preview_java_home/bin/java" \
     --add-exports=java.desktop/sun.swing=ALL-UNNAMED \
     --add-opens=java.desktop/sun.swing=ALL-UNNAMED \
@@ -60,4 +63,5 @@ echo "独立运行包：$preview_jar"
     -Djlshell.ui.preview=true \
     -Djlshell.preview.plugins="$preview_plugins" \
     -Djlshell.ui.renderer="$preview_renderer" \
+    -Djlshell.terminal.traceScroll="$preview_trace_scroll" \
     -jar "$preview_jar"

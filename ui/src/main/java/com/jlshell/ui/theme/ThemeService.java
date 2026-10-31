@@ -37,6 +37,9 @@ public class ThemeService {
     private final ObjectProperty<AccentColor> accentColor = new SimpleObjectProperty<>(AccentColor.SKY);
     private final ObjectProperty<TerminalColorScheme> activeColorScheme;
     private final AppSettingsService appSettings;
+    private final com.jlshell.terminal.service.TerminalHighlightService terminalHighlights;
+    public com.jlshell.terminal.service.TerminalHighlightService terminalHighlights() { return terminalHighlights; }
+
     private final ColorSchemeRegistry registry;
     private final Map<DialogPane, Boolean> dialogPanes = new WeakHashMap<>();
     private final Map<Scene, Boolean> scenes = new WeakHashMap<>();
@@ -44,6 +47,7 @@ public class ThemeService {
 
     public ThemeService(AppSettingsService appSettings, ColorSchemeRegistry registry, ExecutorService executor) {
         this.appSettings = appSettings;
+        this.terminalHighlights = new com.jlshell.terminal.service.TerminalHighlightService(appSettings);
         refreshUiFont();
         this.registry = registry;
         String savedTheme = appSettings.get("ui.theme", "DARK");

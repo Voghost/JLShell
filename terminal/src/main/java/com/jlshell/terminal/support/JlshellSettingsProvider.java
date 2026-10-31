@@ -32,6 +32,10 @@ public class JlshellSettingsProvider extends DefaultSettingsProvider {
     private final AtomicReference<ColorPalette> colorPalette;
     private final AtomicReference<TerminalRuntimeSettings> runtimeSettings;
     private final ShortcutRegistry shortcutRegistry;
+    private com.jlshell.terminal.service.TerminalHighlightService highlights;
+    public void setHighlights(com.jlshell.terminal.service.TerminalHighlightService highlights) { this.highlights = highlights; }
+    public com.jlshell.terminal.service.TerminalHighlightService highlights() { return highlights; }
+
 
     // 可变的 KeyStroke 列表引用，用于 refreshActions() 时原地更新
     private final List<KeyStroke> copyStrokes;

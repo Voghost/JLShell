@@ -50,6 +50,40 @@ class SwingSftpBrowserTest {
             Path output = Path.of("../ui/target/review/" + file); Files.createDirectories(output.getParent()); javax.imageio.ImageIO.write(image, "png", output.toFile());
         } catch (Exception error) { throw new RuntimeException(error); }
     }
+    @Test void bottomDockShowsLocalAndRemoteSideBySideAndRetainsNavigation() throws Exception {
+        Files.writeString(temporary.resolve("test.txt"), "content");
+        var session = mock(SshSession.class);
+        var service = mock(SftpService.class);
+        when(service.listDirectory(eq(session), anyString())).thenReturn(CompletableFuture.completedFuture(
+                new RemoteDirectoryListing("/fixture", List.of(file("/fixture/test.txt", "test.txt")))));
+        var browser = edt(() -> {
+            SwingTheme.install(AppTheme.DARK, "#3574f0", null, 13);
+            return new SwingSftpBrowser(session, service, new I18nService(Locale.SIMPLIFIED_CHINESE), ".", temporary);
+        });
+        var frame = edt(() -> { var f = new JFrame("Docked file layout"); f.setContentPane(browser); f.setSize(1000,500); f.setVisible(true); return f; });
+        try {
+            JTable table = edt(() -> (JTable)named(browser,"sftp.remote.table"));
+            await(() -> table.getRowCount() == 1);
+            Component local = edt(() -> named(browser,"sftp.local")), remote = edt(() -> named(browser,"sftp.remote"));
+            edt(() -> { table.setRowSelectionInterval(0,0); browser.setBottomDocked(true); frame.validate(); return null; });
+            edt(() -> {
+                JSplitPane split = (JSplitPane)local.getParent(); split.doLayout();
+                assertEquals(JSplitPane.HORIZONTAL_SPLIT, split.getOrientation());
+                assertTrue(remote.getX() > local.getX()); assertEquals(local.getY(),remote.getY());
+                assertSame(table,named(browser,"sftp.remote.table")); assertEquals(0,table.getSelectedRow());
+                snapshot(frame,"sftp-bottom-side-by-side.png");
+                browser.setBottomDocked(false);frame.validate();return null;
+            });
+            edt(() -> {
+                JSplitPane split=(JSplitPane)local.getParent();split.doLayout();
+                assertEquals(JSplitPane.VERTICAL_SPLIT,split.getOrientation());
+                assertTrue(remote.getY()>local.getY());assertEquals(local.getX(),remote.getX());
+                assertEquals(0,table.getSelectedRow());return null;
+            });
+            verify(service,times(1)).listDirectory(eq(session),anyString());
+        } finally { edt(() -> { browser.close();frame.dispose();return null; }); }
+    }
+
     @Test void fileMenusCalculateLocalAndRemoteMd5AndRejectFolders() throws Exception {
         Files.writeString(temporary.resolve("abc.txt"), "abc");
         Files.createDirectory(temporary.resolve("folder"));

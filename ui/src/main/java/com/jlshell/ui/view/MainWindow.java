@@ -386,6 +386,7 @@ public class MainWindow {
         swingQuitAction = quit;
         var texts = com.jlshell.ui.swing.SwingWorkbench.TEXT_KEYS.stream().collect(
                 Collectors.toMap(key -> key, key -> i18nService.get(key)));
+        texts.put("ui.workspace.toolLayout", appSettingsService.get("ui.workspace.toolLayout", ""));
         texts.put("ui.sidebar.sort", appSettingsService.get("ui.sidebar.sort", "name"));
         texts.put("ui.sidebar.foldersFirst", appSettingsService.get("ui.sidebar.foldersFirst", "true"));
         java.util.function.Function<Runnable, Runnable> fxAction = action -> () -> dispatchSwingAction(action);
@@ -702,6 +703,14 @@ public class MainWindow {
         viewMenu.getItems().addAll(toggleSidebarItem, terminalStatusBarItem, focusModeItem,
                 new SeparatorMenuItem(), darkTheme, lightTheme);
 
+        Menu pluginMenu = new Menu(i18nService.get("workspace.plugins"));
+        pluginMenu.setOnShowing(event -> rebuildPluginMenu(pluginMenu, stage));
+        rebuildPluginMenu(pluginMenu, stage);
+
+        MenuItem resetLayout = new MenuItem(i18nService.get("workspace.restoreLayout"));
+        resetLayout.setOnAction(event -> withSwing(com.jlshell.ui.swing.SwingWorkbench::restoreDefaultLayout));
+        viewMenu.getItems().addAll(new SeparatorMenuItem(), resetLayout);
+
         // Preferences menu item
         // On macOS, JavaFX automatically moves a MenuItem with Cmd+, shortcut to the app menu.
         MenuItem preferences = new MenuItem(i18nService.get("action.preferences"));
@@ -718,7 +727,7 @@ public class MainWindow {
             MenuItem aboutItem = new MenuItem(i18nService.get("menu.help.about"));
             aboutItem.setOnAction(event -> openAbout(stage));
             helpMenu.getItems().addAll(checkUpdatesItem, aboutItem);
-            menuBar.getMenus().addAll(fileMenu, connectionMenu, accountMenu, viewMenu, helpMenu);
+            menuBar.getMenus().addAll(fileMenu, connectionMenu, accountMenu, viewMenu, pluginMenu, helpMenu);
         } else {
             Menu settingsMenu = new Menu(i18nService.get("menu.settings"));
             settingsMenu.getItems().add(preferences);
@@ -728,7 +737,7 @@ public class MainWindow {
             MenuItem aboutItem = new MenuItem(i18nService.get("menu.help.about"));
             aboutItem.setOnAction(event -> openAbout(stage));
             helpMenu.getItems().addAll(checkUpdatesItem, aboutItem);
-            menuBar.getMenus().addAll(fileMenu, connectionMenu, accountMenu, viewMenu, settingsMenu, helpMenu);
+            menuBar.getMenus().addAll(fileMenu, connectionMenu, accountMenu, viewMenu, pluginMenu, settingsMenu, helpMenu);
         }
         installMenuCursorRecovery(menuBar);
         Map<String, String> menuShortcuts = Map.of(
@@ -744,6 +753,41 @@ public class MainWindow {
                     (java.util.function.Supplier<String>) () -> shortcutRegistry.getEffectivePrimary(id));
         }
         return menuBar;
+    }
+
+    private void rebuildPluginMenu(Menu menu, Stage stage) {
+        menu.getItems().clear();
+        var selected = workspaceTabs.getSelectionModel().getSelectedItem();
+        SessionWorkspaceTab session = selected instanceof SessionWorkspaceTab tab ? tab : null;
+        MenuItem openList = new MenuItem(i18nService.get("menu.plugins.open"));
+        openList.setDisable(session == null);
+        openList.setOnAction(event -> {
+            if (session == null || workspaceTabs.getSelectionModel().getSelectedItem() != session) return;
+            if (swingWorkbench == null) session.showPlugins();
+            else withSwing(com.jlshell.ui.swing.SwingWorkbench::openPluginPanel);
+        });
+        MenuItem manage = new MenuItem(i18nService.get("menu.plugins.manage"));
+        manage.setOnAction(event -> openPreferences(stage, PreferencesDialog.TAB_PLUGINS));
+        menu.getItems().addAll(openList, manage, new SeparatorMenuItem());
+        List<MenuItem> entries = session == null ? List.of() : session.pluginMenuItems();
+        if (entries.isEmpty()) {
+            MenuItem empty = new MenuItem(i18nService.get(session == null ? "workspace.noOpenSessions" : "plugin.noPlugins"));
+            empty.setDisable(true);
+            menu.getItems().add(empty);
+        } else {
+            for (MenuItem entry : entries) {
+                var action = entry.getOnAction();
+                String pluginId = (String) entry.getProperties().get("jlshell.pluginId");
+                entry.setOnAction(event -> {
+                    if (workspaceTabs.getSelectionModel().getSelectedItem() != session) return;
+                    boolean alreadySelected = session.isPluginSelected(pluginId);
+                    action.handle(event);
+                    if (alreadySelected && swingWorkbench != null)
+                        withSwing(com.jlshell.ui.swing.SwingWorkbench::revealSelectedToolPage);
+                });
+            }
+            menu.getItems().addAll(entries);
+        }
     }
 
     private void rebuildOpenConnectionsMenu(Menu connectionMenu) {
