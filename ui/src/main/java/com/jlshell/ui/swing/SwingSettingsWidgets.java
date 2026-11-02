@@ -34,7 +34,9 @@ final class SwingSettingsWidgets {
                 cell.updateListView(source); cell.updateIndex(index);
                 Node graphic=cell.getGraphic();
                 String text=cell.getText();
-                cells.add(new Cell(item, graphic==null ? () -> new JLabel(text==null?String.valueOf(item):text) : renderer.prepare(graphic)));
+                cells.add(new Cell(item, item instanceof com.jlshell.terminal.model.TerminalColorScheme scheme
+                        ? () -> schemeCell(scheme, text)
+                        : graphic==null ? () -> new JLabel(text==null?String.valueOf(item):text) : renderer.prepare(graphic)));
             }
             snapshot.set(List.copyOf(cells));
             int selected=source.getSelectionModel().getSelectedIndex();
@@ -63,7 +65,15 @@ final class SwingSettingsWidgets {
                 constrainCell(component);
                 component.setOpaque(true);
                 component.setBackground(isSelected?items.getSelectionBackground():items.getBackground());
-                component.setBorder(BorderFactory.createEmptyBorder(8,10,8,10));
+                if (cell.item() instanceof com.jlshell.terminal.model.TerminalColorScheme) {
+                    JLabel check = (JLabel) component.getClientProperty("scheme.check");
+                    check.setText(isSelected ? "✓" : " ");
+                    check.setForeground(items.getSelectionForeground());
+                    Color accent = UIManager.getColor("Component.focusColor");
+                    component.setBorder(BorderFactory.createCompoundBorder(
+                            BorderFactory.createLineBorder(isSelected && accent != null ? accent : items.getBackground(), 2, true),
+                            BorderFactory.createEmptyBorder(6,8,6,8)));
+                } else component.setBorder(BorderFactory.createEmptyBorder(8,10,8,10));
                 int width=Math.max(120,items.getWidth());
                 int height=pluginList?Math.max(68,items.getFontMetrics(items.getFont()).getHeight()*3+22):component.getPreferredSize().height;
                 component.setPreferredSize(new Dimension(width,height));component.setSize(width,height);
@@ -71,6 +81,7 @@ final class SwingSettingsWidgets {
                 return component;
             });
             list.setSelectedIndex(((Number)selected.get()).intValue());
+            SwingUtilities.invokeLater(() -> { if (!renderer.isClosed() && list.getSelectedIndex() >= 0) list.ensureIndexIsVisible(list.getSelectedIndex()); });
             list.addListSelectionListener(event -> {
                 if(!event.getValueIsAdjusting()&&!Boolean.TRUE.equals(list.getClientProperty("jlshell.updating"))) {
                     int index=list.getSelectedIndex();FxThread.run(() -> {if(!renderer.isClosed())source.getSelectionModel().select(index);});
@@ -83,6 +94,30 @@ final class SwingSettingsWidgets {
             });
             scroll.setPreferredSize(new Dimension(250,230));return scroll;
         };
+    }
+
+    private static JComponent schemeCell(com.jlshell.terminal.model.TerminalColorScheme scheme, String text) {
+        JPanel card = new JPanel(new BorderLayout(0, 6));
+        JPanel heading = new JPanel(new BorderLayout()); heading.setOpaque(false);
+        JLabel check = new JLabel(" "); check.setPreferredSize(new Dimension(24, 18));
+        heading.add(new JLabel(text)); heading.add(check, BorderLayout.EAST);
+        card.putClientProperty("scheme.check", check);
+        card.add(heading, BorderLayout.NORTH);
+        JPanel sample = new JPanel(new BorderLayout(12, 0));
+        sample.setBackground(scheme.background());
+        sample.setBorder(BorderFactory.createEmptyBorder(7, 10, 7, 10));
+        JLabel prompt = new JLabel("user@server ~ $ ls");
+        prompt.setForeground(scheme.foreground());
+        prompt.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        sample.add(prompt, BorderLayout.WEST);
+        JPanel swatches = new JPanel(new GridLayout(1, 8, 3, 0)); swatches.setOpaque(false);
+        java.awt.Color[] colors = scheme.ansiColors();
+        for (int i = 0; i < 8; i++) {
+            JPanel swatch = new JPanel(); swatch.setBackground(colors[i]);
+            swatch.setPreferredSize(new Dimension(12, 14)); swatches.add(swatch);
+        }
+        sample.add(swatches, BorderLayout.EAST); card.add(sample);
+        return card;
     }
 
     private record TreeEntry(TreeItem<?> model, Supplier<JComponent> graphic, List<TreeEntry> children, boolean expanded) {}

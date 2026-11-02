@@ -82,6 +82,31 @@ final class ShellDirectoryIntegration {
         return output;
     }
 
+    /** Readline may emit CR/erase/cursor moves after its hidden command, before our begin marker.
+     * Keeping those controls moves the retained prompt's cursor back to column zero. Only trim
+     * the leading line-finish controls; login/banner text and SGR colours must remain intact.
+     */
+    private static String stripLineFinish(String suffix) {
+        StringBuilder keep = new StringBuilder();
+        int i = 0;
+        while (i < suffix.length()) {
+            char c = suffix.charAt(i);
+            if (c == '\r' || c == '\n' || c == '\b') { i++; continue; }
+            if (c == '\033' && i + 1 < suffix.length() && suffix.charAt(i + 1) == '[') {
+                int start = i; i += 2;
+                while (i < suffix.length() && (suffix.charAt(i) < '@' || suffix.charAt(i) > '~')) i++;
+                if (i == suffix.length()) return keep.append(suffix.substring(start)).toString();
+                char command = suffix.charAt(i++);
+                String sequence = suffix.substring(start, i);
+                if ("ABCDEFGHJKSTf`ade".indexOf(command) >= 0 || sequence.equals("\033[?2004l")) continue;
+                keep.append(sequence);
+                continue;
+            }
+            break;
+        }
+        return keep.append(suffix.substring(i)).toString();
+    }
+
     /** Map visible text to raw offsets: zsh/readline insert CSI colours and wrapping in echoed input. */
     private String stripEcho(String raw) { return stripEcho(raw, false); }
 
@@ -125,6 +150,6 @@ final class ShellDirectoryIntegration {
         // then replaces the full prompt with a transient arrow. Neither operation is valid after
         // we removed that input from the display. Retain the complete initial prompt instead.
         if (discardLineFinish && rawOffset > 0) return output.toString();
-        return output.append(raw, rawOffset, raw.length()).toString();
+        return output.append(rawOffset > 0 ? stripLineFinish(raw.substring(rawOffset)) : raw).toString();
     }
 }

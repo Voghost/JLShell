@@ -22,6 +22,7 @@ class HeaderButton extends JButton {
     }
 
     @Override protected void paintComponent(Graphics graphics) {
+        if(Boolean.TRUE.equals(getClientProperty("jlshell.draggingTool")))return;
         if (isEnabled() && (getModel().isRollover() || getModel().isPressed() || isSelected())) {
             Graphics2D g = (Graphics2D) graphics.create();
             try {

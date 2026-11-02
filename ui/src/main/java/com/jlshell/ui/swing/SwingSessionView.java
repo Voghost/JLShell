@@ -33,6 +33,9 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
     private final JPanel monitoring = new JPanel(new BorderLayout());
     private final String monitoringTitle;
     private IntConsumer showToolPage = index -> {};
+    private Runnable toolPagesChanged = () -> {};
+
+    void setToolPagesChanged(Runnable callback) { toolPagesChanged = callback; }
     private final I18nService i18n;
     private final java.util.Map<Tab, SwingPluginPage.Prepared> preparedPages = new java.util.IdentityHashMap<>();
     private final java.util.Map<Tab, SwingPluginPage> pluginPages = new java.util.IdentityHashMap<>();
@@ -44,6 +47,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
     private final JPanel rightHost = new JPanel(new java.awt.CardLayout());
     private java.util.function.Supplier<SwingSftpBrowser> filesFactory;
     private SwingSftpBrowser files;
+    private java.awt.Component fileComponent;
     private final ThemeService themes;
     private TerminalWorkspaceView terminalView;
     private final String terminalSettingsLabel;
@@ -55,6 +59,24 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
     private javafx.collections.ListChangeListener<Tab> tabListListener;
     private final java.util.Map<Tab, ChangeListener<String>> titleListeners = new java.util.IdentityHashMap<>();
     private boolean closed;
+    private String statusName = "", statusAddress = "", connectionState = "connecting";
+    private boolean localSession;
+    private java.time.Instant connectedAt;
+
+    SwingStatusBar.SessionInfo statusInfo() {
+        String encoding = handle == null ? "" : handle.encodingName();
+        String terminal = encoding;
+        if (handle != null && handle.component() instanceof com.jlshell.terminal.support.JlshellJediTermWidget widget) {
+            var buffer = widget.getTerminalTextBuffer();
+            terminal += " · " + buffer.getWidth() + " × " + buffer.getHeight();
+        }
+        return new SwingStatusBar.SessionInfo(statusName, statusAddress, localSession, connectionState, connectedAt, terminal, encoding);
+    }
+    String activeTransfer() {
+        String transfer = files == null ? null : files.activeTransferDescription();
+        return transfer == null ? null : statusName + " · " + transfer;
+    }
+
     private volatile int selectedPageIndex;
     private boolean followingToolSelection; // 仅由 FX 线程访问。
     private record Page(Tab tab, String title, String pluginId) {}
@@ -68,10 +90,13 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
         source.setContent(null);
         TerminalWorkspaceView initialTerminalView = source.getTerminalWorkspaceView();
         String connectionSummary = source.getConnectionProfile().summary();
+        String statusName = source.getConnectionProfile().displayName();
+        boolean local = source.getConnectionProfile().connectionType() == com.jlshell.core.model.ConnectionType.LOCAL_SHELL;
         var future = SwingExecutors.supplyOnEdtAsync(() -> {
             var view = new SwingSessionView(model, themes,
                 i18n.get("workspace.monitoring"), initialTerminalView,
                 i18n.get("terminal.appearanceSettings"), i18n);
+            view.statusName = statusName; view.statusAddress = connectionSummary; view.localSession = local;
             view.terminalBody.removeAll();
             view.terminalBody.add(new SwingLoadingPanel(i18n.get("workspace.connecting"),
                     connectionSummary, WorkbenchIcon.Kind.SSH));
@@ -177,6 +202,45 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
         navigation.revalidate(); navigation.repaint();
     }
 
+    String toolKey(int index) {
+        if (index == 0) return "monitor";
+        if (index == 1) return "files";
+        if (index == 2) return "plugins";
+        return index < pagePluginIds.size() && pagePluginIds.get(index) != null
+                ? "plugin:" + pagePluginIds.get(index) : null;
+    }
+
+    int toolIndex(String key) {
+        if ("monitor".equals(key)) return 0;
+        for (int i = 1; i < pageTabs.size(); i++) if (java.util.Objects.equals(key, toolKey(i))) return i;
+        return -1;
+    }
+
+    String toolTitle(String key) {
+        int index = toolIndex(key);
+        if (index == 0) return monitoringTitle;
+        if (index > 0) return pageTitles.get(index);
+        for (var component : navigation.getComponents())
+            if (component instanceof JToggleButton button && java.util.Objects.equals(key, button.getClientProperty("jlshell.pluginKey")))
+                return java.util.Objects.toString(button.getToolTipText(), "");
+        return "";
+    }
+
+    java.awt.Component toolComponent(String key) {
+        int index = toolIndex(key);
+        if (index == 0) return monitoring;
+        if (index < 0) return null;
+        int selected = selectedPageIndex;
+        selectPage(index, false);
+        java.awt.Component result = index == 1 ? (files != null ? files : fileComponent) : pluginPages.get(pageTabs.get(index));
+        // Layout test fixtures can provide a local file panel without a network-backed browser.
+        if (index == 1 && result == null) for (var child : rightHost.getComponents())
+            if (!pluginPages.containsValue(child)) { result = child; break; }
+        if (index == 1) fileComponent = result;
+        selectPage(selected, false);
+        return result;
+    }
+
     /** 底部工具窗只保留会话监控；文件和插件页交由右侧工具窗显示。 */
     public JPanel toolWindow() { return monitoring; }
 
@@ -187,6 +251,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
         if (files != null) { rightHost.remove(files); files.close(); files = null; }
         filesFactory = factory;
         selectPage(selectedPageIndex, false);
+        toolPagesChanged.run();
     }
 
     /** EDT 使用的页面标识快照；不读取 FX Tab 属性。 */
@@ -225,6 +290,15 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
 
     int selectedPageIndex() { return selectedPageIndex; }
 
+    record ToolPageOption(int index, String title) {}
+
+    List<ToolPageOption> toolPageOptions() {
+        var result = new java.util.ArrayList<ToolPageOption>();
+        for (int index = 1; index < pageTitles.size(); index++)
+            result.add(new ToolPageOption(index, pageTitles.get(index)));
+        return List.copyOf(result);
+    }
+
     String selectedPageTitle() {
         int index = selectedPageIndex;
         return index >= 0 && index < pageTitles.size() ? pageTitles.get(index) : "";
@@ -262,7 +336,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
             ChangeListener<Node> listener = (obs, old, next) -> {
                 var prepared = preparedPages.remove(tab); if (prepared != null) prepared.releaseModel().run();
                 SwingUtilities.invokeLater(() -> {
-                    var page = pluginPages.remove(tab); if (page != null) { rightHost.remove(page); page.close(); }
+                    var page = pluginPages.remove(tab); if (page != null) { if (page.getParent() != null) page.getParent().remove(page); page.close(); }
                 });
                 publishPages();
             };
@@ -295,7 +369,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
             nativePrepared = prepared;
             pluginPages.entrySet().removeIf(entry -> {
                 if (tabs.contains(entry.getKey())) return false;
-                rightHost.remove(entry.getValue()); entry.getValue().close(); return true;
+                if (entry.getValue().getParent() != null) entry.getValue().getParent().remove(entry.getValue()); entry.getValue().close(); return true;
             });
             navigation.removeAll();
             ButtonGroup group = new ButtonGroup();
@@ -325,6 +399,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
             for (PluginsTabView.PinnedShortcut shortcut : shortcuts) {
                 JToggleButton selector = new JToggleButton(PluginIcons.icon(shortcut.title(), shortcut.icon(), 18, true));
                 selector.setName("plugin-shortcut-" + shortcut.id());
+                selector.putClientProperty("jlshell.pluginKey", "plugin:" + shortcut.id());
                 selector.putClientProperty("JButton.buttonType", "toolBarButton");
                 int openedIndex = -1;
                 for (int i = 0; i < pages.size(); i++) if (shortcut.id().equals(pages.get(i).pluginId())) openedIndex = i;
@@ -344,6 +419,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
                 navigation.add(javax.swing.Box.createVerticalStrut(6));
             }
             selectPage(selected, false);
+            toolPagesChanged.run();
             navigation.revalidate();
             navigation.repaint();
         });
@@ -360,7 +436,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
     public void attach(TerminalViewHandle viewHandle) {
         SwingUtilities.invokeLater(() -> {
             if (closed) return;
-            handle = viewHandle;
+            handle = viewHandle; connectionState = "connected"; connectedAt = java.time.Instant.now();
             terminalBody.removeAll();
             javax.swing.JComponent component = viewHandle.component();
             TerminalPopupBridge.install(component, terminalSettingsLabel,
@@ -377,7 +453,11 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
     public void disconnected(String reason, Runnable reconnect) {
         SwingUtilities.invokeLater(() -> {
             if (closed) return;
-            handle = null;
+            if (connectionState.equals("connected")) {
+                com.jlshell.core.support.RecentApplicationLogs.shared().append(java.time.Instant.now(), "INFO", "Connection",
+                        i18n.get("statusbar.sessionEnded", statusName));
+            }
+            handle = null; connectionState = "disconnected"; connectedAt = null;
             if (status != null) status.disconnected();
             if (files != null) files.disconnected();
             terminalBody.removeAll();
@@ -399,6 +479,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
         closed = true;
         handle = null;
         showToolPage = index -> {};
+        toolPagesChanged = () -> {};
         terminalBody.removeAll();
         pluginPages.values().forEach(SwingPluginPage::close); pluginPages.clear();
         nativePrepared = java.util.Map.of();

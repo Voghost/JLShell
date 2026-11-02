@@ -43,6 +43,40 @@ class SidebarHierarchyUiTest {
         });
         done.get(15, TimeUnit.SECONDS);
     }
+    @Test void contextMenusTargetFavoriteAndImportFolder() throws Exception {
+        var done = new CompletableFuture<Void>();
+        Platform.runLater(() -> {
+            try {
+                var i18n = new I18nService(Locale.SIMPLIFIED_CHINESE);
+                var view = new SidebarTreeView(i18n, 4);
+                var folder = new FolderProfile("folder", "folder", null, null, 0);
+                var profile = new ConnectionProfile("server", "server", "example.invalid", 22, "test",
+                        null, null, null, null, false, null, ConnectionType.SSH, "folder", null);
+                view.populate(List.of(folder), List.of(profile), Set.of());
+                var changed = new java.util.concurrent.atomic.AtomicReference<String>();
+                view.setOnFavorite((id, favorite) -> changed.set(id + ":" + favorite));
+                var conn = new SidebarItem.ConnectionItem("server", "server", ConnectionType.SSH, "test");
+                var menu = view.contextMenuFor(conn);
+                menu.getItems().stream().filter(item -> i18n.get("connection.favorite.add").equals(item.getText()))
+                        .findFirst().orElseThrow().fire();
+                assertEquals("server:true", changed.get());
+                view.setOnImportShare(changed::set);
+                view.contextMenuFor(new SidebarItem.FolderItem("folder", "folder", null)).getItems().stream()
+                        .filter(item -> i18n.get("connection.share.import").equals(item.getText()))
+                        .findFirst().orElseThrow().fire();
+                assertEquals("folder", changed.get());
+                var starred = new ConnectionProfile("server", "server", "example.invalid", 22, "test",
+                        null, null, null, null, true, null, ConnectionType.SSH, "folder", null);
+                view.populate(List.of(folder), List.of(starred), Set.of());
+                view.contextMenuFor(conn).getItems().stream()
+                        .filter(item -> i18n.get("connection.favorite.remove").equals(item.getText()))
+                        .findFirst().orElseThrow().fire();
+                assertEquals("server:false", changed.get());
+                done.complete(null);
+            } catch (Throwable failure) { done.completeExceptionally(failure); }
+        });
+        done.get(15, TimeUnit.SECONDS);
+    }
     @Test void extremelyDeepSavedFoldersAreSplitIntoSafeDisplayBranches() throws Exception {
         var done = new CompletableFuture<Void>();
         Platform.runLater(() -> {

@@ -198,11 +198,14 @@ public class AppContext implements AutoCloseable {
                     fontProfileService, executor, i18nService::get, BundledFontLoader::ensureAwtRegistered,
                     shortcutRegistry);
 
+            terminalViewFactory.setHighlights(themeService.terminalHighlights());
+
             ConnectionProfileService connectionProfileService = new ConnectionProfileService(
                     jdbi, credentialCipher, appSettingsService, vaultService);
             LocalShellLauncher localShellLauncher = new LocalShellLauncher(
                     fontProfileService, executor, i18nService, BundledFontLoader::ensureAwtRegistered,
                     shortcutRegistry);
+            localShellLauncher.setHighlights(themeService.terminalHighlights());
             memoryReclaimService = new MemoryReclaimService();
             UpdateService updateService = new UpdateService(appSettingsService, executor);
             this.accountService = new AccountService(appSettingsService,

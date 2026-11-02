@@ -162,6 +162,8 @@ class SwingToolWindowMaximizeTest {
                 var tag = named(frame, "workspace.toolConnection", JButton.class);
                 assertEquals("Same server", tag.getText());
                 assertTrue(tag.getToolTipText().contains("192.0.2.1:22"));
+                assertFalse(tag.isShowing(), "Connection selector is only needed while the workspace is filled");
+                named(frame, "workspace.maximizeTool", JButton.class).doClick(); frame.validate();
                 assertTrue(tag.isShowing());
                 tag.doClick();
                 var list = popupList(frame);
@@ -175,7 +177,6 @@ class SwingToolWindowMaximizeTest {
                 assertTrue(second.editor.isShowing());
                 assertTrue(tag.getToolTipText().contains("192.0.2.2:22"));
                 second.editor.setText("second editor unsaved");
-                named(frame, "workspace.maximizeTool", JButton.class).doClick(); frame.validate();
                 tag.doClick(); clickRow(popupList(frame), 0); frame.validate();
                 assertEquals("first", selected.get());
                 assertTrue(first.editor.isShowing());
@@ -207,7 +208,257 @@ class SwingToolWindowMaximizeTest {
         }
     }
 
+    @ParameterizedTest @EnumSource(AppTheme.class)
+    void docksEachToolIndependentlyAndRestoresSavedLayout(AppTheme theme) throws Exception {
+        Fixture fixture = fixture(false), restoredFixture = fixture(false);
+        var saved = new java.util.concurrent.atomic.AtomicReference<String>();
+        var workbench = SwingExecutors.supplyOnEdtAsync(() -> {
+            SwingTheme.install(theme, "#3574f0", null, 13);
+            Runnable noop = () -> {};
+            var actions = new SwingWorkbench.Actions(noop, noop, noop, noop, noop, noop, noop, noop, noop,
+                    connection -> {}, items -> {}, project -> {}, folders -> {}, tab -> {},
+                    (tab, position) -> {}, (items, folder) -> {},
+                    (item, reply) -> reply.accept(List.of()), (tab, reply) -> reply.accept(List.of()),
+                    (key, value) -> saved.set(value), noop);
+            var view = new SwingWorkbench(actions, Map.of());
+            view.addTab("first", "Server", fixture.view, noop);
+            view.frame().setSize(1200, 800); view.show();
+            return view;
+        }).get(10, TimeUnit.SECONDS);
+        try {
+            SwingExecutors.runOnEdtAsync(() -> {
+                fixture.editor.setText("unsaved text");
+                fixture.view.selectPage(1, true);
+                var frame = workbench.frame(); frame.validate();
+                var title = named(frame, "workspace.rightToolTitle", JLabel.class);
+                var verticalDivider=named(frame,"workspace.verticalSplit",JSplitPane.class);
+                verticalDivider.setDividerLocation(verticalDivider.getHeight()-304); frame.validate();
+                JPanel bottomBeforeDrop=named(frame,"monitor.dock",JPanel.class);
+                Rectangle bottomBounds=SwingUtilities.convertRectangle(bottomBeforeDrop.getParent(),bottomBeforeDrop.getBounds(),frame.getLayeredPane());
+                Point destination=SwingUtilities.convertPoint(bottomBeforeDrop,bottomBeforeDrop.getWidth()*3/4,bottomBeforeDrop.getHeight()/2,title);
+                title.dispatchEvent(new java.awt.event.MouseEvent(title, java.awt.event.MouseEvent.MOUSE_PRESSED,
+                        System.currentTimeMillis(), 0, 2, 2, 1, false, java.awt.event.MouseEvent.BUTTON1));
+                title.dispatchEvent(new java.awt.event.MouseEvent(title, java.awt.event.MouseEvent.MOUSE_DRAGGED,
+                        System.currentTimeMillis(), java.awt.event.MouseEvent.BUTTON1_DOWN_MASK,
+                        destination.x, destination.y, 0, false, java.awt.event.MouseEvent.NOBUTTON));
+                Window dragImage = java.util.Arrays.stream(Window.getWindows()).filter(window -> window.isShowing()
+                        && "workspace.toolDragFeedback".equals(window.getName())).findFirst().orElseThrow();
+                assertFalse(dragImage.getFocusableWindowState());
+                JLabel dragName = named(dragImage, "workspace.dragToolName", JLabel.class);
+                assertEquals("Files", dragName.getAccessibleContext().getAccessibleName()); assertNotNull(dragName.getIcon());
+                assertTrue(dragImage.getWidth() <= 32,"The drag image must remain an icon, rather than a large text card");
+                assertEquals(Cursor.MOVE_CURSOR, title.getCursor().getType());
+                assertEquals("workspace.moveToolBottomRight", named(java.util.Arrays.stream(Window.getWindows()).filter(w->w.isShowing()&&"workspace.toolDragHint".equals(w.getName())).findFirst().orElseThrow(), "workspace.dragDestination", JLabel.class).getText());
+                Rectangle preview=named(frame,"workspace.toolDropPreview",JComponent.class).getBounds();
+                assertEquals(bottomBounds.y,preview.y);assertEquals(bottomBounds.height,preview.height);
+                assertEquals(bottomBounds.x+bottomBounds.width/2,preview.x);
+                JComponent slot=named(frame,"workspace.toolDropSlot",JComponent.class);
+                assertTrue(slot.isShowing());assertTrue(slot.getWidth()>=24,"The stripe insertion marker must have icon width: "+slot.getSize());
+                captureDrag(frame,"idea-tool-drag-"+theme.name());
+                workbench.cancelToolDrag();
+                assertFalse(dragImage.isShowing());
+                title.dispatchEvent(new java.awt.event.MouseEvent(title, java.awt.event.MouseEvent.MOUSE_RELEASED,
+                        System.currentTimeMillis(), 0, destination.x, destination.y, 1, false, java.awt.event.MouseEvent.BUTTON1));
+                assertEquals(ToolDockState.Anchor.RIGHT, ToolDockState.decode(saved.get()).anchor("files"), "取消拖动不能修改布局");
+                title.dispatchEvent(new java.awt.event.MouseEvent(title, java.awt.event.MouseEvent.MOUSE_PRESSED,
+                        System.currentTimeMillis(), 0, 2, 2, 1, false, java.awt.event.MouseEvent.BUTTON1));
+                title.dispatchEvent(new java.awt.event.MouseEvent(title, java.awt.event.MouseEvent.MOUSE_DRAGGED,
+                        System.currentTimeMillis(), java.awt.event.MouseEvent.BUTTON1_DOWN_MASK,
+                        destination.x, destination.y, 0, false, java.awt.event.MouseEvent.NOBUTTON));
+                try {
+                    var listenerField = SwingWorkbench.class.getDeclaredField("toolDragEventListener");
+                    listenerField.setAccessible(true);
+                    ((java.awt.event.AWTEventListener) listenerField.get(workbench)).eventDispatched(
+                            new java.awt.event.WindowEvent(frame, java.awt.event.WindowEvent.WINDOW_LOST_FOCUS, (Window) null));
+                } catch (ReflectiveOperationException error) { throw new AssertionError(error); }
+                assertFalse(java.util.Arrays.stream(Window.getWindows()).anyMatch(w -> w.isShowing()
+                        && ("workspace.toolDragFeedback".equals(w.getName()) || "workspace.toolDragHint".equals(w.getName()))), "切出应用后应清理浮标和提示");
+                assertNull(slot.getParent(), "切出应用后应移除插入占位");
+                assertNotEquals(Cursor.MOVE_CURSOR, title.getCursor().getType());
+                title.dispatchEvent(new java.awt.event.MouseEvent(title, java.awt.event.MouseEvent.MOUSE_PRESSED,
+                        System.currentTimeMillis(), 0, 2, 2, 1, false, java.awt.event.MouseEvent.BUTTON1));
+                title.dispatchEvent(new java.awt.event.MouseEvent(title, java.awt.event.MouseEvent.MOUSE_DRAGGED,
+                        System.currentTimeMillis(), java.awt.event.MouseEvent.BUTTON1_DOWN_MASK,
+                        destination.x, destination.y, 0, false, java.awt.event.MouseEvent.NOBUTTON));
+                Window currentImage=java.util.Arrays.stream(Window.getWindows()).filter(w->w.isShowing()&&"workspace.toolDragFeedback".equals(w.getName())).findFirst().orElseThrow();
+                Point absolute=SwingUtilities.convertPoint(title,destination,frame);SwingUtilities.convertPointToScreen(absolute,frame);
+                frame.dispatchEvent(new java.awt.event.MouseEvent(frame,java.awt.event.MouseEvent.MOUSE_RELEASED,
+                        System.currentTimeMillis(),0,7,7,absolute.x,absolute.y,1,false,java.awt.event.MouseEvent.BUTTON1));
+                frame.validate();
+                assertFalse(currentImage.isShowing(), "释放到其他组件时必须清理拖动浮标");
+                assertNotEquals(Cursor.MOVE_CURSOR, title.getCursor().getType());
+                assertEquals(ToolDockState.Anchor.BOTTOM_RIGHT, ToolDockState.decode(saved.get()).anchor("files"));
+                fixture.view.selectPage(3, true); frame.validate();
+                assertTrue(fixture.files.isShowing(), "文件应独立保留在底部");
+                assertTrue(fixture.editor.isShowing(), "插件仍在右侧同时显示");
+                assertTrue(SwingUtilities.isDescendingFrom(fixture.editor, named(frame, "right.toolWindow", JPanel.class)));
+                var sourceButton=named(frame,"workspace.stripe."+fixture.view.toolKey(3),JButton.class);
+                var firstButton=named(frame,"workspace.stripe.plugins",JButton.class);
+                Point beforeFirst=SwingUtilities.convertPoint(firstButton,5,1,sourceButton);
+                sourceButton.dispatchEvent(new java.awt.event.MouseEvent(sourceButton,java.awt.event.MouseEvent.MOUSE_PRESSED,System.currentTimeMillis(),0,5,5,1,false,java.awt.event.MouseEvent.BUTTON1));
+                sourceButton.dispatchEvent(new java.awt.event.MouseEvent(sourceButton,java.awt.event.MouseEvent.MOUSE_DRAGGED,System.currentTimeMillis(),java.awt.event.MouseEvent.BUTTON1_DOWN_MASK,beforeFirst.x,beforeFirst.y,0,false,java.awt.event.MouseEvent.NOBUTTON));
+                sourceButton.dispatchEvent(new java.awt.event.MouseEvent(sourceButton,java.awt.event.MouseEvent.MOUSE_RELEASED,System.currentTimeMillis(),0,beforeFirst.x,beforeFirst.y,1,false,java.awt.event.MouseEvent.BUTTON1));
+                frame.validate();
+                var topStripe=named(frame,"workspace.rightTopStripe",JPanel.class);
+                assertEquals(fixture.view.toolKey(3),((JComponent)topStripe.getComponent(0)).getClientProperty("jlshell.toolKey"),"Reorder inside a stripe must match the shown insertion slot");
+                var ordered=ToolDockState.decode(saved.get());
+                assertTrue(new java.util.ArrayList<>(ordered.positions.keySet()).indexOf(fixture.view.toolKey(3))<new java.util.ArrayList<>(ordered.positions.keySet()).indexOf("plugins"));
+                // A pinned plugin need not have opened a page before it can be reordered.
+                var unopened = new JToggleButton("L");
+                unopened.setToolTipText("Lazy plugin");
+                unopened.putClientProperty("jlshell.pluginKey", "plugin:lazy-test");
+                unopened.putClientProperty("jlshell.pageIndex", -1);
+                fixture.view.toolNavigation().add(unopened);
+                try {
+                    var sync = SwingWorkbench.class.getDeclaredMethod("syncToolWindow"); sync.setAccessible(true); sync.invoke(workbench);
+                } catch (ReflectiveOperationException error) { throw new AssertionError(error); }
+                frame.validate();
+                var lazyButton = named(frame, "workspace.stripe.plugin:lazy-test", JButton.class);
+                var firstStripe = named(frame, "workspace.rightTopStripe", JPanel.class);
+                Component firstStripeButton = firstStripe.getComponent(0);
+                Point lazyDestination = SwingUtilities.convertPoint(firstStripeButton, 3, 3, lazyButton);
+                lazyButton.dispatchEvent(new java.awt.event.MouseEvent(lazyButton, java.awt.event.MouseEvent.MOUSE_PRESSED,
+                        System.currentTimeMillis(), 0, 5, 5, 1, false, java.awt.event.MouseEvent.BUTTON1));
+                lazyButton.dispatchEvent(new java.awt.event.MouseEvent(lazyButton, java.awt.event.MouseEvent.MOUSE_DRAGGED,
+                        System.currentTimeMillis(), java.awt.event.MouseEvent.BUTTON1_DOWN_MASK, lazyDestination.x, lazyDestination.y, 0, false, java.awt.event.MouseEvent.NOBUTTON));
+                lazyButton.dispatchEvent(new java.awt.event.MouseEvent(lazyButton, java.awt.event.MouseEvent.MOUSE_RELEASED,
+                        System.currentTimeMillis(), 0, lazyDestination.x, lazyDestination.y, 1, false, java.awt.event.MouseEvent.BUTTON1));
+                frame.validate();
+                assertEquals("plugin:lazy-test", ((JComponent) firstStripe.getComponent(0)).getClientProperty("jlshell.toolKey"));
+                assertEquals(-1, fixture.view.toolIndex("plugin:lazy-test"));
+                assertEquals("plugin:lazy-test", ToolDockState.decode(saved.get()).positions.keySet().iterator().next());
+                try {
+                    var drop = SwingWorkbench.class.getDeclaredMethod("commitToolDrop", String.class, ToolDropGeometry.Target.class, int.class);
+                    drop.setAccessible(true);
+                    for (var anchor : new ToolDockState.Anchor[]{ToolDockState.Anchor.BOTTOM_LEFT, ToolDockState.Anchor.BOTTOM_RIGHT, ToolDockState.Anchor.RIGHT}) {
+                        drop.invoke(workbench, "plugin:lazy-test", new ToolDropGeometry.Target(anchor, new Rectangle(0, 0, 300, 200)), 0);
+                        frame.validate();
+                        assertEquals(anchor, ToolDockState.decode(saved.get()).anchor("plugin:lazy-test"));
+                        String stripeName = switch(anchor) { case RIGHT -> "workspace.rightTopStripe"; case BOTTOM_LEFT -> "workspace.bottomLeftStripe"; case BOTTOM_RIGHT -> "workspace.bottomRightStripe"; };
+                        var stripe = named(frame, stripeName, JPanel.class);
+                        assertEquals("plugin:lazy-test", ((JComponent)stripe.getComponent(0)).getClientProperty("jlshell.toolKey"));
+                        assertEquals(-1, fixture.view.toolIndex("plugin:lazy-test"), "Moving a pinned shortcut must not open the plugin");
+                    }
+                } catch (ReflectiveOperationException error) { throw new AssertionError(error); }
+                workbench.moveTool(fixture.view.toolKey(3), ToolDockState.Anchor.BOTTOM_LEFT); frame.validate();
+                assertTrue(fixture.files.isShowing()); assertTrue(fixture.editor.isShowing());
+                JToggleButton monitor = named(frame, "workspace.tool.monitor", JToggleButton.class);
+                JToggleButton plugin = named(frame, "workspace.tool." + fixture.view.toolKey(3), JToggleButton.class);
+                assertEquals(monitor.getFont(), plugin.getFont());
+                assertNotNull(monitor.getIcon()); assertNotNull(plugin.getIcon());
+                int closeX=plugin.getWidth()-12, closeY=plugin.getHeight()/2;
+                plugin.dispatchEvent(new java.awt.event.MouseEvent(plugin,java.awt.event.MouseEvent.MOUSE_PRESSED,System.currentTimeMillis(),0,closeX,closeY,1,false,java.awt.event.MouseEvent.BUTTON1));
+                plugin.dispatchEvent(new java.awt.event.MouseEvent(plugin,java.awt.event.MouseEvent.MOUSE_RELEASED,System.currentTimeMillis(),0,closeX,closeY,1,false,java.awt.event.MouseEvent.BUTTON1));
+                frame.validate();
+                assertFalse(fixture.editor.isShowing(), "Closing one tool tab must show the remaining monitor");
+                assertTrue(named(frame,"workspace.tool.monitor",JToggleButton.class).isShowing());
+                named(frame,"workspace.stripe."+fixture.view.toolKey(3),JButton.class).doClick(); frame.validate();
+                assertTrue(fixture.editor.isShowing(), "A closed tool tab must reopen from its stripe");
+                assertEquals("unsaved text", fixture.editor.getText(), "Closing the tool tab must retain its contents");
+                var state = ToolDockState.decode(saved.get());
+                assertEquals(ToolDockState.Anchor.BOTTOM_LEFT, state.anchor(fixture.view.toolKey(3)));
+                assertEquals(ToolDockState.Anchor.RIGHT, state.anchor("plugins"));
+                var bottomDivider = named(frame,"workspace.bottomSplit",JSplitPane.class);
+                bottomDivider.setDividerLocation(.7);
+                String persisted = ToolDockState.decode(saved.get()).encode();
+                var restoreState=ToolDockState.decode(persisted); restoreState.bottomPercent=70;
+                persisted=restoreState.encode();
+                workbench.restoreDefaultLayout(); frame.validate();
+                assertEquals("unsaved text", fixture.editor.getText());
+                assertEquals(ToolDockState.Anchor.RIGHT, ToolDockState.decode(saved.get()).anchor("files"));
+                fixture.view.selectPage(3, true); frame.validate(); assertTrue(fixture.editor.isShowing());
+                Runnable noop = () -> {};
+                var actions = new SwingWorkbench.Actions(noop, noop, noop, noop, noop, noop, noop, noop, noop,
+                        connection -> {}, items -> {}, project -> {}, folders -> {}, tab -> {},
+                        (tab, position) -> {}, (items, folder) -> {},
+                        (item, reply) -> reply.accept(List.of()), (tab, reply) -> reply.accept(List.of()));
+                var restarted = new SwingWorkbench(actions, Map.of(ToolDockState.SETTING, persisted));
+                try {
+                    restarted.addTab("restored", "Server", restoredFixture.view, noop);
+                    restarted.show(); restarted.frame().validate();
+                    var restoredDivider=named(restarted.frame(),"workspace.bottomSplit",JSplitPane.class);
+                    assertEquals(.7,restoredDivider.getDividerLocation()/(double)(restoredDivider.getWidth()-restoredDivider.getDividerSize()),.02,
+                            "Reopening must restore the saved left/right bottom proportion");
+                    assertTrue(restoredFixture.files.isShowing(), "重新创建工作台后文件恢复到底部右区");
+                    named(restarted.frame(), "workspace.tool." + restoredFixture.view.toolKey(3), JToggleButton.class).doClick();
+                    restarted.frame().validate(); assertTrue(restoredFixture.editor.isShowing());
+                    assertTrue(restoredFixture.files.isShowing());
+                } finally { restarted.close(); }
+
+            }).get(15, TimeUnit.SECONDS);
+        } finally { SwingExecutors.runOnEdtAsync(workbench::close).get(10, TimeUnit.SECONDS); }
+    }
+
     @SuppressWarnings("unchecked")
+    @ParameterizedTest @EnumSource(AppTheme.class)
+    void fullHeightStripesHideEachDockIndependentlyAndRestoreFromMaximized(AppTheme theme) throws Exception {
+        Fixture fixture = fixture(false);
+        var saved = new java.util.concurrent.atomic.AtomicReference<String>();
+        var workbench = SwingExecutors.supplyOnEdtAsync(() -> {
+            SwingTheme.install(theme, "#3574f0", null, 13);
+            Runnable noop=()->{};
+            var actions=new SwingWorkbench.Actions(noop,noop,noop,noop,noop,noop,noop,noop,noop,
+                    connection->{},items->{},project->{},folders->{},tab->{},(tab,position)->{},(items,folder)->{},
+                    (item,reply)->reply.accept(List.of()),(tab,reply)->reply.accept(List.of()),(key,value)->saved.set(value),noop);
+            var view=new SwingWorkbench(actions,Map.of()); view.addTab("one","Server",fixture.view,noop);
+            view.frame().setSize(1200,800); view.show(); return view;
+        }).get(10,TimeUnit.SECONDS);
+        try {
+            SwingExecutors.runOnEdtAsync(()->{
+                var frame=workbench.frame();
+                fixture.view.selectPage(3,true); fixture.editor.setText("unsaved plugin text");
+                workbench.moveTool("files",ToolDockState.Anchor.BOTTOM_RIGHT); frame.validate();
+                var left=named(frame,"workspace.leftStripe",JPanel.class);
+                var right=named(frame,"workspace.rightStripe",JPanel.class);
+                assertEquals(left.getY(),right.getY()); assertEquals(left.getHeight(),right.getHeight());
+                var bottom=named(frame,"workspace.bottomRightDock",JPanel.class);
+                Point end=SwingUtilities.convertPoint(bottom,0,bottom.getHeight(),frame.getContentPane());
+                Point stripeEnd=SwingUtilities.convertPoint(right,0,right.getHeight(),frame.getContentPane());
+                assertEquals(end.y,stripeEnd.y,"Right stripe must reach the bottom of the workspace");
+                assertTrue(fixture.files.isShowing()); assertTrue(fixture.editor.isShowing());
+                JPanel monitorDock=named(frame,"monitor.dock",JPanel.class);
+                named(frame,"workspace.hideBottomLeft",JButton.class).doClick(); frame.validate();
+                assertFalse(monitorDock.isShowing());
+                assertTrue(fixture.files.isShowing()); assertTrue(fixture.editor.isShowing());
+                named(frame,"workspace.hideBottomRight",JButton.class).doClick(); frame.validate();
+                assertFalse(fixture.files.isShowing()); assertTrue(fixture.editor.isShowing());
+                assertFalse(ToolDockState.decode(saved.get()).leftVisible);
+                assertFalse(ToolDockState.decode(saved.get()).bottomRightVisible);
+                named(frame,"workspace.stripe.monitor",JButton.class).doClick(); frame.validate();
+                assertTrue(named(frame,"monitor.dock",JPanel.class).isShowing()); assertFalse(fixture.files.isShowing());
+                named(frame,"workspace.stripe.files",JButton.class).doClick(); frame.validate();
+                assertTrue(fixture.files.isShowing()); assertTrue(fixture.editor.isShowing());
+                assertTrue(named(frame,"workspace.stripe.monitor",JButton.class).isSelected());
+                assertTrue(named(frame,"workspace.stripe.files",JButton.class).isSelected());
+                named(frame,"workspace.maximizeTool",JButton.class).doClick(); frame.validate();
+                assertFalse(fixture.files.isShowing()); assertTrue(fixture.editor.isShowing());
+                named(frame,"workspace.stripe.monitor",JButton.class).doClick(); frame.validate();
+                assertTrue(fixture.files.isShowing()); assertTrue(fixture.editor.isShowing());
+                assertTrue(named(frame,"monitor.dock",JPanel.class).isShowing());
+                assertEquals("unsaved plugin text",fixture.editor.getText());
+                assertEquals(left.getHeight(),right.getHeight());
+                try {
+                    var output=java.nio.file.Path.of("target/review/independent-stripes-"+theme.name()+".png");
+                    java.nio.file.Files.createDirectories(output.getParent());
+                    var image=new java.awt.image.BufferedImage(frame.getWidth(),frame.getHeight(),java.awt.image.BufferedImage.TYPE_INT_RGB);
+                    var g=image.createGraphics(); frame.paint(g);g.dispose();javax.imageio.ImageIO.write(image,"png",output.toFile());
+                }catch(java.io.IOException ex){throw new java.io.UncheckedIOException(ex);}
+            }).get(15,TimeUnit.SECONDS);
+        } finally { SwingExecutors.runOnEdtAsync(workbench::close).get(10,TimeUnit.SECONDS); }
+    }
+
+    private static void captureDrag(JFrame frame,String name) {
+        try{
+            var image=new java.awt.image.BufferedImage(frame.getWidth(),frame.getHeight(),java.awt.image.BufferedImage.TYPE_INT_RGB);
+            var g=image.createGraphics();frame.paint(g);
+            for(Window window:frame.getOwnedWindows())if(window.isShowing()&&window.getName()!=null&&window.getName().startsWith("workspace.toolDrag")){
+                var child=(Graphics2D)g.create();child.translate(window.getX()-frame.getX(),window.getY()-frame.getY());window.paint(child);child.dispose();
+            }
+            g.dispose();var path=java.nio.file.Path.of("target/review/"+name+".png");java.nio.file.Files.createDirectories(path.getParent());
+            javax.imageio.ImageIO.write(image,"png",path.toFile());
+        }catch(java.io.IOException ex){throw new java.io.UncheckedIOException(ex);}
+    }
+
     private static JList<com.jlshell.ui.swing.idea.IdeaListPopup.Row> popupList(JFrame frame) {
         return (JList<com.jlshell.ui.swing.idea.IdeaListPopup.Row>) java.util.Arrays.stream(frame.getOwnedWindows())
                 .filter(Window::isShowing).flatMap(window -> descendants(window).stream())

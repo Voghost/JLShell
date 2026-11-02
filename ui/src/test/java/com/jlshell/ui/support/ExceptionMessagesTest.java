@@ -8,6 +8,14 @@ import java.util.concurrent.ExecutionException;
 import org.junit.jupiter.api.Test;
 
 class ExceptionMessagesTest {
+    @org.junit.jupiter.api.Test void findsClassifiedReasonInsideAsyncWrappers() {
+        var failure = new java.util.concurrent.CompletionException(new com.jlshell.core.exception.ConnectionException(
+                "connect", new java.net.ConnectException(), com.jlshell.core.exception.ConnectionException.Reason.REFUSED));
+        org.junit.jupiter.api.Assertions.assertEquals(com.jlshell.core.exception.ConnectionException.Reason.REFUSED,
+                ExceptionMessages.connectionReason(failure));
+        org.junit.jupiter.api.Assertions.assertEquals(com.jlshell.core.exception.ConnectionException.Reason.UNKNOWN,
+                ExceptionMessages.connectionReason(new IllegalStateException("route failed")));
+    }
 
     @Test
     void unwrapsNestedAsyncFailuresWithoutExposingWrapperTypes() {

@@ -37,13 +37,18 @@ public class ThemeService {
     private final ObjectProperty<AccentColor> accentColor = new SimpleObjectProperty<>(AccentColor.SKY);
     private final ObjectProperty<TerminalColorScheme> activeColorScheme;
     private final AppSettingsService appSettings;
+    private final com.jlshell.terminal.service.TerminalHighlightService terminalHighlights;
+    public com.jlshell.terminal.service.TerminalHighlightService terminalHighlights() { return terminalHighlights; }
+
     private final ColorSchemeRegistry registry;
+    private long schemeRevision;
     private final Map<DialogPane, Boolean> dialogPanes = new WeakHashMap<>();
     private final Map<Scene, Boolean> scenes = new WeakHashMap<>();
     private static final String COMPONENT_STYLESHEET = "/css/components.css";
 
     public ThemeService(AppSettingsService appSettings, ColorSchemeRegistry registry, ExecutorService executor) {
         this.appSettings = appSettings;
+        this.terminalHighlights = new com.jlshell.terminal.service.TerminalHighlightService(appSettings);
         refreshUiFont();
         this.registry = registry;
         String savedTheme = appSettings.get("ui.theme", "DARK");
@@ -53,14 +58,16 @@ public class ThemeService {
         accentColor.addListener((obs, oldValue, newValue) -> refreshDialogs());
 
         // 占位：立即可用，避免启动时阻塞解析 305 主题 JSON
-        this.activeColorScheme = new SimpleObjectProperty<>(TerminalColorScheme.dark());
+        this.activeColorScheme = new SimpleObjectProperty<>(currentTheme() == AppTheme.LIGHT ? TerminalColorScheme.light() : TerminalColorScheme.dark());
 
         // 异步解析保存的方案名；失败则保持 dark()。
         // 启动时还没有 terminal，set 触发的 listener 体里 workspaceTabs 是空的，安全。
-        String savedScheme = normalizeBuiltInSchemeName(appSettings.get("terminal.colorScheme.active", "dark"));
+        String savedScheme = normalizeBuiltInSchemeName(appSettings.get("terminal.colorScheme." + currentTheme().name(),
+                appSettings.get("terminal.colorScheme.active", currentTheme() == AppTheme.LIGHT ? "light" : "dark")));
         CompletableFuture.supplyAsync(() -> registry.findByName(savedScheme).orElse(null), executor)
                 .thenAcceptAsync(scheme -> {
-                    if (scheme != null && !scheme.equals(activeColorScheme.get())) {
+                    if (schemeRevision == 0 && scheme != null && scheme.isLight() == (currentTheme() == AppTheme.LIGHT)
+                            && !scheme.equals(activeColorScheme.get())) {
                         activeColorScheme.set(scheme);
                     }
                 }, Platform::runLater);
@@ -77,6 +84,16 @@ public class ThemeService {
     public void setTheme(AppTheme theme) {
         if (theme == null) {
             return;
+        }
+        if (theme != currentTheme()) {
+            TerminalColorScheme previous = activeColorScheme();
+            appSettings.set("terminal.colorScheme." + (previous.isLight() ? "LIGHT" : "DARK"), previous.name());
+            schemeRevision++;
+            boolean light = theme == AppTheme.LIGHT;
+            TerminalColorScheme fallback = light ? TerminalColorScheme.light() : TerminalColorScheme.dark();
+            String remembered = appSettings.get("terminal.colorScheme." + theme.name(), fallback.name());
+            TerminalColorScheme next = registry.findByName(remembered).filter(s -> s.isLight() == light).orElse(fallback);
+            setActiveColorScheme(next);
         }
         currentTheme.set(theme);
         appSettings.set("ui.theme", theme.name());
@@ -104,8 +121,10 @@ public class ThemeService {
     }
 
     public void setActiveColorScheme(TerminalColorScheme scheme) {
+        schemeRevision++;
         activeColorScheme.set(scheme);
         appSettings.set("terminal.colorScheme.active", scheme.name());
+        appSettings.set("terminal.colorScheme." + (scheme.isLight() ? "LIGHT" : "DARK"), scheme.name());
     }
 
     private String normalizeBuiltInSchemeName(String name) {

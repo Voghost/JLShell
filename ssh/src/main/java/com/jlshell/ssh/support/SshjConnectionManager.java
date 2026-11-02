@@ -58,12 +58,17 @@ public class SshjConnectionManager implements ConnectionManager {
 
     private SshSession connectBlocking(ConnectionRequest request) {
         SSHClient client = new SSHClient();
+        String phase = "setup";
+        long started = System.nanoTime();
         try {
             configureHostKeyVerification(client, request.hostKeyVerificationMode(), request.hostKeyIdentity());
             client.setConnectTimeout(Math.toIntExact(request.target().connectTimeout().toMillis()));
             configureSocketTimeout(client);
+            phase = "connect";
             client.connect(request.target().host(), request.target().port());
+            phase = "authenticate";
             authenticate(client, request);
+            phase = "session_setup";
             startTransportKeepAlive(client);
 
             // 认证完成后调大窗口以提升 SFTP 传输吞吐
@@ -83,7 +88,11 @@ public class SshjConnectionManager implements ConnectionManager {
             );
         } catch (Exception exception) {
             closeQuietly(client);
-            throw new ConnectionException("Failed to establish SSH connection for " + request.displayName(), exception);
+            var reason = SshFailureClassifier.classify(exception, "authenticate".equals(phase));
+            log.warn("SSH connection failed: phase={}, reason={}, elapsedMs={}, exceptionType={}",
+                    phase, reason, java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started),
+                    exception.getClass().getName());
+            throw new ConnectionException("Failed to establish SSH connection for " + request.displayName(), exception, reason);
         } finally {
             request.credential().clear();
         }

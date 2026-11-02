@@ -37,6 +37,8 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
     private final SftpService service;
     private final I18nService i18n;
     private final Browser local, remote;
+    private final JSplitPane browserSplit;
+    private double verticalRatio = .5, horizontalRatio = .5;
     private final JLabel message = new JLabel(" ");
     private final JProgressBar progress = new JProgressBar(0, 1000);
     private final JButton cancel;
@@ -46,6 +48,8 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
     private Runnable unbind = () -> {};
     private volatile boolean closed;
     private boolean transferring;
+    String activeTransferDescription() { return !closed && connected && transferring ? message.getText() : null; }
+
     private volatile boolean connected = true;
     private volatile boolean cancelled;
     private boolean follow = true;
@@ -92,6 +96,7 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
         setName("sftp.browser"); setMinimumSize(new Dimension(260, 260));
         local = new Browser(false); remote = new Browser(true);
         JSplitPane split = new ResizeSplitPane(JSplitPane.VERTICAL_SPLIT, local, remote);
+        browserSplit = split;
         split.setName("sftp.verticalSplit"); split.setResizeWeight(.5); split.setDividerSize(5);
         split.setBorder(BorderFactory.createEmptyBorder()); split.setContinuousLayout(true);
         add(split);
@@ -111,6 +116,25 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
                 dismissPopups();
         });
         remote.navigate(remoteStart == null || remoteStart.isBlank() ? "." : remoteStart);
+    }
+
+    /** Reuse both browser views and in-flight transfers while adapting to the tool's dock. EDT only. */
+    void setBottomDocked(boolean bottom) {
+        int orientation = bottom ? JSplitPane.HORIZONTAL_SPLIT : JSplitPane.VERTICAL_SPLIT;
+        if (browserSplit.getOrientation() == orientation) return;
+        int extent = browserSplit.getOrientation() == JSplitPane.VERTICAL_SPLIT
+                ? browserSplit.getHeight() : browserSplit.getWidth();
+        if (extent > browserSplit.getDividerSize() && browserSplit.getDividerLocation() > 0) {
+            double ratio = Math.max(.15, Math.min(.85, browserSplit.getDividerLocation() / (double)(extent - browserSplit.getDividerSize())));
+            if (bottom) verticalRatio = ratio; else horizontalRatio = ratio;
+        }
+        browserSplit.setOrientation(orientation);
+        setMinimumSize(bottom ? new Dimension(460, 160) : new Dimension(260, 260));
+        revalidate();
+        SwingUtilities.invokeLater(() -> {
+            if (!closed && browserSplit.getOrientation() == orientation)
+                browserSplit.setDividerLocation(bottom ? horizontalRatio : verticalRatio);
+        });
     }
 
     private void cancelTransfer() { cancelled = true; cancel.setEnabled(false); }
@@ -552,6 +576,9 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
         String targetPath = destination == null ? target.path : destination;
         boolean overwrite = destination != null || files.stream().anyMatch(e -> target.model.rows.stream().anyMatch(t -> t.name.equals(e.name)));
         if (overwrite && JOptionPane.showConfirmDialog(this, t("sftp.overwrite"), t("sftp.transfer"), JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE) != JOptionPane.OK_OPTION) return;
+        String activityFiles = files.size() == 1 ? files.getFirst().name : files.getFirst().name + " … (" + files.size() + ")";
+        com.jlshell.core.support.RecentApplicationLogs.shared().append(Instant.now(), "INFO", "Transfer", t("statusbar.transferStarted") + " · " + activityFiles);
+        status(t("sftp.transfer"));
         transferring = true; local.updateTransferButton(); remote.updateTransferButton(); cancelled = false; progress.setValue(0); progress.setVisible(true); cancel.setEnabled(true); cancel.setVisible(true);
         CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
         for (Entry file : files) chain = chain.thenComposeAsync(ignored -> {
@@ -571,6 +598,8 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
             return from.isRemote ? service.download(session, request, listener) : service.upload(session, request, listener);
         });
         chain.whenComplete((v, error) -> SwingUtilities.invokeLater(() -> {
+            com.jlshell.core.support.RecentApplicationLogs.shared().append(Instant.now(), cancelled ? "INFO" : error != null ? "ERROR" : "SUCCESS", "Transfer",
+                    (cancelled ? t("sftp.cancelled") : error != null ? t("statusbar.transferFailed") : t("status.transferCompleted")) + " · " + activityFiles);
             if (closed) return; transferring = false; local.updateTransferButton(); remote.updateTransferButton(); progress.setVisible(false); cancel.setVisible(false);
             if (cancelled) status(t("sftp.cancelled")); else if (error != null) failure(error); else status(t("status.transferCompleted")); target.refresh();
         }));

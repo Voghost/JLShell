@@ -658,6 +658,10 @@ public final class ConnectionDialog {
         shareArea.setPromptText(i18n.get("connection.share.pasteHint"));
         shareArea.setWrapText(true);
         shareArea.setPrefSize(500, 180);
+        var clipboard = javafx.scene.input.Clipboard.getSystemClipboard();
+        if (clipboard.hasString() && new ConnectionShareService().isShareText(clipboard.getString())) {
+            shareArea.setText(clipboard.getString());
+        }
 
         Label errorLabel = new Label();
         errorLabel.setStyle("-fx-text-fill: #ef4444; -fx-font-size: 0.85em;");

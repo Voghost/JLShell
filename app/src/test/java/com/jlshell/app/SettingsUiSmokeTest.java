@@ -195,6 +195,50 @@ class SettingsUiSmokeTest {
             assertEquals("1.6",fx(()->persisted.get("terminal.font.lineSpacing","")));
         }
 
+        static void verifyLogHighlightSettings(JDialog dialog) throws Exception {
+            var persisted=(AppSettingsService)field(main,"appSettingsService");
+            String key=com.jlshell.terminal.model.TerminalHighlightConfig.SETTINGS_KEY;
+            edt(() -> { ((JCheckBox)named(dialog,"settings-highlight-enabled")).doClick(); return null; });
+            fx(() -> null); edt(() -> null);
+            assertTrue(applyEnabled(dialog));
+            click(dialog,"settings.apply"); fx(() -> null); edt(() -> null);
+            assertFalse(fx(() -> com.jlshell.terminal.model.TerminalHighlightConfig.parse(persisted.get(key,"")).enabled()));
+            edt(() -> { ((JTextField)named(dialog,"settings-highlight-expression")).setText("["); return null; });
+            fx(() -> null); click(dialog,"settings-highlight-save"); fx(() -> null); edt(() -> null);
+            // Default rule uses regex: malformed drafts show an error and cannot enter saved rules.
+            assertFalse(edt(() -> ((JTextArea)named(dialog,"settings-highlight-error")).getText().isBlank()));
+            edt(() -> { ((JTextField)named(dialog,"settings-highlight-expression")).setText("UPLOAD_FAILED"); return null; });
+            fx(() -> null); click(dialog,"settings-highlight-save"); fx(() -> null); edt(() -> null);
+            click(dialog,"settings.apply"); fx(() -> null);
+            assertEquals("UPLOAD_FAILED",fx(() -> com.jlshell.terminal.model.TerminalHighlightConfig.parse(persisted.get(key,"")).rules().getFirst().expression()));
+            assertFalse(applyEnabled(dialog));
+            edt(() -> {
+                ((JCheckBox)named(dialog,"settings-highlight-enabled")).doClick();
+                ((JTextField)named(dialog,"settings-highlight-sample")).setText("INFO connected | WARN slow query | UPLOAD_FAILED");
+                return null;
+            });
+            fx(() -> null); edt(() -> null);
+            edt(() -> {
+                JComponent enabled=(JComponent)named(dialog,"settings-highlight-enabled");
+                JScrollPane scroll=(JScrollPane)SwingUtilities.getAncestorOfClass(JScrollPane.class,enabled);
+                java.awt.Point point=SwingUtilities.convertPoint(enabled,0,0,scroll.getViewport().getView());
+                scroll.getVerticalScrollBar().setValue(Math.max(0,point.y-65));
+                return null;
+            });
+            Thread.sleep(150);
+            edt(() -> {
+                var preview=(Container)named(dialog,"settings-highlight-preview");
+                assertTrue(NativeSettingsProbe.all(preview,JLabel.class).stream()
+                        .anyMatch(label -> java.awt.Color.decode("#F87171").equals(label.getForeground())),
+                        "Native preview must display the configured color");
+                return null;
+            });
+            DialogUiSmokeTest.Probe.capture(dialog,"settings-log-highlights");
+            assertTrue(applyEnabled(dialog));
+            assertFalse(fx(() -> com.jlshell.terminal.model.TerminalHighlightConfig.parse(persisted.get(key,"")).enabled()),
+                    "Draft changes must not write settings before Apply/OK");
+        }
+
         static void verifyCachedPageThemes(JDialog dialog) throws Exception {
             List<String> queries=List.of("账号","终端","导入","API","插件","快捷键","关于");
             java.util.Map<String,Component> retained=new java.util.HashMap<>();
@@ -213,6 +257,12 @@ class SettingsUiSmokeTest {
                 for(String query:queries) {
                     edt(()->{((JTextField)named(dialog,"settings.search")).setText(query);return null;});
                     awaitPage(dialog, query);
+                    if(query.equals("关于")) edt(()->{
+                        DialogUiSmokeTest.Probe.assertAboutComplete(dialog,"settings.nativePage.7");
+                        var size=dialog.getSize();dialog.setSize(900,640);dialog.validate();
+                        DialogUiSmokeTest.Probe.assertAboutComplete(dialog,"settings.nativePage.7");
+                        dialog.setSize(size);dialog.validate();return null;
+                    });
                     edt(()->{
                         JComponent page=NativeSettingsProbe.all(dialog,JComponent.class).stream()
                             .filter(c->c.getName()!=null&&c.getName().startsWith("settings.nativePage.")&&c.isShowing()).findFirst().orElseThrow();
@@ -294,6 +344,22 @@ class SettingsUiSmokeTest {
             @SuppressWarnings("unchecked")
             SwingWorkbench workbench = ((CompletableFuture<SwingWorkbench>) field(main, "swingWorkbench")).get(10, TimeUnit.SECONDS);
             edt(() -> { workbench.show(); return null; });
+            fx(() -> {
+                try {
+                    var build = MainWindow.class.getDeclaredMethod("buildMenuBar", Stage.class);
+                    build.setAccessible(true);
+                    var menuBar = (javafx.scene.control.MenuBar) build.invoke(main, owner);
+                    var viewMenu = menuBar.getMenus().stream().filter(menu -> "视图".equals(menu.getText())).findFirst().orElseThrow();
+                    assertTrue(viewMenu.getItems().stream().anyMatch(item -> "恢复默认布局".equals(item.getText()) && item.getOnAction() != null));
+                    var pluginMenu = menuBar.getMenus().stream().filter(menu -> "插件".equals(menu.getText())).findFirst().orElseThrow();
+                    javafx.event.Event.fireEvent(pluginMenu, new javafx.event.Event(javafx.scene.control.Menu.ON_SHOWING));
+                    assertEquals("打开插件面板", pluginMenu.getItems().get(0).getText());
+                    assertTrue(pluginMenu.getItems().get(0).isDisable(), "没有打开会话时不能打开会话插件面板");
+                    assertEquals("管理插件", pluginMenu.getItems().get(1).getText());
+                    assertFalse(pluginMenu.getItems().get(1).isDisable());
+                    return null;
+                } catch (ReflectiveOperationException error) { throw new RuntimeException(error); }
+            });
             // 齿轮菜单从真实动态菜单快照构建，分隔线没有 text，也必须正常显示。
             edt(() -> {
                 try {
@@ -415,7 +481,11 @@ class SettingsUiSmokeTest {
             }
             verifyCachedPageThemes(dialog);
             verifyTerminalFontPreview(dialog);
+            verifyLogHighlightSettings(dialog);
             click(dialog,"settings.cancel");finished.get(10,TimeUnit.SECONDS);
+            assertFalse(fx(() -> com.jlshell.terminal.model.TerminalHighlightConfig.parse(
+                    persisted.get(com.jlshell.terminal.model.TerminalHighlightConfig.SETTINGS_KEY, "")).enabled()),
+                    "Cancel must discard the un-applied highlight toggle");
             verifyFolderAndShareForms();
             edt(() -> { workbench.close(); return null; });
             fx(() -> { context.close(); return null; });

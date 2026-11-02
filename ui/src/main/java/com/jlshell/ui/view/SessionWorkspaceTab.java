@@ -1,5 +1,6 @@
 package com.jlshell.ui.view;
 
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 import com.jlshell.core.model.SessionState;
@@ -177,6 +178,19 @@ public class SessionWorkspaceTab extends Tab {
 
     public CompletableFuture<Void> initialize() {
         return terminalWorkspaceView.initialize();
+    }
+
+    public void showPlugins() {
+        if (pluginsTab != null) innerTabPane.getSelectionModel().select(pluginsTab);
+    }
+
+    public List<javafx.scene.control.MenuItem> pluginMenuItems() {
+        return pluginsTabView == null ? List.of() : pluginsTabView.createMenuItems();
+    }
+
+    public boolean isPluginSelected(String pluginId) {
+        Tab selected = innerTabPane.getSelectionModel().getSelectedItem();
+        return selected != null && java.util.Objects.equals(pluginId, selected.getProperties().get("pluginId"));
     }
 
     public void applyColorScheme(TerminalColorScheme scheme) {

@@ -37,6 +37,8 @@ public class LocalShellTtyConnector implements TtyConnector {
 
     private final Charset writeCharset;
 
+    String encodingName() { return writeCharset.name(); }
+
     public LocalShellTtyConnector(String name, String[] command, int columns, int rows,
                                    ExecutorService executorService) throws IOException {
         this(name, command, columns, rows, executorService, null);
