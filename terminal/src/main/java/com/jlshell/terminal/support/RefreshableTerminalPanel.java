@@ -55,6 +55,10 @@ public class RefreshableTerminalPanel extends TerminalPanel {
     private final Function<String, String> i18n;
     private boolean ignoreNextShiftInsertTyped;
     private final TerminalGlyphGraphics.LayoutCache glyphLayouts = new TerminalGlyphGraphics.LayoutCache();
+    private final TerminalViewportCache viewportCache = new TerminalViewportCache();
+    private final boolean viewportBlitEnabled = !Boolean.getBoolean("jlshell.terminal.disableScrollBlit");
+    private final java.util.concurrent.atomic.AtomicLong paintRevision = new java.util.concurrent.atomic.AtomicLong();
+    private long lastScrollInput;
     private final TerminalScrollAnimation scrolling = new TerminalScrollAnimation();
     private final javax.swing.Timer scrollTimer = new javax.swing.Timer(7, event -> advanceScroll());
     private final java.util.function.LongSupplier scrollClock;
@@ -132,9 +136,10 @@ public class RefreshableTerminalPanel extends TerminalPanel {
         var model = getVerticalScrollModel();
         int min = -getTerminalTextBuffer().getHistoryLinesCount();
         long now = scrollClock.getAsLong();
+        lastScrollInput = System.nanoTime();
         var motion = wheelInput.motion(event, myCharSize.height, getTerminalTextBuffer().getHeight(), now);
         if (motion.rows() == 0) return;
-        if (scrollDiagnostics != null) scrollDiagnostics.input(now, motion.rows() * myCharSize.height);
+        if (scrollDiagnostics != null) scrollDiagnostics.input(now, motion.rows() * myCharSize.height, event.getWhen());
         if (!scrolling.active()) scrollCoordinateRows = outputScrollRows.get();
         if (motion.direct()) scrolling.directWheel(motion.rows(), model.getValue(), min, 0, now);
         else scrolling.wheel(motion.rows(), motion.precise(), model.getValue(), min, 0, now);
@@ -146,6 +151,7 @@ public class RefreshableTerminalPanel extends TerminalPanel {
     boolean scrollBarTo(int target) {
         if (getTerminalTextBuffer().isUsingAlternateBuffer()) return false;
         var model = getVerticalScrollModel();
+        lastScrollInput = System.nanoTime();
         if (!scrolling.active()) scrollCoordinateRows = outputScrollRows.get();
         scrolling.dragTo(target, model.getValue(), model.getMinimum(), 0, scrollClock.getAsLong());
         applyScrollPosition();
@@ -233,6 +239,7 @@ public class RefreshableTerminalPanel extends TerminalPanel {
 
     @Override public void dispose() {
         stopScrolling();
+        viewportCache.clear();
         if (scrollDiagnostics != null) scrollDiagnostics.close();
         glyphLayouts.clear(); super.dispose();
     }
@@ -267,7 +274,8 @@ public class RefreshableTerminalPanel extends TerminalPanel {
         long started = scrollDiagnostics == null ? 0 : System.nanoTime();
         try { paintViewport(graphics); }
         finally {
-            if (scrollDiagnostics != null) scrollDiagnostics.painted(started, System.nanoTime());
+            if (scrollDiagnostics != null) scrollDiagnostics.painted(started, System.nanoTime(), getWidth(), getHeight(),
+                    ((Graphics2D)graphics).getTransform().getScaleX(), viewportCache);
         }
     }
 
@@ -279,8 +287,30 @@ public class RefreshableTerminalPanel extends TerminalPanel {
             applyScrollPosition(false);
             if (!scrolling.animating()) stopScrollTimer();
         }
+        if (viewportBlitEnabled
+                && System.nanoTime() - lastScrollInput < 250_000_000L && scrolling.active()
+                && getVerticalScrollModel().getValue() < 0
+                && !getTerminalTextBuffer().isUsingAlternateBuffer() && getSelection() == null && getFindResult() == null) {
+            var buffer = getTerminalTextBuffer();
+            buffer.lock();
+            try {
+                // Pending output must first be drained by JediTerm's original renderer.
+                // Otherwise a blit could mix old and new history coordinates.
+                long revision = paintRevision.get();
+                if (scrollCoordinateRows == outputScrollRows.get()
+                        && viewportCache.paint((Graphics2D)graphics, getWidth(), getHeight(),
+                        getVerticalScrollModel().getValue() * myCharSize.height + scrollingPixels(),
+                        revision, myCharSize.height * 2, this::paintGridViewport)) return;
+            } finally { buffer.unlock(); }
+        }
+        viewportCache.clear();
+        paintGridViewport(graphics);
+    }
+
+    private void paintGridViewport(Graphics graphics) {
         int pixels = scrollingPixels();
-        if (pixels == 0) {
+        int gridHeight = getTerminalTextBuffer().getHeight() * myCharSize.height;
+        if (pixels == 0 && (getHeight() <= gridHeight || getVerticalScrollModel().getValue() >= 0)) {
             paintTerminal(graphics); return;
         }
         // Paint two clipped grid views instead of allocating full-viewport animation images.
@@ -299,13 +329,19 @@ public class RefreshableTerminalPanel extends TerminalPanel {
                 paintTerminal(graphics);
                 return;
             }
+            // Component heights are rarely an exact multiple of a terminal row. Include the
+            // partial row below the grid as well, otherwise its blank band jumps at row boundaries.
+            int edgeStart = Math.min(getHeight(), gridHeight - pixels);
+            int edgeHeight = getHeight() - edgeStart;
+            var dirty = graphics.getClipBounds();
+            if (dirty != null && !dirty.intersects(0, edgeStart, getWidth(), edgeHeight)) return;
             updatingScrollModel = true; paintingScrollEdge = true;
             getVerticalScrollModel().setValue(Math.min(0, origin + 1));
             Graphics2D edge = (Graphics2D) graphics.create();
             try {
                 int translation = myCharSize.height - pixels;
                 edge.translate(0, translation);
-                java.awt.Rectangle clip = new java.awt.Rectangle(0, getHeight() - pixels - translation, getWidth(), pixels);
+                java.awt.Rectangle clip = new java.awt.Rectangle(0, edgeStart - translation, getWidth(), edgeHeight);
                 var existing = edge.getClip();
                 java.awt.geom.Area limit = new java.awt.geom.Area(clip);
                 if (existing != null) limit.intersect(new java.awt.geom.Area(existing));
@@ -374,7 +410,15 @@ public class RefreshableTerminalPanel extends TerminalPanel {
     public void repaint() {
         // Temporary scrollbar positions used by the clipped edge pass are not real user scrolls.
         // Scheduling another repaint here would create a perpetual redraw loop at fractional offsets.
-        if (!paintingScrollEdge) super.repaint();
+        if (!paintingScrollEdge) {
+            if (!updatingScrollModel && paintRevision != null) paintRevision.incrementAndGet();
+            super.repaint();
+        }
+    }
+
+    @Override public void removeNotify() {
+        viewportCache.clear();
+        super.removeNotify();
     }
 
     @Override
@@ -383,6 +427,7 @@ public class RefreshableTerminalPanel extends TerminalPanel {
     }
 
     public void refreshVisuals() {
+        viewportCache.clear();
         Font font = jlshellSettings.getTerminalFont();
         float spacing = jlshellSettings.getLineSpacing();
         if (!font.equals(lastVisualFont) || Float.compare(spacing, lastVisualLineSpacing) != 0) {

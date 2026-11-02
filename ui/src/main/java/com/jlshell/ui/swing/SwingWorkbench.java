@@ -57,7 +57,7 @@ public final class SwingWorkbench implements AutoCloseable {
         }
     }
 
-    public static final List<String> TEXT_KEYS = List.of("action.newConnection", "sidebar.newFolder",
+    public static final List<String> TEXT_KEYS = List.of("statusbar.activity", "statusbar.needsAttention", "statusbar.noLogs", "statusbar.recentLogs", "statusbar.local", "statusbar.connected", "statusbar.connecting", "statusbar.disconnected", "statusbar.transfers", "statusbar.time", "statusbar.level", "statusbar.source", "statusbar.message", "statusbar.session","action.newConnection", "sidebar.newFolder",
             "action.editConnection", "action.deleteConnection", "action.refresh", "action.preferences",
             "action.connect", "sidebar.toggle", "sidebar.connections", "sidebar.search.prompt", "project.menu.manage",
             "project.label.default", "welcome.tagline", "welcome.favoriteHint", "welcome.recentHint", "welcome.title", "welcome.subtitle", "welcome.quickStart",
@@ -122,7 +122,7 @@ public final class SwingWorkbench implements AutoCloseable {
     private final JPanel welcome = new JPanel(new BorderLayout());
     private final JPanel recent = new JPanel();
     private final JPanel favorites = new JPanel();
-    private final JLabel status = new JLabel(" ");
+    private SwingStatusBar status;
     private final JPanel mainToolbar = new JPanel(new BorderLayout()) {
         protected void paintComponent(Graphics graphics) {
             Graphics2D g = (Graphics2D) graphics.create();
@@ -179,6 +179,17 @@ public final class SwingWorkbench implements AutoCloseable {
     private final ToolDragFeedback toolDragFeedback = new ToolDragFeedback(frame);
     private JComponent toolDragSource;
     private String draggingToolKey;
+    private final java.awt.event.AWTEventListener toolDragEventListener = event -> {
+        if (draggingToolKey == null) return;
+        if (event instanceof MouseEvent mouse && mouse.getID() == MouseEvent.MOUSE_RELEASED
+                && SwingUtilities.isLeftMouseButton(mouse) && mouse.getSource() != toolDragSource) {
+            forwardToolDragEvent(mouse);
+        } else if (event instanceof WindowEvent window && window.getWindow() == frame
+                && window.getID() == WindowEvent.WINDOW_LOST_FOCUS) {
+            Window opposite = window.getOppositeWindow();
+            if (!isOwnedByWorkbench(opposite)) cancelToolDrag();
+        }
+    };
     private AbstractButton draggedStripeButton;
     private final JComponent stripeDropSlot = new JComponent() {
         protected void paintComponent(Graphics g) {
@@ -237,6 +248,11 @@ public final class SwingWorkbench implements AutoCloseable {
     private boolean rebuilding;
     private boolean selectingTab;
     private boolean sidebarVisible = true;
+    private static final String WINDOW_SIZE_SETTING = "ui.workspace.windowSize";
+    private boolean windowSizeReady;
+    private Dimension lastSavedWindowSize;
+    private Map<String, String> shutdownLayoutSnapshot;
+    private final javax.swing.Timer saveWindowSizeTimer = new javax.swing.Timer(300, event -> persistWindowSize());
     private int sidebarWidth = 280;
     private final Map<KeyStroke, Runnable> shortcuts = new HashMap<>();
     private final KeyEventDispatcher shortcutDispatcher = event -> {
@@ -278,12 +294,8 @@ public final class SwingWorkbench implements AutoCloseable {
         rightToolWindowVisible = toolLayout.rightVisible;
         bottomLeftKey = toolLayout.leftSelected; bottomRightKey = toolLayout.bottomRightSelected; rightKey = toolLayout.rightSelected;
         saveLayoutTimer.setRepeats(false);
-        toolDragFeedback.setEventForwarder(event->{
-            JComponent source=toolDragSource;if(source==null)return;
-            Point point=event.getLocationOnScreen();SwingUtilities.convertPointFromScreen(point,source);
-            source.dispatchEvent(new MouseEvent(source,event.getID(),event.getWhen(),event.getModifiersEx(),point.x,point.y,
-                    event.getXOnScreen(),event.getYOnScreen(),event.getClickCount(),event.isPopupTrigger(),event.getButton()));
-        });
+        saveWindowSizeTimer.setRepeats(false);
+        toolDragFeedback.setEventForwarder(this::forwardToolDragEvent);
         dockPreview.setName("workspace.toolDropPreview");
         stripeDropSlot.setName("workspace.toolDropSlot");
         stripeDropSlot.setPreferredSize(new Dimension(30,30));stripeDropSlot.setMinimumSize(new Dimension(30,30));stripeDropSlot.setMaximumSize(new Dimension(30,30));
@@ -372,20 +384,35 @@ public final class SwingWorkbench implements AutoCloseable {
         maximizedSplit.setBorder(BorderFactory.createEmptyBorder());
         maximizedSplit.setOpaque(false);
         maximizedSplit.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, event -> {
-            if (rightToolMaximized && sidebarVisible && maximizedSplit.getDividerLocation() > 0)
+            if (!layingOutTools && rightToolMaximized && sidebarVisible && maximizedSplit.getDividerLocation() > 0) {
                 sidebarWidth = maximizedSplit.getDividerLocation();
+                toolLayout.sidebar = sidebarWidth; saveLayoutTimer.restart();
+            }
         });
         workspaceCards.add(maximizedSplit, "maximizedTool");
         islands.add(workspaceCards);
         root.add(islands, BorderLayout.CENTER);
-        status.setBorder(BorderFactory.createEmptyBorder(3, 12, 3, 12));
-        status.setForeground(SwingTheme.color("secondary"));
+        status = new SwingStatusBar(this::text, com.jlshell.core.support.RecentApplicationLogs.shared());
+        status.sources(() -> {
+            Object id = viewTabs.get(tabs.getSelectedComponent());
+            return tabViews.get(id) instanceof SwingSessionView session ? session.statusInfo() : null;
+        }, () -> tabViews.values().stream().filter(SwingSessionView.class::isInstance)
+                .map(SwingSessionView.class::cast).map(SwingSessionView::activeTransfer)
+                .filter(java.util.Objects::nonNull).toList());
         root.add(status, BorderLayout.SOUTH);
         frame.setContentPane(root);
         frame.setMinimumSize(new Dimension(640, 480));
         Rectangle screen = frame.getGraphicsConfiguration().getBounds();
-        frame.setSize(Math.min(1480, (int) (screen.width * .9)), Math.min(920, (int) (screen.height * .9)));
+        Insets screenInsets = Toolkit.getDefaultToolkit().getScreenInsets(frame.getGraphicsConfiguration());
+        Dimension usable = new Dimension(screen.width - screenInsets.left - screenInsets.right, screen.height - screenInsets.top - screenInsets.bottom);
+        frame.setSize(restoredWindowSize(texts.get(WINDOW_SIZE_SETTING), usable));
+        lastSavedWindowSize = frame.getSize();
         frame.setLocationRelativeTo(null);
+        frame.addComponentListener(new ComponentAdapter() {
+            @Override public void componentResized(ComponentEvent event) {
+                if (windowSizeReady && frame.isShowing() && (frame.getExtendedState() & Frame.MAXIMIZED_BOTH) == 0) saveWindowSizeTimer.restart();
+            }
+        });
         KeyboardFocusManager.getCurrentKeyboardFocusManager().addPropertyChangeListener("permanentFocusOwner", groupFocus);
 
     }
@@ -881,13 +908,42 @@ public final class SwingWorkbench implements AutoCloseable {
         row.setBorder(BorderFactory.createEmptyBorder(10,10,10,10)); row.setRolloverEnabled(true);
         row.setName("welcome.connection."+id); row.setToolTipText(name+" · "+summary);
         row.getAccessibleContext().setAccessibleName(name+" · "+summary);
-        row.add(new JLabel(new WorkbenchIcon(WorkbenchIcon.Kind.SERVER)),BorderLayout.WEST);
-        JPanel details=new JPanel(new GridLayout(2,1,0,4)); details.setOpaque(false);
+        // Decorative children must not become separate mouse targets: the whole row is one button.
+        row.add(new JLabel(new WorkbenchIcon(WorkbenchIcon.Kind.SERVER)) {
+            @Override public boolean contains(int x, int y) { return false; }
+        },BorderLayout.WEST);
+        JPanel details=new JPanel(new GridLayout(2,1,0,4)) {
+            @Override public boolean contains(int x, int y) { return false; }
+        }; details.setOpaque(false);
         JLabel title=new JLabel(name); title.setFont(title.getFont().deriveFont(Font.BOLD));
         details.add(title); details.add(welcomeSectionLabel(summary)); row.add(details);
         row.setMaximumSize(new Dimension(Integer.MAX_VALUE,64)); row.setPreferredSize(new Dimension(0,64));
         row.addActionListener(event -> profiles.stream().filter(profile -> profile.id().equals(id)).findFirst().ifPresent(actions.connect()));
+        MouseAdapter context = new MouseAdapter() {
+            @Override public void mousePressed(MouseEvent event) { showContext(event); }
+            @Override public void mouseReleased(MouseEvent event) { showContext(event); }
+            private void showContext(MouseEvent event) {
+                if (!event.isPopupTrigger()) return;
+                profiles.stream().filter(profile -> profile.id().equals(id)).findFirst().ifPresent(profile -> {
+                    SidebarItem item = new SidebarItem.ConnectionItem(profile.id(), profile.displayName(),
+                            profile.connectionType(), profile.summary());
+                    actions.select().accept(List.of(item));
+                    Point point = SwingUtilities.convertPoint(event.getComponent(), event.getPoint(), row);
+                    actions.context().accept(item, specs -> SwingUtilities.invokeLater(() -> {
+                        if (row.isShowing()) popupMenu(specs).show(row, point.x, point.y);
+                    }));
+                });
+                event.consume();
+            }
+        };
+        installWelcomeContext(row, context);
         return row;
+    }
+
+    private static void installWelcomeContext(Component component, MouseAdapter listener) {
+        component.addMouseListener(listener);
+        if (component instanceof Container parent)
+            for (Component child : parent.getComponents()) installWelcomeContext(child, listener);
     }
 
     private JButton button(WorkbenchIcon.Kind kind, String tooltip, Runnable action) {
@@ -1294,6 +1350,7 @@ public final class SwingWorkbench implements AutoCloseable {
         connectionName.setText(index < 0 ? text("workspace.noOpenSessions") : tabs.getTitleAt(index));
         connectionName.setIcon(index < 0 ? null : new WorkbenchIcon(WorkbenchIcon.Kind.TERMINAL));
         connectionName.setEnabled(!tabViews.isEmpty());
+        if (status != null) status.refresh();
     }
 
     private void showSessionPopup() {
@@ -1485,7 +1542,7 @@ public final class SwingWorkbench implements AutoCloseable {
         activeSplit.setDividerLocation(visible ? sidebarWidth : 0);
     }
 
-    public void setStatus(String message) { status.setText(message == null ? " " : message); }
+    public void setStatus(String message) { status.status(message); }
     public void setTitle(String title) { frame.setTitle(title); }
     public void openPluginPanel() {
         Object id = viewTabs.get(tabs.getSelectedComponent());
@@ -1524,11 +1581,49 @@ public final class SwingWorkbench implements AutoCloseable {
         syncToolWindow(); persistToolLayout();
     }
 
-    private void persistToolLayout() {
+    static Dimension restoredWindowSize(String stored, Dimension screen) {
+        int width = Math.min(1480, (int)(screen.width * .9));
+        int height = Math.min(920, (int)(screen.height * .9));
+        if (stored != null && stored.matches("[0-9]{1,5}x[0-9]{1,5}")) {
+            String[] values = stored.split("x");
+            width = Integer.parseInt(values[0]); height = Integer.parseInt(values[1]);
+            if (width < 640 || height < 480) { width = Math.min(1480, (int)(screen.width * .9)); height = Math.min(920, (int)(screen.height * .9)); }
+        }
+        return new Dimension(Math.max(640, Math.min(width, screen.width)), Math.max(480, Math.min(height, screen.height)));
+    }
+
+    private void persistWindowSize() {
+        if (windowSizeReady && (frame.getExtendedState() & Frame.MAXIMIZED_BOTH) == 0
+                && !frame.getSize().equals(lastSavedWindowSize)) {
+            lastSavedWindowSize = frame.getSize();
+            actions.setSetting().accept(WINDOW_SIZE_SETTING, frame.getWidth() + "x" + frame.getHeight());
+        }
+    }
+
+    private String snapshotToolLayout() {
         toolLayout.leftVisible = toolWindowVisible; toolLayout.bottomRightVisible = bottomRightWindowVisible;
         toolLayout.rightVisible = rightToolWindowVisible;
         toolLayout.leftSelected = bottomLeftKey; toolLayout.bottomRightSelected = bottomRightKey; toolLayout.rightSelected = rightKey;
-        actions.setSetting().accept(ToolDockState.SETTING, toolLayout.encode());
+        return toolLayout.encode();
+    }
+
+    private void persistToolLayout() {
+        actions.setSetting().accept(ToolDockState.SETTING, snapshotToolLayout());
+    }
+
+    /** EDT snapshot for shutdown: stop deferred writes before the settings database closes. */
+    public Map<String, String> captureLayoutForShutdown() {
+        if (shutdownLayoutSnapshot != null) return shutdownLayoutSnapshot;
+        saveLayoutTimer.stop(); saveWindowSizeTimer.stop();
+        Map<String, String> result = new LinkedHashMap<>();
+        result.put(ToolDockState.SETTING, snapshotToolLayout());
+        if (windowSizeReady && (frame.getExtendedState() & Frame.MAXIMIZED_BOTH) == 0
+                && !frame.getSize().equals(lastSavedWindowSize)) {
+            lastSavedWindowSize = frame.getSize();
+            result.put(WINDOW_SIZE_SETTING, frame.getWidth() + "x" + frame.getHeight());
+        }
+        shutdownLayoutSnapshot = Map.copyOf(result);
+        return shutdownLayoutSnapshot;
     }
 
     public void setMenuBar(JMenuBar menu) {
@@ -1596,6 +1691,7 @@ public final class SwingWorkbench implements AutoCloseable {
                 if (vertical.getBottomComponent() == bottomSplit) bottomSplit.setDividerLocation(toolLayout.bottomPercent / 100.0);
             }
         } finally { layingOutTools = previous; }
+        SwingUtilities.invokeLater(() -> windowSizeReady = true);
         frame.toFront(); tree.requestFocusInWindow();
     }
     public void hide() { frame.setVisible(false); }
@@ -1606,7 +1702,7 @@ public final class SwingWorkbench implements AutoCloseable {
         SwingTheme.install(theme, accent, family, fontSize);
         SwingTheme.update(frame);
         root.setBackground(SwingTheme.color("frame"));
-        status.setForeground(SwingTheme.color("secondary"));
+        status.applyTheme();
         connectionName.setForeground(SwingTheme.color("secondary"));
         for (JMenu menu : mainMenus) SwingTheme.update(menu);
         dockTitle.setBorder(BorderFactory.createEmptyBorder(3, 8, 3, 8));
@@ -1832,9 +1928,6 @@ public final class SwingWorkbench implements AutoCloseable {
         if (key == null) return;
         if (rightToolMaximized) { rightToolMaximized = false; updateRightDockWidth(true); }
         toolLayout.positions.put(key, anchor);
-        if(anchor!=ToolDockState.Anchor.RIGHT&&vertical.getBottomComponent()==null){
-            dockHeight=Math.min(workspaceCards.getHeight(),Math.max(200,workspaceCards.getHeight()/4));toolLayout.height=dockHeight;
-        }
         if (key.equals(rightKey)) rightToolWindowVisible = false;
         if (key.equals(bottomLeftKey)) bottomLeftKey = null;
         if (key.equals(bottomRightKey)) bottomRightKey = null;
@@ -1886,16 +1979,16 @@ public final class SwingWorkbench implements AutoCloseable {
 
     private void commitToolDrop(String key,ToolDropGeometry.Target target,int index) {
         Component current=tabViews.get(viewTabs.get(tabs.getSelectedComponent()));
-        if(!(current instanceof SwingSessionView currentSession)||currentSession.toolIndex(key)<0)return;
+        if(!(current instanceof SwingSessionView currentSession)||!stripeKeys(currentSession,toolLayout.anchor(key)).contains(key))return;
         ToolDockState.Anchor anchor=target.anchor();
-        if(anchor!=ToolDockState.Anchor.RIGHT){dockHeight=target.bounds().height;toolLayout.height=dockHeight;}
-        moveTool(key,anchor);
+        if (currentSession.toolIndex(key) >= 0) moveTool(key,anchor);
+        else toolLayout.positions.put(key, anchor);
         // The previewed insertion index becomes the saved order, including moves within one stripe.
         List<String> order=new ArrayList<>(toolLayout.positions.keySet());order.remove(key);
         Component active=tabViews.get(viewTabs.get(tabs.getSelectedComponent()));
         if(active instanceof SwingSessionView session){
-            for(var location:ToolDockState.Anchor.values())for(String peer:tools(session,location))if(!peer.equals(key)&&!order.contains(peer))order.add(peer);
-            List<String> peers=new ArrayList<>(tools(session,anchor));peers.remove(key);
+            for(var location:ToolDockState.Anchor.values())for(String peer:stripeKeys(session,location))if(!peer.equals(key)&&!order.contains(peer))order.add(peer);
+            List<String> peers=new ArrayList<>(stripeKeys(session,anchor));peers.remove(key);
             int at=index<peers.size()?order.indexOf(peers.get(index)):order.size();
             if(at<0)at=order.size();order.add(at,key);
             var positions=new LinkedHashMap<String,ToolDockState.Anchor>();
@@ -1910,11 +2003,17 @@ public final class SwingWorkbench implements AutoCloseable {
         component.putClientProperty("jlshell.toolDrag",true);
         MouseAdapter drag=new MouseAdapter(){
             Point start;boolean dragging,stripeDrop,tabDrop;int generation,index;ToolDropGeometry.Target target; JPanel tabHost;
-            public void mousePressed(MouseEvent event){if(SwingUtilities.isLeftMouseButton(event)){start=event.getLocationOnScreen();generation=dockDragGeneration;}}
+            public void mousePressed(MouseEvent event){if(SwingUtilities.isLeftMouseButton(event)){
+                if(toolDragSource!=null)cancelToolDrag();
+                start=event.getLocationOnScreen();generation=dockDragGeneration;
+                dragging=false;stripeDrop=false;tabDrop=false;target=null;tabHost=null;
+            }}
             public void mouseDragged(MouseEvent event){
                 if(generation!=dockDragGeneration||start==null||key.get()==null||start.distance(event.getLocationOnScreen())<8)return;
                 if(!dragging){
                     toolDragSource=component;toolDragCursor=component.getCursor();draggingToolKey=key.get();
+                    Toolkit.getDefaultToolkit().addAWTEventListener(toolDragEventListener,
+                            AWTEvent.MOUSE_EVENT_MASK | AWTEvent.WINDOW_FOCUS_EVENT_MASK);
                     component.setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
                     for(Component child:stripeHost(toolLayout.anchor(draggingToolKey)).getComponents())if(child instanceof AbstractButton button
                             && draggingToolKey.equals(button.getClientProperty("jlshell.toolKey"))){
@@ -1993,7 +2092,25 @@ public final class SwingWorkbench implements AutoCloseable {
 
     void cancelToolDrag() { dockDragGeneration++; endToolDrag(); }
 
+    private boolean isOwnedByWorkbench(Window window) {
+        for (Window current = window; current != null; current = current.getOwner()) {
+            if (current == frame) return true;
+        }
+        return false;
+    }
+
+    private void forwardToolDragEvent(MouseEvent event) {
+        JComponent source = toolDragSource;
+        if (source == null) return;
+        if (!source.isShowing()) { cancelToolDrag(); return; }
+        Point point = event.getLocationOnScreen();
+        SwingUtilities.convertPointFromScreen(point, source);
+        source.dispatchEvent(new MouseEvent(source, event.getID(), event.getWhen(), event.getModifiersEx(), point.x, point.y,
+                event.getXOnScreen(), event.getYOnScreen(), event.getClickCount(), event.isPopupTrigger(), event.getButton()));
+    }
+
     private void endToolDrag() {
+        Toolkit.getDefaultToolkit().removeAWTEventListener(toolDragEventListener);
         clearTabInsertion(toolNavigationHost);clearTabInsertion(bottomRightNavigation);
         toolDragFeedback.close();clearStripeDrop();
         if(draggedStripeButton!=null){draggedStripeButton.putClientProperty("jlshell.draggingTool",false);draggedStripeButton.repaint();}
@@ -2151,8 +2268,9 @@ public final class SwingWorkbench implements AutoCloseable {
         Component active = tabViews.get(viewTabs.get(tabs.getSelectedComponent()));
         if (active instanceof SwingSessionView session && key != null && key.startsWith("plugin:")) {
             for (Component child : session.toolNavigation().getComponents()) if (child instanceof JToggleButton source
-                    && source.getClientProperty("jlshell.pageIndex") instanceof Integer index && index >= 0
-                    && key.equals(session.toolKey(index))) return source.getIcon();
+                    && (key.equals(source.getClientProperty("jlshell.pluginKey"))
+                    || source.getClientProperty("jlshell.pageIndex") instanceof Integer index && index >= 0
+                    && key.equals(session.toolKey(index)))) return source.getIcon();
         }
         return new WorkbenchIcon("monitor".equals(key) ? WorkbenchIcon.Kind.MONITOR : "files".equals(key)
                 ? WorkbenchIcon.Kind.FOLDER : WorkbenchIcon.Kind.PLUGIN);
@@ -2263,28 +2381,39 @@ public final class SwingWorkbench implements AutoCloseable {
         } finally { layingOutTools = false; }
     }
 
-    /** IDEA NewButtonManager maps BOTTOM/split=false to the left stripe and split=true to the right. */
+    private List<String> stripeKeys(SwingSessionView session, ToolDockState.Anchor anchor) {
+        List<String> available = new ArrayList<>();
+        for (ToolDockState.Anchor location : ToolDockState.Anchor.values()) available.addAll(tools(session, location));
+        for (Component child : session.toolNavigation().getComponents())
+            if (child instanceof JToggleButton source && source.getClientProperty("jlshell.pluginKey") instanceof String key
+                    && !available.contains(key)) available.add(key);
+        List<String> ordered = new ArrayList<>(toolLayout.positions.keySet());
+        for (String key : available) if (!ordered.contains(key)) ordered.add(key);
+        return ordered.stream().filter(available::contains).filter(key -> toolLayout.anchor(key) == anchor).toList();
+    }
+
     private void rebuildStripe(SwingSessionView session, ToolDockState.Anchor anchor, JPanel host) {
         host.removeAll();
-        for (String key : tools(session, anchor)) {
-            JButton button = "monitor".equals(key) ? toolStripe : new HeaderButton(toolIcon(key));
+        for (String key : stripeKeys(session, anchor)) {
+            int index = session.toolIndex(key);
+            JToggleButton lazy = null;
+            if (index < 0) for (Component child : session.toolNavigation().getComponents())
+                if (child instanceof JToggleButton source && key.equals(source.getClientProperty("jlshell.pluginKey"))) { lazy = source; break; }
+            if (index < 0 && lazy == null) continue;
+            JToggleButton shortcut = lazy;
+            JButton button = "monitor".equals(key) ? toolStripe : new HeaderButton(shortcut == null ? toolIcon(key) : shortcut.getIcon());
             button.setName("workspace.stripe." + key);button.putClientProperty("jlshell.toolKey",key);
-            button.setFocusable(false); button.setToolTipText(session.toolTitle(key));
-            button.getAccessibleContext().setAccessibleName(session.toolTitle(key));
+            String title = shortcut == null ? session.toolTitle(key) : shortcut.getToolTipText();
+            button.setFocusable(false); button.setToolTipText(title);
+            button.getAccessibleContext().setAccessibleName(title);
             button.putClientProperty("JButton.buttonType", "toolBarButton");
             button.setSelected(dockVisible(anchor) && key.equals(dockSelection(anchor)));
             if (button != toolStripe) button.addActionListener(event -> {
-                session.selectToolPage(session.toolIndex(key)); toggleDockedTool(key);
+                int page = session.toolIndex(key);
+                if (page < 0) { if (shortcut != null) shortcut.doClick(); }
+                else { session.selectToolPage(page); toggleDockedTool(key); }
             });
             installToolDrag(button, () -> key); addStripe(host, button);
-        }
-        if (anchor == ToolDockState.Anchor.RIGHT) {
-            // Pinned plugins which have not opened a page keep their existing lazy-open action.
-            for (Component child : session.toolNavigation().getComponents()) if (child instanceof JToggleButton source
-                    && source.getClientProperty("jlshell.pageIndex") instanceof Integer index && index < 0) {
-                JButton shortcut = new HeaderButton(source.getIcon()); shortcut.setToolTipText(source.getToolTipText());
-                shortcut.addActionListener(event -> source.doClick()); addStripe(host, shortcut);
-            }
         }
         host.revalidate(); host.repaint();
     }
@@ -2317,7 +2446,7 @@ public final class SwingWorkbench implements AutoCloseable {
             }
         } else rightDockBody.removeAll();
         updateRightDockWidth(open);
-        if (open && !rightToolMaximized) mainSplit.setDividerLocation(Math.max(240, mainSplit.getWidth() - toolLayout.width));
+        if (open && !rightToolMaximized) mainSplit.setDividerLocation(Math.max(240, mainSplit.getWidth() - toolLayout.width - mainSplit.getDividerSize()));
         rebuildStripe(session, ToolDockState.Anchor.RIGHT, rightToolNavigationHost);
         rebuildStripe(session, ToolDockState.Anchor.BOTTOM_LEFT, leftBottomStripe);
         rebuildStripe(session, ToolDockState.Anchor.BOTTOM_RIGHT, rightBottomStripe);
@@ -2330,9 +2459,14 @@ public final class SwingWorkbench implements AutoCloseable {
     }
 
     public void close() {
+        if (shutdownLayoutSnapshot == null)
+            captureLayoutForShutdown().forEach(actions.setSetting());
+        status.close();
         endToolDrag();
         KeyboardFocusManager.getCurrentKeyboardFocusManager().removePropertyChangeListener("permanentFocusOwner", groupFocus);
         if (saveLayoutTimer.isRunning()) persistToolLayout();
+        persistWindowSize();
+        saveWindowSizeTimer.stop();
         saveLayoutTimer.stop();
         tabDrags.values().forEach(TabDragController::close);
         KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(shortcutDispatcher);

@@ -11,14 +11,19 @@ final class TerminalScrollDiagnostics {
     private final Samples frameIntervals = new Samples();
     private final Samples paintTimes = new Samples();
     private final Samples inputToPaint = new Samples();
+    private final Samples eventAge = new Samples();
     private final Timer idle = new Timer(500, event -> flush());
     private long lastInput, lastPaint, pendingInput;
     private int events, frames, historyAdjustments, resets;
     private double inputPixels;
+    private int width, height;
+    private double scale;
+    private long blits, fullFrames, previousBlits, previousFullFrames, cacheBytes;
 
     TerminalScrollDiagnostics() { idle.setRepeats(false); }
 
-    void input(long now, double pixels) {
+    void input(long now, double pixels, long eventWhen) {
+        if (eventWhen > 0) eventAge.add(Math.max(0, System.currentTimeMillis() - eventWhen) * 1_000_000L);
         if (lastInput != 0) eventIntervals.add(now - lastInput);
         lastInput = now;
         if (pendingInput == 0) pendingInput = now;
@@ -27,8 +32,10 @@ final class TerminalScrollDiagnostics {
         idle.restart();
     }
 
-    void painted(long started, long finished) {
+    void painted(long started, long finished, int width, int height, double scale, TerminalViewportCache cache) {
         if (events == 0) return;
+        this.width = width; this.height = height; this.scale = scale;
+        blits = cache.blitFrames(); fullFrames = cache.fullFrames(); cacheBytes = cache.bytes();
         if (lastPaint != 0) frameIntervals.add(started - lastPaint);
         lastPaint = started;
         paintTimes.add(finished - started);
@@ -47,13 +54,16 @@ final class TerminalScrollDiagnostics {
         if (events == 0) return;
         LoggerFactory.getLogger(TerminalScrollDiagnostics.class).info(
                 "TERMINAL_SCROLL events={} inputPixels={} paints={} eventGapP95Ms={} paintGapP95Ms={} "
-                        + "paintP95Ms={} inputToPaintStartP95Ms={} historyAdjustments={} externalResets={}",
+                        + "paintP95Ms={} inputToPaintStartP95Ms={} historyAdjustments={} externalResets={} "
+                        + "eventAgeP95Ms={} viewport={}x{} scale={} blitFrames={} fullFrames={} cacheKiB={}",
                 events, Math.round(inputPixels * 100) / 100.0, frames, eventIntervals.p95Millis(),
-                frameIntervals.p95Millis(), paintTimes.p95Millis(), inputToPaint.p95Millis(), historyAdjustments, resets);
+                frameIntervals.p95Millis(), paintTimes.p95Millis(), inputToPaint.p95Millis(), historyAdjustments, resets,
+                eventAge.p95Millis(), width, height, scale, blits - previousBlits, fullFrames - previousFullFrames, cacheBytes / 1024);
+        previousBlits = blits; previousFullFrames = fullFrames;
         events = frames = historyAdjustments = resets = 0;
         inputPixels = 0;
         lastInput = lastPaint = pendingInput = 0;
-        eventIntervals.clear(); frameIntervals.clear(); paintTimes.clear(); inputToPaint.clear();
+        eventIntervals.clear(); frameIntervals.clear(); paintTimes.clear(); inputToPaint.clear(); eventAge.clear();
     }
 
     private static final class Samples {

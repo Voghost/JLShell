@@ -21,6 +21,8 @@ public interface TerminalViewHandle extends AutoCloseable {
 
     String title();
 
+    default String encodingName() { return "UTF-8"; }
+
     JComponent component();
 
     void requestFocus();

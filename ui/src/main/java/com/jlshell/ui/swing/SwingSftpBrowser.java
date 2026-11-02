@@ -48,6 +48,8 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
     private Runnable unbind = () -> {};
     private volatile boolean closed;
     private boolean transferring;
+    String activeTransferDescription() { return !closed && connected && transferring ? message.getText() : null; }
+
     private volatile boolean connected = true;
     private volatile boolean cancelled;
     private boolean follow = true;
@@ -574,6 +576,9 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
         String targetPath = destination == null ? target.path : destination;
         boolean overwrite = destination != null || files.stream().anyMatch(e -> target.model.rows.stream().anyMatch(t -> t.name.equals(e.name)));
         if (overwrite && JOptionPane.showConfirmDialog(this, t("sftp.overwrite"), t("sftp.transfer"), JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE) != JOptionPane.OK_OPTION) return;
+        String activityFiles = files.size() == 1 ? files.getFirst().name : files.getFirst().name + " … (" + files.size() + ")";
+        com.jlshell.core.support.RecentApplicationLogs.shared().append(Instant.now(), "INFO", "Transfer", t("statusbar.transferStarted") + " · " + activityFiles);
+        status(t("sftp.transfer"));
         transferring = true; local.updateTransferButton(); remote.updateTransferButton(); cancelled = false; progress.setValue(0); progress.setVisible(true); cancel.setEnabled(true); cancel.setVisible(true);
         CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
         for (Entry file : files) chain = chain.thenComposeAsync(ignored -> {
@@ -593,6 +598,8 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
             return from.isRemote ? service.download(session, request, listener) : service.upload(session, request, listener);
         });
         chain.whenComplete((v, error) -> SwingUtilities.invokeLater(() -> {
+            com.jlshell.core.support.RecentApplicationLogs.shared().append(Instant.now(), cancelled ? "INFO" : error != null ? "ERROR" : "SUCCESS", "Transfer",
+                    (cancelled ? t("sftp.cancelled") : error != null ? t("statusbar.transferFailed") : t("status.transferCompleted")) + " · " + activityFiles);
             if (closed) return; transferring = false; local.updateTransferButton(); remote.updateTransferButton(); progress.setVisible(false); cancel.setVisible(false);
             if (cancelled) status(t("sftp.cancelled")); else if (error != null) failure(error); else status(t("status.transferCompleted")); target.refresh();
         }));

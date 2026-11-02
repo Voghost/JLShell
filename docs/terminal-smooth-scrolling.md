@@ -14,13 +14,13 @@
 - `plugins/terminal/frontend/src/com/intellij/terminal/frontend/view/impl/TerminalOutputScrollingModelImpl.kt`：精细位移与整行定位区分、历史回看及到底后恢复跟随。
 
 JLShell 继续使用 JediTerm 网格、ANSI 样式和滚动缓冲区，没有引入 IntelliJ 平台依赖。
-过渡只影响绘制：两次受裁剪的网格绘制补齐露出的底部行，不申请整屏动画截图，不修改文本或历史缓冲。
+过渡只影响绘制：两次受裁剪的网格绘制补齐露出的底部行，不修改文本或历史缓冲。2026-11-01 起在符合条件的历史滚动期间增加临时视口表面，复用已有像素；限制和释放策略见本文最后一节。
 鼠标选择按相同像素偏移计算字符位置；点击时停止惯性，避免文字继续从指针下移开。
 拖动滚动条、键盘定位、搜索跳转等外部滚动会中断旧动画。新日志触发的历史坐标补偿保留小数位置和缓动时钟，不作为手动定位处理。备用屏幕和远端鼠标上报继续走原始处理。
 到达底部后仍由 JediTerm 跟随新输出；回看历史时不强制跳回底部。
 
 动画只在过渡期间运行 7ms 的合并 Swing 定时器，隐藏/释放终端后停止。
-原生触控板不启动应用层插值定时器，惯性由系统后续事件驱动。其他精细滚轮的短插值只用于填补事件之间的时间间隔，没有新增常驻轮询或动画帧图像缓存。
+原生触控板不启动应用层插值定时器，惯性由系统后续事件驱动。其他精细滚轮的短插值只用于填补事件之间的时间间隔，没有新增常驻轮询。
 
 验证：`TerminalScrollAnimationTest` 检查缓动、连续输入、反向、小数累积、边界和取消；
 `TerminalSmoothScrollingTest` 比较真实渲染的逐像素位移及底部补绘，检查选择位置、缓冲不变、手动滚动及备用屏幕回退；
@@ -31,7 +31,7 @@ JLShell 继续使用 JediTerm 网格、ANSI 样式和滚动缓冲区，没有引
 原先的过渡仍逐字绘制，并在每个字符上创建裁剪对象；一次动画帧还有一个补绘边缘的裁剪遍历。
 现在将安全的简单字符合并为字形片段，仍把每个字形放在原有网格坐标；带负左侧字距的字符、斜体和复杂字符继续走原路径。分数 DPI 与 LCD 抗锯齿同时启用时，Java2D 字符与向量栅格化可能不一致，也保留原字形路径；裁剪和临时对象优化仍然生效。
 裁剪的矩形分支使用整数范围计算，边缘补绘跳过整段不相交的文字，减少临时对象和无效绘图调用。
-每个终端的字形布局缓存限制为 128 个片段、合计 16384 个字形；关闭终端时释放。没有整屏图像缓存。
+每个终端的字形布局缓存限制为 128 个片段、合计 16384 个字形；关闭终端时释放。此阶段尚未加入视口像素复用，后续改进见最后一节。
 
 基准为本机 JDK 21、1284×680、160 列×40 行日志、预热 20 帧后取 100 帧的直接绘制耗时：
 
@@ -135,3 +135,50 @@ Windows 路径还参考 `platform/platform-api/src/com/intellij/util/animation/J
 仅在过渡动画运行期间申请 1ms 计时精度，多个终端重叠动画共享一次申请，最后一个动画停止、隐藏、取消或关闭时释放。
 非 Windows 不加载 `winmm`；绑定失败或申请失败时退回普通计时器。可用 `-Djlshell.terminal.disablePrecisionTimer=true` 禁用此项。
 复用桌面包已有的 JNA 5.17，不新增另一套原生库。`AnimationTimerPrecisionTest` 使用替身检查成对释放、重复请求、多动画重叠及失败回退；原生 Windows 调用尚未在本机实测。
+
+## 2026-11-01 大视口、Retina 与绘制复用
+
+本次重新检查了本机 IDEA 源码 `/Users/edgarliu/Workspaces/intellij-community-master`，并比较 JediTerm 3.61 / 3.76 的 `TerminalPanel` 源码：
+
+- 本次对照时 JLShell 使用 3.61；这份 IDEA 源码的 `lib/BUILD.bazel` 引用 core/ui 3.76。这是源码快照的版本，不能据此认定用户安装的 IDEA 版本。之后 JLShell 已将 core/ui 同步升级至 3.76。
+- 经典终端 `platform/execution-impl/src/com/intellij/terminal/JBTerminalPanel.java` 仍继承 JediTerm 面板；3.76 中经典面板依然按字符网格绘制、使用默认重绘定时器，没有自动获得新版编辑器的滚动实现。
+- 新终端 `TerminalOutputScrollingModelImpl.kt` 使用 EditorImpl 的像素滚动模型。共享终端核心依赖不等于共享 UI 绘制链路。
+- `platform/platform-api/src/com/intellij/ui/components/JBViewport.java` 明确说明 blit 复用已绘制区域，只重绘新露出的区域；`SimpleTextFragment.java` 则体现文本分片绘制。JLShell 借鉴这些机制，不引入整个 IntelliJ 平台。
+
+用户真实日志中曾出现绘制 P95 20–32ms；此前 1284×680 的小窗口测试不足以代表大窗口体验。当前改为同时测量密集中英文日志、200 列×60 行、2× Retina，以及真实可见的 AWT 窗口。
+
+本轮修改：
+
+1. `TerminalViewportCache` 在连续历史滚动时复用上一帧像素，移动旧画面，只补绘新露出的条带。真实屏幕使用兼容的 `VolatileImage`，避免每帧从 CPU 位图上传整个 Retina 画面；离屏使用 BufferedImage。完整重绘时不套额外裁剪代理，避免逐字符裁剪带来的长帧。
+2. 内容更新、字体/主题变化、尺寸变化使旧表面失效；有选择、查找结果、备用屏幕或待处理历史坐标变化时回到原绘制路径。表面丢失后重新绘制，不展示过期图像。
+3. 每个终端至多一张临时表面，按设备像素计最多 32MiB，停止使用约 250ms 后通过单次 Swing Timer 释放，隐藏/关闭也释放。超大表面、非整数 DPI 或不兼容变换走原绘制；没有后台常驻轮询。可用 JVM 参数 `-Djlshell.terminal.disableScrollBlit=true` 做对照。
+4. 修复视口高度不是行高整数倍时的底部补绘，避免跨整数行时出现跳动空带。新增回归曾在反向滚动和调整窗口高度后捕获此问题。
+5. ASCII 绕过中文 Unicode 分类；字体回退结果使用最多 512 项的缓存，字体配置变化时清空，减少中文日志逐字符反复解析字体。
+6. 保留 macOS 触控板直接响应，不增加手指输入到画面的插值等待。`--trace-scroll` 额外记录事件入队时间差、视口尺寸、DPI、复用/完整绘制次数和临时表面大小，不记录终端内容。
+
+本机 JDK 21 测量结果：
+
+| 场景 | 对照 | 本轮实现 |
+| --- | ---: | ---: |
+| 密集日志 1604×1020、2× 离屏，绘制 P50 | 19.637ms（修改前） | 7.029ms |
+| 同上，绘制 P95 | 22.331ms（修改前） | 9.066ms |
+| 可见大窗口、模拟触控板且持续输出，绘制 P50 | 8.390ms（禁用 blit） | 2.666ms |
+| 同上，绘制 P95 | 10.502ms（禁用 blit） | 11.636ms |
+| 同上，绘制间隔 P95 | 12.046ms | 12.112ms |
+
+升级至 JediTerm 3.76 后，同一大窗口模拟测试得到绘制 P50/P95 2.774/11.780ms、绘制间隔 P95 12.008ms；该数据随本机负载波动，不能代替实体触控板验收。
+
+可见窗口受到本机可用屏幕高度限制，对照为 1604×957，本轮为 1604×959。持续日志输出会使表面失效并触发完整绘制，因此中位数改善明显，但 P95 本轮未改善，不能宣称所有长帧已消除。以上均为 Java 端绘制/调度，输入为模拟事件，不等同于实体触控板到最终显示的延迟。
+
+验证共 42 项终端相关测试通过，包括 1×/2× 像素一致性、上下滚动、输出期间滚动、非整行高度、尺寸变化、原生触控板直接定位、拖动滚动条、ANSI/日志高亮/选择/查找、原生图形表面缩放及空闲释放。
+
+```bash
+mvn -pl terminal -am test \
+  -Dtest='Terminal*Test,RefreshableTerminalPanelImeTest,AnimationTimerPrecisionTest' \
+  -Dsurefire.failIfNoSpecifiedTests=false \
+  -Djlshell.terminal.benchmark=true \
+  -Djlshell.terminal.benchmark.columns=200 \
+  -Djlshell.terminal.benchmark.rows=60 \
+  -Djlshell.terminal.benchmark.scale=2 \
+  -Djlshell.terminal.benchmark.dense=true
+```

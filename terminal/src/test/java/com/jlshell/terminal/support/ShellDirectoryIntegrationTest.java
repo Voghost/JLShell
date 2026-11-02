@@ -103,6 +103,7 @@ class ShellDirectoryIntegrationTest {
                 String screen = render(text, columns);
                 assertTrue(screen.contains("LOGIN BANNER"), screen);
                 assertEquals(1, screen.split("PROMPT>", -1).length - 1, screen);
+                assertTrue(render(text + "echo next", columns).contains("PROMPT> echo next"), screen);
                 if (zsh) assertEquals(1, screen.split("line one", -1).length - 1, screen);
             }
             assertFalse(text.contains("eval"), text);
@@ -135,6 +136,26 @@ class ShellDirectoryIntegrationTest {
         StringBuilder screen = new StringBuilder();
         for (int line = 0; line < buffer.getScreenLinesCount(); line++) screen.append(buffer.getLine(line).getText()).append('\n');
         return screen.toString();
+    }
+
+    @Test void readlineLineFinishDoesNotMoveRetainedPromptCursorToColumnZero() throws Exception {
+        for (String finish : new String[]{"\r\n\033[?2004l\r", "\r\n\033[?2004l\033[1G", "\r\n\033[2K\r"}) {
+            var integration = new ShellDirectoryIntegration();
+            String command = integration.command();
+            var match = java.util.regex.Pattern.compile("__jlshell_init_([a-f0-9]+)").matcher(command);
+            assertTrue(match.find()); String token = match.group(1);
+            String stream = "Linux Docker\r\nLast login: yesterday\r\nroot@Docker:~# \033[?2004h"
+                    + command.stripTrailing() + finish + "\033]777;jlshell-begin-" + token + "\007"
+                    + "hidden prompt\033]777;jlshell-ready-" + token + "\007\033[?2004h";
+            var visible = new StringBuilder();
+            for (int offset = 0; offset < stream.length(); offset += 3)
+                visible.append(integration.filter(stream.substring(offset, Math.min(stream.length(), offset + 3))));
+            String screen = render(visible + "echo next", 120);
+            assertTrue(screen.contains("root@Docker:~# echo next"), screen);
+            assertTrue(screen.contains("Linux Docker"), screen);
+            assertTrue(screen.contains("Last login: yesterday"), screen);
+            assertFalse(screen.contains("hidden prompt"), screen);
+        }
     }
 
     @Test void discardsTransientLineFinishWithCursorMovementForHiddenWrappedInput() throws Exception {

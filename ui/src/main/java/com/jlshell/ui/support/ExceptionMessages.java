@@ -8,6 +8,15 @@ public final class ExceptionMessages {
 
     private ExceptionMessages() { }
 
+    public static com.jlshell.core.exception.ConnectionException.Reason connectionReason(Throwable error) {
+        var seen = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<Throwable, Boolean>());
+        for (Throwable current = error; current != null && seen.add(current); current = current.getCause()) {
+            if (current instanceof com.jlshell.core.exception.ConnectionException connection
+                    && connection.reason() != com.jlshell.core.exception.ConnectionException.Reason.UNKNOWN) return connection.reason();
+        }
+        return com.jlshell.core.exception.ConnectionException.Reason.UNKNOWN;
+    }
+
     public static String userMessage(Throwable error) {
         if (error == null) {
             return "未知错误";

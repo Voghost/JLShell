@@ -387,6 +387,7 @@ public class MainWindow {
         var texts = com.jlshell.ui.swing.SwingWorkbench.TEXT_KEYS.stream().collect(
                 Collectors.toMap(key -> key, key -> i18nService.get(key)));
         texts.put("ui.workspace.toolLayout", appSettingsService.get("ui.workspace.toolLayout", ""));
+        texts.put("ui.workspace.windowSize", appSettingsService.get("ui.workspace.windowSize", ""));
         texts.put("ui.sidebar.sort", appSettingsService.get("ui.sidebar.sort", "name"));
         texts.put("ui.sidebar.foldersFirst", appSettingsService.get("ui.sidebar.foldersFirst", "true"));
         java.util.function.Function<Runnable, Runnable> fxAction = action -> () -> dispatchSwingAction(action);
@@ -1525,6 +1526,13 @@ public class MainWindow {
                 copyConnectionShare(stage, conn.id());
             }
         });
+        sidebarTreeView.setOnFavorite((id, favorite) -> CompletableFuture
+                .runAsync(() -> connectionProfileService.setFavorite(id, favorite), executor)
+                .whenComplete((unused, error) -> FxThread.run(() -> {
+                    if (error != null) showError(i18nService.get("status.connectionSaveFailed", error.getMessage()));
+                    else loadConnections();
+                })));
+        sidebarTreeView.setOnImportShare(folderId -> pasteSharedConnection(stage, folderId));
         sidebarTreeView.setOnNewSubFolder((parentId, parentDepth) -> createSubFolder(stage, parentId));
         sidebarTreeView.setOnRenameFolder((folderId, currentName) -> renameFolder(stage, folderId, currentName));
         sidebarTreeView.setOnNewConnectionInFolder(folderId -> createConnectionInFolder(stage, folderId));
@@ -1893,6 +1901,22 @@ public class MainWindow {
 
     /** Ensure the latest asynchronous sidebar state write finishes before the data source closes. */
     public void flushPendingUiState() {
+        // Shutdown runs on its own thread. Drain the EDT snapshot and already queued FX writes
+        // before the datasource closes; do not wait across the two UI threads from either one.
+        if (swingWorkbench != null && !javax.swing.SwingUtilities.isEventDispatchThread()
+                && !javafx.application.Platform.isFxApplicationThread()) {
+            try {
+                var workbench = swingWorkbench.getNow(null);
+                if (workbench != null) {
+                    var layout = com.jlshell.terminal.support.SwingExecutors.supplyOnEdtAsync(
+                            workbench::captureLayoutForShutdown).get(2, TimeUnit.SECONDS);
+                    com.jlshell.ui.support.FxThread.supplyAsync(() -> null).get(2, TimeUnit.SECONDS);
+                    layout.forEach(appSettingsService::set);
+                }
+            } catch (Exception error) {
+                log.warn("Failed to flush workbench layout", error);
+            }
+        }
         CompletableFuture<Void> pending;
         synchronized (sidebarExpansionSaveLock) {
             pending = sidebarExpansionSave;
@@ -1981,8 +2005,12 @@ public class MainWindow {
     }
 
     private void pasteSharedConnection(Stage stage) {
+        pasteSharedConnection(stage, null);
+    }
+
+    private void pasteSharedConnection(Stage stage, String folderId) {
         ConnectionDialog.showPasteShareDialog(stage, i18nService, themeService)
-                .ifPresent(shared -> ConnectionDialog.show(stage, i18nService, themeService, withActiveProject(shared),
+                .ifPresent(shared -> ConnectionDialog.show(stage, i18nService, themeService, withActiveProject(shared, folderId),
                         connectionProfileService.listProjects(),
                         connectionProfileService.listFolders(activeProjectId),
                         vaultService,
@@ -1990,7 +2018,7 @@ public class MainWindow {
                         .ifPresent(this::saveConnection));
     }
 
-    private ConnectionFormData withActiveProject(ConnectionFormData form) {
+    private ConnectionFormData withActiveProject(ConnectionFormData form, String folderId) {
         return new ConnectionFormData(
                 form.id(),
                 form.displayName(),
@@ -2007,7 +2035,7 @@ public class MainWindow {
                 form.favorite(),
                 activeProjectId,
                 form.connectionType(),
-                form.folderId(),
+                folderId != null ? folderId : form.folderId(),
                 form.vaultEntryId(),
                 form.keyContent()
         );
@@ -2362,10 +2390,13 @@ public class MainWindow {
                         }))
                 .whenComplete((routedSession, throwable) -> {
                     if (throwable != null) {
-                        log.error("SSH connection failed for {}", selected.summary(), throwable);
+                        var reason = ExceptionMessages.connectionReason(throwable);
+                        log.error("SSH connection failed for {}: reason={}", selected.summary(), reason, throwable);
                         FxThread.run(() -> {
                             showError(i18nService.get("status.connectionFailed",
-                                    ExceptionMessages.userMessage(throwable)));
+                                    reason == com.jlshell.core.exception.ConnectionException.Reason.UNKNOWN
+                                            ? ExceptionMessages.userMessage(throwable)
+                                            : i18nService.get("connection.failure." + reason.name().toLowerCase(java.util.Locale.ROOT))));
                             finishConnecting(selected);
                         });
                         return;

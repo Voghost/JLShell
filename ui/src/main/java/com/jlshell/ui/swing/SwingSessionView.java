@@ -59,6 +59,24 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
     private javafx.collections.ListChangeListener<Tab> tabListListener;
     private final java.util.Map<Tab, ChangeListener<String>> titleListeners = new java.util.IdentityHashMap<>();
     private boolean closed;
+    private String statusName = "", statusAddress = "", connectionState = "connecting";
+    private boolean localSession;
+    private java.time.Instant connectedAt;
+
+    SwingStatusBar.SessionInfo statusInfo() {
+        String encoding = handle == null ? "" : handle.encodingName();
+        String terminal = encoding;
+        if (handle != null && handle.component() instanceof com.jlshell.terminal.support.JlshellJediTermWidget widget) {
+            var buffer = widget.getTerminalTextBuffer();
+            terminal += " · " + buffer.getWidth() + " × " + buffer.getHeight();
+        }
+        return new SwingStatusBar.SessionInfo(statusName, statusAddress, localSession, connectionState, connectedAt, terminal, encoding);
+    }
+    String activeTransfer() {
+        String transfer = files == null ? null : files.activeTransferDescription();
+        return transfer == null ? null : statusName + " · " + transfer;
+    }
+
     private volatile int selectedPageIndex;
     private boolean followingToolSelection; // 仅由 FX 线程访问。
     private record Page(Tab tab, String title, String pluginId) {}
@@ -72,10 +90,13 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
         source.setContent(null);
         TerminalWorkspaceView initialTerminalView = source.getTerminalWorkspaceView();
         String connectionSummary = source.getConnectionProfile().summary();
+        String statusName = source.getConnectionProfile().displayName();
+        boolean local = source.getConnectionProfile().connectionType() == com.jlshell.core.model.ConnectionType.LOCAL_SHELL;
         var future = SwingExecutors.supplyOnEdtAsync(() -> {
             var view = new SwingSessionView(model, themes,
                 i18n.get("workspace.monitoring"), initialTerminalView,
                 i18n.get("terminal.appearanceSettings"), i18n);
+            view.statusName = statusName; view.statusAddress = connectionSummary; view.localSession = local;
             view.terminalBody.removeAll();
             view.terminalBody.add(new SwingLoadingPanel(i18n.get("workspace.connecting"),
                     connectionSummary, WorkbenchIcon.Kind.SSH));
@@ -197,7 +218,12 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
 
     String toolTitle(String key) {
         int index = toolIndex(key);
-        return index == 0 ? monitoringTitle : index > 0 ? pageTitles.get(index) : "";
+        if (index == 0) return monitoringTitle;
+        if (index > 0) return pageTitles.get(index);
+        for (var component : navigation.getComponents())
+            if (component instanceof JToggleButton button && java.util.Objects.equals(key, button.getClientProperty("jlshell.pluginKey")))
+                return java.util.Objects.toString(button.getToolTipText(), "");
+        return "";
     }
 
     java.awt.Component toolComponent(String key) {
@@ -373,6 +399,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
             for (PluginsTabView.PinnedShortcut shortcut : shortcuts) {
                 JToggleButton selector = new JToggleButton(PluginIcons.icon(shortcut.title(), shortcut.icon(), 18, true));
                 selector.setName("plugin-shortcut-" + shortcut.id());
+                selector.putClientProperty("jlshell.pluginKey", "plugin:" + shortcut.id());
                 selector.putClientProperty("JButton.buttonType", "toolBarButton");
                 int openedIndex = -1;
                 for (int i = 0; i < pages.size(); i++) if (shortcut.id().equals(pages.get(i).pluginId())) openedIndex = i;
@@ -409,7 +436,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
     public void attach(TerminalViewHandle viewHandle) {
         SwingUtilities.invokeLater(() -> {
             if (closed) return;
-            handle = viewHandle;
+            handle = viewHandle; connectionState = "connected"; connectedAt = java.time.Instant.now();
             terminalBody.removeAll();
             javax.swing.JComponent component = viewHandle.component();
             TerminalPopupBridge.install(component, terminalSettingsLabel,
@@ -426,7 +453,11 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
     public void disconnected(String reason, Runnable reconnect) {
         SwingUtilities.invokeLater(() -> {
             if (closed) return;
-            handle = null;
+            if (connectionState.equals("connected")) {
+                com.jlshell.core.support.RecentApplicationLogs.shared().append(java.time.Instant.now(), "INFO", "Connection",
+                        i18n.get("statusbar.sessionEnded", statusName));
+            }
+            handle = null; connectionState = "disconnected"; connectedAt = null;
             if (status != null) status.disconnected();
             if (files != null) files.disconnected();
             terminalBody.removeAll();

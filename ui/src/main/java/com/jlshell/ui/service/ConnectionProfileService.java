@@ -528,6 +528,12 @@ public class ConnectionProfileService {
 
     // ── Recent sessions & favorites ──────────────────────────────────
 
+    public void setFavorite(String connectionId, boolean favorite) {
+        int updated = jdbi.withExtension(ConnectionDao.class,
+                dao -> dao.updateFavorite(connectionId, favorite, Instant.now()));
+        if (updated == 0) throw new IllegalArgumentException("Connection not found: " + connectionId);
+    }
+
     public List<RecentSessionProfile> listRecentSessions(int limit) {
         return jdbi.withHandle(h -> {
             List<RecentSessionEntry> entries = h.attach(SessionHistoryDao.class)

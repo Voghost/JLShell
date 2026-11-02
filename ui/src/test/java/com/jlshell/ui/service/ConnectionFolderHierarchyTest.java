@@ -18,6 +18,15 @@ class ConnectionFolderHierarchyTest {
         service=new ConnectionProfileService(jdbi,null,null,null);
     }
     @AfterEach void close() { database.close(); }
+    @Test void favoriteCanBeToggledWithoutChangingConnectionDetails() {
+        jdbi.useHandle(h -> h.execute("INSERT INTO connections(id,display_name,host,port,username,favorite,created_at,updated_at) VALUES ('conn','server','example.test',22,'user',0,0,0)"));
+        service.setFavorite("conn", true);
+        assertEquals(List.of("conn"), service.listFavoriteProfiles().stream().map(p -> p.id()).toList());
+        service.setFavorite("conn", false);
+        assertTrue(service.listFavoriteProfiles().isEmpty());
+        assertEquals("example.test", jdbi.withHandle(h -> h.createQuery("SELECT host FROM connections WHERE id='conn'").mapTo(String.class).one()));
+        assertThrows(IllegalArgumentException.class, () -> service.setFavorite("missing", true));
+    }
     @Test void refusesCyclesForMoveAndSaveWithoutChangingStoredParents() {
         var root=service.saveFolder(null,"Root",null,null);
         var child=service.saveFolder(null,"Child",root.id(),null);

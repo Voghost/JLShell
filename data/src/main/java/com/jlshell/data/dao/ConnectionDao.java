@@ -56,6 +56,10 @@ public interface ConnectionDao {
             "vault_entry_id=:vaultEntryId, updated_at=:updatedAt WHERE id=:id")
     void update(@BindBean ConnectionEntity entity);
 
+    @SqlUpdate("UPDATE connections SET favorite=:favorite, updated_at=:updatedAt WHERE id=:id")
+    int updateFavorite(@Bind("id") String id, @Bind("favorite") boolean favorite,
+                       @Bind("updatedAt") java.time.Instant updatedAt);
+
     @SqlUpdate("DELETE FROM connections WHERE id = :id")
     void deleteById(@Bind("id") String id);
 

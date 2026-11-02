@@ -265,13 +265,27 @@ class SwingToolWindowMaximizeTest {
                 title.dispatchEvent(new java.awt.event.MouseEvent(title, java.awt.event.MouseEvent.MOUSE_DRAGGED,
                         System.currentTimeMillis(), java.awt.event.MouseEvent.BUTTON1_DOWN_MASK,
                         destination.x, destination.y, 0, false, java.awt.event.MouseEvent.NOBUTTON));
+                try {
+                    var listenerField = SwingWorkbench.class.getDeclaredField("toolDragEventListener");
+                    listenerField.setAccessible(true);
+                    ((java.awt.event.AWTEventListener) listenerField.get(workbench)).eventDispatched(
+                            new java.awt.event.WindowEvent(frame, java.awt.event.WindowEvent.WINDOW_LOST_FOCUS, (Window) null));
+                } catch (ReflectiveOperationException error) { throw new AssertionError(error); }
+                assertFalse(java.util.Arrays.stream(Window.getWindows()).anyMatch(w -> w.isShowing()
+                        && ("workspace.toolDragFeedback".equals(w.getName()) || "workspace.toolDragHint".equals(w.getName()))), "切出应用后应清理浮标和提示");
+                assertNull(slot.getParent(), "切出应用后应移除插入占位");
+                assertNotEquals(Cursor.MOVE_CURSOR, title.getCursor().getType());
+                title.dispatchEvent(new java.awt.event.MouseEvent(title, java.awt.event.MouseEvent.MOUSE_PRESSED,
+                        System.currentTimeMillis(), 0, 2, 2, 1, false, java.awt.event.MouseEvent.BUTTON1));
+                title.dispatchEvent(new java.awt.event.MouseEvent(title, java.awt.event.MouseEvent.MOUSE_DRAGGED,
+                        System.currentTimeMillis(), java.awt.event.MouseEvent.BUTTON1_DOWN_MASK,
+                        destination.x, destination.y, 0, false, java.awt.event.MouseEvent.NOBUTTON));
                 Window currentImage=java.util.Arrays.stream(Window.getWindows()).filter(w->w.isShowing()&&"workspace.toolDragFeedback".equals(w.getName())).findFirst().orElseThrow();
-                JLabel currentIcon=named(currentImage,"workspace.dragToolName",JLabel.class);
                 Point absolute=SwingUtilities.convertPoint(title,destination,frame);SwingUtilities.convertPointToScreen(absolute,frame);
-                currentIcon.dispatchEvent(new java.awt.event.MouseEvent(currentIcon,java.awt.event.MouseEvent.MOUSE_RELEASED,
+                frame.dispatchEvent(new java.awt.event.MouseEvent(frame,java.awt.event.MouseEvent.MOUSE_RELEASED,
                         System.currentTimeMillis(),0,7,7,absolute.x,absolute.y,1,false,java.awt.event.MouseEvent.BUTTON1));
                 frame.validate();
-                assertFalse(dragImage.isShowing(), "释放后必须清理拖动浮标");
+                assertFalse(currentImage.isShowing(), "释放到其他组件时必须清理拖动浮标");
                 assertNotEquals(Cursor.MOVE_CURSOR, title.getCursor().getType());
                 assertEquals(ToolDockState.Anchor.BOTTOM_RIGHT, ToolDockState.decode(saved.get()).anchor("files"));
                 fixture.view.selectPage(3, true); frame.validate();
@@ -289,6 +303,43 @@ class SwingToolWindowMaximizeTest {
                 assertEquals(fixture.view.toolKey(3),((JComponent)topStripe.getComponent(0)).getClientProperty("jlshell.toolKey"),"Reorder inside a stripe must match the shown insertion slot");
                 var ordered=ToolDockState.decode(saved.get());
                 assertTrue(new java.util.ArrayList<>(ordered.positions.keySet()).indexOf(fixture.view.toolKey(3))<new java.util.ArrayList<>(ordered.positions.keySet()).indexOf("plugins"));
+                // A pinned plugin need not have opened a page before it can be reordered.
+                var unopened = new JToggleButton("L");
+                unopened.setToolTipText("Lazy plugin");
+                unopened.putClientProperty("jlshell.pluginKey", "plugin:lazy-test");
+                unopened.putClientProperty("jlshell.pageIndex", -1);
+                fixture.view.toolNavigation().add(unopened);
+                try {
+                    var sync = SwingWorkbench.class.getDeclaredMethod("syncToolWindow"); sync.setAccessible(true); sync.invoke(workbench);
+                } catch (ReflectiveOperationException error) { throw new AssertionError(error); }
+                frame.validate();
+                var lazyButton = named(frame, "workspace.stripe.plugin:lazy-test", JButton.class);
+                var firstStripe = named(frame, "workspace.rightTopStripe", JPanel.class);
+                Component firstStripeButton = firstStripe.getComponent(0);
+                Point lazyDestination = SwingUtilities.convertPoint(firstStripeButton, 3, 3, lazyButton);
+                lazyButton.dispatchEvent(new java.awt.event.MouseEvent(lazyButton, java.awt.event.MouseEvent.MOUSE_PRESSED,
+                        System.currentTimeMillis(), 0, 5, 5, 1, false, java.awt.event.MouseEvent.BUTTON1));
+                lazyButton.dispatchEvent(new java.awt.event.MouseEvent(lazyButton, java.awt.event.MouseEvent.MOUSE_DRAGGED,
+                        System.currentTimeMillis(), java.awt.event.MouseEvent.BUTTON1_DOWN_MASK, lazyDestination.x, lazyDestination.y, 0, false, java.awt.event.MouseEvent.NOBUTTON));
+                lazyButton.dispatchEvent(new java.awt.event.MouseEvent(lazyButton, java.awt.event.MouseEvent.MOUSE_RELEASED,
+                        System.currentTimeMillis(), 0, lazyDestination.x, lazyDestination.y, 1, false, java.awt.event.MouseEvent.BUTTON1));
+                frame.validate();
+                assertEquals("plugin:lazy-test", ((JComponent) firstStripe.getComponent(0)).getClientProperty("jlshell.toolKey"));
+                assertEquals(-1, fixture.view.toolIndex("plugin:lazy-test"));
+                assertEquals("plugin:lazy-test", ToolDockState.decode(saved.get()).positions.keySet().iterator().next());
+                try {
+                    var drop = SwingWorkbench.class.getDeclaredMethod("commitToolDrop", String.class, ToolDropGeometry.Target.class, int.class);
+                    drop.setAccessible(true);
+                    for (var anchor : new ToolDockState.Anchor[]{ToolDockState.Anchor.BOTTOM_LEFT, ToolDockState.Anchor.BOTTOM_RIGHT, ToolDockState.Anchor.RIGHT}) {
+                        drop.invoke(workbench, "plugin:lazy-test", new ToolDropGeometry.Target(anchor, new Rectangle(0, 0, 300, 200)), 0);
+                        frame.validate();
+                        assertEquals(anchor, ToolDockState.decode(saved.get()).anchor("plugin:lazy-test"));
+                        String stripeName = switch(anchor) { case RIGHT -> "workspace.rightTopStripe"; case BOTTOM_LEFT -> "workspace.bottomLeftStripe"; case BOTTOM_RIGHT -> "workspace.bottomRightStripe"; };
+                        var stripe = named(frame, stripeName, JPanel.class);
+                        assertEquals("plugin:lazy-test", ((JComponent)stripe.getComponent(0)).getClientProperty("jlshell.toolKey"));
+                        assertEquals(-1, fixture.view.toolIndex("plugin:lazy-test"), "Moving a pinned shortcut must not open the plugin");
+                    }
+                } catch (ReflectiveOperationException error) { throw new AssertionError(error); }
                 workbench.moveTool(fixture.view.toolKey(3), ToolDockState.Anchor.BOTTOM_LEFT); frame.validate();
                 assertTrue(fixture.files.isShowing()); assertTrue(fixture.editor.isShowing());
                 JToggleButton monitor = named(frame, "workspace.tool.monitor", JToggleButton.class);

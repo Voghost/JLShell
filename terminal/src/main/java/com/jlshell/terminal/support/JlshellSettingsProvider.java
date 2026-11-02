@@ -30,6 +30,8 @@ public class JlshellSettingsProvider extends DefaultSettingsProvider {
     private final AtomicReference<FontProfile> fontProfile;
     private final AtomicReference<TerminalColorScheme> colorScheme;
     private final AtomicReference<ColorPalette> colorPalette;
+    private final TerminalColor defaultForeground;
+    private final TerminalColor defaultBackground;
     private final AtomicReference<TerminalRuntimeSettings> runtimeSettings;
     private final ShortcutRegistry shortcutRegistry;
     private com.jlshell.terminal.service.TerminalHighlightService highlights;
@@ -63,6 +65,8 @@ public class JlshellSettingsProvider extends DefaultSettingsProvider {
         this.fontProfile = new AtomicReference<>(fontProfile);
         this.colorScheme = new AtomicReference<>(colorScheme);
         this.colorPalette = new AtomicReference<>(buildPalette(colorScheme));
+        this.defaultForeground = new ThemeColor(() -> this.colorScheme.get().foreground());
+        this.defaultBackground = new ThemeColor(() -> this.colorScheme.get().background());
         this.runtimeSettings = new AtomicReference<>(
                 runtimeSettings == null ? TerminalRuntimeSettings.defaults() : runtimeSettings);
         this.shortcutRegistry = shortcutRegistry;
@@ -180,6 +184,7 @@ public class JlshellSettingsProvider extends DefaultSettingsProvider {
 
     public void updateFontProfile(FontProfile updatedFontProfile) {
         fontProfile.set(updatedFontProfile);
+        synchronized (fallbackFonts) { fallbackFonts.clear(); }
     }
 
     public void updateColorScheme(TerminalColorScheme updatedColorScheme) {
@@ -200,17 +205,31 @@ public class JlshellSettingsProvider extends DefaultSettingsProvider {
     }
 
     public TextStyle defaultTextStyle() {
-        return new TextStyle(toTerminalColor(colorScheme.get().foreground()), toTerminalColor(colorScheme.get().background()));
+        return new TextStyle(defaultForeground, defaultBackground);
     }
 
     @Override
     public com.jediterm.terminal.TerminalColor getDefaultBackground() {
-        return toTerminalColor(colorScheme.get().background());
+        return defaultBackground;
     }
 
     @Override
     public com.jediterm.terminal.TerminalColor getDefaultForeground() {
-        return toTerminalColor(colorScheme.get().foreground());
+        return defaultForeground;
+    }
+
+    /** Keep default colors live in existing screen/history cells; explicit remote RGB stays literal. */
+    private static final class ThemeColor extends TerminalColor {
+        ThemeColor(java.util.function.Supplier<Color> color) {
+            super(() -> {
+                Color value = color.get();
+                return new com.jediterm.core.Color(value.getRed(), value.getGreen(), value.getBlue());
+            });
+        }
+        // JediTerm's supplier constructor ignores the supplier in equals/hashCode. Distinguish
+        // foreground from background so style merging and inverse text retain their semantics.
+        @Override public boolean equals(Object other) { return this == other; }
+        @Override public int hashCode() { return System.identityHashCode(this); }
     }
 
     @Override
@@ -225,8 +244,19 @@ public class JlshellSettingsProvider extends DefaultSettingsProvider {
     }
 
     public Font getTerminalFontFor(int codePoint, int style) {
-        return TerminalFontResolver.resolve(fontProfile.get(), codePoint, style);
+        var key = new FallbackFontKey(fontProfile.get(), codePoint, style);
+        synchronized (fallbackFonts) {
+            return fallbackFonts.computeIfAbsent(key,
+                    value -> TerminalFontResolver.resolve(value.profile(), value.codePoint(), value.style()));
+        }
     }
+
+    private record FallbackFontKey(FontProfile profile, int codePoint, int style) {}
+    private final java.util.Map<FallbackFontKey, Font> fallbackFonts = new java.util.LinkedHashMap<>(64, .75f, true) {
+        @Override protected boolean removeEldestEntry(java.util.Map.Entry<FallbackFontKey, Font> eldest) {
+            return size() > 512;
+        }
+    };
 
     @Override
     public float getTerminalFontSize() {

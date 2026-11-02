@@ -40,7 +40,8 @@ final class SwingAboutPage {
             JPanel versionRow=new JPanel(new FlowLayout(FlowLayout.LEFT,0,0));versionRow.setOpaque(false);versionRow.add(secondary(version,12));
             if(updates!=null){versionRow.add(Box.createHorizontalStrut(16));JButton update=(JButton)updates.get();update.removeAll();update.setLayout(null);update.setIcon(new WorkbenchIcon(WorkbenchIcon.Kind.REFRESH));update.setContentAreaFilled(false);update.setBorderPainted(false);versionRow.add(update);}
             identity.add(versionRow);hero.add(identity,BorderLayout.CENTER);
-            content.add(hero,row);row.gridy++;row.insets=new Insets(12,0,8,0);content.add(heading(resources,15),row);
+            row.weighty=.25;row.fill=GridBagConstraints.BOTH;
+            content.add(hero,row);row.gridy++;row.weighty=0;row.fill=GridBagConstraints.HORIZONTAL;row.insets=new Insets(12,0,8,0);content.add(heading(resources,15),row);
             JPanel resourceGrid=new JPanel(new GridLayout(0,2,8,8));resourceGrid.setName("about.resources");resourceGrid.setOpaque(false);
             AboutLinkIcon.Kind[] icons={AboutLinkIcon.Kind.WEBSITE,AboutLinkIcon.Kind.GITHUB,AboutLinkIcon.Kind.DOWNLOAD,AboutLinkIcon.Kind.ISSUES};
             for(int i=0;i<links.size();i++) {
@@ -54,8 +55,8 @@ final class SwingAboutPage {
                 button.setPreferredSize(new Dimension(250,64));button.setMinimumSize(new Dimension(160,64));
                 forward(text,button);resourceGrid.add(button);
             }
-            row.gridy++;row.insets=new Insets(0,0,0,0);content.add(resourceGrid,row);
-            row.gridy++;row.insets=new Insets(12,0,8,0);
+            row.gridy++;row.insets=new Insets(0,0,0,0);row.weighty=.5;row.fill=GridBagConstraints.BOTH;content.add(resourceGrid,row);
+            row.gridy++;row.weighty=0;row.fill=GridBagConstraints.HORIZONTAL;row.insets=new Insets(12,0,8,0);
             JPanel runtimeHeader=new JPanel(new BorderLayout());runtimeHeader.setOpaque(false);runtimeHeader.add(heading(runtime,15),BorderLayout.WEST);
             if(copy!=null)runtimeHeader.add(copy.get(),BorderLayout.EAST);content.add(runtimeHeader,row);
             Surface details=new Surface(false);details.setName("about.details");details.setLayout(new GridBagLayout());details.setBorder(BorderFactory.createEmptyBorder(10,16,10,16));
@@ -64,10 +65,10 @@ final class SwingAboutPage {
                 details.add(secondary(entry.getFirst(),12),c);c.gridx=1;c.weightx=1;c.fill=GridBagConstraints.HORIZONTAL;c.insets=new Insets(1,0,1,0);
                 JLabel value=new JLabel(entry.get(1));value.setFont(UIManager.getFont("defaultFont").deriveFont(12f));details.add(value,c);
             }
-            row.gridy++;row.insets=new Insets(0,0,0,0);content.add(details,row);
-            row.gridy++;row.insets=new Insets(12,0,0,0);JLabel footerLabel=secondary(footer,12);footerLabel.setName("about.footer");content.add(footerLabel,row);
-            GridBagConstraints body=new GridBagConstraints();body.gridx=0;body.gridy=0;body.weightx=1;body.fill=GridBagConstraints.HORIZONTAL;body.anchor=GridBagConstraints.NORTH;
-            page.add(content,body);body.gridy=1;body.weighty=1;page.add(Box.createVerticalGlue(),body);
+            row.gridy++;row.insets=new Insets(0,0,0,0);row.weighty=.25;row.fill=GridBagConstraints.BOTH;content.add(details,row);
+            row.gridy++;row.weighty=0;row.fill=GridBagConstraints.HORIZONTAL;row.insets=new Insets(12,0,0,0);JLabel footerLabel=secondary(footer,12);footerLabel.setName("about.footer");content.add(footerLabel,row);
+            GridBagConstraints body=new GridBagConstraints();body.gridx=0;body.gridy=0;body.weightx=1;body.weighty=1;body.fill=GridBagConstraints.BOTH;body.anchor=GridBagConstraints.NORTH;
+            page.add(content,body);
             page.addComponentListener(new java.awt.event.ComponentAdapter(){public void componentResized(java.awt.event.ComponentEvent event){
                 ((GridLayout)resourceGrid.getLayout()).setColumns(page.getWidth()<480?1:2);resourceGrid.revalidate();
             }});
@@ -91,9 +92,9 @@ final class SwingAboutPage {
     private static JLabel secondary(String text,int size){JLabel label=new JLabel(text);label.setFont(UIManager.getFont("defaultFont").deriveFont((float)size));label.setForeground(SwingTheme.color("secondary"));label.putClientProperty("JLShell.secondaryForeground",true);return label;}
     private static void forward(Component component,JButton target){component.addMouseListener(new java.awt.event.MouseAdapter(){public void mouseClicked(java.awt.event.MouseEvent e){target.doClick();}});if(component instanceof Container parent)for(Component child:parent.getComponents())forward(child,target);}
     private static final class Tracking extends JPanel implements Scrollable {
-        Tracking(Component content){super(new BorderLayout());setOpaque(false);add(content,BorderLayout.NORTH);}
+        Tracking(Component content){super(new BorderLayout());setOpaque(false);add(content,BorderLayout.CENTER);}
         public Dimension getPreferredScrollableViewportSize(){return getPreferredSize();}
-        public boolean getScrollableTracksViewportWidth(){return true;}public boolean getScrollableTracksViewportHeight(){return false;}
+        public boolean getScrollableTracksViewportWidth(){return true;}public boolean getScrollableTracksViewportHeight(){return getParent() instanceof JViewport viewport && viewport.getHeight() >= getPreferredSize().height;}
         public int getScrollableUnitIncrement(Rectangle r,int o,int d){return 18;}public int getScrollableBlockIncrement(Rectangle r,int o,int d){return Math.max(18,r.height-18);}
     }
     private static final class Surface extends JPanel {

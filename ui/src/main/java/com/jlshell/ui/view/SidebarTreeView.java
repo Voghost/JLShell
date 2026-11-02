@@ -57,6 +57,9 @@ public class SidebarTreeView {
     private Consumer<List<SidebarItem>> onDelete;
     private Consumer<SidebarItem> onDuplicate;
     private Consumer<SidebarItem> onCopyShare;
+    private BiConsumer<String, Boolean> onFavorite;
+    private Consumer<String> onImportShare;
+    private final Set<String> favoriteIds = new HashSet<>();
     private Runnable onNewConnectionInEmpty;
     private Runnable onNewFolderInEmpty;
     private BiConsumer<String, Integer> onNewSubFolder;
@@ -96,7 +99,9 @@ public class SidebarTreeView {
         newConn.setOnAction(e -> { if (onNewConnectionInEmpty != null) onNewConnectionInEmpty.run(); });
         MenuItem newFolder = new MenuItem(i18n.get("sidebar.newFolder"));
         newFolder.setOnAction(e -> { if (onNewFolderInEmpty != null) onNewFolderInEmpty.run(); });
-        return transparentPopup(new ContextMenu(newConn, newFolder));
+        MenuItem importShare = new MenuItem(i18n.get("connection.share.import"));
+        importShare.setOnAction(e -> { if (onImportShare != null) onImportShare.accept(null); });
+        return transparentPopup(new ContextMenu(newConn, newFolder, importShare));
     }
 
     /** Make the popup window transparent so rounded corners don't show corner fill. */
@@ -151,6 +156,8 @@ public class SidebarTreeView {
     public void setOnDelete(Consumer<List<SidebarItem>> v) { this.onDelete = v; }
     public void setOnDuplicate(Consumer<SidebarItem> v) { this.onDuplicate = v; }
     public void setOnCopyShare(Consumer<SidebarItem> v) { this.onCopyShare = v; }
+    public void setOnFavorite(BiConsumer<String, Boolean> v) { this.onFavorite = v; }
+    public void setOnImportShare(Consumer<String> v) { this.onImportShare = v; }
     public void setOnNewConnectionInEmpty(Runnable v) { this.onNewConnectionInEmpty = v; }
     public void setOnNewFolderInEmpty(Runnable v) { this.onNewFolderInEmpty = v; }
     public void setOnNewSubFolder(BiConsumer<String, Integer> v) { this.onNewSubFolder = v; }
@@ -169,6 +176,8 @@ public class SidebarTreeView {
         folderDepths.clear();
         folderDepths.putAll(hierarchy.depths());
         folderItemsById.clear();
+        favoriteIds.clear();
+        connections.stream().filter(ConnectionProfile::favorite).map(ConnectionProfile::id).forEach(favoriteIds::add);
         collapsedFolderIds.clear();
         if (persistedCollapsedFolderIds != null) {
             collapsedFolderIds.addAll(persistedCollapsedFolderIds);
@@ -568,13 +577,16 @@ public class SidebarTreeView {
             MenuItem edit     = new MenuItem(i18n.get("action.editConnection"));
             MenuItem duplicate = new MenuItem(i18n.get("action.duplicateConnection"));
             MenuItem copyShare = new MenuItem(i18n.get("connection.share.copy"));
+            boolean favorite = favoriteIds.contains(conn.id());
+            MenuItem toggleFavorite = new MenuItem(i18n.get(favorite ? "connection.favorite.remove" : "connection.favorite.add"));
             MenuItem delete   = new MenuItem(i18n.get("action.deleteConnection"));
             connect.setOnAction(e -> { if (onConnect != null) onConnect.run(); });
             edit.setOnAction(e -> { if (onEdit != null) onEdit.accept(conn); });
             duplicate.setOnAction(e -> { if (onDuplicate != null) onDuplicate.accept(conn); });
             copyShare.setOnAction(e -> { if (onCopyShare != null) onCopyShare.accept(conn); });
+            toggleFavorite.setOnAction(e -> { if (onFavorite != null) onFavorite.accept(conn.id(), !favorite); });
             delete.setOnAction(e -> { if (onDelete != null) onDelete.accept(getSelectedItems()); });
-            return transparentPopup(new ContextMenu(connect, edit, duplicate, copyShare, new SeparatorMenuItem(), delete));
+            return transparentPopup(new ContextMenu(connect, edit, duplicate, copyShare, toggleFavorite, new SeparatorMenuItem(), delete));
         }
 
         private ContextMenu buildFolderContextMenu(SidebarItem.FolderItem folder, int depth) {
@@ -583,6 +595,9 @@ public class SidebarTreeView {
             MenuItem newConn = new MenuItem(i18n.get("action.newConnection"));
             newConn.setOnAction(e -> { if (onNewConnectionInFolder != null) onNewConnectionInFolder.accept(folder.id()); });
             menu.getItems().add(newConn);
+            MenuItem importShare = new MenuItem(i18n.get("connection.share.import"));
+            importShare.setOnAction(e -> { if (onImportShare != null) onImportShare.accept(folder.id()); });
+            menu.getItems().add(importShare);
 
             if (depth + 1 < maxFolderDepth) {
                 MenuItem newSub = new MenuItem(i18n.get("folder.newSub"));

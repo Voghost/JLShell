@@ -374,16 +374,18 @@ public class PreferencesDialog {
         appSettings.set("ui.theme", pendingTheme[0]);
         if (!prevTheme.equals(pendingTheme[0])) {
             AppTheme newTheme = "LIGHT".equals(pendingTheme[0]) ? AppTheme.LIGHT : AppTheme.DARK;
-            themeService.currentThemeProperty().set(newTheme);
+            themeService.setTheme(newTheme);
         }
         themeService.setAccentColor(pendingAccent[0]);
 
         appSettings.set("connection.timeout", pendingConnTimeout[0]);
         appSettings.set("connection.keepAliveInterval", pendingKeepAlive[0]);
 
-        if (pendingScheme[0] != null) {
+        if (pendingScheme[0] != null && (prevTheme.equals(pendingTheme[0])
+                || pendingScheme[0].isLight() == "LIGHT".equals(pendingTheme[0]))) {
             themeService.setActiveColorScheme(pendingScheme[0]);
         }
+        pendingScheme[0] = themeService.activeColorScheme();
 
         // API settings
         String prevApiEnabled = appSettings.get("api.enabled", "false");
@@ -1364,17 +1366,26 @@ public class PreferencesDialog {
         });
 
         ListView<TerminalColorScheme> schemeList = new ListView<>(filteredSchemes);
-        schemeList.setPrefHeight(200);
+        schemeList.setPrefHeight(240);
+        schemeList.setId("terminal.colorSchemes");
         schemeList.setCellFactory(lv -> new ListCell<>() {
             @Override
             protected void updateItem(TerminalColorScheme item, boolean empty) {
                 super.updateItem(item, empty);
                 if (empty || item == null) {
-                    setText(null);
+                    setText(null); setGraphic(null);
                 } else {
                     boolean builtIn = registry.isBuiltIn(item.name());
-                    setText(item.name() + (builtIn ? " " + i18n.get("preferences.terminal.colorScheme.builtin")
+                    setText(item.name() + "  ·  " + i18n.get(item.isLight() ? "colorScheme.light" : "colorScheme.dark") + (builtIn ? " " + i18n.get("preferences.terminal.colorScheme.builtin")
                             : " " + i18n.get("preferences.terminal.colorScheme.custom")));
+                    HBox swatches = new HBox(3);
+                    for (java.awt.Color color : item.ansiColors()) {
+                        javafx.scene.shape.Rectangle swatch = new javafx.scene.shape.Rectangle(12, 10,
+                                javafx.scene.paint.Color.rgb(color.getRed(), color.getGreen(), color.getBlue()));
+                        swatches.getChildren().add(swatch);
+                    }
+                    setGraphic(swatches);
+                    setContentDisplay(javafx.scene.control.ContentDisplay.BOTTOM);
                 }
             }
         });
@@ -1384,6 +1395,7 @@ public class PreferencesDialog {
         for (int i = 0; i < filteredSchemes.size(); i++) {
             if (filteredSchemes.get(i).name().equals(activeName)) {
                 schemeList.getSelectionModel().select(i);
+                schemeList.scrollTo(i);
                 break;
             }
         }
@@ -1412,6 +1424,10 @@ public class PreferencesDialog {
                 schemePreview.update(adjusted);
                 preferenceChanged.run();
             }
+        });
+
+        schemeList.getSelectionModel().selectedItemProperty().addListener((o, old, selected) -> {
+            if (selected != null) opacitySlider.setValue(selected.opacity());
         });
 
         // Action buttons
@@ -1495,9 +1511,33 @@ public class PreferencesDialog {
         HBox actionBtns = new HBox(6, newBtn, dupBtn, editBtn, deleteBtn);
         actionBtns.setAlignment(Pos.CENTER_LEFT);
 
+        Label currentSchemeLabel = new Label();
+        Label previewSchemeLabel = new Label();
+        currentSchemeLabel.setId("terminal.colorScheme.current");
+        previewSchemeLabel.setId("terminal.colorScheme.preview");
+        Runnable updateSchemeStatus = () -> {
+            TerminalColorScheme active = themeService.activeColorScheme();
+            currentSchemeLabel.setText(i18n.get("colorScheme.current", active.name()));
+            TerminalColorScheme selected = pendingScheme[0];
+            previewSchemeLabel.setText(selected != null && !selected.equals(active)
+                    ? i18n.get("colorScheme.pending", selected.name()) : i18n.get("colorScheme.applied"));
+        };
+        javafx.beans.value.ChangeListener<TerminalColorScheme> activeSchemeListener = (o, old, next) -> {
+            pendingScheme[0] = next;
+            selectByName(schemeList, next.name());
+            updateSchemeStatus.run();
+        };
+        // Retain the listener with the page, but let the service hold it weakly.
+        currentSchemeLabel.getProperties().put("activeSchemeListener", activeSchemeListener);
+        themeService.activeColorSchemeProperty().addListener(new javafx.beans.value.WeakChangeListener<>(activeSchemeListener));
+        schemeList.getSelectionModel().selectedItemProperty().addListener((o, old, next) -> updateSchemeStatus.run());
+        opacitySlider.valueProperty().addListener((o, old, next) -> updateSchemeStatus.run());
+        updateSchemeStatus.run();
         VBox schemeSection = new VBox(8);
 
         schemeSection.getChildren().addAll(
+                currentSchemeLabel,
+                previewSchemeLabel,
                 filterField,
                 schemeList,
                 schemePreview,
@@ -1512,7 +1552,7 @@ public class PreferencesDialog {
         VBox highlightCard = settingsCard(i18n.get("highlight.title"), i18n.get("highlight.description"),
                 TerminalHighlightEditor.create(com.jlshell.terminal.model.TerminalHighlightConfig.parse(pendingHighlights[0]),
                         i18n, config -> { pendingHighlights[0] = config.serialize(); preferenceChanged.run(); }));
-        VBox cards = new VBox(14, typographyCard, highlightCard, colorsCard);
+        VBox cards = new VBox(14, typographyCard, colorsCard, highlightCard);
         cards.getStyleClass().add("settings-card-grid");
         ScrollPane scroll = new ScrollPane(cards);
         scroll.setFitToWidth(true);

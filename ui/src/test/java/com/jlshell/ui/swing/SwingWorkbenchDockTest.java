@@ -27,6 +27,77 @@ import static org.junit.jupiter.api.Assertions.*;
 /** 真正挂载同一个终端；确保工具窗显隐、排序和切换插件页不替换主终端及缓冲区。 */
 @EnabledIfSystemProperty(named = "jlshell.ui.smoke", matches = "true")
 class SwingWorkbenchDockTest {
+    @Test void windowSizeRestoresDefaultsAndClampsToCurrentScreen() {
+        var screen = new java.awt.Dimension(1920, 1080);
+        assertEquals(new java.awt.Dimension(1480, 920), SwingWorkbench.restoredWindowSize("", screen));
+        assertEquals(new java.awt.Dimension(1100, 700), SwingWorkbench.restoredWindowSize("1100x700", screen));
+        assertEquals(new java.awt.Dimension(1920, 1080), SwingWorkbench.restoredWindowSize("3000x2000", screen));
+        assertEquals(new java.awt.Dimension(1480, 920), SwingWorkbench.restoredWindowSize("invalid", screen));
+    }
+
+    @Test void windowResizeIsSavedAndRestored() throws Exception {
+        var saved = new java.util.concurrent.ConcurrentHashMap<String, String>();
+        var ref = new AtomicReference<SwingWorkbench>();
+        Runnable noop = () -> {};
+        var actions = new SwingWorkbench.Actions(noop, noop, noop, noop, noop, noop, noop, noop, noop,
+                connection -> {}, items -> {}, project -> {}, folders -> {}, tab -> {},
+                (tab, position) -> {}, (items, folder) -> {}, (item, reply) -> {}, (tab, reply) -> {},
+                saved::put, noop);
+        SwingExecutors.runOnEdtAsync(() -> {
+            SwingTheme.install(AppTheme.DARK, "#3574f0", "SansSerif", 13);
+            var view = new SwingWorkbench(actions, Map.of()); ref.set(view); view.show();
+        }).get(15, TimeUnit.SECONDS);
+        SwingExecutors.runOnEdtAsync(() -> {}).get(15, TimeUnit.SECONDS);
+        SwingExecutors.runOnEdtAsync(() -> ref.get().frame().setSize(1000, 700)).get(15, TimeUnit.SECONDS);
+        SwingExecutors.runOnEdtAsync(() -> {}).get(15, TimeUnit.SECONDS);
+        SwingExecutors.runOnEdtAsync(() -> ref.get().close()).get(15, TimeUnit.SECONDS);
+        assertEquals("1000x700", saved.get("ui.workspace.windowSize"));
+        SwingExecutors.runOnEdtAsync(() -> {
+            var restored = new SwingWorkbench(actions, Map.of("ui.workspace.windowSize", saved.get("ui.workspace.windowSize")));
+            try { assertEquals(new java.awt.Dimension(1000, 700), restored.frame().getSize()); }
+            finally { restored.close(); }
+        }).get(15, TimeUnit.SECONDS);
+    }
+
+    @Test void welcomeRowContextMenuTargetsClickedConnection() throws Exception {
+        SwingExecutors.runOnEdtAsync(() -> {
+            SwingTheme.install(AppTheme.DARK, "#3574f0", "SansSerif", 13);
+            Runnable noop = () -> {};
+            var selected = new AtomicReference<List<com.jlshell.ui.model.SidebarItem>>();
+            var requested = new AtomicReference<com.jlshell.ui.model.SidebarItem>();
+            var connected = new AtomicInteger();
+            var actions = new SwingWorkbench.Actions(noop, noop, noop, noop, noop, noop, noop, noop, noop,
+                    connection -> connected.incrementAndGet(), selected::set, project -> {}, folders -> {}, tab -> {},
+                    (tab, position) -> {}, (items, folder) -> {},
+                    (item, reply) -> requested.set(item), (tab, reply) -> {});
+            var view = new SwingWorkbench(actions, Map.of());
+            try {
+                var profile = new com.jlshell.ui.model.ConnectionProfile("one", "server", "example.invalid", 22,
+                        "user", null, null, null, null, false, null, com.jlshell.core.model.ConnectionType.SSH, null, null);
+                view.updateConnections(List.of(), List.of(profile), java.util.Set.of());
+                view.updateWelcome(List.of(new com.jlshell.ui.model.RecentSessionProfile("one", "server", "example.invalid", 22,
+                        "user", "SSH", java.time.Instant.now(), null, "OPEN")), List.of());
+                view.show();
+                Component row = descendants(view.frame()).stream().filter(c -> "welcome.connection.one".equals(c.getName())).findFirst().orElseThrow();
+                view.frame().validate();
+                for (Component child : ((Container) row).getComponents()) {
+                    Point p = SwingUtilities.convertPoint(child, Math.max(0, child.getWidth() / 2), Math.max(0, child.getHeight() / 2), row);
+                    Component target = SwingUtilities.getDeepestComponentAt((Container) row, p.x, p.y);
+                    assertSame(row, target, "图标和文字区域必须由整行按钮接收鼠标事件");
+                    long now = System.currentTimeMillis();
+                    row.dispatchEvent(new MouseEvent(row, MouseEvent.MOUSE_ENTERED, now, 0, p.x, p.y, 0, false));
+                    assertTrue(((javax.swing.JButton) row).getModel().isRollover());
+                    row.dispatchEvent(new MouseEvent(row, MouseEvent.MOUSE_PRESSED, now, 0, p.x, p.y, 1, false, MouseEvent.BUTTON1));
+                    row.dispatchEvent(new MouseEvent(row, MouseEvent.MOUSE_RELEASED, now, 0, p.x, p.y, 1, false, MouseEvent.BUTTON1));
+                }
+                assertEquals(2, connected.get());
+                row.dispatchEvent(new MouseEvent(row, MouseEvent.MOUSE_RELEASED, System.currentTimeMillis(), 0,
+                        5, 5, 1, true, MouseEvent.BUTTON3));
+                assertEquals("one", requested.get().id());
+                assertEquals("one", selected.get().getFirst().id());
+            } finally { view.close(); }
+        }).get(15, TimeUnit.SECONDS);
+    }
     @Test void longConnectionAndFolderNamesEllipsizeWithinTheSidebarAndKeepFullTooltips() throws Exception {
         SwingExecutors.runOnEdtAsync(() -> {
             SwingTheme.install(AppTheme.DARK, "#3574f0", "SansSerif", 13);

@@ -27,6 +27,11 @@ public class ColorSchemePreview extends VBox {
     private final Text prompt = new Text("user@host ~ $ ");
     private final Text command = new Text("ls");
     private final Rectangle[] swatches = new Rectangle[16];
+    private final Text directory = new Text("\nDocuments/   ");
+    private final Text filename = new Text("README.md\n");
+    private final Text info = new Text("INFO connected   ");
+    private final Text warning = new Text("WARN retry   ");
+    private final Text error = new Text("ERROR timeout\n");
 
     public ColorSchemePreview() {
         setSpacing(4);
@@ -39,7 +44,8 @@ public class ColorSchemePreview extends VBox {
         sampleText.setMaxWidth(Double.MAX_VALUE);
         prompt.setFont(Font.font("Monospaced", 11));
         command.setFont(Font.font("Monospaced", 11));
-        sampleText.getChildren().addAll(prompt, command);
+        sampleText.getChildren().addAll(prompt, command, directory, filename, info, warning, error);
+        for (Text text : new Text[]{directory, filename, info, warning, error}) text.setFont(Font.font("Monospaced", 12));
 
         colorRow1 = new HBox(2);
         colorRow1.setAlignment(Pos.CENTER_LEFT);
@@ -67,6 +73,11 @@ public class ColorSchemePreview extends VBox {
         // Sample text
         prompt.setFill(fg);
         command.setFill(toFxColor(scheme.green(), 1.0));
+        directory.setFill(toFxColor(scheme.blue(), 1));
+        filename.setFill(fg);
+        info.setFill(toFxColor(scheme.cyan(), 1));
+        warning.setFill(toFxColor(scheme.yellow(), 1));
+        error.setFill(toFxColor(scheme.red(), 1));
         java.awt.Color[] colors = {scheme.black(), scheme.red(), scheme.green(), scheme.yellow(), scheme.blue(),
                 scheme.purple(), scheme.cyan(), scheme.white(), scheme.brightBlack(), scheme.brightRed(),
                 scheme.brightGreen(), scheme.brightYellow(), scheme.brightBlue(), scheme.brightPurple(),

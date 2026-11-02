@@ -5,7 +5,7 @@ class HighlightGraphics extends java.awt.Graphics2D {
     interface Foreground { java.awt.Color at(int x, int baseline, java.awt.Color original); }
     protected final java.awt.Graphics2D delegate;
     private final Foreground foreground;
-    private final java.awt.Shape clipLimit;
+    private java.awt.Shape clipLimit;
     HighlightGraphics(java.awt.Graphics2D delegate, Foreground foreground) { this(delegate, foreground, null); }
     HighlightGraphics(java.awt.Graphics2D delegate, Foreground foreground, java.awt.Shape clipLimit) {
         this.delegate = delegate; this.foreground = foreground; this.clipLimit = clipLimit instanceof java.awt.geom.Area area && area.isRectangular() ? area.getBounds() : clipLimit;
@@ -18,8 +18,17 @@ class HighlightGraphics extends java.awt.Graphics2D {
         delegate.drawChars(data, offset, length, x, y);
         delegate.setColor(old);
     }
-    @Override public void translate(int p0, int p1) { delegate.translate(p0, p1); }
-    @Override public void translate(double p0, double p1) { delegate.translate(p0, p1); }
+    @Override public void translate(int p0, int p1) { translate((double)p0, (double)p1); }
+    @Override public void translate(double p0, double p1) {
+        if (clipLimit != null) clipLimit = translatedLimit(-p0, -p1);
+        delegate.translate(p0, p1);
+    }
+    private java.awt.Shape translatedLimit(double x, double y) {
+        if (clipLimit instanceof java.awt.Rectangle rectangle && x == Math.rint(x) && y == Math.rint(y)) {
+            var result = new java.awt.Rectangle(rectangle); result.translate((int)x, (int)y); return result;
+        }
+        return java.awt.geom.AffineTransform.getTranslateInstance(x, y).createTransformedShape(clipLimit);
+    }
     @Override public java.awt.Paint getPaint() { return delegate.getPaint(); }
     @Override public void setPaint(java.awt.Paint p0) { delegate.setPaint(p0); }
     @Override public void draw(java.awt.Shape p0) { delegate.draw(p0); }
