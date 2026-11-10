@@ -206,6 +206,7 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
         final JButton transferButton;
         long sequence;
         String requestedPath;
+        private AWTEventListener pathDismissListener;
         Browser(boolean remoteSide) {
             super(new BorderLayout()); isRemote = remoteSide;
             setName(remoteSide ? "sftp.remote" : "sftp.local"); setMinimumSize(new Dimension(230, 130));
@@ -245,6 +246,13 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
             pathHost.setOpaque(false); pathHost.add(crumbs, "crumbs"); pathHost.add(editor, "edit");
             editor.setName(isRemote ? "sftp.remote.path" : "sftp.local.path"); IdeaFormStyle.apply(editor);
             editor.addActionListener(event -> { navigate(editor.getText()); showPath(false); });
+            editor.addFocusListener(new FocusAdapter() {
+                @Override public void focusLost(FocusEvent event) { showPath(false); }
+            });
+            editor.addHierarchyListener(event -> {
+                if ((event.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && !editor.isShowing())
+                    showPath(false);
+            });
             editor.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "path.cancel");
             editor.getActionMap().put("path.cancel", new AbstractAction() { public void actionPerformed(ActionEvent e) { showPath(false); } });
             pathRow.add(pathHost); pathRow.add(tool(WorkbenchIcon.Kind.EDIT, t("sftp.editPath"), () -> showPath(true)), BorderLayout.EAST);
@@ -311,8 +319,23 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
             table.getActionMap().put(name, new AbstractAction() { public void actionPerformed(ActionEvent event) { action.run(); } });
         }
         void showPath(boolean edit) {
+            if (pathDismissListener != null) {
+                Toolkit.getDefaultToolkit().removeAWTEventListener(pathDismissListener);
+                pathDismissListener = null;
+            }
             ((CardLayout) pathHost.getLayout()).show(pathHost, edit ? "edit" : "crumbs");
-            if (edit) { editor.setText(path); editor.requestFocusInWindow(); editor.selectAll(); }
+            editor.setText(path);
+            if (edit) {
+                pathDismissListener = event -> {
+                    if (event instanceof MouseEvent mouse && mouse.getID() == MouseEvent.MOUSE_PRESSED
+                            && mouse.getSource() instanceof Component source
+                            && source != editor && !SwingUtilities.isDescendingFrom(source, editor))
+                        showPath(false);
+                };
+                Toolkit.getDefaultToolkit().addAWTEventListener(pathDismissListener, AWTEvent.MOUSE_EVENT_MASK);
+                editor.requestFocusInWindow();
+                editor.selectAll();
+            }
         }
         void refresh() { if (path != null) navigate(path); }
         void up() {
@@ -691,6 +714,8 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
         }
     }
     private void dismissPopups() {
+        local.showPath(false);
+        remote.showPath(false);
         popups.forEach(popup -> popup.setVisible(false)); popups.clear();
         directoryPopups.forEach(IdeaComponentPopup::close); directoryPopups.clear();
     }

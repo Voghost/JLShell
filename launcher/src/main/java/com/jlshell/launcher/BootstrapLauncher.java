@@ -22,7 +22,7 @@ import java.util.regex.Pattern;
  * Stable bootstrap entry point used by packaged distributions.
  *
  * <p>The launcher is intentionally dependency-free. It chooses a verified
- * update jar from the user update directory only when it is newer than the
+ * update jar from this installation's update directory when it is newer than the
  * bundled application shipped inside the installer.</p>
  */
 public final class BootstrapLauncher {
@@ -45,6 +45,7 @@ public final class BootstrapLauncher {
             if (relaunchWithIsolatedWindowsRuntime(args)) {
                 return;
             }
+            waitForRestartParent();
             Path selectedJar = selectApplicationJar();
             System.setProperty("jlshell.app.dir", applicationRootDir().toString());
             System.setProperty("jlshell.launcher.version", launcherVersion());
@@ -217,9 +218,7 @@ public final class BootstrapLauncher {
             pendingEntry = discardCachedEntryIfNotNewer(
                     pending, pendingEntry, installedVersion, bundled, false);
             if (pendingEntry.isPresent() && verifyEntry(pendingEntry.get())) {
-                // Prefer promoting the app jar into the installation directory.
-                // If the install dir is read-only, fall back to loading the
-                // staged jar from the per-user updates directory.
+                // Both the installed JAR and staging area belong to this installation.
                 boolean promoted = promotePendingByCopy(pendingEntry.get(), bundled);
                 promotePending(pending, current, previous, pendingEntry.get(),
                         promoted ? bundled : pendingEntry.get().jarPath());
@@ -344,15 +343,19 @@ public final class BootstrapLauncher {
             if (Files.isRegularFile(bundled)) {
                 Files.copy(bundled, backup, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             }
-            Files.copy(entry.jarPath(), bundled, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-            if (Files.size(bundled) != Files.size(entry.jarPath())
-                    || !sha256(bundled).equalsIgnoreCase(entry.sha256())) {
-                restoreBundledBackup(backup, bundled);
-                return false;
+            Path replacement = bundled.resolveSibling(bundled.getFileName() + ".next");
+            try {
+                Files.copy(entry.jarPath(), replacement, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                if (!sha256(replacement).equalsIgnoreCase(entry.sha256()))
+                    throw new IOException("Replacement application JAR checksum mismatch");
+                Files.move(replacement, bundled, java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                        java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+                return true;
+            } finally {
+                Files.deleteIfExists(replacement);
             }
-            return true;
         } catch (Exception e) {
-            System.err.println("JLShell: cannot copy update to install dir (falling back to user updates): " + e.getMessage());
+            System.err.println("JLShell: cannot copy update to install dir (keeping the verified installation-local staged jar): " + e.getMessage());
             restoreBundledBackup(backup, bundled);
             return false;
         }
@@ -447,7 +450,7 @@ public final class BootstrapLauncher {
     }
 
     private static void invokeApplication(Path appJar, String[] args) throws Exception {
-        Path runtimeCache = updatesDir().resolve("runtime");
+        Path runtimeCache = Path.of(System.getProperty("java.io.tmpdir"), "jlshell-runtime");
         ApplicationRuntime runtime = ApplicationRuntime.open(appJar, runtimeCache);
         ClassLoader previous = Thread.currentThread().getContextClassLoader();
         try {
@@ -501,8 +504,15 @@ public final class BootstrapLauncher {
         return Files.isDirectory(codeSource) ? codeSource : codeSource.getParent();
     }
 
-    private static Path updatesDir() {
-        return Path.of(System.getProperty("user.home"), ".jlshell", "updates");
+    private static Path updatesDir() throws Exception {
+        return applicationRootDir().resolve("updates");
+    }
+
+    private static void waitForRestartParent() throws Exception {
+        String parentPid = System.getProperty("jlshell.restart.parentPid", "");
+        if (parentPid.isBlank()) return;
+        ProcessHandle parent = ProcessHandle.of(Long.parseLong(parentPid)).orElse(null);
+        if (parent != null) parent.onExit().get(60, java.util.concurrent.TimeUnit.SECONDS);
     }
 
     private static String launcherVersion() {

@@ -25,6 +25,18 @@ on:
         options:
           - stable
           - beta
+      update_type:
+        description: 'JAR updates for compatible runtimes. Select full when bundled Java/native modules change.'
+        required: true
+        default: 'jar'
+        type: choice
+        options:
+          - jar
+          - full
+      min_launcher_version:
+        description: 'Minimum launcher compatible with this JAR (installation-local updater requires 0.2.2+)'
+        required: true
+        default: '0.2.2'
       publish:
         description: 'Publish release on website immediately'
         required: true
@@ -50,6 +62,8 @@ env:
   VERSION: ${{ github.event.inputs.version }}
   RELEASE_BUILD_ONLY: ${{ github.event.inputs.build_only }}
   RELEASE_CHANNEL: ${{ github.event.inputs.channel }}
+  RELEASE_UPDATE_TYPE: ${{ inputs.update_type || 'full' }}
+  RELEASE_MIN_LAUNCHER_VERSION: ${{ inputs.min_launcher_version || '0.2.2' }}
   RELEASE_PUBLISH: ${{ github.event.inputs.publish }}
   RELEASE_ASSET_VISIBLE: ${{ github.event.inputs.asset_visible }}
   MODULES: "java.base,java.compiler,java.desktop,java.logging,java.management,java.naming,java.net.http,java.prefs,java.scripting,java.security.jgss,java.sql,java.xml,jdk.crypto.ec,jdk.httpserver,jdk.jfr,jdk.localedata,jdk.naming.dns,jdk.net,jdk.unsupported,jdk.unsupported.desktop,jdk.zipfs,javafx.controls,javafx.swing"
@@ -976,14 +990,14 @@ jobs:
           payload = {
               "version": version,
               "channel": os.environ.get("RELEASE_CHANNEL") or "stable",
-              "updateType": "full",
+              "updateType": os.environ.get("RELEASE_UPDATE_TYPE", "full"),
               "title": release_metadata["title"],
               "summary": release_metadata["summary"],
               "releaseNotes": release_metadata["releaseNotes"],
               "releaseUrl": release_metadata["releaseUrl"],
               "mandatory": False,
-              "requiresFullInstaller": True,
-              "minLauncherVersion": "0.1.0",
+              "requiresFullInstaller": os.environ.get("RELEASE_UPDATE_TYPE", "full") != "jar",
+              "minLauncherVersion": os.environ.get("RELEASE_MIN_LAUNCHER_VERSION", "0.2.2"),
               "publish": os.environ.get("RELEASE_PUBLISH", "false").lower() == "true",
               "assets": payload_assets,
           }

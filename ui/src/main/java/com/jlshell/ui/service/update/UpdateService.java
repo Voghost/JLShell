@@ -128,16 +128,11 @@ public class UpdateService {
                     throw new IOException("No update is available");
                 }
                 if (canUseJarUpdate(update) && downloadable(update.asset())) {
-                    try {
-                        return downloadAndStageJar(update, update.asset(), progressCallback);
-                    } catch (Exception jarError) {
-                        if (!downloadable(update.fallbackInstaller())) {
-                            throw jarError;
-                        }
-                        log.warn("JLShell jar update failed; falling back to full installer: version={}, asset={}",
-                                update.latestVersion(), update.asset().fileName(), jarError);
-                    }
+                    return downloadAndStageJar(update, update.asset(), progressCallback);
                 }
+                log.info("JAR update unavailable: type={}, requiresFullInstaller={}, launcher={}, minimum={}, directory={}",
+                        update.updateType(), update.requiresFullInstaller(),
+                        System.getProperty("jlshell.launcher.version", "0.0.0"), update.minLauncherVersion(), updatesDir);
                 return downloadInstaller(update.fallbackInstaller(), progressCallback);
             } catch (UpdateException e) {
                 throw e;
@@ -202,7 +197,7 @@ public class UpdateService {
         return URI.create(baseUrl + "/api/v1/updates/latest?" + query);
     }
 
-    private DownloadResult downloadAndStageJar(UpdateResponse update, UpdateAsset asset, DoubleConsumer progressCallback) throws Exception {
+    private synchronized DownloadResult downloadAndStageJar(UpdateResponse update, UpdateAsset asset, DoubleConsumer progressCallback) throws Exception {
         log.info("Downloading JLShell jar update: version={}, fileName={}, url={}, size={}",
                 update.latestVersion(), asset.fileName(), asset.url(), asset.size());
         Path downloaded = downloadVerified(asset, progressCallback);
@@ -216,7 +211,7 @@ public class UpdateService {
         return new DownloadResult(true, true, stagedJar);
     }
 
-    private DownloadResult downloadInstaller(UpdateAsset asset, DoubleConsumer progressCallback) throws Exception {
+    private synchronized DownloadResult downloadInstaller(UpdateAsset asset, DoubleConsumer progressCallback) throws Exception {
         if (!downloadable(asset)) {
             log.warn("JLShell update API did not provide a downloadable asset");
             throw new UpdateException(
@@ -237,12 +232,16 @@ public class UpdateService {
         Files.createDirectories(downloads);
         Path tempFile = downloads.resolve(asset.fileName() + ".part");
         Path finalFile = downloads.resolve(asset.fileName());
-        Files.deleteIfExists(tempFile);
-        download(asset.url(), tempFile, asset.size(), progressCallback);
-        verifySize(tempFile, asset.size());
-        verifySha256(tempFile, asset.sha256());
-        Files.move(tempFile, finalFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-        return finalFile;
+        try {
+            Files.deleteIfExists(tempFile);
+            download(asset.url(), tempFile, asset.size(), progressCallback);
+            verifySize(tempFile, asset.size());
+            verifySha256(tempFile, asset.sha256());
+            Files.move(tempFile, finalFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            return finalFile;
+        } finally {
+            Files.deleteIfExists(tempFile);
+        }
     }
 
     private void download(String url, Path destination, long knownSize, DoubleConsumer progressCallback) throws Exception {
@@ -334,7 +333,10 @@ public class UpdateService {
     private void writePending(String version, Path jarPath, String sha256) throws IOException {
         Files.createDirectories(updatesDir);
         PendingUpdate pending = new PendingUpdate(version, jarPath.toAbsolutePath().toString(), sha256, false);
-        Files.writeString(updatesDir.resolve("pending.json"), gson.toJson(pending), StandardCharsets.UTF_8);
+        Path temporary = updatesDir.resolve("pending.json.tmp");
+        Files.writeString(temporary, gson.toJson(pending), StandardCharsets.UTF_8);
+        Files.move(temporary, updatesDir.resolve("pending.json"),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
     }
 
     private void pruneStagedJarVersions() {
@@ -423,7 +425,10 @@ public class UpdateService {
     }
 
     private static Path defaultUpdatesDir() {
-        return Path.of(System.getProperty("user.home"), ".jlshell", "updates");
+        String configured = System.getProperty("jlshell.update.dir", "");
+        if (!configured.isBlank()) return Path.of(configured).toAbsolutePath().normalize();
+        String appDirectory = System.getProperty("jlshell.app.dir", System.getProperty("user.dir", "."));
+        return Path.of(appDirectory).toAbsolutePath().normalize().resolve("updates");
     }
 
     private static String osName() {
@@ -507,6 +512,10 @@ public class UpdateService {
         while (current != null) {
             if (current instanceof UpdateHttpException httpException) {
                 return httpUserMessageKey(httpException.statusCode(), true);
+            }
+            if (current instanceof java.nio.file.AccessDeniedException
+                    || current instanceof java.nio.file.ReadOnlyFileSystemException) {
+                return "updates.error.installDirectoryReadOnly";
             }
             String message = current.getMessage();
             if (message != null && message.toLowerCase(Locale.ROOT).contains("checksum")) {

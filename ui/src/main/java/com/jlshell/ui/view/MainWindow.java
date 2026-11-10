@@ -1142,7 +1142,12 @@ public class MainWindow {
         themeService.applyToDialog(alert);
         com.jlshell.ui.swing.SwingAlerts.showAndWait(alert, themeService, i18nService).ifPresent(btn -> {
             if (btn == restartBtn) {
-                com.jlshell.ui.support.RestartHelper.scheduleRestart();
+                try {
+                    com.jlshell.ui.support.RestartHelper.scheduleRestart();
+                } catch (IllegalStateException error) {
+                    showUpdateError(stage, new UpdateService.UpdateException(
+                            "Failed to restart", error, "updates.error.restartFailed"));
+                }
             }
         });
     }
