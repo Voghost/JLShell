@@ -168,7 +168,7 @@ class UpdateServiceTest {
     }
 
     @Test
-    void fallsBackToInstallerWhenJarVerificationFails() throws Exception {
+    void keepsJarVerificationFailureVisibleWithoutDownloadingInstaller() throws Exception {
         byte[] installerBytes = "installer-0.1.42".getBytes(StandardCharsets.UTF_8);
         startServer(exchange -> {
             if (exchange.getRequestURI().getPath().equals("/jar")) {
@@ -183,11 +183,11 @@ class UpdateServiceTest {
                 new UpdateService.UpdateAsset("JLShell-0.1.42-win-x64.msi", baseUrl() + "/installer",
                         installerBytes.length, sha256(installerBytes)));
 
-        UpdateService.DownloadResult result = service().downloadAndStage(response).join();
-
-        assertFalse(result.restartRequired());
-        assertEquals(tempDir.resolve("downloads/JLShell-0.1.42-win-x64.msi"), result.file());
-        assertEquals("installer-0.1.42", Files.readString(result.file(), StandardCharsets.UTF_8));
+        CompletionException error = assertThrows(CompletionException.class,
+                () -> service().downloadAndStage(response).join());
+        assertEquals("updates.error.verifyFailed", UpdateService.userMessageKey(error));
+        assertFalse(Files.exists(tempDir.resolve("downloads/JLShell-0.1.42-win-x64.msi")));
+        assertFalse(Files.exists(tempDir.resolve("downloads/jlshell-app-0.1.42.jar.part")));
         assertFalse(Files.exists(tempDir.resolve("pending.json")));
     }
 
