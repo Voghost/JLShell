@@ -1,5 +1,7 @@
 package com.jlshell.ui.dialog;
 
+import com.jlshell.ui.support.FxThread;
+
 import com.jlshell.core.shortcut.ShortcutConverter;
 import com.jlshell.core.shortcut.ShortcutDefinition;
 import com.jlshell.core.shortcut.ShortcutRegistry;
@@ -959,10 +961,10 @@ public class PreferencesDialog {
             if (memoryReclaimService == null) return;
             gcButton.setDisable(true);
             memoryStatus.setText(i18n.get("preferences.general.memoryGc.running"));
-            memoryReclaimService.requestNowWithStatus(result -> {
+            memoryReclaimService.requestNowWithStatus(result -> FxThread.run(() -> {
                 memoryStatus.setText(i18n.get("preferences.general.memoryGc.done", result));
                 gcButton.setDisable(false);
-            });
+            }));
         });
         HBox memoryRow = new HBox(8, gcButton, memoryStatus);
         memoryRow.setAlignment(Pos.CENTER_LEFT);

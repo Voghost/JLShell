@@ -114,7 +114,8 @@ class SshWorkspaceUiSmokeTest {
                 new JlshellSettingsProvider(font, TerminalColorScheme.dark()), key -> key)).get(10, TimeUnit.SECONDS);
         var handle = mock(TerminalViewHandle.class);
         when(handle.component()).thenReturn(widget);
-        when(handle.cwdProperty()).thenReturn(new SimpleStringProperty(""));
+        when(handle.currentDirectory()).thenReturn("");
+        when(handle.onDirectoryChanged(any())).thenReturn(com.jlshell.plugin.api.lifecycle.Registration.noop());
         when(handle.closeAsync()).thenReturn(CompletableFuture.completedFuture(null));
         var factory = mock(TerminalViewFactory.class);
         when(factory.createTerminalView(eq(session), any())).thenReturn(CompletableFuture.completedFuture(handle));
@@ -141,7 +142,7 @@ class SshWorkspaceUiSmokeTest {
             assertTrue(pluginContext.supportsSwingViews());
             pluginContext.openSwingTab("系统监控", () -> new NativePluginFixture(nativeCloses));
             return null;
-        }).when(plugins).activatePlugin(anyString(), any());
+        }).when(plugins).activatePlugin(anyString(), any(), any());
         SftpService filesService = mock(SftpService.class);
         when(filesService.listDirectory(eq(session), anyString())).thenReturn(CompletableFuture.completedFuture(
                 new com.jlshell.sftp.model.RemoteDirectoryListing("/home/fixture", List.of())));
@@ -276,6 +277,8 @@ class SshWorkspaceUiSmokeTest {
             } finally { System.setProperty("user.home", previousHome); }
             FxThread.supplyAsync(() -> { source.getInnerTabPane().getSelectionModel().select(2); return null; }).get(10, TimeUnit.SECONDS);
             SwingExecutors.runOnEdtAsync(() -> workbench.frame().validate()).get(10, TimeUnit.SECONDS);
+            int pluginDockWidth = SwingExecutors.supplyOnEdtAsync(() ->
+                    named(workbench.frame(), "right.toolWindow").getWidth()).get(10, TimeUnit.SECONDS);
             SwingExecutors.runOnEdtAsync(() -> {
                 var list = named(workbench.frame(), "session.plugins"); assertNotNull(list);
                 assertTrue(NativeSettingsProbe.all(list, javafx.embed.swing.JFXPanel.class).isEmpty());
@@ -287,10 +290,11 @@ class SshWorkspaceUiSmokeTest {
             FxThread.supplyAsync(() -> null).get(10, TimeUnit.SECONDS);
             verify(settings).set("ui.pluginSidebar.pinned.session:fixture", "true");
             SwingExecutors.runOnEdtAsync(() -> {
-                var shortcut = named(workbench.frame(), "plugin-shortcut-session:fixture");
+                var shortcut = named(workbench.frame(), "workspace.stripe.plugin:session:fixture");
                 assertNotNull(shortcut,"Pinning a plugin must add its own rail icon before it is opened");
-                assertEquals("系统监控",((javax.swing.JToggleButton)shortcut).getToolTipText());
-                assertTrue(named(workbench.frame(),"right.toolWindow").getWidth()<=330);
+                assertEquals("系统监控",((javax.swing.AbstractButton)shortcut).getToolTipText());
+                assertEquals(pluginDockWidth, named(workbench.frame(), "right.toolWindow").getWidth(),
+                        "Pinning must preserve the current dock width");
                 snapshot(workbench);
                 ((javax.swing.AbstractButton)shortcut).doClick();
             }).get(10, TimeUnit.SECONDS);
@@ -299,7 +303,7 @@ class SshWorkspaceUiSmokeTest {
             SwingExecutors.runOnEdtAsync(() -> {
                 var page = named(workbench.frame(), "fixture.native.plugin"); assertNotNull(page);
                 assertTrue(NativeSettingsProbe.all(page, javafx.embed.swing.JFXPanel.class).isEmpty());
-                ((javax.swing.AbstractButton) named(workbench.frame(), "plugin-shortcut-session:fixture")).doClick();
+                ((javax.swing.AbstractButton) named(workbench.frame(), "workspace.stripe.plugin:session:fixture")).doClick();
                 var rightSplit = (javax.swing.JSplitPane) named(workbench.frame(), "workspace.rightSplit");
                 assertNull(rightSplit.getRightComponent(), "Closing the active tool must remove its splitter pane");
                 assertEquals(0, rightSplit.getDividerSize());
@@ -317,7 +321,16 @@ class SshWorkspaceUiSmokeTest {
             FxThread.supplyAsync(() -> { source.getInnerTabPane().getSelectionModel().select(2); return null; }).get(10,TimeUnit.SECONDS);
             SwingExecutors.runOnEdtAsync(() -> ((javax.swing.JToggleButton)named(workbench.frame(), "plugin-pin-session:fixture")).doClick()).get(10,TimeUnit.SECONDS);
             FxThread.supplyAsync(() -> null).get(10,TimeUnit.SECONDS);
-            SwingExecutors.runOnEdtAsync(() -> assertNull(named(workbench.frame(),"plugin-shortcut-session:fixture"))).get(10,TimeUnit.SECONDS);
+            verify(settings).set("ui.pluginSidebar.pinned.session:fixture", "false");
+            assertTrue(FxThread.supplyAsync(() -> {
+                var shortcuts = (javafx.collections.ObservableList<?>) source.getInnerTabPane().getTabs().get(2)
+                        .getProperties().get(com.jlshell.ui.view.PluginsTabView.PINNED_SHORTCUTS);
+                return shortcuts.isEmpty();
+            }).get(10, TimeUnit.SECONDS));
+            SwingExecutors.runOnEdtAsync(() -> assertNotNull(
+                    named(workbench.frame(), "workspace.stripe.plugin:session:fixture"),
+                    "An opened plugin remains a tool even after its pinned shortcut is removed"))
+                    .get(10, TimeUnit.SECONDS);
             AtomicInteger clicks = new AtomicInteger();
             Tab plugin = FxThread.supplyAsync(() -> {
                 Button button = new Button("原插件动作");
@@ -325,6 +338,7 @@ class SshWorkspaceUiSmokeTest {
                 VBox content = new VBox(button);
                 content.setStyle("-fx-padding: 19px;");
                 Tab tab = new Tab("插件页面", content);
+                tab.getProperties().put("pluginId", "session:legacy-fixture");
                 source.getInnerTabPane().getTabs().add(tab);
                 source.getInnerTabPane().getSelectionModel().select(tab);
                 return tab;
@@ -334,6 +348,13 @@ class SshWorkspaceUiSmokeTest {
                 assertTrue(widget.getTerminalTextBuffer().getScreenLines().contains("SSH TERMINAL VISIBLE"));
                 assertSame(workbench.frame(), SwingUtilities.getWindowAncestor(nativeView.toolWindow()));
             }).get(10, TimeUnit.SECONDS);
+            for (int attempt = 0; attempt < 100; attempt++) {
+                boolean attached = SwingExecutors.supplyOnEdtAsync(() ->
+                        NativeSettingsProbe.all(workbench.frame(), javafx.embed.swing.JFXPanel.class).size() == 1)
+                        .get(10, TimeUnit.SECONDS);
+                if (attached) break;
+                Thread.sleep(25);
+            }
             SwingExecutors.runOnEdtAsync(() -> {
                 assertEquals(1, NativeSettingsProbe.all(workbench.frame(), javafx.embed.swing.JFXPanel.class).size(),
                         "Legacy plugins must retain their original JavaFX controls");

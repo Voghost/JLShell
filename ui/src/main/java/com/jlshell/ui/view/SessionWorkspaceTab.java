@@ -75,7 +75,7 @@ public class SessionWorkspaceTab extends Tab {
     private boolean nativeFiles;
     private Tab pluginsTab;
     private PluginsTabView pluginsTabView;
-    private final ChangeListener<java.util.Locale> localeListener;
+    private final com.jlshell.plugin.api.lifecycle.Registration localeSubscription;
     /** SFTP 面板，首次激活时创建 */
     private SftpBrowserPane sftpPane;
     /** 会话内容模型，保存终端、文件和插件标签。 */
@@ -166,12 +166,11 @@ public class SessionWorkspaceTab extends Tab {
             workspaceTabs.getTabs().add(pluginsTab);
         }
 
-        localeListener = (obs, oldLocale, newLocale) -> {
+        localeSubscription = i18nService.onLocaleChanged(newLocale -> FxThread.run(() -> {
             if (pluginsTab != null) {
                 pluginsTab.setText(i18nService.get("workspace.plugins"));
             }
-        };
-        i18nService.localeProperty().addListener(localeListener);
+        }));
 
         setContent(workspaceTabs);
     }
@@ -198,7 +197,7 @@ public class SessionWorkspaceTab extends Tab {
     }
 
     public CompletableFuture<Void> closeWorkspace() {
-        i18nService.localeProperty().removeListener(localeListener);
+        localeSubscription.close();
         if (programSessionRegistry != null) {
             programSessionRegistry.deactivateSession(sshSession.sessionId().toString());
         }

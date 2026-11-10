@@ -148,7 +148,7 @@ public class AppContext implements AutoCloseable {
             var sshTiming = timing.step("ssh-sftp-services");
             // 5. SSH / SFTP
             SshjConnectionManager connectionManager = new SshjConnectionManager(
-                    executor, new EphemeralTrustHostKeyVerifier(), new HostKeyConfirmationService(i18nService, themeService));
+                    executor, new EphemeralTrustHostKeyVerifier(), new HostKeyConfirmationService(i18nService));
             SessionManager sessionManager = new DefaultSessionManager(connectionManager, sessionRegistry);
             SftpService sftpService = new SshjSftpService(executor);
 

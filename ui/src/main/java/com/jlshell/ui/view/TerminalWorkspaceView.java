@@ -75,7 +75,8 @@ public class TerminalWorkspaceView extends BorderPane {
     private final java.util.function.Consumer<String> sessionDisconnectListener;
     private final StackPane terminalHost = new StackPane();
     private final List<TerminalViewHandle> handles = new ArrayList<>();
-    private final List<ChangeListener<String>> cwdListeners = new ArrayList<>();
+    private volatile boolean closing;
+    private final List<com.jlshell.plugin.api.lifecycle.Registration> cwdListeners = new ArrayList<>();
 
     private Node primaryNode;
     private ChangeListener<Boolean> primaryFocusListener;
@@ -283,6 +284,7 @@ public class TerminalWorkspaceView extends BorderPane {
 
 
     public CompletableFuture<Void> closeAsync() {
+        closing = true;
         hideFloatingCard();
         stopStatusSampling();
         sshSession.removeDisconnectListener(sessionDisconnectListener);
@@ -290,7 +292,7 @@ public class TerminalWorkspaceView extends BorderPane {
         for (int i = 0; i < handles.size(); i++) {
             TerminalViewHandle handle = handles.get(i);
             if (i < cwdListeners.size()) {
-                handle.cwdProperty().removeListener(cwdListeners.get(i));
+                cwdListeners.get(i).close();
             }
             if (handle instanceof DefaultTerminalViewHandle dvh) {
                 dvh.setOnDisconnected(null);
@@ -1797,25 +1799,23 @@ public class TerminalWorkspaceView extends BorderPane {
                 terminalRuntimeSettings()
         );
         return terminalViewFactory.createTerminalView(sshSession, request)
-                .thenCompose(handle -> {
-                    handles.add(handle);
-                    // 桥接终端 cwd 属性：当 handle 的 cwd 变化时同步到持久属性
-                    ChangeListener<String> cwdListener = (obs, oldCwd, newCwd) -> {
-                        if (newCwd != null && !newCwd.isBlank()) {
-                            cwdProperty.set(newCwd);
-                        }
-                    };
-                    handle.cwdProperty().addListener(cwdListener);
-                    cwdListeners.add(cwdListener);
-                    // 注册断连回调：连接丢失时在终端上显示断连提示 + 重连按钮
-                    if (handle instanceof DefaultTerminalViewHandle dvh) {
-                        dvh.setOnDisconnected(this::onTerminalDisconnected);
+                .thenCompose(handle -> FxThread.supplyAsync(() -> {
+                    if (closing) {
+                        handle.closeAsync();
+                        throw new java.util.concurrent.CancellationException("Terminal workspace is closing");
                     }
-                    // 目录上报由终端工厂在开始渲染之前初始化，避免回显和重复提示符。
-                    String initialCwd = handle.cwdProperty().get();
-                    if (initialCwd != null && !initialCwd.isBlank()) cwdProperty.set(initialCwd);
-                    return FxThread.supplyAsync(() -> createEmbeddedTerminalNode(handle));
-                });
+                    handles.add(handle);
+                    var cwdSubscription = handle.onDirectoryChanged(newCwd -> FxThread.run(() -> {
+                        if (!closing && newCwd != null && !newCwd.isBlank()) cwdProperty.set(newCwd);
+                    }));
+                    cwdListeners.add(cwdSubscription);
+                    if (handle instanceof DefaultTerminalViewHandle dvh) {
+                        dvh.setOnDisconnected(reason -> FxThread.run(() -> {
+                            if (!closing) onTerminalDisconnected(reason);
+                        }));
+                    }
+                    return createEmbeddedTerminalNode(handle);
+                }));
     }
 
     private TerminalRuntimeSettings terminalRuntimeSettings() {

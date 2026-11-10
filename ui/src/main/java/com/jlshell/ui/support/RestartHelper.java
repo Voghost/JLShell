@@ -43,7 +43,6 @@ public final class RestartHelper {
         try {
             cleanup.run();
         } finally {
-            javafx.application.Platform.exit();
             Runtime.getRuntime().halt(0);
         }
     }

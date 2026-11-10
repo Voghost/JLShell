@@ -44,7 +44,7 @@ public class PluginsTabView extends BorderPane {
     private final TabPane workspaceTabs;
     private final Set<String> activatedSessionPluginIds =
             java.util.concurrent.ConcurrentHashMap.newKeySet();
-    private final ChangeListener<java.util.Locale> localeListener;
+    private final com.jlshell.plugin.api.lifecycle.Registration localeSubscription;
     private final ChangeListener<Number> catalogRevisionListener;
     public static final String NATIVE_VIEW = "jlshell.plugin.swingView";
     private final java.util.concurrent.atomic.AtomicReference<com.jlshell.ui.swing.SwingPluginList> nativeView = new java.util.concurrent.atomic.AtomicReference<>();
@@ -131,8 +131,10 @@ public class PluginsTabView extends BorderPane {
             }
         });
 
-        localeListener = (obs, oldLocale, newLocale) -> { listView.refresh(); publishPinnedShortcuts(); };
-        i18nService.localeProperty().addListener(localeListener);
+        localeSubscription = i18nService.onLocaleChanged(newLocale ->
+                com.jlshell.ui.support.FxThread.run(() -> {
+                    if (!disposed) { listView.refresh(); publishPinnedShortcuts(); }
+                }));
         catalogRevisionListener = (obs, oldRevision, newRevision) -> refreshOnFxThread();
         refreshPluginList();
         pluginManager.catalogRevisionProperty().addListener(catalogRevisionListener);
@@ -352,7 +354,7 @@ public class PluginsTabView extends BorderPane {
 
     public void dispose() {
         disposed = true; nativeView.set(null);
-        i18nService.localeProperty().removeListener(localeListener);
+        localeSubscription.close();
         pluginManager.catalogRevisionProperty().removeListener(catalogRevisionListener);
         if (programSessionRegistry != null) {
             programSessionRegistry.revisionProperty().removeListener(catalogRevisionListener);

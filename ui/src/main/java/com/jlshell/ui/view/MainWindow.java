@@ -151,6 +151,7 @@ public class MainWindow {
     private CompletableFuture<com.jlshell.ui.swing.SwingWorkbench> swingWorkbench;
     private Runnable swingQuitAction;
     private javafx.collections.ListChangeListener<javafx.stage.Window> swingModalListener;
+    private final javafx.beans.property.LongProperty localeRevision = new javafx.beans.property.SimpleLongProperty();
     private Label sectionLabel;
     private Label projectSwitchLabel;
     private Label statusLabel;
@@ -360,13 +361,14 @@ public class MainWindow {
             localShellHandles.forEach(handle -> handle.updateColorScheme(newScheme));
         });
 
-        i18nService.localeProperty().addListener((obs, oldLocale, newLocale) -> {
+        i18nService.onLocaleChanged(newLocale -> FxThread.run(() -> {
+            localeRevision.set(localeRevision.get() + 1);
             pluginManager.setLocale(newLocale);
             if (programPluginManager != null) {
                 programPluginManager.setLocale(newLocale);
             }
             updateWindowTitle();
-        });
+        }));
 
         if (!swing) loadConnections();
         updateWindowTitle();
@@ -1282,7 +1284,7 @@ public class MainWindow {
             ProjectProfile selected = projectCombo.getValue();
             return selected == null || selected == DEFAULT_PROJECT
                     ? i18nService.get("project.label.default") : selected.name();
-        }, projectCombo.valueProperty(), i18nService.localeProperty()));
+        }, projectCombo.valueProperty(), localeRevision));
         project.getStyleClass().add("ide-project-name");
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);

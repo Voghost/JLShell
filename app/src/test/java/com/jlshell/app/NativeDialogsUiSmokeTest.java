@@ -71,7 +71,7 @@ class NativeDialogsUiSmokeTest {
                 int shortHeight=edt(error::getHeight);
                 assertTrue(shortHeight<240,"Short errors should not retain the old 290px height");
                 capture(error,"native-error-"+theme.name().toLowerCase());click(error,"dialog.ok");shown.get(5,TimeUnit.SECONDS);
-                HostKeyConfirmationService service=new HostKeyConfirmationService(i18n,themes);
+                HostKeyConfirmationService service=new HostKeyConfirmationService(i18n);
                 var once=CompletableFuture.supplyAsync(()->service.confirmDecision("fixture.example",2222,"ssh-ed25519","SHA256:fixture-for-ui-only",false));
                 JDialog trust=window("jlshell.message.confirmation");assertFalse(edt(()->hasFxPanel(trust)));
                 assertTrue(edt(trust::getHeight)>shortHeight,"Trust details should increase the natural height");
