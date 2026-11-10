@@ -132,9 +132,9 @@ class SshWorkspaceUiSmokeTest {
         var descriptor = new com.jlshell.plugin.loader.PluginDescriptor("fixture", "Monitor", "1", "Fixture", "", true,
                 null, null, null, null, pluginInstance);
         when(plugins.getAvailablePlugins()).thenReturn(List.of(descriptor));
-        when(plugins.catalogRevisionProperty()).thenReturn(new javafx.beans.property.SimpleLongProperty());
-        when(plugins.themeNameProperty()).thenReturn(new SimpleStringProperty("Dark"));
-        when(plugins.localeProperty()).thenReturn(new javafx.beans.property.SimpleObjectProperty<>(Locale.SIMPLIFIED_CHINESE));
+        when(plugins.catalogRevisionProperty()).thenReturn(com.jlshell.plugin.api.ui.ObservableValue.constant(0L));
+        when(plugins.themeNameProperty()).thenReturn(new com.jlshell.core.support.MutableValue<>("Dark"));
+        when(plugins.localeProperty()).thenReturn(new com.jlshell.core.support.MutableValue<>(Locale.SIMPLIFIED_CHINESE));
         when(plugins.registryForSession(anyString())).thenReturn(new com.jlshell.plugin.loader.CapabilityRegistryImpl());
         AtomicInteger nativeCloses = new AtomicInteger();
         doAnswer(call -> {

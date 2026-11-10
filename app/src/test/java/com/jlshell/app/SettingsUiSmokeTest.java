@@ -91,7 +91,9 @@ class SettingsUiSmokeTest {
         static CompletableFuture<Void> open() {
             var result = new CompletableFuture<Void>();
             Platform.runLater(() -> {
-                try { main.openPreferences(owner); result.complete(null); }
+                try { main.openPreferences(owner).whenComplete((ignored, error) -> {
+                    if (error == null) result.complete(null); else result.completeExceptionally(error);
+                }); }
                 catch (Throwable error) { result.completeExceptionally(error); }
             });
             return result;
@@ -206,7 +208,7 @@ class SettingsUiSmokeTest {
             edt(() -> { ((JTextField)named(dialog,"settings-highlight-expression")).setText("["); return null; });
             fx(() -> null); click(dialog,"settings-highlight-save"); fx(() -> null); edt(() -> null);
             // Default rule uses regex: malformed drafts show an error and cannot enter saved rules.
-            assertFalse(edt(() -> ((JTextArea)named(dialog,"settings-highlight-error")).getText().isBlank()));
+            assertFalse(edt(() -> ((JLabel)named(dialog,"settings-highlight-error")).getText().isBlank()));
             edt(() -> { ((JTextField)named(dialog,"settings-highlight-expression")).setText("UPLOAD_FAILED"); return null; });
             fx(() -> null); click(dialog,"settings-highlight-save"); fx(() -> null); edt(() -> null);
             click(dialog,"settings.apply"); fx(() -> null);
@@ -227,9 +229,11 @@ class SettingsUiSmokeTest {
             });
             Thread.sleep(150);
             edt(() -> {
-                var preview=(Container)named(dialog,"settings-highlight-preview");
-                assertTrue(NativeSettingsProbe.all(preview,JLabel.class).stream()
-                        .anyMatch(label -> java.awt.Color.decode("#F87171").equals(label.getForeground())),
+                var preview = (JTextPane) named(dialog, "settings-highlight-preview");
+                int match = preview.getText().indexOf("UPLOAD_FAILED");
+                assertTrue(match >= 0);
+                assertEquals(java.awt.Color.decode("#F87171"), javax.swing.text.StyleConstants.getForeground(
+                        preview.getStyledDocument().getCharacterElement(match).getAttributes()),
                         "Native preview must display the configured color");
                 return null;
             });
@@ -284,7 +288,7 @@ class SettingsUiSmokeTest {
             JTable table=edt(()->(JTable)named(dialog,"settings.importTable"));assertNotNull(table);
             int row=edt(()->table.getRowCount()-1);
             edt(()->{table.getModel().setValueAt("native-table-fixture",row,1);table.getModel().setValueAt("fixture-password",row,6);return null;});fx(()->null);edt(()->null);
-            edt(()->{assertEquals("native-table-fixture",table.getValueAt(row,1));assertEquals("•••",table.getValueAt(row,6));
+            edt(()->{assertEquals("native-table-fixture",table.getValueAt(row,1));assertEquals("•••", ((JLabel) table.prepareRenderer(table.getCellRenderer(row,6), row,6)).getText());
                 assertTrue(table.editCellAt(row,6));assertEquals("fixture-password",new String(((JPasswordField)table.getEditorComponent()).getPassword()));table.getCellEditor().cancelCellEditing();
                 NativeSettingsProbe.button(dialog,i18n.get("import.manual.pasteJson")).doClick();return null;});
             JDialog paste=DialogUiSmokeTest.Probe.window("jlshell.import.popup");

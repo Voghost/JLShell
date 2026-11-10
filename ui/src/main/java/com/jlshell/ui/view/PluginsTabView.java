@@ -45,7 +45,8 @@ public class PluginsTabView extends BorderPane {
     private final Set<String> activatedSessionPluginIds =
             java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final com.jlshell.plugin.api.lifecycle.Registration localeSubscription;
-    private final ChangeListener<Number> catalogRevisionListener;
+    private final com.jlshell.plugin.api.lifecycle.Registration catalogSubscription;
+    private final com.jlshell.plugin.api.lifecycle.Registration programCatalogSubscription;
     public static final String NATIVE_VIEW = "jlshell.plugin.swingView";
     private final java.util.concurrent.atomic.AtomicReference<com.jlshell.ui.swing.SwingPluginList> nativeView = new java.util.concurrent.atomic.AtomicReference<>();
     private boolean disposed;
@@ -135,12 +136,11 @@ public class PluginsTabView extends BorderPane {
                 com.jlshell.ui.support.FxThread.run(() -> {
                     if (!disposed) { listView.refresh(); publishPinnedShortcuts(); }
                 }));
-        catalogRevisionListener = (obs, oldRevision, newRevision) -> refreshOnFxThread();
         refreshPluginList();
-        pluginManager.catalogRevisionProperty().addListener(catalogRevisionListener);
-        if (programSessionRegistry != null) {
-            programSessionRegistry.revisionProperty().addListener(catalogRevisionListener);
-        }
+        catalogSubscription = pluginManager.catalogRevisionProperty().subscribe(revision -> refreshOnFxThread());
+        programCatalogSubscription = programSessionRegistry == null
+                ? com.jlshell.plugin.api.lifecycle.Registration.noop()
+                : programSessionRegistry.revisionProperty().subscribe(revision -> refreshOnFxThread());
     }
 
     private void requestOpen(LaunchItem item) {
@@ -218,19 +218,8 @@ public class PluginsTabView extends BorderPane {
             }
 
             @Override
-            public void openTab(String title, javafx.scene.Node content) {
-                timing.mark("fx-view-request");
-                com.jlshell.ui.support.FxThread.run(() -> {
-                    if (disposed) { timing.finish("disposed"); return; }
-                    openedTab = new Tab(title, content);
-                    openedTab.getProperties().put(com.jlshell.ui.support.PluginOpenTiming.PROPERTY, timing);
-                    if (!supportsSwingViews()) timing.observeFxContent(content);
-                    openedTab.setClosable(true);
-                    openedTab.getProperties().put("pluginId", item.tabKey());
-                    openedTab.setOnClosed(event -> { timing.finish("closed-before-display"); deactivateAfterUserClose(item); });
-                    workspaceTabs.getTabs().add(openedTab);
-                    workspaceTabs.getSelectionModel().select(openedTab);
-                });
+            public void openTab(String title, java.util.function.Supplier<javax.swing.JComponent> content) {
+                openSwingTab(title, content);
             }
 
             @Override
@@ -355,10 +344,8 @@ public class PluginsTabView extends BorderPane {
     public void dispose() {
         disposed = true; nativeView.set(null);
         localeSubscription.close();
-        pluginManager.catalogRevisionProperty().removeListener(catalogRevisionListener);
-        if (programSessionRegistry != null) {
-            programSessionRegistry.revisionProperty().removeListener(catalogRevisionListener);
-        }
+        catalogSubscription.close();
+        programCatalogSubscription.close();
         stopPlugins();
         pinnedShortcuts.clear();
         setCenter(null);

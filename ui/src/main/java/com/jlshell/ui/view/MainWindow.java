@@ -1046,21 +1046,21 @@ public class MainWindow {
     }
 
 
-    public void openPreferences(Stage stage) {
-        openPreferences(stage, PreferencesDialog.TAB_GENERAL);
+    public CompletableFuture<Void> openPreferences(Stage stage) {
+        return openPreferences(stage, PreferencesDialog.TAB_GENERAL);
     }
 
-    private void openPreferences(Stage stage, int initialTabIndex) {
+    private CompletableFuture<Void> openPreferences(Stage stage, int initialTabIndex) {
         String selectedSessionId = selectedApiSessionId();
-        PreferencesDialog.show(stage, fontProfileService, appSettingsService, i18nService, themeService,
+        return PreferencesDialog.show(stage, fontProfileService, appSettingsService, i18nService, themeService,
                 connectionProfileService, activeProjectId, apiServer, capabilityBus, programPluginManager,
-                pluginManager, selectedSessionId, memoryReclaimService, accountService, shortcutRegistry, initialTabIndex);
-        // 导入后刷新侧边栏
-        loadConnections();
-        // 应用可能变更的 UI 字体设置
-        applyUiFontSettings();
-        // 快捷键设置可能变更，重新安装快捷键
-        refreshShortcuts(stage.getScene(), stage);
+                pluginManager, selectedSessionId, memoryReclaimService, accountService, shortcutRegistry, initialTabIndex)
+                .thenCompose(ignored -> FxThread.supplyAsync(() -> {
+                    loadConnections();
+                    applyUiFontSettings();
+                    refreshShortcuts(stage.getScene(), stage);
+                    return null;
+                }));
     }
 
     public void openAbout(Stage stage) {

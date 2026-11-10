@@ -1,5 +1,9 @@
 package com.jlshell.plugin.api;
 
+import java.util.function.Supplier;
+import javax.swing.JComponent;
+import com.jlshell.plugin.api.ui.ObservableValue;
+
 import java.util.Locale;
 import java.util.Optional;
 
@@ -9,8 +13,7 @@ import com.jlshell.plugin.api.event.HostEvents;
 import com.jlshell.plugin.api.security.PluginAccessPolicy;
 import com.jlshell.plugin.api.storage.PluginStorage;
 import com.jlshell.plugin.api.storage.SecureStorage;
-import javafx.beans.property.ReadOnlyObjectProperty;
-import javafx.beans.property.ReadOnlyStringProperty;
+
 
 /**
  * Runtime context passed to a plugin on {@link JlShellPlugin#activate(PluginContext)}.
@@ -21,25 +24,27 @@ public interface PluginContext extends com.jlshell.plugin.api.ui.FontAwareContex
     String themeName();
 
     /** Observable theme name — plugins can listen for changes. */
-    ReadOnlyStringProperty themeNameProperty();
+    ObservableValue<String> themeNameProperty();
 
     /** Current locale. */
     Locale locale();
 
     /** Observable locale — plugins can listen for changes. */
-    ReadOnlyObjectProperty<Locale> localeProperty();
+    ObservableValue<Locale> localeProperty();
 
     /** SSH session capabilities, present only when connected to an SSH host. */
     Optional<SshSessionContext> sshSession();
 
-    /** Open a new workspace tab with the given title and content node. */
-    void openTab(String title, javafx.scene.Node content);
+    /** Open a new workspace tab with the given title and Swing component factory. */
+    default void openTab(String title, Supplier<JComponent> content) {
+        openSwingTab(title, content);
+    }
 
-    /** 原生 Swing 页能力；未支持此能力的上下文返回 false，插件可继续使用 openTab。 */
+    /** 原生 Swing 页能力；未支持此能力的上下文返回 false，插件应检查宿主能力。 */
     default boolean supportsSwingViews() { return false; }
 
     /** 工厂只在 EDT 执行。页面可实现 AutoCloseable，在标签移除/会话关闭时释放资源。 */
-    default void openSwingTab(String title, java.util.function.Supplier<javax.swing.JComponent> content) {
+    default void openSwingTab(String title, Supplier<JComponent> content) {
         throw new UnsupportedOperationException("This host does not support Swing plugin views");
     }
 

@@ -77,6 +77,14 @@ public class ThemeService {
         return currentTheme;
     }
 
+    public com.jlshell.plugin.api.lifecycle.Registration onThemeChanged(java.util.function.Consumer<AppTheme> listener) {
+        return com.jlshell.ui.support.FxObservableValue.adapt(currentTheme).subscribe(listener);
+    }
+
+    public com.jlshell.plugin.api.lifecycle.Registration onAccentColorChanged(java.util.function.Consumer<AccentColor> listener) {
+        return com.jlshell.ui.support.FxObservableValue.adapt(accentColor).subscribe(listener);
+    }
+
     public AppTheme currentTheme() {
         return currentTheme.get();
     }
@@ -116,6 +124,10 @@ public class ThemeService {
         return activeColorScheme;
     }
 
+    public com.jlshell.plugin.api.lifecycle.Registration onColorSchemeChanged(java.util.function.Consumer<TerminalColorScheme> listener) {
+        return com.jlshell.ui.support.FxObservableValue.adapt(activeColorScheme).subscribe(listener);
+    }
+
     public TerminalColorScheme activeColorScheme() {
         return activeColorScheme.get();
     }
@@ -142,6 +154,10 @@ public class ThemeService {
 
     public javafx.beans.property.ReadOnlyObjectProperty<UiFont> uiFontProperty() {
         return uiFont.getReadOnlyProperty();
+    }
+
+    public com.jlshell.plugin.api.lifecycle.Registration onUiFontChanged(java.util.function.Consumer<UiFont> listener) {
+        return com.jlshell.ui.support.FxObservableValue.adapt(uiFont).subscribe(listener);
     }
 
     public UiFont uiFont() { return uiFont.get(); }

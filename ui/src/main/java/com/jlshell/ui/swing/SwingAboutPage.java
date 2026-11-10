@@ -1,11 +1,6 @@
 package com.jlshell.ui.swing;
 
 import com.jlshell.ui.service.I18nService;
-import javafx.scene.Node;
-import javafx.scene.Parent;
-import javafx.scene.control.Label;
-import javafx.scene.control.Button;
-import javafx.scene.control.ScrollPane;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.geom.RoundRectangle2D;
@@ -14,23 +9,45 @@ import java.util.List;
 import java.util.function.Supplier;
 
 /** Dedicated product presentation, shared by Settings and Help/About. No FX rendering. */
-final class SwingAboutPage {
+public final class SwingAboutPage {
     private SwingAboutPage() {}
 
-    static Supplier<JComponent> prepare(SwingFormRenderer renderer, ScrollPane model, I18nService i18n) {
-        List<Node> nodes=new ArrayList<>();collect(model.getContent(),nodes);
-        String description=label(nodes,"about-description"), version=label(nodes,"about-version-badge");
-        List<Supplier<JComponent>> links=nodes.stream().filter(n->n instanceof Button&&n.getStyleClass().contains("about-link-button")).map(renderer::prepare).toList();
-        List<String> titles=nodes.stream().filter(n->n instanceof Label&&n.getStyleClass().contains("about-link-title")).map(n->((Label)n).getText()).toList();
-        List<String> descriptions=nodes.stream().filter(n->n instanceof Label&&n.getStyleClass().contains("about-link-description")).map(n->((Label)n).getText()).toList();
-        List<List<String>> info=new ArrayList<>();
-        for(Node node:nodes)if(node.getStyleClass().contains("about-info-row")&&node instanceof Parent parent) {
-            info.add(parent.getChildrenUnmodifiable().stream().filter(Label.class::isInstance).map(n->((Label)n).getText()).toList());
-        }
-        var copy=nodes.stream().filter(n->n instanceof Button&&n.getStyleClass().contains("about-runtime-copy")).findFirst().map(renderer::prepare).orElse(null);
-        var updates=nodes.stream().filter(n->n instanceof Button&&n.getStyleClass().contains("about-compact-action")&&!n.getStyleClass().contains("about-runtime-copy")).findFirst().map(renderer::prepare).orElse(null);
+    public static JComponent create(String applicationVersion, I18nService i18n, Supplier<String> diagnostics, Runnable checkUpdates) {
+        String description = i18n.get("preferences.about.description");
+        String version = i18n.get("preferences.about.version", applicationVersion);
+        List<String> titles = List.of(i18n.get("preferences.about.website"), i18n.get("preferences.about.github"),
+                i18n.get("preferences.about.releases"), i18n.get("preferences.about.feedback"));
+        List<String> descriptions = List.of(i18n.get("preferences.about.website.description"), i18n.get("preferences.about.github.description"),
+                i18n.get("preferences.about.releases.description"), i18n.get("preferences.about.feedback.description"));
+        List<String> addresses = List.of("https://jlshell.oomn.net", "https://github.com/Voghost/JLShell", "https://github.com/Voghost/JLShell/releases/latest", "https://github.com/Voghost/JLShell/issues");
+        List<Supplier<JComponent>> links = new ArrayList<>();
+        for (String address : addresses) links.add(() -> {
+            JButton button = new JButton(); button.setLayout(new BorderLayout(12, 0));
+            button.addActionListener(event -> java.util.concurrent.CompletableFuture.runAsync(() -> {
+                try { if (Desktop.isDesktopSupported()) Desktop.getDesktop().browse(java.net.URI.create(address)); }
+                catch (Exception error) { org.slf4j.LoggerFactory.getLogger(SwingAboutPage.class).warn("Cannot open product link", error); }
+            }));
+            return button;
+        });
+        List<List<String>> info = List.of(
+                List.of(i18n.get("preferences.about.author"), "Voghost"), List.of(i18n.get("preferences.about.license"), "MIT"),
+                List.of(i18n.get("preferences.about.repository"), "Voghost/JLShell"), List.of(i18n.get("preferences.about.runtime.app"), applicationVersion),
+                List.of(i18n.get("preferences.about.runtime.java"), System.getProperty("java.runtime.version", System.getProperty("java.version", "-"))),
+                List.of(i18n.get("preferences.about.runtime.system"), System.getProperty("os.name", "-") + " " + System.getProperty("os.version", "") + " · " + System.getProperty("os.arch", "-")));
+        Supplier<JComponent> copy = () -> {
+            JButton button = new JButton(i18n.get("preferences.about.runtime.copy")); button.setName("about.copyRuntime");
+            button.addActionListener(event -> {
+                Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new java.awt.datatransfer.StringSelection(diagnostics.get()), null);
+                button.setText(i18n.get("preferences.about.runtime.copied")); button.setEnabled(false);
+                Timer reset = new Timer(1400, ignored -> { button.setText(i18n.get("preferences.about.runtime.copy")); button.setEnabled(true); });
+                reset.setRepeats(false); reset.start();
+            });
+            return button;
+        };
+        Supplier<JComponent> updates = checkUpdates == null ? null : () -> {
+            JButton button = new JButton(i18n.get("menu.help.checkUpdates")); button.addActionListener(event -> checkUpdates.run()); return button;
+        };
         String resources=i18n.get("preferences.about.resources"),runtime=i18n.get("preferences.about.details"),footer=i18n.get("preferences.about.footer");
-        return ()->{
             JPanel page=new JPanel(new GridBagLayout());page.setName("about.page");page.setOpaque(false);page.setBorder(BorderFactory.createEmptyBorder(12,24,12,24));
             JPanel content=new JPanel(new GridBagLayout());content.setOpaque(false);
             GridBagConstraints row=new GridBagConstraints();row.gridx=0;row.gridy=0;row.weightx=1;row.fill=GridBagConstraints.HORIZONTAL;row.anchor=GridBagConstraints.NORTHWEST;
@@ -73,14 +90,7 @@ final class SwingAboutPage {
                 ((GridLayout)resourceGrid.getLayout()).setColumns(page.getWidth()<480?1:2);resourceGrid.revalidate();
             }});
             JScrollPane scroll=new JScrollPane(new Tracking(page));scroll.setBorder(BorderFactory.createEmptyBorder());scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);scroll.getVerticalScrollBar().setUnitIncrement(18);return scroll;
-        };
     }
-    private static void collect(Node node,List<Node> nodes) {
-        if(node==null)return;nodes.add(node);
-        if(node instanceof Button button)collect(button.getGraphic(),nodes);
-        else if(node instanceof Parent parent)for(Node child:parent.getChildrenUnmodifiable())collect(child,nodes);
-    }
-    private static String label(List<Node> nodes,String style){return nodes.stream().filter(n->n instanceof Label&&n.getStyleClass().contains(style)).map(n->((Label)n).getText()).findFirst().orElse("");}
     private static JPanel vertical(int gap){
         JPanel p=new JPanel(){protected void addImpl(Component component,Object constraints,int index){
             if(getComponentCount()>0&&gap>0)super.addImpl(Box.createVerticalStrut(gap),null,-1);

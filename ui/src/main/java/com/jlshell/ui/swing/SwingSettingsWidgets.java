@@ -1,7 +1,6 @@
 package com.jlshell.ui.swing;
 
 import com.jlshell.ui.support.FxThread;
-import com.jlshell.ui.dialog.PreferencesDialog.ManualRow;
 import javafx.scene.Node;
 import javafx.scene.control.*;
 import javax.swing.*;
@@ -190,75 +189,6 @@ final class SwingSettingsWidgets {
             return ((TreeViewNode)((DefaultMutableTreeNode)value).getUserObject()).graphic();
         }
         public boolean isCellEditable(java.util.EventObject event){return true;}
-    }
-
-    private record TableSnapshot(List<?> rows,List<List<Object>> cells,List<List<String>> secrets) {}
-    @SuppressWarnings({"rawtypes","unchecked"})
-    static Supplier<JComponent> table(SwingFormRenderer renderer,TableView source) {
-        List<TableColumn> columns=List.copyOf(source.getColumns());
-        List<String> names=columns.stream().map(TableColumn::getText).toList();
-        List<Integer> widths=columns.stream().map(column->(int)column.getPrefWidth()).toList();
-        boolean editable=source.isEditable();
-        AtomicReference<JTable> view=new AtomicReference<>();
-        AtomicReference<TableSnapshot> snapshot=new AtomicReference<>();
-        Runnable refresh=()->{
-            List<?> rows=List.copyOf(source.getItems());List<List<Object>> values=new ArrayList<>();List<List<String>> secrets=new ArrayList<>();
-            for(int row=0;row<rows.size();row++) {
-                List<Object> cells=new ArrayList<>();
-                for(TableColumn column:columns)cells.add(column.getCellObservableValue(row)==null?null:column.getCellObservableValue(row).getValue());
-                values.add(cells);
-                Object item=rows.get(row);secrets.add(item instanceof ManualRow manual?List.of(manual.password()==null?"":manual.password(),manual.passphrase()==null?"":manual.passphrase()):List.of("",""));
-            }
-            snapshot.set(new TableSnapshot(rows,values,secrets));
-            SwingUtilities.invokeLater(()->{if(!renderer.isClosed()&&view.get()!=null)((AbstractTableModel)view.get().getModel()).fireTableDataChanged();});
-        };
-        refresh.run();
-        javafx.collections.ListChangeListener listener=change->refresh.run();
-        source.getItems().addListener(listener);renderer.onDispose(()->source.getItems().removeListener(listener));
-        return ()->{
-            JTable table=new JTable(new AbstractTableModel() {
-                public int getRowCount(){return snapshot.get().rows().size();}
-                public int getColumnCount(){return names.size();}
-                public String getColumnName(int col){return names.get(col);}
-                public Object getValueAt(int row,int col){return col==names.size()-1&&names.get(col).isBlank()?"×":snapshot.get().cells().get(row).get(col);}
-                public boolean isCellEditable(int row,int col){return editable&&col>0&&col<names.size()-1;}
-                public void setValueAt(Object value,int row,int col){
-                    Object item=snapshot.get().rows().get(row);
-                    FxThread.run(()->{
-                        if(renderer.isClosed())return;
-                        if(item instanceof ManualRow manual&&col==6)manual.setPassword(String.valueOf(value));
-                        else if(item instanceof ManualRow manual&&col==7)manual.setPassphrase(String.valueOf(value));
-                        else if(columns.get(col).getOnEditCommit()!=null) {
-                            int current=source.getItems().indexOf(item);
-                            columns.get(col).getOnEditCommit().handle(new TableColumn.CellEditEvent(source,new TablePosition(source,current,columns.get(col)),TableColumn.editCommitEvent(),value));
-                        }
-                        refresh.run();
-                    });
-                }
-            });view.set(table);table.setName("settings.importTable");
-            table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);table.setRowHeight(28);table.setFillsViewportHeight(true);
-            for(int i=0;i<columns.size();i++)table.getColumnModel().getColumn(i).setPreferredWidth(widths.get(i));
-            if(columns.size()>7) {
-                table.getColumnModel().getColumn(5).setCellEditor(new DefaultCellEditor(new JComboBox<>(new String[]{"PASSWORD","PRIVATE_KEY"})));
-                for(int col:new int[]{6,7}) {
-                    int index=col;
-                    table.getColumnModel().getColumn(col).setCellEditor(new DefaultCellEditor(new JPasswordField()) {
-                        public Component getTableCellEditorComponent(JTable t,Object value,boolean selected,int row,int column) {
-                            Object item=snapshot.get().rows().get(row);
-                            String actual=snapshot.get().secrets().get(row).get(index-6);
-                            return super.getTableCellEditorComponent(t,actual,selected,row,column);
-                        }
-                    });
-                }
-            }
-            table.addMouseListener(new MouseAdapter(){public void mouseClicked(MouseEvent event){
-                int row=table.rowAtPoint(event.getPoint()),col=table.columnAtPoint(event.getPoint());
-                if(row>=0&&col==columns.size()-1&&names.get(col).isBlank()) {
-                    Object item=snapshot.get().rows().get(row);FxThread.run(()->source.getItems().remove(item));
-                }
-            }});
-            JScrollPane scroll=new JScrollPane(table);scroll.setPreferredSize(new Dimension(650,220));return scroll;
-        };
     }
 
     private static void constrainCell(Component component){

@@ -5,10 +5,8 @@ import com.jlshell.core.service.FontProfileService;
 import com.jlshell.plugin.api.lifecycle.Registration;
 import com.jlshell.plugin.api.ui.FontSpec;
 import com.jlshell.plugin.api.ui.PluginFonts;
-import com.jlshell.ui.support.FxThread;
 import com.jlshell.ui.theme.ThemeService;
-import javafx.application.Platform;
-import javafx.beans.value.ChangeListener;
+import java.awt.EventQueue;
 
 import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -19,23 +17,15 @@ import java.util.function.Consumer;
 public final class HostPluginFonts implements PluginFonts, AutoCloseable {
     private final FontStream terminal;
     private final FontStream ui;
-    private final ThemeService themes;
     private final AutoCloseable terminalSubscription;
-    private final ChangeListener<ThemeService.UiFont> uiListener;
+    private final Registration uiSubscription;
     private volatile boolean closed;
 
     public HostPluginFonts(FontProfileService profiles, ThemeService themes) {
-        this.themes = themes;
         terminal = new FontStream(terminalSpec(profiles.activeProfile()));
         ui = new FontStream(uiSpec(themes.uiFont()));
         terminalSubscription = profiles.onChanged(profile -> terminal.publish(terminalSpec(profile)));
-        uiListener = (obs, oldFont, font) -> ui.publish(uiSpec(font));
-        FxThread.run(() -> {
-            if (closed) return;
-            themes.uiFontProperty().addListener(uiListener);
-            terminal.publish(terminalSpec(profiles.activeProfile()));
-            ui.publish(uiSpec(themes.uiFont()));
-        });
+        uiSubscription = themes.onUiFontChanged(font -> ui.publish(uiSpec(font)));
     }
 
     private static FontSpec terminalSpec(FontProfile profile) { return new FontSpec(profile.family(), profile.size()); }
@@ -62,7 +52,7 @@ public final class HostPluginFonts implements PluginFonts, AutoCloseable {
             requireOpen();
             Watch watch = new Watch(listener);
             // A subscription starts with the latest snapshot. Revisions suppress older queued events.
-            Platform.runLater(() -> {
+            EventQueue.invokeLater(() -> {
                 if (closed || watch.closed.get()) return;
                 watches.add(watch);
                 watch.deliver(value);
@@ -73,7 +63,7 @@ public final class HostPluginFonts implements PluginFonts, AutoCloseable {
             if (closed || value.font().equals(next)) return;
             FontValue published = new FontValue(next, value.revision() + 1);
             value = published;
-            Platform.runLater(() -> {
+            EventQueue.invokeLater(() -> {
                 if (!closed) for (Watch watch : watches) watch.deliver(published);
             });
         }
@@ -82,7 +72,7 @@ public final class HostPluginFonts implements PluginFonts, AutoCloseable {
     private final class Watch {
         final Consumer<FontSpec> listener;
         final AtomicBoolean closed = new AtomicBoolean();
-        private long lastRevision = -1; // FX queue only.
+        private long lastRevision = -1; // EDT only.
         Watch(Consumer<FontSpec> listener) { this.listener = listener; }
         void deliver(FontValue value) {
             if (HostPluginFonts.this.closed || closed.get() || value.revision() <= lastRevision) return;
@@ -99,6 +89,6 @@ public final class HostPluginFonts implements PluginFonts, AutoCloseable {
         try { terminalSubscription.close(); }
         catch (Exception error) { org.slf4j.LoggerFactory.getLogger(HostPluginFonts.class).warn("Cannot remove font listener", error); }
         terminal.watches.clear(); ui.watches.clear();
-        FxThread.run(() -> themes.uiFontProperty().removeListener(uiListener));
+        uiSubscription.close();
     }
 }

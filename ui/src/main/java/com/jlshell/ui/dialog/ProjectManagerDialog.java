@@ -406,9 +406,10 @@ public class ProjectManagerDialog {
         for (ProjectIntegrationRegistry.RegisteredContribution registered
                 : ProjectIntegrationRegistry.shared().contributions()) {
             ProjectCreationContext context = new ProjectCreationContext(
-                    nameField.textProperty(), descriptionField.textProperty());
+                    com.jlshell.ui.support.FxObservableValue.adapt(nameField.textProperty()),
+                    com.jlshell.ui.support.FxObservableValue.adapt(descriptionField.textProperty()));
             try {
-                Node view = registered.contribution().createView(context);
+                Node view = com.jlshell.ui.swing.SwingPageModel.wrap(registered.contribution().createView(context));
                 if (view != null) {
                     box.getChildren().add(view);
                     states.add(new ContributionState(registered.contribution(), context, null));
@@ -431,9 +432,10 @@ public class ProjectManagerDialog {
         for (ProjectIntegrationRegistry.RegisteredContribution registered
                 : ProjectIntegrationRegistry.shared().contributions()) {
             ProjectManagementContext context = new ProjectManagementContext(
-                    projectId, nameField.textProperty(), descriptionField.textProperty());
+                    projectId, com.jlshell.ui.support.FxObservableValue.adapt(nameField.textProperty()),
+                    com.jlshell.ui.support.FxObservableValue.adapt(descriptionField.textProperty()));
             try {
-                Node view = registered.contribution().createManagementView(context);
+                Node view = com.jlshell.ui.swing.SwingPageModel.wrap(registered.contribution().createManagementView(context));
                 if (view != null) {
                     box.getChildren().add(view);
                     states.add(new ContributionState(registered.contribution(), null, context));

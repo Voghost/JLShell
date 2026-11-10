@@ -45,7 +45,7 @@ class PluginMetadataCompatibilityTest {
 
     private static DefaultPluginContext.Callbacks callbacks() {
         return new DefaultPluginContext.Callbacks() {
-            @Override public void openTab(String title, javafx.scene.Node content) {}
+            @Override public void openTab(String title, java.util.function.Supplier<javax.swing.JComponent> content) {}
             @Override public void closeTab() {}
             @Override public void updateTabTitle(String title) {}
             @Override public String resolveI18n(String key, String fallback) { return fallback; }

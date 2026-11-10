@@ -5,7 +5,7 @@ import java.util.concurrent.CompletableFuture;
 /**
  * 按需激活或清理某个 SSH 会话中的会话插件。
  *
- * <p>外部 API 和具体的 JavaFX/插件加载实现通过这个小契约衔接，避免 API server
+ * <p>外部 API 和具体的 UI/插件加载实现通过这个小契约衔接，避免 API server
  * 反向依赖 UI 或 plugin-loader。
  */
 public interface SessionPluginActivator {

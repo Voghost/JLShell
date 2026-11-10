@@ -1,39 +1,25 @@
 package com.jlshell.ui.dialog;
 
 import com.jlshell.ui.service.I18nService;
+import com.jlshell.ui.swing.SwingAboutPage;
+import com.jlshell.ui.swing.SwingFormDialog;
 import com.jlshell.ui.theme.ThemeService;
-import javafx.scene.control.ButtonType;
-import javafx.scene.control.Dialog;
-import javafx.stage.Stage;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * 独立的"关于"对话框，从菜单栏 Help → About 打开。
- * 复用 PreferencesDialog 的版本号读取逻辑和内容布局。
- */
-public class AboutDialog {
-
+/** Shared native product page for Help/About and preferences. */
+public final class AboutDialog {
     private AboutDialog() {}
-
-    public static void show(Stage owner, I18nService i18n, ThemeService themeService) {
-        show(owner, i18n, themeService, null);
-    }
-
-    public static void show(Stage owner, I18nService i18n, ThemeService themeService, Runnable checkUpdatesAction) {
-        Dialog<Void> dialog = new Dialog<>();
-        dialog.setTitle(i18n.get("menu.help.about"));
-        dialog.setHeaderText(null);
-        if (owner != null) dialog.initOwner(owner);
-        themeService.applyToDialog(dialog);
-
-        Runnable dialogCheckUpdatesAction = checkUpdatesAction == null ? null : () -> {
-            dialog.close();
-            checkUpdatesAction.run();
-        };
-        dialog.getDialogPane().setContent(PreferencesDialog.buildAboutPane(i18n, dialogCheckUpdatesAction));
-        dialog.getDialogPane().setPrefSize(860, 680);
-        dialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
-        if (com.jlshell.ui.swing.SwingDialogHost.enabled()) {
-            com.jlshell.ui.swing.SwingDialogHost.showNativeAndWait(dialog, themeService, i18n, "jlshell.about", 820, 760);
-        } else dialog.showAndWait();
+    public static void show(Object owner, I18nService i18n, ThemeService themes) { show(owner, i18n, themes, null); }
+    public static void show(Object owner, I18nService i18n, ThemeService themes, Runnable checkUpdates) {
+        AtomicBoolean requested = new AtomicBoolean();
+        SwingFormDialog.showMessage(i18n.get("menu.help.about"), "jlshell.about", i18n, () -> {
+            var page = SwingAboutPage.create(PreferencesDialog.getVersion(), i18n, PreferencesDialog::buildRuntimeDiagnostics, checkUpdates == null ? null : () -> {
+                requested.set(true);
+                for (java.awt.Window window : java.awt.Window.getWindows())
+                    if (window instanceof javax.swing.JDialog && "jlshell.about".equals(window.getName()) && window.isShowing()) window.dispose();
+            });
+            return page;
+        }, 820, 760);
+        if (requested.get()) checkUpdates.run();
     }
 }

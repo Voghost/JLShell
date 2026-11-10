@@ -1778,9 +1778,10 @@ public class TerminalWorkspaceView extends BorderPane {
         // 传 null 让导入 Tab 显示提示信息（用户可从主菜单打开完整偏好设置）
         // 直接选中"终端"Tab。索引由 PreferencesDialog 统一维护，避免新增 Tab 后错位。
         PreferencesDialog.show(stage, fontProfileService, appSettingsService, i18nService, themeService,
-                null, null, null, PreferencesDialog.TAB_TERMINAL);
+                null, null, null, PreferencesDialog.TAB_TERMINAL).thenRun(() -> FxThread.run(() -> {
         FontProfile profile = fontProfileService.activeProfile();
         handles.forEach(h -> h.updateFontProfile(profile));
+        }));
     }
 
 

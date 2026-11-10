@@ -1,5 +1,8 @@
 package com.jlshell.program.plugin.loader;
 
+import com.jlshell.core.support.MutableValue;
+import com.jlshell.plugin.api.ui.ObservableValue;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -13,8 +16,6 @@ import com.jlshell.plugin.api.session.ProgramSessionController;
 import com.jlshell.plugin.api.session.ProgramSessionIntegration;
 import com.jlshell.plugin.loader.DefaultPluginContext;
 import com.jlshell.plugin.loader.PluginManager;
-import javafx.beans.property.ReadOnlyLongProperty;
-import javafx.beans.property.ReadOnlyLongWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,7 +32,7 @@ public final class ProgramSessionIntegrationRegistry {
     private final PluginManager pluginManager;
     private final Map<String, RegisteredContribution> contributions = new ConcurrentHashMap<>();
     private final Map<ActivationKey, ActiveContribution> active = new ConcurrentHashMap<>();
-    private final ReadOnlyLongWrapper revision = new ReadOnlyLongWrapper();
+    private final MutableValue<Long> revision = new MutableValue<>(0L);
 
     public ProgramSessionIntegrationRegistry(PluginManager pluginManager) {
         this.pluginManager = Objects.requireNonNull(pluginManager, "pluginManager");
@@ -49,8 +50,8 @@ public final class ProgramSessionIntegrationRegistry {
                 .toList();
     }
 
-    public ReadOnlyLongProperty revisionProperty() {
-        return revision.getReadOnlyProperty();
+    public ObservableValue<Long> revisionProperty() {
+        return revision;
     }
 
     /** 激活用户在当前 SSH 会话中选择的 Program 插件贡献。 */

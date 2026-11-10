@@ -62,7 +62,7 @@ class HostPluginFontsTest {
                 .get(10, TimeUnit.SECONDS);
         var fonts = new HostPluginFonts(profiles, themes);
         List<FontSpec> received = new CopyOnWriteArrayList<>();
-        FxThread.supplyAsync(() -> {
+        com.jlshell.terminal.support.SwingExecutors.supplyOnEdtAsync(() -> {
             fonts.onTerminalFontChanged(received::add);
             profiles.updateActiveProfile(new FontProfile("First", 16, true, 1));
             profiles.updateActiveProfile(new FontProfile("Latest", 18, true, 1));
@@ -83,7 +83,7 @@ class HostPluginFontsTest {
         var fonts = new HostPluginFonts(profiles, themes);
         var scoped = new ScopedPluginFonts(fonts);
         List<FontSpec> received = new CopyOnWriteArrayList<>();
-        FxThread.supplyAsync(() -> {
+        com.jlshell.terminal.support.SwingExecutors.supplyOnEdtAsync(() -> {
             scoped.onUiFontChanged(received::add); scoped.close(); return null;
         }).get(10, TimeUnit.SECONDS);
         drain(); assertTrue(received.isEmpty());
@@ -97,7 +97,10 @@ class HostPluginFontsTest {
         executor.shutdownNow();
     }
 
-    private static void drain() throws Exception { FxThread.supplyAsync(() -> null).get(10, TimeUnit.SECONDS); }
+    private static void drain() throws Exception {
+        FxThread.supplyAsync(() -> null).get(10, TimeUnit.SECONDS);
+        com.jlshell.terminal.support.SwingExecutors.runOnEdtAsync(() -> {}).get(10, TimeUnit.SECONDS);
+    }
     private static class Settings implements AppSettingsService {
         final Map<String, String> values = new ConcurrentHashMap<>();
         volatile int reads;

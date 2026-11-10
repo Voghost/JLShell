@@ -59,19 +59,25 @@ final class SwingFormRenderer implements AutoCloseable {
         return value;
     }
 
-    void onDispose(Runnable remover) { removers.add(remover); }
+    void onDispose(Runnable remover) {
+        synchronized (this) {
+            if (!closed) { removers.add(remover); return; }
+        }
+        remover.run();
+    }
     boolean isClosed() { return closed; }
 
     Supplier<JComponent> prepare(Node node) {
         if (node == null) return JPanel::new;
-        if (node instanceof SwingFxPanel.PluginView pluginView) {
-            double width = pluginView.prefWidth(-1), height = pluginView.prefHeight(-1);
+        if (node instanceof SwingPageModel page) {
             return () -> {
-                var bridge = new SwingFxPanel(pluginView.themes);
-                bridge.setPreferredSize(new Dimension((int) Math.max(240, width), (int) Math.max(180, height)));
-                bridge.setView(pluginView);
-                onDispose(bridge::close);
-                return bridge;
+                if (closed) throw new java.util.concurrent.CancellationException("Settings closed");
+                JComponent component = java.util.Objects.requireNonNull(page.factory.get(), "Plugin page factory returned null");
+                if (component instanceof AutoCloseable resource) onDispose(() -> SwingUtilities.invokeLater(() -> {
+                    try { resource.close(); }
+                    catch (Exception error) { org.slf4j.LoggerFactory.getLogger(SwingFormRenderer.class).warn("Cannot close plugin settings", error); }
+                }));
+                return component;
             };
         }
         if (node.getId() != null) models.put(node.getId(), node);
@@ -103,7 +109,6 @@ final class SwingFormRenderer implements AutoCloseable {
         else if (node instanceof TextInputControl input) factory = text(input);
         else if (node instanceof ComboBox<?> box) factory = combo(box);
         else if (node instanceof ListView<?> list) factory = settingsLayout ? SwingSettingsWidgets.list(this,list) : list(list);
-        else if (node instanceof TableView<?> table) factory = SwingSettingsWidgets.table(this,table);
         else if (node instanceof TreeView<?> tree) factory = SwingSettingsWidgets.tree(this,tree);
         else if (node instanceof SplitPane split) factory = split(split);
         else if (node instanceof Slider slider) factory = slider(slider);
@@ -116,7 +121,6 @@ final class SwingFormRenderer implements AutoCloseable {
         else if (node instanceof Label label) factory = label(label);
         else if (node instanceof Separator) factory = JSeparator::new;
         else if (node instanceof TabPane tabs) factory = tabs(tabs);
-        else if(node instanceof ScrollPane scroll&&scroll.getStyleClass().contains("about-scroll-pane"))factory=SwingAboutPage.prepare(this,scroll,i18n);
         else if (node instanceof ScrollPane scroll) {
             var child = prepare(scroll.getContent());
             factory = () -> {
@@ -135,7 +139,6 @@ final class SwingFormRenderer implements AutoCloseable {
                 return label;
             };
         }
-        else if(node instanceof GridPane grid&&grid.getStyleClass().contains("terminal-font-layout"))factory=SwingTerminalFontPanel.prepare(this,grid);
         else if (node instanceof BorderPane border) factory = border(border);
         else if (node instanceof Pane pane) factory = pane(pane);
         else if(aboutIcon!=null)factory=()->new JLabel(new AboutLinkIcon(AboutLinkIcon.Kind.valueOf(aboutIcon),18));
@@ -676,9 +679,14 @@ final class SwingFormRenderer implements AutoCloseable {
     }
 
     public void close() {
-        closed = true;
-        removers.forEach(Runnable::run);
-        removers.clear();
+        List<Runnable> cleanup;
+        synchronized (this) {
+            if (closed) return;
+            closed = true;
+            cleanup = List.copyOf(removers);
+            removers.clear();
+        }
+        cleanup.forEach(Runnable::run);
         models.clear();
     }
 }
