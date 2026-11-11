@@ -127,9 +127,12 @@ public class PluginsTabView {
             try {
                 CapabilityRegistryImpl sessionRegistry = pluginManager.registryForSession(sessionId);
                 PluginStorage storage = storageFactory == null ? null : storageFactory.apply(item.ownerPluginId());
+                var extensionHolder = new java.util.concurrent.atomic.AtomicReference<com.jlshell.plugin.loader.ScopedHostExtensions>();
                 DefaultPluginContext context = new DefaultPluginContext(
                         item.ownerPluginId(), sessionId, sessionRegistry, capabilityBus, storage,
-                        Optional.of(sshContext), callbacks(item, timing, generation));
+                        Optional.of(sshContext), callbacks(item, timing, generation, extensionHolder));
+                extensionHolder.set((com.jlshell.plugin.loader.ScopedHostExtensions) context.host());
+                extensionHolder.get().enableViewLayout();
                 context.writableThemeNameProperty().bind(pluginManager.themeNameProperty());
                 context.writableLocaleProperty().bind(pluginManager.localeProperty());
                 timing.mark("context-ready");
@@ -151,7 +154,7 @@ public class PluginsTabView {
         }
     }
 
-    private DefaultPluginContext.Callbacks callbacks(LaunchItem item, com.jlshell.ui.support.PluginOpenTiming timing, long generation) {
+    private DefaultPluginContext.Callbacks callbacks(LaunchItem item, com.jlshell.ui.support.PluginOpenTiming timing, long generation, java.util.concurrent.atomic.AtomicReference<com.jlshell.plugin.loader.ScopedHostExtensions> extensions) {
         return new DefaultPluginContext.Callbacks() {
             private WorkspacePage openedTab;
 
@@ -164,8 +167,31 @@ public class PluginsTabView {
                     if (disposed || generation != activationGeneration) { timing.finish("disposed"); return; }
                     openedTab = new WorkspacePage(title);
                     openedTab.setContent(content);
+                    openedTab.getProperties().put("jlshell.hostExtensions", extensions.get());
                     openedTab.getProperties().put("pluginId", item.tabKey());
-                    openedTab.getProperties().put(NATIVE_VIEW, content);
+                    openedTab.getProperties().put(NATIVE_VIEW, (java.util.function.Supplier<javax.swing.JComponent>) () -> {
+                        javax.swing.JComponent component=content.get();
+                        var host=extensions.get();
+                        component.putClientProperty("jlshell.hostExtensions",host);
+                        var options=host.viewOptions();
+                        if(options!=null) {
+                            component.setPreferredSize(new java.awt.Dimension(options.preferredWidth(),options.preferredHeight()));
+                            component.setMinimumSize(new java.awt.Dimension(options.minimumWidth(),options.minimumHeight()));
+                        }
+                        component.addComponentListener(new java.awt.event.ComponentAdapter() {
+                            private void publish() {
+                                Object anchor=component.getClientProperty("jlshell.dockAnchor");
+                                host.publishLayout(new com.jlshell.plugin.api.host.HostExtensions.Layout(
+                                        anchor instanceof com.jlshell.plugin.api.host.HostExtensions.Anchor value ? value : com.jlshell.plugin.api.host.HostExtensions.Anchor.RIGHT,
+                                        component.getWidth(),component.getHeight(),component.isShowing(),
+                                        Boolean.TRUE.equals(component.getClientProperty("jlshell.maximized"))));
+                            }
+                            public void componentResized(java.awt.event.ComponentEvent e) { publish(); }
+                            public void componentShown(java.awt.event.ComponentEvent e) { publish(); }
+                            public void componentHidden(java.awt.event.ComponentEvent e) { publish(); }
+                        });
+                        return component;
+                    });
                     openedTab.getProperties().put(com.jlshell.ui.support.PluginOpenTiming.PROPERTY, timing);
                     openedTab.setOnClosed(() -> { timing.finish("closed-before-display"); deactivateAfterUserClose(item); });
                     workspaceTabs.add(openedTab);

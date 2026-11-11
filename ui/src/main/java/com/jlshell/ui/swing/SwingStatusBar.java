@@ -70,7 +70,8 @@ final class SwingStatusBar extends JPanel implements AutoCloseable {
     void refresh() {
         var previous = entries;
         var selected = activityList == null ? null : activityList.getSelectedValue();
-        entries = logs.snapshot(); info = sessionSource.get(); activeTransfers = transferSource.get();
+        entries = logs.snapshot(); info = sessionSource.get(); activeTransfers = java.util.stream.Stream.concat(transferSource.get().stream(),
+                com.jlshell.plugin.loader.HostExtensionRegistry.tasks().stream().map(task -> task.title()+" · "+Math.round(task.progress()*100)+"%")) .toList();
         if (entries.isEmpty()) latest.setText(text.apply("statusbar.noLogs"));
         else {
             var last = entries.getFirst();
@@ -91,7 +92,7 @@ final class SwingStatusBar extends JPanel implements AutoCloseable {
         session.setToolTipText(info==null?null:info.name()+" · "+info.address());
         session.setEnabled(info!=null); encoding.setText(info == null ? "" : info.encoding());
         encoding.setVisible(info!=null && !info.encoding().isBlank() && getWidth()>760);
-        transfers.setText("⇅ "+text.apply("statusbar.transfers")+" "+activeTransfers.size()); transfers.setVisible(!activeTransfers.isEmpty());
+        transfers.setText("⇅ "+text.apply(com.jlshell.plugin.loader.HostExtensionRegistry.tasks().isEmpty() ? "statusbar.transfers" : "statusbar.tasks")+" "+activeTransfers.size()); transfers.setVisible(!activeTransfers.isEmpty());
         if (activityList != null && popup != null && popup.isShowing() && !entries.equals(previous)) {
             activityList.setListData(entries.toArray(RecentApplicationLogs.Entry[]::new));
             if (selected != null) activityList.setSelectedValue(selected, false);
@@ -159,7 +160,7 @@ final class SwingStatusBar extends JPanel implements AutoCloseable {
     }
     private void showTransfers() {
         hidePopup();
-        JPanel body=new JPanel(new BorderLayout(0,8));body.add(heading(text.apply("statusbar.transfers")),BorderLayout.NORTH);
+        JPanel body=new JPanel(new BorderLayout(0,8));body.add(heading(text.apply(com.jlshell.plugin.loader.HostExtensionRegistry.tasks().isEmpty() ? "statusbar.transfers" : "statusbar.tasks")),BorderLayout.NORTH);
         transferList=new JList<>(activeTransfers.toArray(String[]::new));body.add(new JScrollPane(transferList));
         body.setPreferredSize(new Dimension(480,180));showPopup(body,transfers,420);
     }

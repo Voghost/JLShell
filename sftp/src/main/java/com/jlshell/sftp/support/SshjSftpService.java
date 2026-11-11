@@ -457,6 +457,24 @@ public class SshjSftpService implements SftpService {
         sftpClient.rm(remotePath);
     }
 
+    @Override
+    public CompletableFuture<byte[]> readRange(SshSession session,String path,long offset,int length) {
+        if (offset < 0 || length < 0 || length > 4 * 1024 * 1024 || offset > Long.MAX_VALUE - length)
+            return CompletableFuture.failedFuture(new IllegalArgumentException("Invalid read range"));
+        return CompletableFuture.supplyAsync(() -> {
+            try (SFTPClient client = newSftpClient(session);
+                 var file = client.open(path, java.util.EnumSet.of(net.schmizz.sshj.sftp.OpenMode.READ))) {
+                byte[] result = new byte[length]; int count = 0;
+                while (count < length) {
+                    int read = file.read(offset + count,result,count,length-count);
+                    if (read <= 0) break;
+                    count += read;
+                }
+                return java.util.Arrays.copyOf(result,count);
+            } catch (IOException error) { throw new java.util.concurrent.CompletionException(error); }
+        }, executorService);
+    }
+
     private SFTPClient newSftpClient(SshSession sshSession) throws IOException {
         SSHClient sshClient = sshSession.unwrap(SSHClient.class)
                 .orElseThrow(() -> new SftpOperationException("SFTP requires an SSHJ-backed session"));

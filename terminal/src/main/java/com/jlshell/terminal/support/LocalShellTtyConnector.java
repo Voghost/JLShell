@@ -23,6 +23,9 @@ import org.slf4j.LoggerFactory;
  * 将本地 Shell（通过 pty4j PTY）适配为 JediTerm TtyConnector。
  */
 public class LocalShellTtyConnector implements TtyConnector {
+    private volatile java.util.function.BiConsumer<com.jlshell.plugin.api.host.TerminalAccess.EventKind,String> eventSink = (kind,text) -> {};
+    void eventSink(java.util.function.BiConsumer<com.jlshell.plugin.api.host.TerminalAccess.EventKind,String> sink) { eventSink = sink; }
+
 
     private static final Logger log = LoggerFactory.getLogger(LocalShellTtyConnector.class);
 
@@ -82,6 +85,7 @@ public class LocalShellTtyConnector implements TtyConnector {
         try {
             int read = reader.read(buffer, offset, length);
             if (read < 0) markDisconnected();
+            if (read > 0) eventSink.accept(com.jlshell.plugin.api.host.TerminalAccess.EventKind.OUTPUT,new String(buffer,offset,read));
             return read;
         } catch (IOException e) {
             markDisconnected();
@@ -94,6 +98,7 @@ public class LocalShellTtyConnector implements TtyConnector {
         try {
             outputStream.write(bytes);
             outputStream.flush();
+            eventSink.accept(com.jlshell.plugin.api.host.TerminalAccess.EventKind.INPUT,new String(bytes,java.nio.charset.StandardCharsets.UTF_8));
         } catch (IOException e) {
             markDisconnected();
             throw e;

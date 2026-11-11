@@ -28,6 +28,8 @@ public class DefaultProgramPluginContext implements ProgramPluginContext, Plugin
     private static final Logger hostLog = LoggerFactory.getLogger("jlshell.program-plugin");
 
     private final String pluginId;
+    private final com.jlshell.plugin.loader.ScopedHostExtensions host;
+    @Override public com.jlshell.plugin.api.host.HostExtensions host() { return host; }
     private final CapabilityRegistry registry;
     private final CapabilityBus capabilityBus;
     private final PluginStorage storage;
@@ -67,6 +69,7 @@ public class DefaultProgramPluginContext implements ProgramPluginContext, Plugin
                                        AccountSessionService accountSession,
                                        Callbacks callbacks) {
         this.pluginId = pluginId;
+        this.host = new com.jlshell.plugin.loader.ScopedHostExtensions(null,pluginId);
         this.registry = registry;
         this.capabilityBus = capabilityBus;
         this.storage = storage;
@@ -151,6 +154,7 @@ public class DefaultProgramPluginContext implements ProgramPluginContext, Plugin
     @Override public void error(String message, Throwable t) { hostLog.error("[{}] {}", pluginId, message, t); }
 
     void dispose() {
+        host.close();
         closeIfNeeded(fonts);
         closeIfNeeded(projectIntegration);
         closeIfNeeded(hostEvents);

@@ -5,6 +5,8 @@ import java.util.concurrent.Executor;
 /** Program API SPI 可访问的宿主能力，不暴露主程序的 core 类型。 */
 public interface ProgramApiContext {
 
+    default ProgramWorkbenchService workbench() { return ProgramWorkbenchService.unavailable(); }
+
     ProgramApiRegistry registry();
 
     ProgramSessionService sessions();

@@ -14,6 +14,10 @@ public interface SftpService {
 
     CompletableFuture<RemoteDirectoryListing> listDirectory(SshSession sshSession, String directoryPath);
 
+    default CompletableFuture<byte[]> readRange(SshSession session,String path,long offset,int length) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("Range read unavailable"));
+    }
+
     CompletableFuture<RemoteFileEntry> stat(SshSession sshSession, String path);
 
     CompletableFuture<Void> upload(SshSession sshSession, TransferRequest request, TransferProgressListener listener);

@@ -20,6 +20,10 @@ public final class DefaultProgramApiProvider implements ProgramApiProvider {
 
     @Override
     public void activate(ProgramApiContext context) {
+        for(String method : com.jlshell.program.api.ProgramWorkbenchService.OPERATIONS) {
+            context.registry().register(method, params -> context.workbench().invoke(method,
+                    params != null && params.isJsonObject() ? params.getAsJsonObject() : new JsonObject()));
+        }
         context.registry().register(ProgramApiCatalog.SESSION_CONNECT,
                 params -> sessionConnect(context, params));
         context.registry().register(ProgramApiCatalog.SESSION_DISCONNECT,

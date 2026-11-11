@@ -120,6 +120,16 @@ class ShellDirectoryIntegrationTest {
             }
             assertTrue(changed.toString().contains("中文%20path%25+"), changed.toString());
             assertFalse(changed.toString().contains("jlshell-ready"), "The completion marker is only present in the bootstrap prompt");
+            process.getOutputStream().write("false\n".getBytes(StandardCharsets.UTF_8));
+            process.getOutputStream().flush();
+            StringBuilder failureOutput=new StringBuilder();
+            deadline=System.nanoTime()+Duration.ofSeconds(3).toNanos();
+            while(!failureOutput.toString().contains("\033]133;D;1\007") && System.nanoTime()<deadline) {
+                String chunk=chunks.poll(100,java.util.concurrent.TimeUnit.MILLISECONDS);
+                if(chunk!=null) failureOutput.append(chunk);
+            }
+            assertTrue(failureOutput.toString().contains("\033]133;D;1\007"),failureOutput.toString());
+
         } finally { process.destroyForcibly(); }
     }
 

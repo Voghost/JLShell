@@ -17,6 +17,11 @@ import java.util.function.Consumer;
  */
 public interface TerminalViewHandle extends AutoCloseable {
 
+    default java.util.Optional<com.jlshell.plugin.api.host.TerminalAccess> terminalAccess() { return java.util.Optional.empty(); }
+
+    default void textActions(java.util.function.Supplier<java.util.List<com.jlshell.terminal.support.RefreshableTerminalPanel.PopupAction>> actions) {}
+
+    default String selectedText() { return ""; }
     SessionId sessionId();
 
     String title();

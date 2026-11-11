@@ -205,6 +205,11 @@ public class MainWindow {
                         if (profile != null) withSwing(view -> view.focusConnection(profile.id()));
                     });
             SwingTheme.install(themeService);
+            com.jlshell.plugin.loader.HostExtensionRegistry.sessionSelector(id -> com.jlshell.terminal.support.SwingExecutors.runOnEdtAsync(() -> {
+                var page=workspaceTabs.pages().stream().filter(candidate -> (candidate instanceof SessionWorkspaceTab sessionTab && id.equals(sessionTab.getSessionId())) || id.equals(candidate.getProperties().get("terminalSessionId"))).findFirst()
+                        .orElseThrow(() -> new IllegalArgumentException("Session is not open"));
+                workspaceTabs.select(page);
+            }));
             var view = timing == null ? new SwingWorkbench(actions, texts) : timing.call("swing-workbench-create", () -> new SwingWorkbench(actions, texts));
             swingWorkbench = CompletableFuture.completedFuture(view);
             view.setMenuBar(SwingMenuBridge.create(this::buildMenuBar));
@@ -213,7 +218,7 @@ public class MainWindow {
                     "account", () -> openPreferences(owner, PreferencesDialog.TAB_ACCOUNT),
                     "shortcuts", () -> openPreferences(owner, PreferencesDialog.TAB_SHORTCUTS)));
             registrations.add(viewModel.statusMessageProperty().subscribe(value -> UiThread.run(() -> view.setStatus(value))));
-            registrations.add(workspaceTabs.selectionProperty().subscribe(page -> UiThread.run(() -> { view.selectTab(page); updateWindowTitle(); })));
+            registrations.add(workspaceTabs.selectionProperty().subscribe(page -> UiThread.run(() -> { view.selectTab(page); updateWindowTitle(); com.jlshell.plugin.loader.HostExtensionRegistry.activeSession(selectedApiSessionId()); })));
             registrations.add(themeService.onThemeChanged(theme -> UiThread.run(() -> {
                 viewModel.activeThemeProperty().set(theme); applyUiFontSettings();
                 if (pluginManager != null) pluginManager.setThemeName(theme.name().toLowerCase(Locale.ROOT));
@@ -371,8 +376,12 @@ public class MainWindow {
     }
     private void openLocalShellTab(ConnectionProfile profile, com.jlshell.terminal.service.TerminalViewHandle handle) {
         localShellHandles.add(handle);
+        var terminalRegistration=handle.terminalAccess().map(access -> com.jlshell.plugin.loader.HostExtensionRegistry.terminal(
+                new com.jlshell.plugin.api.host.HostExtensions.Session(access.sessionId(),profile.displayName(),"localhost",System.getProperty("user.name"),true,false),access))
+                .orElse(com.jlshell.plugin.api.lifecycle.Registration.noop());
         WorkspacePage tab = new WorkspacePage(profile.displayName()); tab.getProperties().put("connectionProfile", profile);
-        tab.getProperties().put("closeAction", (java.util.function.Supplier<CompletableFuture<Void>>) () -> handle.closeAsync().whenComplete((ignored, error) -> UiThread.run(() -> localShellHandles.remove(handle))));
+        tab.getProperties().put("terminalSessionId",handle.sessionId().toString());
+        tab.getProperties().put("closeAction", (java.util.function.Supplier<CompletableFuture<Void>>) () -> handle.closeAsync().whenComplete((ignored, error) -> UiThread.run(() -> { localShellHandles.remove(handle); terminalRegistration.close(); })));
         withSwing(view -> { TerminalPopupBridge.install(handle.component()); view.addTab(tab, profile.displayName(), handle.component(), () -> closeTab(tab), profile.summary()); view.selectTab(tab); });
         workspaceTabs.add(tab); workspaceTabs.select(tab); handle.requestFocus();
         viewModel.statusMessageProperty().set(i18nService.get("status.connected", profile.displayName()));
@@ -536,7 +545,7 @@ public class MainWindow {
 
     private String selectedApiSessionId() {
         WorkspacePage selected = workspaceTabs.selected();
-        return selected instanceof SessionWorkspaceTab sessionTab ? sessionTab.getSessionId() : null;
+        return selected instanceof SessionWorkspaceTab sessionTab ? sessionTab.getSessionId() : selected == null ? null : (String) selected.getProperties().get("terminalSessionId");
     }
 
     private String formatConnectionTitle(ConnectionProfile profile) {

@@ -15,6 +15,8 @@ import com.jlshell.terminal.service.TerminalViewHandle;
  */
 public class LocalShellTerminalViewHandle implements TerminalViewHandle {
 
+    private final VisibleTerminalAccess terminalAccess;
+    @Override public java.util.Optional<com.jlshell.plugin.api.host.TerminalAccess> terminalAccess() { return java.util.Optional.of(terminalAccess); }
     private final SessionId sessionId;
     private final String title;
     private final JlshellJediTermWidget widget;
@@ -31,10 +33,21 @@ public class LocalShellTerminalViewHandle implements TerminalViewHandle {
         this.sessionId = sessionId;
         this.title = title;
         this.widget = widget;
+        this.terminalAccess = new VisibleTerminalAccess(sessionId.toString(), widget, this::currentDirectory);
         this.settingsProvider = settingsProvider;
         this.ttyConnector = ttyConnector;
+        ttyConnector.eventSink(terminalAccess::publish);
     }
 
+    @Override public String selectedText() {
+        var buffer=widget.getTerminalTextBuffer(); buffer.lock();
+        try { var selection=widget.getTerminalPanel().getSelection();
+            return selection==null ? "" : com.jediterm.terminal.model.SelectionUtil.getSelectionText(selection,buffer);
+        } finally { buffer.unlock(); }
+    }
+    @Override public void textActions(java.util.function.Supplier<java.util.List<RefreshableTerminalPanel.PopupAction>> actions) {
+        if(widget.getTerminalPanel() instanceof RefreshableTerminalPanel panel) panel.setExtensionActions(actions);
+    }
     @Override
     public SessionId sessionId() {
         return sessionId;
@@ -78,6 +91,7 @@ public class LocalShellTerminalViewHandle implements TerminalViewHandle {
 
     @Override
     public CompletableFuture<Void> closeAsync() {
+        terminalAccess.close();
         ttyConnector.close();
         return SwingExecutors.runOnEdtAsync(() -> {
             widget.stop();

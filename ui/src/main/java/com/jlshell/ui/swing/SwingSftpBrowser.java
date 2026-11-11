@@ -42,8 +42,10 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
     private final JButton cancel;
     private final List<IdeaListPopup> popups = new ArrayList<>();
     private final List<IdeaComponentPopup> directoryPopups = new ArrayList<>();
+    private final List<JDialog> previewDialogs = new ArrayList<>();
     private final List<SftpChecksumDialog> checksumDialogs = new ArrayList<>();
     private Runnable unbind = () -> {};
+    private com.jlshell.plugin.api.lifecycle.Registration extensionRegistration = com.jlshell.plugin.api.lifecycle.Registration.noop();
     private volatile boolean closed;
     private boolean transferring;
     String activeTransferDescription() { return !closed && connected && transferring ? message.getText() : null; }
@@ -87,6 +89,20 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
         this.session = session; this.service = service; this.i18n = i18n;
         setName("sftp.browser"); setMinimumSize(new Dimension(260, 260));
         local = new Browser(false); remote = new Browser(true);
+        extensionRegistration = com.jlshell.plugin.loader.HostExtensionRegistry.browser(session.sessionId().toString(),
+                new com.jlshell.plugin.loader.HostExtensionRegistry.FileBrowser() {
+                    public CompletableFuture<Void> navigate(boolean isRemote,String directory,List<String> selection) {
+                        CompletableFuture<Void> result = new CompletableFuture<>();
+                        SwingUtilities.invokeLater(() -> {
+                            if (closed) { result.completeExceptionally(new IllegalStateException("File browser closed")); return; }
+                            Browser browser = isRemote ? remote : local;
+                            browser.navigateAndSelect(directory,selection,result);
+                        });
+                        return result;
+                    }
+                    public CompletableFuture<Void> preview(com.jlshell.plugin.api.host.HostExtensions.FileRef file) { return openPreview(file); }
+                });
+
         JSplitPane split = new ResizeSplitPane(JSplitPane.VERTICAL_SPLIT, local, remote);
         browserSplit = split;
         split.setName("sftp.verticalSplit"); split.setResizeWeight(.5); split.setDividerSize(5);
@@ -360,7 +376,30 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
         }
         void updateTransferButton() { transferButton.setEnabled(connected && !transferring && selection().stream().anyMatch(entry -> !entry.directory)); }
         List<Entry> selection() { return Arrays.stream(table.getSelectedRows()).map(table::convertRowIndexToModel).mapToObj(model.rows::get).toList(); }
-        void openSelection() { var selected = selection(); if (selected.size() == 1 && selected.getFirst().directory) navigate(selected.getFirst().path); }
+        void openSelection() {
+            var selected = selection();
+            if (selected.size() != 1) return;
+            if (selected.getFirst().directory) navigate(selected.getFirst().path);
+            else openPreview(fileRef(selected.getFirst(),isRemote)).exceptionally(error -> { SwingUtilities.invokeLater(() -> failure(error)); return null; });
+        }
+        void navigateAndSelect(String target,List<String> selection,CompletableFuture<Void> result) {
+            if(closed || isRemote && !connected) { result.completeExceptionally(new IllegalStateException("Browser unavailable")); return; }
+            dismissPopups(); requestedPath=target; long request=++sequence;
+            readDirectory(isRemote,target).whenComplete((listing,error) -> SwingUtilities.invokeLater(() -> {
+                if (error != null) { result.completeExceptionally(error); return; }
+                if (closed) { result.completeExceptionally(new IllegalStateException("Browser closed")); return; }
+                if(request!=sequence) { result.completeExceptionally(new java.util.concurrent.CancellationException("Navigation superseded")); return; }
+                requestedPath=listing.path; path=listing.path; model.rows=listing.entries;
+                count.setText(i18n.get("sftp.itemCount",listing.entries.size()));
+                model.fireTableDataChanged(); breadcrumbs(); table.clearSelection();
+                for(int row=0;row<model.rows.size();row++) if(selection.contains(model.rows.get(row).path)) {
+                    int view=table.convertRowIndexToView(row); if(view>=0) table.addRowSelectionInterval(view,view);
+                }
+                ((CardLayout) body.getLayout()).show(body,listing.entries.isEmpty()?"empty":"files");
+                result.complete(null);
+            }));
+        }
+
         void breadcrumbs() {
             crumbs.removeAll(); editor.setText(path);
             JButton overflow = new JButton("…"); overflow.putClientProperty("JButton.buttonType", "toolBarButton");
@@ -479,6 +518,17 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
                     setFollow(!follow);
                 }));
                 if (selected.size() == 1) rows.add(menuRow(t("sftp.permissions") + ": " + selected.getFirst().permissions, null, null, false, null));
+            }
+            var context = new com.jlshell.plugin.api.host.HostExtensions.FileSelection(
+                    session.sessionId().toString(),path,selected.stream().map(e -> fileRef(e,isRemote)).toList());
+            for(var action : com.jlshell.plugin.loader.HostExtensionRegistry.fileActions(session.sessionId().toString())) {
+                try {
+                    if(action.visible().test(context)) rows.add(menuRow(action.title(),action.icon(),action.group(),
+                            action.enabled().test(context),() -> {
+                                try { action.execute().accept(context); }
+                                catch(RuntimeException error) { failure(error); }
+                            }));
+                } catch(RuntimeException error) { com.jlshell.plugin.loader.HostExtensionRegistry.report(error); }
             }
             showMenu(rows, 190, IdeaListPopup.Style.CONTEXT, anchor, x, y);
         }
@@ -714,6 +764,45 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
             g.drawRoundRect(4, 2, 9, 12, 2, 2); g.drawLine(6, 6, 10, 6); g.drawLine(6, 9, 10, 9); g.dispose();
         }
     }
+    private com.jlshell.plugin.api.host.HostExtensions.FileRef fileRef(Entry entry,boolean isRemote) {
+        return new com.jlshell.plugin.api.host.HostExtensions.FileRef(isRemote ? session.sessionId().toString() : null,
+                entry.path,entry.name,entry.directory,entry.size);
+    }
+    private CompletableFuture<Void> openPreview(com.jlshell.plugin.api.host.HostExtensions.FileRef file) {
+        CompletableFuture<JComponent> content = null;
+        for(var provider : com.jlshell.plugin.loader.HostExtensionRegistry.previews(session.sessionId().toString())) {
+            try {
+                if(provider.accepts().test(file)) {
+                    content=com.jlshell.terminal.support.SwingExecutors.supplyOnEdtAsync(() -> provider.create().apply(file)).thenCompose(java.util.function.Function.identity());
+                    break;
+                }
+            } catch(RuntimeException error) { return CompletableFuture.failedFuture(error); }
+        }
+        if(content==null) {
+            CompletableFuture<byte[]> bytes = file.remote() ? service.readRange(session,file.path(),0,256*1024)
+                    : CompletableFuture.supplyAsync(() -> {
+                        try(var input=Files.newInputStream(Path.of(file.path()))) { return input.readNBytes(256*1024); }
+                        catch(java.io.IOException error) { throw new java.util.concurrent.CompletionException(error); }
+                    });
+            content=bytes.thenCompose(value -> com.jlshell.terminal.support.SwingExecutors.supplyOnEdtAsync(() -> {
+                JTextArea text=new JTextArea(new String(value,java.nio.charset.StandardCharsets.UTF_8)); text.setEditable(false);
+                text.setCaretPosition(0); return new JScrollPane(text);
+            }));
+        }
+        return content.thenCompose(component -> com.jlshell.terminal.support.SwingExecutors.runOnEdtAsync(() -> {
+            if(closed) { if(component instanceof AutoCloseable resource) { try { resource.close(); } catch(Exception error) { failure(error); } } return; }
+            JDialog dialog=new JDialog(SwingUtilities.getWindowAncestor(this),file.name());
+            previewDialogs.add(dialog);
+            dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE); dialog.add(component);
+            dialog.setSize(800,560); dialog.setLocationRelativeTo(this);
+            dialog.addWindowListener(new WindowAdapter() { public void windowClosed(WindowEvent event) {
+                previewDialogs.remove(dialog);
+                if(component instanceof AutoCloseable resource) try { resource.close(); } catch(Exception error) { failure(error); }
+            }});
+            dialog.setVisible(true);
+        }));
+    }
+
     private void dismissPopups() {
         local.showPath(false);
         remote.showPath(false);
@@ -727,7 +816,7 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
         dismissPopups();
     }
     public void close() {
-        if (closed) return; closed = true; cancelled = true; unbind.run(); dismissPopups();
+        if (closed) return; closed = true; extensionRegistration.close(); java.util.List.copyOf(previewDialogs).forEach(JDialog::dispose); previewDialogs.clear(); cancelled = true; unbind.run(); dismissPopups();
         checksumDialogs.forEach(SftpChecksumDialog::dispose); checksumDialogs.clear();
         local.sequence++; remote.sequence++;
     }

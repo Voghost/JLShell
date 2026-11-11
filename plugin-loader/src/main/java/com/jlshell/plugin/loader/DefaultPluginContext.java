@@ -37,6 +37,8 @@ public class DefaultPluginContext implements PluginContext {
     private HostEvents hostEvents = HostEvents.unavailable();
     private PluginAccessPolicy accessPolicy = PluginAccessPolicy.allowAll();
     private ScopedPluginFonts fonts;
+    private final ScopedHostExtensions host;
+    @Override public com.jlshell.plugin.api.host.HostExtensions host() { return host; }
 
     @Override public com.jlshell.plugin.api.ui.PluginFonts fonts() {
         return fonts == null ? com.jlshell.plugin.api.ui.PluginFonts.unavailable() : fonts;
@@ -65,6 +67,7 @@ public class DefaultPluginContext implements PluginContext {
                                 Optional<SshSessionContext> sshSession, Callbacks callbacks) {
         this.pluginId = pluginId;
         this.sessionId = sessionId;
+        this.host = new ScopedHostExtensions(sessionId,pluginId);
         this.registry = registry;
         this.capabilityBus = capabilityBus;
         this.storage = storage;
@@ -171,6 +174,7 @@ public class DefaultPluginContext implements PluginContext {
     }
 
     public void disposeBindings() {
+        host.close();
         if (fonts != null) fonts.close();
         themeName.unbind();
         locale.unbind();

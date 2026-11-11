@@ -92,6 +92,24 @@ public final class TerminalWorkspaceView {
                 throw new java.util.concurrent.CancellationException("Terminal workspace is closing");
             }
             handles.add(handle);
+            handle.textActions(() -> {
+                String text=handle.selectedText();
+                if(text.isEmpty()) return java.util.List.of();
+                var selection=new com.jlshell.plugin.api.host.HostExtensions.TextSelection(handle.sessionId().toString(),text,handle.currentDirectory());
+                var actions=new java.util.ArrayList<com.jlshell.terminal.support.RefreshableTerminalPanel.PopupAction>();
+                for(var action:com.jlshell.plugin.loader.HostExtensionRegistry.textActions(handle.sessionId().toString())) {
+                    try { if(action.visible().test(selection)) actions.add(new com.jlshell.terminal.support.RefreshableTerminalPanel.PopupAction(
+                            action.title(),"",true,false,() -> { try { action.execute().accept(selection); } catch(RuntimeException error) { com.jlshell.plugin.loader.HostExtensionRegistry.report(error); } })); }
+                    catch(RuntimeException error) { com.jlshell.plugin.loader.HostExtensionRegistry.report(error); }
+                }
+                return actions;
+            });
+            handle.terminalAccess().ifPresent(access -> cwdListeners.add(
+                    com.jlshell.plugin.loader.HostExtensionRegistry.terminal(
+                            new com.jlshell.plugin.api.host.HostExtensions.Session(
+                                    access.sessionId(), sshSession.displayName(), sshSession.target().host(),
+                                    sshSession.target().username(), true, false), access)));
+
             cwdListeners.add(handle.onDirectoryChanged(path -> {
                 if (!closing && path != null && !path.isBlank()) cwd.set(path);
             }));
@@ -129,6 +147,7 @@ public final class TerminalWorkspaceView {
     private void onTerminalDisconnected(ShellTtyConnector.DisconnectReason reason) {
         if (closing || disconnected || reason == ShellTtyConnector.DisconnectReason.USER_CLOSE) return;
         disconnected = true;
+        com.jlshell.plugin.loader.HostExtensionRegistry.disconnected(sshSession.sessionId().toString());
         stopStatusSampling();
         String message = i18nService.get(reason == ShellTtyConnector.DisconnectReason.REMOTE_CLOSED
                 ? "terminal.disconnected.remoteClosed" : "terminal.disconnected.ioError");

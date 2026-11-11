@@ -84,6 +84,9 @@ public class RefreshableTerminalPanel extends TerminalPanel {
         void show(java.awt.Component invoker, int x, int y, java.util.List<PopupAction> actions);
     }
     private PopupPresenter popupPresenter;
+    private java.util.function.Supplier<java.util.List<PopupAction>> extensionActions = java.util.List::of;
+    public void setExtensionActions(java.util.function.Supplier<java.util.List<PopupAction>> actions) { extensionActions=actions; }
+
     public void setPopupPresenter(PopupPresenter presenter) { popupPresenter = presenter; }
 
     /**
@@ -523,6 +526,7 @@ public class RefreshableTerminalPanel extends TerminalPanel {
                 }
                 public void addSeparator() { actions.add(new PopupAction("", "", false, true, null)); }
             });
+            actions.addAll(extensionActions.get());
             return new JPopupMenu() {
                 @Override public void show(java.awt.Component invoker, int x, int y) {
                     popupPresenter.show(invoker, x, y, java.util.List.copyOf(actions));

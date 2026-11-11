@@ -19,6 +19,11 @@ import com.jlshell.program.api.AccountSessionService;
 
 public interface ProgramPluginContext extends com.jlshell.plugin.api.ui.FontAwareContext {
 
+    /** Optional host interaction services, scoped to this plugin's lifecycle. */
+    default com.jlshell.plugin.api.host.HostExtensions host() {
+        return com.jlshell.plugin.api.host.HostExtensions.unavailable();
+    }
+
     String themeName();
 
     ObservableValue<String> themeNameProperty();

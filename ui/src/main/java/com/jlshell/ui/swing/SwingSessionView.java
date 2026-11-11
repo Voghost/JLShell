@@ -185,6 +185,15 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
         return -1;
     }
 
+    com.jlshell.plugin.api.host.HostExtensions.ViewOptions toolOptions(String key) {
+        int index=toolIndex(key);
+        if(index<0 || index>=pageTabs.size()) return null;
+        WorkspacePage tab=pageTabs.get(index);
+        if(tab==null) return null;
+        Object host=tab.getProperties().get("jlshell.hostExtensions");
+        return host instanceof com.jlshell.plugin.loader.ScopedHostExtensions extensions ? extensions.viewOptions() : null;
+    }
+
     String toolTitle(String key) {
         int index = toolIndex(key);
         if (index == 0) return monitoringTitle;

@@ -54,6 +54,7 @@ class SwingSftpBrowserTest {
     @Test void bottomDockShowsLocalAndRemoteSideBySideAndRetainsNavigation() throws Exception {
         Files.writeString(temporary.resolve("test.txt"), "content");
         var session = mock(SshSession.class);
+        when(session.sessionId()).thenReturn(com.jlshell.core.model.SessionId.randomId());
         var service = mock(SftpService.class);
         when(service.listDirectory(eq(session), anyString())).thenReturn(CompletableFuture.completedFuture(
                 new RemoteDirectoryListing("/fixture", List.of(file("/fixture/test.txt", "test.txt")))));
@@ -89,6 +90,7 @@ class SwingSftpBrowserTest {
         Files.writeString(temporary.resolve("abc.txt"), "abc");
         Files.createDirectory(temporary.resolve("folder"));
         var session = mock(SshSession.class);
+        when(session.sessionId()).thenReturn(com.jlshell.core.model.SessionId.randomId());
         var service = mock(SftpService.class);
         when(service.listDirectory(eq(session), anyString())).thenReturn(CompletableFuture.completedFuture(
                 new RemoteDirectoryListing("/fixture", List.of(dir("/fixture/folder", "folder"), file("/fixture/abc.txt", "abc.txt")))));
@@ -145,7 +147,8 @@ class SwingSftpBrowserTest {
     }
 
     @Test void followsCurrentTerminalOnOpenAndDirectoryChangesAndCanBePaused() throws Exception {
-        var session = mock(SshSession.class); var service = mock(SftpService.class);
+        var session = mock(SshSession.class);
+        when(session.sessionId()).thenReturn(com.jlshell.core.model.SessionId.randomId()); var service = mock(SftpService.class);
         var slow = new CompletableFuture<RemoteDirectoryListing>();
         when(service.listDirectory(eq(session), anyString())).thenAnswer(call -> {
             String target = call.getArgument(1);
@@ -183,7 +186,9 @@ class SwingSftpBrowserTest {
         Files.createDirectory(temporary.resolve("Documents"));
         Files.createDirectory(temporary.resolve("Projects"));
         Files.writeString(temporary.resolve("README.md"), "local fixture");
-        SshSession session = mock(SshSession.class); SftpService service = mock(SftpService.class);
+        SshSession session = mock(SshSession.class);
+        when(session.sessionId()).thenReturn(com.jlshell.core.model.SessionId.randomId());
+        SftpService service = mock(SftpService.class);
         CompletableFuture<RemoteDirectoryListing> slow = new CompletableFuture<>();
         when(service.listDirectory(eq(session), anyString())).thenAnswer(call -> {
             String path = call.getArgument(1);

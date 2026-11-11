@@ -42,11 +42,15 @@ public final class ProgramApiCatalog {
     private ProgramApiCatalog() {}
 
     public static List<ProgramApiDefinition> definitions() {
-        return DEFINITIONS;
+        var result = new java.util.ArrayList<>(DEFINITIONS);
+        for(String operation : ProgramWorkbenchService.OPERATIONS) result.add(api(operation,
+                "Workbench operation. Terminal and file operations require an explicit sessionId.",
+                operation.startsWith("terminal.") || operation.startsWith("file."),"operation result","{}",(String[])null));
+        return List.copyOf(result);
     }
 
     public static List<String> methodNames() {
-        return DEFINITIONS.stream().map(ProgramApiDefinition::method).toList();
+        return definitions().stream().map(ProgramApiDefinition::method).toList();
     }
 
     private static ProgramApiDefinition api(String method, String description, boolean requiresSession,

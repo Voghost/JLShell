@@ -36,6 +36,14 @@ class SshjSftpServiceTest {
     private volatile CountDownLatch blockedWrite;
     private volatile CountDownLatch releaseWrite;
 
+    @Test void readsOnlyTheRequestedRangeAndRejectsUnboundedRequests() throws Exception {
+        Files.writeString(remote.resolve("preview.txt"),"0123456789");
+        assertArrayEquals("3456".getBytes(java.nio.charset.StandardCharsets.UTF_8), service.readRange(session,"/preview.txt",3,4).get(5,TimeUnit.SECONDS));
+        assertArrayEquals(new byte[0],service.readRange(session,"/preview.txt",100,4).get(5,TimeUnit.SECONDS));
+        assertThrows(ExecutionException.class,() -> service.readRange(session,"/preview.txt",-1,4).get());
+        assertThrows(ExecutionException.class,() -> service.readRange(session,"/preview.txt",0,5*1024*1024).get());
+    }
+
     @BeforeEach void connect() throws Exception {
         remote = Files.createDirectory(temporary.resolve("remote"));
         var factory = new SftpSubsystemFactory.Builder().build();

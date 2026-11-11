@@ -147,6 +147,7 @@ public class AppContext implements AutoCloseable {
             var rpcTiming = timing.step("plugin-host-and-rpc-services");
             // 6. Plugins — 延迟到首次 getAvailablePlugins()/activatePlugin() 才扫描 JAR
             String hostVersion = com.jlshell.ui.dialog.PreferencesDialog.getVersion();
+            com.jlshell.plugin.loader.HostExtensionRegistry.applicationVersion(hostVersion);
             com.jlshell.plugin.loader.PluginEnablementService pluginEnablementService =
                     new com.jlshell.plugin.loader.PluginEnablementService(appSettingsService);
             PluginManager pluginManager = new PluginManager(
@@ -209,6 +210,10 @@ public class AppContext implements AutoCloseable {
             ProgramSessionService programSessionService = new CoreProgramSessionService(
                     connectionProfileService::toConnectionRequest, sessionManager, executor);
             ProgramApiContext programApiContext = new ProgramApiContext() {
+                private final com.jlshell.program.api.ProgramWorkbenchService workbench = new com.jlshell.app.api.DefaultProgramWorkbenchService(id ->
+                        new com.jlshell.plugin.loader.SshSessionContextAdapter(sessionManager.getSession(new com.jlshell.core.model.SessionId(java.util.UUID.fromString(id)))
+                                .orElseThrow(() -> new IllegalArgumentException("Session not found")),sftpService).fileExplorer());
+                @Override public com.jlshell.program.api.ProgramWorkbenchService workbench() { return workbench; }
                 @Override public ProgramApiRegistry registry() { return programApiRegistry; }
                 @Override public ProgramSessionService sessions() { return programSessionService; }
                 @Override public String apiToken() { return externalApiToken; }

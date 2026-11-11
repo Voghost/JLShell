@@ -34,10 +34,13 @@ final class ShellDirectoryIntegration {
                 + "p=\"${p//\\%/%25}\"; p=\"${p// /%20}\"; "
                 + "p=\"${p//$'\\n'/%0A}\"; p=\"${p//$'\\r'/%0D}\"; "
                 + "printf '\\033]7;file://%s%s\\007' \"$HOSTNAME\" \"$p\"; }; "
-                + "if [ -n \"$ZSH_VERSION\" ]; then typeset -ga precmd_functions; "
+                + "_jlshell_finished() { local code=$?; if [ \"$_jlshell_initial_prompt\" != 1 ]; then printf '\\033]133;D;%s\\007' \"$code\"; fi; return \"$code\"; }; "
+                + "if [ -n \"$ZSH_VERSION\" ]; then typeset -ga precmd_functions; precmd_functions=(_jlshell_finished ${precmd_functions:#_jlshell_finished}); "
                 + "(( ${precmd_functions[(Ie)_jlshell_osc7]} )) || precmd_functions+=(_jlshell_osc7); "
-                + "else case \"$(declare -p PROMPT_COMMAND 2>/dev/null)\" in \"declare -a\"*) PROMPT_COMMAND+=(_jlshell_osc7);; "
-                + "*) PROMPT_COMMAND=\"${PROMPT_COMMAND}\"$'\\n'_jlshell_osc7;; esac; fi; "
+                + "_jlshell_preexec() { printf '\\033]133;C\\007'; }; typeset -ga preexec_functions; "
+                + "(( ${preexec_functions[(Ie)_jlshell_preexec]} )) || preexec_functions+=(_jlshell_preexec); "
+                + "else PS0=\"${PS0}$(printf '\\033]133;C\\007')\"; case \"$(declare -p PROMPT_COMMAND 2>/dev/null)\" in \"declare -a\"*) PROMPT_COMMAND=(_jlshell_finished \"${PROMPT_COMMAND[@]}\" _jlshell_osc7);; "
+                + "*) PROMPT_COMMAND=_jlshell_finished$'\\n'\"${PROMPT_COMMAND}\"$'\\n'_jlshell_osc7;; esac; fi; "
                 + "else printf '\\033]777;jlshell-ready-" + token + "\\007'; fi";
         // Keep the input below small PTY canonical-line limits. The payload is our own constant
         // script; it never contains user input or remote paths. gzip/base64 are available on the
