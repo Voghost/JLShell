@@ -678,6 +678,10 @@ jobs:
 
           cp dist/win-installer/*.msi "dist/JLShell-${VERSION}-win-x64.msi"
 
+      - name: Verify branded Windows native process
+        shell: pwsh
+        run: ./.github/scripts/assert_windows_launcher.ps1 -AppPath dist/win-image/JLShellPreview/JLShellPreview.exe -ExpectedDescription 'JLShell Preview'
+
       - uses: actions/upload-artifact@v4
         with:
           if-no-files-found: error

@@ -204,7 +204,7 @@
                             <configuration>
                                 <rules>
                                     <requireJavaVersion>
-                                        <version>[21,22)</version>
+                                        <version>[25,26)</version>
                                     </requireJavaVersion>
                                     <requireMavenVersion>
                                         <version>[3.9.0,)</version>
