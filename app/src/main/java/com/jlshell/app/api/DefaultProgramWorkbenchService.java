@@ -8,14 +8,16 @@ import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 
 public final class DefaultProgramWorkbenchService implements ProgramWorkbenchService {
+    private final com.jlshell.program.api.ProgramWorkspaceService workspace;
     private final Gson gson = new Gson();
     private final java.util.function.Function<String,com.jlshell.plugin.api.capability.FileExplorer> files;
-    public DefaultProgramWorkbenchService(java.util.function.Function<String,com.jlshell.plugin.api.capability.FileExplorer> files) { this.files=files; }
+    public DefaultProgramWorkbenchService(java.util.function.Function<String,com.jlshell.plugin.api.capability.FileExplorer> files) { this(files,null); }
+    public DefaultProgramWorkbenchService(java.util.function.Function<String,com.jlshell.plugin.api.capability.FileExplorer> files,com.jlshell.program.api.ProgramWorkspaceService workspace) { this.files=files; this.workspace=workspace; }
 
     public CompletableFuture<JsonElement> invoke(String operation,JsonObject args) {
         try {
             String id=args.has("sessionId") ? args.get("sessionId").getAsString() : null;
-            if(operation.equals("workbench.sessions")) return result(HostExtensionRegistry.sessions());
+            if(operation.equals("workbench.sessions")) return workspace==null?result(HostExtensionRegistry.sessions()):workspace.sessions().thenApply(gson::toJsonTree);
             if(operation.equals("task.list")) {
                 JsonArray values=new JsonArray();
                 for(var task:HostExtensionRegistry.tasks()) {
@@ -31,11 +33,11 @@ public final class DefaultProgramWorkbenchService implements ProgramWorkbenchSer
                 return CompletableFuture.completedFuture(JsonNull.INSTANCE);
             }
             if(id==null || id.isBlank()) throw new IllegalArgumentException("sessionId required");
-            if(operation.equals("workbench.selectSession")) return HostExtensionRegistry.selectSession(id).thenApply(ignored -> JsonNull.INSTANCE);
-            if(operation.equals("file.navigate")) return HostExtensionRegistry.navigate(id,
+            if(operation.equals("workbench.selectSession")) return (workspace==null?HostExtensionRegistry.selectSession(id):workspace.reveal(id,null,true)).thenApply(ignored -> JsonNull.INSTANCE);
+            if(operation.equals("file.navigate")) return (workspace==null?CompletableFuture.<Void>completedFuture(null):HostExtensionRegistry.workspaceUi().ensureFiles(id)).thenCompose(ready -> HostExtensionRegistry.navigate(id,
                     args.has("remote") && args.get("remote").getAsBoolean(),text(args,"directory"),
                     args.has("selectedPaths") ? args.getAsJsonArray("selectedPaths").asList().stream().map(JsonElement::getAsString).toList() : java.util.List.of())
-                    .thenApply(ignored -> JsonNull.INSTANCE);
+                    .thenApply(ignored -> JsonNull.INSTANCE));
             if(operation.startsWith("file.")) {
                 var file=files.apply(id);
                 return switch(operation) {
@@ -48,7 +50,18 @@ public final class DefaultProgramWorkbenchService implements ProgramWorkbenchSer
                     default -> CompletableFuture.failedFuture(new IllegalArgumentException("Unknown file operation"));
                 };
             }
-            TerminalAccess terminal=HostExtensionRegistry.terminal(id).orElseThrow(() -> new IllegalStateException("Visible terminal not open"));
+            String terminalId=args.has("terminalId")?args.get("terminalId").getAsString():null;
+            TerminalAccess terminal=HostExtensionRegistry.resolveTerminal(id,terminalId);
+            if(workspace!=null && java.util.Set.of("terminal.paste","terminal.submit","terminal.key","terminal.batch").contains(operation)) {
+                String mode=switch(operation) { case "terminal.paste" -> "PASTE"; case "terminal.key" -> "KEY"; case "terminal.batch" -> "BATCH"; default -> "SUBMIT"; };
+                java.util.List<String> commands=operation.equals("terminal.batch")?args.getAsJsonArray("commands").asList().stream().map(JsonElement::getAsString).toList()
+                        :java.util.List.of(text(args,operation.equals("terminal.paste")?"text":operation.equals("terminal.key")?"key":"command"));
+                var input=new com.jlshell.program.api.ProgramWorkspaceService.Input(id,terminal.terminalId(),null,null,mode,commands,number(args,"intervalMs",100),false,60);
+                return workspace.enqueue(input).thenCompose(queued -> workspace.awaitOperation(queued.operationId(),60)).thenApply(finished -> {
+                    if(finished.state()!=com.jlshell.program.api.ProgramWorkspaceService.State.SUCCEEDED) throw new IllegalStateException(finished.message());
+                    return operation.equals("terminal.batch")?gson.toJsonTree(commands.size()):JsonNull.INSTANCE;
+                });
+            }
             return switch(operation) {
                 case "terminal.snapshot" -> terminal.snapshot(number(args,"historyLines",1000),number(args,"maxCharacters",262144)).thenApply(gson::toJsonTree);
                 case "terminal.paste" -> terminal.paste(text(args,"text")).thenApply(ignored -> JsonNull.INSTANCE);

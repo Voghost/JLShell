@@ -128,6 +128,9 @@ public class ShellTtyConnector implements TtyConnector {
         write(directoryIntegration.command());
     }
 
+    boolean commandTrackingSupported() { return directoryIntegration!=null && directoryIntegration.trackingAvailable(); }
+    boolean shellReady() { return directoryIntegration!=null && directoryIntegration.completed(); }
+
     @Override
     public int read(char[] buffer, int offset, int length) throws IOException {
         if (length == 0) {

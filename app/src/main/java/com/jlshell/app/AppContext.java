@@ -77,6 +77,7 @@ public class AppContext implements AutoCloseable {
     private final MemoryReclaimService memoryReclaimService;
     private final AccountService accountService;
     private final com.jlshell.ui.service.HostPluginFonts pluginFonts;
+    private final com.jlshell.app.api.DefaultProgramWorkspaceService workspaceService;
 
     public AppContext() { this(null); }
 
@@ -209,10 +210,14 @@ public class AppContext implements AutoCloseable {
             ProgramApiRegistry programApiRegistry = new DefaultProgramApiRegistry();
             ProgramSessionService programSessionService = new CoreProgramSessionService(
                     connectionProfileService::toConnectionRequest, sessionManager, executor);
+            java.util.function.Function<String,com.jlshell.plugin.api.capability.FileExplorer> fileAccess=id ->
+                    new com.jlshell.plugin.loader.SshSessionContextAdapter(sessionManager.getSession(new com.jlshell.core.model.SessionId(java.util.UUID.fromString(id)))
+                            .orElseThrow(() -> new IllegalArgumentException("Session not found")),sftpService).fileExplorer();
+            workspaceService=new com.jlshell.app.api.DefaultProgramWorkspaceService(connectionProfileService,sessionManager,executor,fileAccess);
+            com.jlshell.plugin.loader.HostExtensionRegistry.workspace(workspaceService);
             ProgramApiContext programApiContext = new ProgramApiContext() {
-                private final com.jlshell.program.api.ProgramWorkbenchService workbench = new com.jlshell.app.api.DefaultProgramWorkbenchService(id ->
-                        new com.jlshell.plugin.loader.SshSessionContextAdapter(sessionManager.getSession(new com.jlshell.core.model.SessionId(java.util.UUID.fromString(id)))
-                                .orElseThrow(() -> new IllegalArgumentException("Session not found")),sftpService).fileExplorer());
+                @Override public com.jlshell.program.api.ProgramWorkspaceService workspace() { return workspaceService; }
+                private final com.jlshell.program.api.ProgramWorkbenchService workbench = new com.jlshell.app.api.DefaultProgramWorkbenchService(fileAccess,workspaceService);
                 @Override public com.jlshell.program.api.ProgramWorkbenchService workbench() { return workbench; }
                 @Override public ProgramApiRegistry registry() { return programApiRegistry; }
                 @Override public ProgramSessionService sessions() { return programSessionService; }
@@ -333,6 +338,7 @@ public class AppContext implements AutoCloseable {
         if (apiServer != null) apiServer.stop();
         programApiProviders.forEach(ProgramApiProvider::deactivate);
         if (programPluginManager != null) programPluginManager.deactivateAll();
+        workspaceService.close();
         pluginFonts.close();
         if (accountService != null) accountService.shutdown();
         if (memoryReclaimService != null) memoryReclaimService.close();

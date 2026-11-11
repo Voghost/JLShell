@@ -7,6 +7,8 @@ public interface ProgramApiContext {
 
     default ProgramWorkbenchService workbench() { return ProgramWorkbenchService.unavailable(); }
 
+    default ProgramWorkspaceService workspace() { return ProgramWorkspaceService.unavailable(); }
+
     ProgramApiRegistry registry();
 
     ProgramSessionService sessions();

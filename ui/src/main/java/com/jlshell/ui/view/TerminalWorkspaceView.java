@@ -77,6 +77,11 @@ public final class TerminalWorkspaceView {
         sshSession.addDisconnectListener(sessionDisconnectListener);
     }
 
+    public void focusTerminal(String terminalId) {
+        var handle=handles.stream().filter(value -> terminalId==null || value.terminalAccess().map(access -> terminalId.equals(access.terminalId())).orElse(false))
+                .findFirst().orElseThrow(() -> new IllegalArgumentException("Terminal not found"));
+        handle.requestFocus();
+    }
     public void setNativeTerminalHost(NativeTerminalHost host) { nativeTerminalHost = host; }
     public void setOnReconnect(Runnable reconnect) { onReconnect = reconnect; }
     public boolean isDisconnected() { return disconnected; }

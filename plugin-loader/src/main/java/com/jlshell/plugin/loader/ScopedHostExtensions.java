@@ -50,6 +50,10 @@ public final class ScopedHostExtensions implements HostExtensions, AutoCloseable
         if (sessionId != null && !sessionId.equals(id)) throw new IllegalArgumentException("Terminal belongs to another session");
         return HostExtensionRegistry.terminal(id).map(delegate -> new TerminalAccess() {
             public boolean commandTrackingAvailable() { return delegate.commandTrackingAvailable(); }
+            public boolean commandRunning() { return delegate.commandRunning(); }
+            public EventPage events(long after,int limit) { requireOpen(); return delegate.events(after,limit); }
+            public String terminalId() { return delegate.terminalId(); }
+            public boolean shellReady() { return delegate.shellReady(); }
             public String sessionId() { return delegate.sessionId(); }
             public CompletableFuture<Snapshot> snapshot(int lines,int limit) { requireOpen(); return timed("terminal-snapshot",() -> delegate.snapshot(lines,limit)); }
             public CompletableFuture<Void> paste(String text) { requireOpen(); return timed("terminal-input",() -> delegate.paste(text)); }

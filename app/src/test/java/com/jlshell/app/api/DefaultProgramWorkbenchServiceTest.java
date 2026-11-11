@@ -19,6 +19,7 @@ class DefaultProgramWorkbenchServiceTest {
             var service=new DefaultProgramWorkbenchService(session -> { throw new AssertionError("Unexpected file access"); });
             JsonObject args=new JsonObject(); args.addProperty("sessionId",id); args.addProperty("text","hello");
             service.invoke("terminal.paste",args).get();
+            verify(terminal).terminalId();
             verify(terminal).paste("hello");
             args.addProperty("sessionId","missing-terminal");
             assertThrows(ExecutionException.class,() -> service.invoke("terminal.paste",args).get());

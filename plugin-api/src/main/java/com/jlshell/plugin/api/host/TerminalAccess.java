@@ -17,6 +17,11 @@ public interface TerminalAccess {
     enum Key { ENTER, INTERRUPT, TAB, ESCAPE, UP, DOWN, LEFT, RIGHT }
     /** True after the shell has emitted a recognized command-start marker. */
     default boolean commandTrackingAvailable() { return false; }
+    default String terminalId() { return sessionId(); }
+    default boolean shellReady() { return false; }
+    default boolean commandRunning() { return false; }
+    record EventPage(java.util.List<Event> events,long nextSequence,boolean truncated) {}
+    default EventPage events(long afterSequence,int limit) { throw new UnsupportedOperationException("Terminal event replay unavailable"); }
     String sessionId();
     CompletableFuture<Snapshot> snapshot(int historyLines, int maxCharacters);
     CompletableFuture<Void> paste(String text);

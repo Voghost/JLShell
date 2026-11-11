@@ -14,6 +14,11 @@ final class ShellDirectoryIntegration {
     private final StringBuilder startup = new StringBuilder();
     private final long deadline;
     private boolean pending = true;
+    private boolean completed;
+    private boolean tracking;
+    private final String trackingMarker="\033]133;A\007";
+    synchronized boolean trackingAvailable() { return completed && tracking; }
+    synchronized boolean completed() { return completed; }
 
     ShellDirectoryIntegration() { this(Duration.ofSeconds(5)); }
     ShellDirectoryIntegration(Duration timeout) { deadline = System.nanoTime() + timeout.toNanos(); }
@@ -25,22 +30,22 @@ final class ShellDirectoryIntegration {
                 + "if [ -n \"$ZSH_VERSION\" ] && [ -n \"${_p9k_transient_prompt-}\" ] "
                 + "&& [ \"${_POWERLEVEL9K_TRANSIENT_PROMPT-off}\" != off ]; then "
                 + "printf '\\033]777;jlshell-redraw-" + token + "\\007'; fi; "
-                + "_jlshell_initial_prompt=1; _jlshell_ready_suffix=$(printf '\\033]777;jlshell-ready-" + token + "\\007'); "
-                + "if [ -n \"$ZSH_VERSION\" ]; then _jlshell_ready_suffix=\"%{$_jlshell_ready_suffix%}\"; "
-                + "else _jlshell_ready_suffix=\"\\[$_jlshell_ready_suffix\\]\"; fi; "
-                + "_jlshell_osc7() { local p=\"$PWD\"; "
-                + "if [ \"$_jlshell_initial_prompt\" = 1 ]; then PS1=\"$PS1$_jlshell_ready_suffix\"; _jlshell_initial_prompt=0; "
-                + "else PS1=\"${PS1%\"$_jlshell_ready_suffix\"}\"; fi; "
+                + "_jls_i=1; _jls_r=$(printf '\\033]777;jlshell-ready-" + token + "\\007'); "
+                + "if [ -n \"$ZSH_VERSION\" ]; then _jls_r=\"%{$_jls_r%}\"; "
+                + "else _jls_r=\"\\[$_jls_r\\]\"; fi; "
+                + "_jls_7() { local p=\"$PWD\"; "
+                + "if [ \"$_jls_i\" = 1 ]; then PS1=\"$PS1$_jls_r\"; _jls_i=0; "
+                + "else PS1=\"${PS1%\"$_jls_r\"}\"; fi; "
                 + "p=\"${p//\\%/%25}\"; p=\"${p// /%20}\"; "
                 + "p=\"${p//$'\\n'/%0A}\"; p=\"${p//$'\\r'/%0D}\"; "
-                + "printf '\\033]7;file://%s%s\\007' \"$HOSTNAME\" \"$p\"; }; "
-                + "_jlshell_finished() { local code=$?; if [ \"$_jlshell_initial_prompt\" != 1 ]; then printf '\\033]133;D;%s\\007' \"$code\"; fi; return \"$code\"; }; "
-                + "if [ -n \"$ZSH_VERSION\" ]; then typeset -ga precmd_functions; precmd_functions=(_jlshell_finished ${precmd_functions:#_jlshell_finished}); "
-                + "(( ${precmd_functions[(Ie)_jlshell_osc7]} )) || precmd_functions+=(_jlshell_osc7); "
-                + "_jlshell_preexec() { printf '\\033]133;C\\007'; }; typeset -ga preexec_functions; "
-                + "(( ${preexec_functions[(Ie)_jlshell_preexec]} )) || preexec_functions+=(_jlshell_preexec); "
-                + "else PS0=\"${PS0}$(printf '\\033]133;C\\007')\"; case \"$(declare -p PROMPT_COMMAND 2>/dev/null)\" in \"declare -a\"*) PROMPT_COMMAND=(_jlshell_finished \"${PROMPT_COMMAND[@]}\" _jlshell_osc7);; "
-                + "*) PROMPT_COMMAND=_jlshell_finished$'\\n'\"${PROMPT_COMMAND}\"$'\\n'_jlshell_osc7;; esac; fi; "
+                + "printf '\\033]7;file://%s%s\\007' \"$HOSTNAME\" \"$p\"; case ${ZSH_VERSION+z}${BASH_VERSION} in z*|[5-9].*|[1-9][0-9].*|4.[4-9]*) printf '\\033]133;A\\007';; esac; }; "
+                + "_jls_f() { local code=$?; if [ \"$_jls_i\" != 1 ]; then printf '\\033]133;D;%s\\007' \"$code\"; fi; return \"$code\"; }; "
+                + "if [ -n \"$ZSH_VERSION\" ]; then typeset -ga precmd_functions; precmd_functions=(_jls_f ${precmd_functions:#_jls_f}); "
+                + "(( ${precmd_functions[(Ie)_jls_7]} )) || precmd_functions+=(_jls_7); "
+                + "_jls_x() { printf '\\033]133;C\\007'; }; typeset -ga preexec_functions; "
+                + "(( ${preexec_functions[(Ie)_jls_x]} )) || preexec_functions+=(_jls_x); "
+                + "else PS0=\"${PS0}$(printf '\\033]133;C\\007')\"; case \"$(declare -p PROMPT_COMMAND 2>/dev/null)\" in \"declare -a\"*) PROMPT_COMMAND=(_jls_f \"${PROMPT_COMMAND[@]}\" _jls_7);; "
+                + "*) PROMPT_COMMAND=_jls_f$'\\n'\"${PROMPT_COMMAND}\"$'\\n'_jls_7;; esac; fi; "
                 + "else printf '\\033]777;jlshell-ready-" + token + "\\007'; fi";
         // Keep the input below small PTY canonical-line limits. The payload is our own constant
         // script; it never contains user input or remote paths. gzip/base64 are available on the
@@ -63,13 +68,15 @@ final class ShellDirectoryIntegration {
     synchronized String filter(String text) {
         if (!pending) return text;
         startup.append(text);
+        if(startup.indexOf(trackingMarker)>=0) tracking=true;
         int done = startup.indexOf(end);
         if (done >= 0) {
+            completed=true;
             int started = startup.indexOf(begin);
             int transientRedraw = startup.indexOf(redraw);
             boolean collapse = started >= 0 && transientRedraw > started && transientRedraw < done;
             String login = stripEcho(started < 0 ? startup.substring(0, done) : startup.substring(0, started), collapse);
-            String output = login + startup.substring(done + end.length());
+            String output = (login + startup.substring(done + end.length())).replace(trackingMarker, "");
             startup.setLength(0);
             pending = false;
             return output;
@@ -80,7 +87,7 @@ final class ShellDirectoryIntegration {
 
     synchronized String release() {
         pending = false;
-        String output = stripEcho(startup.toString()).replace(begin, "").replace(end, "").replace(redraw, "");
+        String output = stripEcho(startup.toString()).replace(begin, "").replace(end, "").replace(redraw, "").replace(trackingMarker, "");
         startup.setLength(0);
         return output;
     }

@@ -42,6 +42,8 @@ public class DefaultTerminalViewHandle implements TerminalViewHandle {
         this.settingsProvider = settingsProvider;
         this.ttyConnector = ttyConnector;
         ttyConnector.eventSink(terminalAccess::publish);
+        terminalAccess.shellReadiness(ttyConnector::shellReady);
+        terminalAccess.trackingSupport(ttyConnector::commandTrackingSupported);
     }
 
     @Override public String selectedText() {

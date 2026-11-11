@@ -142,6 +142,12 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
         navigation.setOpaque(false);
     }
 
+    public SwingSftpBrowser ensureFiles() {
+        if(closed) throw new IllegalStateException("Session surface closed");
+        if(files==null && filesFactory!=null) { files=filesFactory.get(); rightHost.add(files,"files"); }
+        if(files==null) throw new IllegalStateException("File browser unavailable");
+        return files;
+    }
     void selectPage(int index, boolean reveal) {
         if (closed || index < 0) return;
         selectedPageIndex = index;
@@ -430,7 +436,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
             terminalBody.add(component, BorderLayout.CENTER);
             terminalBody.revalidate();
             terminalBody.repaint();
-            viewHandle.requestFocus();
+            if(isShowing()) viewHandle.requestFocus();
         });
     }
 

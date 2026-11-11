@@ -11,6 +11,11 @@ import java.util.function.*;
 /** A bounded view of JediTerm state. Snapshot reads and writes run on the EDT. */
 final class VisibleTerminalAccess implements TerminalAccess, AutoCloseable {
     private final String id;
+    private final String terminalId=UUID.randomUUID().toString();
+    private volatile java.util.function.BooleanSupplier shellReadiness=() -> false;
+    void shellReadiness(java.util.function.BooleanSupplier value) { shellReadiness=value; }
+    @Override public String terminalId() { return terminalId; }
+    @Override public boolean shellReady() { return shellReadiness.getAsBoolean(); }
     private final JlshellJediTermWidget widget;
     private final Supplier<String> directory;
     private final CopyOnWriteArrayList<Consumer<Event>> listeners = new CopyOnWriteArrayList<>();
@@ -34,9 +39,21 @@ final class VisibleTerminalAccess implements TerminalAccess, AutoCloseable {
     });
     private static final java.util.regex.Pattern COMMAND_MARKER = java.util.regex.Pattern.compile("\\x1b\\]133;([CD])(?:;([0-9]+))?(?:\\x07|\\x1b\\\\)");
     private final StringBuilder shellMarkers = new StringBuilder();
-    private boolean commandRunning;
+    private volatile boolean commandRunning;
+    private java.util.function.BooleanSupplier trackingSupport=() -> false;
+    void trackingSupport(java.util.function.BooleanSupplier value) { trackingSupport=value; }
+    @Override public boolean commandRunning() { return commandRunning; }
+    private final ArrayDeque<Event> journal=new ArrayDeque<>();
+    private int journalCharacters;
+    @Override public synchronized EventPage events(long afterSequence,int limit) {
+        if(afterSequence<0 || limit<1 || limit>256) throw new IllegalArgumentException("Invalid terminal event range");
+        var result=journal.stream().filter(event -> event.sequence()>afterSequence).limit(limit).toList();
+        long next=result.isEmpty() ? Math.max(afterSequence,sequence.get()) : result.getLast().sequence();
+        boolean truncated=!journal.isEmpty() && afterSequence<journal.getFirst().sequence()-1;
+        return new EventPage(result,next,truncated);
+    }
     private volatile boolean commandTracking;
-    @Override public boolean commandTrackingAvailable() { return commandTracking; }
+    @Override public boolean commandTrackingAvailable() { return commandTracking || trackingSupport.getAsBoolean(); }
     private synchronized void commandEvents(String text) {
         shellMarkers.append(text);
         var matcher=COMMAND_MARKER.matcher(shellMarkers);
@@ -55,11 +72,22 @@ final class VisibleTerminalAccess implements TerminalAccess, AutoCloseable {
         if(shellMarkers.length()>4096) shellMarkers.delete(0,shellMarkers.length()-4096);
     }
     private synchronized void enqueue(EventKind kind,String text,Integer exitCode) {
-        long number=sequence.incrementAndGet();
-        if(listeners.isEmpty()) return;
-        if(text.length()>65536) text=text.substring(0,65536);
-        Event event = new Event(number,Instant.now(),kind,text,exitCode);
-        if (!events.offer(event)) { events.poll(); events.offer(event); }
+        int offset = 0;
+        do {
+            int end = Math.min(text.length(), offset + 65536);
+            String chunk = text.substring(offset, end);
+            Event event = new Event(sequence.incrementAndGet(), Instant.now(), kind, chunk, exitCode);
+            journal.addLast(event);
+            journalCharacters += chunk.length();
+            while (journal.size() > 256 || journalCharacters > 262144) {
+                journalCharacters -= journal.removeFirst().text().length();
+            }
+            if (!listeners.isEmpty() && !events.offer(event)) {
+                events.poll();
+                events.offer(event);
+            }
+            offset = end;
+        } while (offset < text.length());
     }
     void publish(EventKind kind, String text) {
         if (closed) return;

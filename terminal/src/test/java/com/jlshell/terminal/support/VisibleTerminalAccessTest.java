@@ -32,6 +32,15 @@ class VisibleTerminalAccessTest {
             assertNotNull(finished);
             assertEquals(7,finished.exitCode());
             subscription.close();
+            String largeOutput = "x".repeat(100000);
+            long after = access.events(0, 256).nextSequence();
+            access.publish(TerminalAccess.EventKind.OUTPUT, largeOutput);
+            var replay = access.events(after, 256);
+            assertEquals(largeOutput, replay.events().stream().map(TerminalAccess.Event::text)
+                    .collect(java.util.stream.Collectors.joining()));
+            assertTrue(replay.events().stream().allMatch(event -> event.text().length() <= 65536));
+            for (int index = 0; index < 300; index++) access.publish(TerminalAccess.EventKind.OUTPUT, "chunk");
+            assertTrue(access.events(after, 256).truncated());
         } finally { access.close(); SwingExecutors.runOnEdtAsync(widget::close).get(); }
         assertThrows(ExecutionException.class,() -> access.paste("test").get());
     }

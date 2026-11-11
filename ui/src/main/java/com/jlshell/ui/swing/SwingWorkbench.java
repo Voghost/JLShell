@@ -1305,6 +1305,10 @@ public final class SwingWorkbench implements AutoCloseable {
         if (tabViews.isEmpty()) ((CardLayout) workspace.getLayout()).show(workspace, "welcome");
     }
 
+    public void ensureFiles(Object id) {
+        if(!(tabViews.get(id) instanceof SwingSessionView session)) throw new IllegalStateException("Session surface is not ready");
+        session.ensureFiles();
+    }
     public void selectTab(Object id) {
         Component host = tabHosts.get(id);
         JTabbedPane owner = groupFor(host);

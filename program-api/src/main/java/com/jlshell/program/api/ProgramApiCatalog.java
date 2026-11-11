@@ -43,9 +43,8 @@ public final class ProgramApiCatalog {
 
     public static List<ProgramApiDefinition> definitions() {
         var result = new java.util.ArrayList<>(DEFINITIONS);
-        for(String operation : ProgramWorkbenchService.OPERATIONS) result.add(api(operation,
-                "Workbench operation. Terminal and file operations require an explicit sessionId.",
-                operation.startsWith("terminal.") || operation.startsWith("file."),"operation result","{}",(String[])null));
+        result.addAll(WorkspaceRpcCatalog.workbenchDefinitions());
+        result.addAll(WorkspaceRpcCatalog.definitions());
         return List.copyOf(result);
     }
 

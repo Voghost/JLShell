@@ -130,6 +130,7 @@ public class SessionWorkspaceTab extends WorkspacePage {
 
         // 本工作区 Tab 的会话 id：来自 SSH 会话，用于 per-session 插件能力 registry 路由
         String sessionId = sshSession.sessionId().toString();
+        com.jlshell.plugin.loader.HostExtensionRegistry.bind(sessionId,connectionProfile.id(),com.jlshell.program.api.ProgramWorkspaceService.Presentation.TAB);
         PluginRuntimeServices.publish(new SessionOpenedEvent(
                 sessionId, connectionProfile.id(), connectionProfile.projectId(), Instant.now()));
 
@@ -271,6 +272,7 @@ public class SessionWorkspaceTab extends WorkspacePage {
     private void reconnect() {
         if (closing || reconnecting) return;
         reconnecting = true;
+        String previousSessionId = sshSession.sessionId().toString();
         log.info("[Reconnect] Starting reconnect for '{}' ({})", connectionProfile.displayName(), connectionProfile.summary());
         if (programSessionRegistry != null) {
             programSessionRegistry.deactivateSession(sshSession.sessionId().toString());
@@ -332,6 +334,9 @@ public class SessionWorkspaceTab extends WorkspacePage {
                         notifySessionCountChanged();
                         // 创建新的终端视图
                         String newSessionId = newSession.sessionId().toString();
+                        com.jlshell.plugin.loader.HostExtensionRegistry.bind(newSessionId,connectionProfile.id(),com.jlshell.program.api.ProgramWorkspaceService.Presentation.TAB);
+                        com.jlshell.plugin.loader.HostExtensionRegistry.unbind(previousSessionId);
+                        com.jlshell.plugin.loader.HostExtensionRegistry.reconnected(previousSessionId, newSessionId);
                         PluginRuntimeServices.publish(new SessionOpenedEvent(
                                 newSessionId, connectionProfile.id(),
                                 connectionProfile.projectId(), Instant.now()));

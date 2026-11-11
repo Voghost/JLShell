@@ -24,6 +24,8 @@ public interface ProgramPluginContext extends com.jlshell.plugin.api.ui.FontAwar
         return com.jlshell.plugin.api.host.HostExtensions.unavailable();
     }
 
+    default com.jlshell.program.api.ProgramWorkspaceService workspace() { return com.jlshell.program.api.ProgramWorkspaceService.unavailable(); }
+
     String themeName();
 
     ObservableValue<String> themeNameProperty();

@@ -63,7 +63,7 @@ context.host().own(terminal.subscribe(event -> {
 
 实时事件携带递增序号和时间。慢订阅者可能出现序号缺口，可重新请求快照恢复状态。输入事件是原始终端输入，其中可能含有敏感数据。编辑中的命令草稿需要插件结合 Shell 语义处理。
 
-SSH Bash/Zsh 初始化会增加 OSC 133 命令标记，保留原有提示符钩子。Bash 的开始事件依赖 PS0，需要 Bash 4.4 或更高版本。`commandTrackingAvailable()` 在观察到开始标记后返回 true。其他 Shell 可通过兼容 OSC 133 的配置提供事件。输出和命令事件使用同一递增序列，插件可按开始与结束边界关联输出。
+SSH Bash/Zsh 初始化会增加 OSC 133 命令标记，保留原有提示符钩子。Bash 的开始事件依赖 PS0，需要 Bash 4.4 或更高版本。`commandTrackingAvailable()` 在兼容 Shell 完成初始化或已观察到开始标记时返回 true。其他 Shell 可通过兼容 OSC 133 的配置提供事件。输出和命令事件使用同一递增序列，插件可按开始与结束边界关联输出。
 
 ## 布局
 
@@ -99,3 +99,22 @@ SSH Bash/Zsh 初始化会增加 OSC 133 命令标记，保留原有提示符钩�
 | `task.cancel` | `taskId` |
 
 已有上下文实现运行于新版 SDK 时，新增 default 方法提供不可用实现，插件应查询可选能力。旧插件可在新版宿主中继续运行。调用新增接口的新插件需要声明包含该 SDK 的最低宿主版本。
+
+
+## 跨会话工作区
+
+Program 插件新增 `context.workspace()`，Program API SPI 使用 `ProgramApiContext.workspace()`。
+`ProgramWorkspaceService` 提供连接元数据检索、会话打开与复用、单选/多选/角色选择、就绪等待、显式终端定位、重连、生命周期事件、文件传输与跨会话任务。
+
+- `sessionId` 标识一次会话，`terminalId` 标识一个终端实例。重连返回新标识。存在多个终端时必须明确提供 `terminalId`。
+- `TAB` 打开可见终端，`BACKGROUND` 打开 SSH 传输。后台会话通过 `reveal` 提升为标签后才能输入终端，本地 Shell 需要 TAB。
+- `CONNECTED` 为传输就绪，`TERMINAL` 为终端注册，`SHELL` 为 Shell 集成初始化确认。命令结束等待需要读取 `commandTracking` 能力。
+- `enqueue` 为每个终端提供 FIFO 队列，支持 PASTE、KEY、SUBMIT、BATCH。`awaitCommand` 适用于 SUBMIT/BATCH，非零退出码失败，超时从入队开始。
+- `operation`、`awaitOperation`、`cancelOperation` 管理输入与文件传输。取消停止尚未提交的工作，已发送命令可能继续运行。
+- `createJob` 为每个步骤绑定会话及可选终端，向操作传入 `jobId`、`stepId` 后自动更新进度。`updateStep` 支持调用方执行的步骤。
+- 工作区 `events` 最近保留 512 条。终端 `terminalEvents` 最近保留 256 条与 256 Ki 字符。序号缺口或 truncated 需要重新读取快照。
+- Program 插件停用时自动注销订阅并取消其未结束的任务、操作。用户会话由宿主管理。
+
+本地 RPC 使用相同的服务和队列。新增 25 个方法及参数 Schema 见 `WorkspaceRpcCatalog`，既有 `terminal.*` 输入方法也进入共享队列。`workbench.sessions` 返回完整工作区元数据。所有 RPC 沿用本机 Bearer Token 认证。
+
+网站文档新增 SDK 2.1.0 预览，包含 Plugin / Program 中英文版本、变更记录、Raw Markdown 和 JSON-RPC 调用示例。SDK 2.1.0 公共 Maven 包发布为独立后续流程。

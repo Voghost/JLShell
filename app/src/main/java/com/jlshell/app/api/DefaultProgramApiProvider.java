@@ -20,6 +20,8 @@ public final class DefaultProgramApiProvider implements ProgramApiProvider {
 
     @Override
     public void activate(ProgramApiContext context) {
+        for(var definition:com.jlshell.program.api.WorkspaceRpcCatalog.definitions())
+            context.registry().register(definition.method(),params -> WorkspaceRpcMethods.invoke(context.workspace(),definition.method(),params));
         for(String method : com.jlshell.program.api.ProgramWorkbenchService.OPERATIONS) {
             context.registry().register(method, params -> context.workbench().invoke(method,
                     params != null && params.isJsonObject() ? params.getAsJsonObject() : new JsonObject()));

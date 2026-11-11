@@ -10,6 +10,48 @@ import java.util.function.*;
 /** Workbench-owned endpoints and plugin-owned contributions. No UI component is retained after unregister. */
 public final class HostExtensionRegistry {
     private HostExtensionRegistry() {}
+    private static volatile com.jlshell.program.api.ProgramWorkspaceService workspace=com.jlshell.program.api.ProgramWorkspaceService.unavailable();
+    private static volatile WorkspaceUi workspaceUi;
+    public static void workspace(com.jlshell.program.api.ProgramWorkspaceService value) { workspace=Objects.requireNonNull(value); }
+    public static com.jlshell.program.api.ProgramWorkspaceService workspace() { return workspace; }
+    public static void workspaceUi(WorkspaceUi value) { workspaceUi=value; }
+    public static WorkspaceUi workspaceUi() {
+        if(workspaceUi==null) throw new IllegalStateException("Desktop workbench is not ready");
+        return workspaceUi;
+    }
+    public record WorkspaceChange(String type, String sessionId, String relatedId) {}
+    private static final CopyOnWriteArrayList<Consumer<WorkspaceChange>> workspaceListeners = new CopyOnWriteArrayList<>();
+    public static Registration onWorkspaceChange(Consumer<WorkspaceChange> listener) {
+        workspaceListeners.add(listener);
+        return () -> workspaceListeners.remove(listener);
+    }
+    public static void reconnected(String previousSessionId, String sessionId) {
+        for (var listener : workspaceListeners) {
+            try { listener.accept(new WorkspaceChange("RECONNECTED", sessionId, previousSessionId)); }
+            catch (RuntimeException error) { report(error); }
+        }
+    }
+    public record Binding(String connectionId,com.jlshell.program.api.ProgramWorkspaceService.Presentation presentation) {}
+    private static final ConcurrentMap<String,Binding> bindings=new ConcurrentHashMap<>();
+    public static void bind(String id,String connectionId,com.jlshell.program.api.ProgramWorkspaceService.Presentation presentation) { bindings.put(id,new Binding(connectionId,presentation)); }
+    public static Optional<Binding> binding(String id) { return Optional.ofNullable(bindings.get(id)); }
+    public static void unbind(String id) { bindings.remove(id); }
+    public record TerminalEntry(String sessionId,String terminalId,TerminalAccess access) {}
+    private static final ConcurrentMap<String,TerminalEntry> terminalEntries=new ConcurrentHashMap<>();
+    public static List<TerminalEntry> terminalEntries(String sessionId) {
+        return terminalEntries.values().stream().filter(entry -> entry.sessionId().equals(sessionId)).sorted(Comparator.comparing(TerminalEntry::terminalId)).toList();
+    }
+    public static TerminalAccess resolveTerminal(String sessionId,String terminalId) {
+        if(terminalId!=null && !terminalId.isBlank()) {
+            var entry=terminalEntries.get(terminalId);
+            if(entry==null || !entry.sessionId().equals(sessionId)) throw new IllegalArgumentException("Terminal does not belong to the requested session");
+            return entry.access();
+        }
+        var entries=terminalEntries(sessionId);
+        if(entries.size()!=1) throw new IllegalStateException("Specify terminalId when the session has zero or multiple terminals");
+        return entries.get(0).access();
+    }
+
     private static volatile String applicationVersion="unknown";
     public static void applicationVersion(String value) { applicationVersion=Objects.requireNonNull(value); }
     public static String applicationVersion() { return applicationVersion; }
@@ -44,9 +86,13 @@ public final class HostExtensionRegistry {
     }
     public static void sessionSelector(Function<String, CompletableFuture<Void>> selector) { sessionSelector = selector; }
     public static Registration terminal(HostExtensions.Session session, TerminalAccess terminal) {
+        String terminalKey=Objects.requireNonNullElse(terminal.terminalId(),session.id());
+        terminalEntries.put(terminalKey,new TerminalEntry(session.id(),terminalKey,terminal));
         terminals.put(session.id(), terminal); sessions.put(session.id(), session); publishSessions();
         return () -> {
+            terminalEntries.computeIfPresent(terminalKey,(id,entry) -> entry.access()==terminal ? null : entry);
             if(terminals.remove(session.id(),terminal)) {
+                terminalEntries(session.id()).stream().findFirst().ifPresent(entry -> terminals.put(session.id(),entry.access()));
                 sessions.computeIfPresent(session.id(),(id,current) -> terminals.containsKey(id) ? current : null);
                 publishSessions();
             }
