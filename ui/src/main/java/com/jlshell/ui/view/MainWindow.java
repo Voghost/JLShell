@@ -205,6 +205,12 @@ public class MainWindow {
                         if (profile != null) withSwing(view -> view.focusConnection(profile.id()));
                     });
             SwingTheme.install(themeService);
+            installProgramWorkspaceUi();
+            com.jlshell.plugin.loader.HostExtensionRegistry.sessionSelector(id -> com.jlshell.terminal.support.SwingExecutors.runOnEdtAsync(() -> {
+                var page=workspaceTabs.pages().stream().filter(candidate -> (candidate instanceof SessionWorkspaceTab sessionTab && id.equals(sessionTab.getSessionId())) || id.equals(candidate.getProperties().get("terminalSessionId"))).findFirst()
+                        .orElseThrow(() -> new IllegalArgumentException("Session is not open"));
+                workspaceTabs.select(page);
+            }));
             var view = timing == null ? new SwingWorkbench(actions, texts) : timing.call("swing-workbench-create", () -> new SwingWorkbench(actions, texts));
             swingWorkbench = CompletableFuture.completedFuture(view);
             view.setMenuBar(SwingMenuBridge.create(this::buildMenuBar));
@@ -213,7 +219,7 @@ public class MainWindow {
                     "account", () -> openPreferences(owner, PreferencesDialog.TAB_ACCOUNT),
                     "shortcuts", () -> openPreferences(owner, PreferencesDialog.TAB_SHORTCUTS)));
             registrations.add(viewModel.statusMessageProperty().subscribe(value -> UiThread.run(() -> view.setStatus(value))));
-            registrations.add(workspaceTabs.selectionProperty().subscribe(page -> UiThread.run(() -> { view.selectTab(page); updateWindowTitle(); })));
+            registrations.add(workspaceTabs.selectionProperty().subscribe(page -> UiThread.run(() -> { view.selectTab(page); updateWindowTitle(); com.jlshell.plugin.loader.HostExtensionRegistry.activeSession(selectedApiSessionId()); })));
             registrations.add(themeService.onThemeChanged(theme -> UiThread.run(() -> {
                 viewModel.activeThemeProperty().set(theme); applyUiFontSettings();
                 if (pluginManager != null) pluginManager.setThemeName(theme.name().toLowerCase(Locale.ROOT));
@@ -249,6 +255,9 @@ public class MainWindow {
     public void closeSwingWindow() {
         registrations.forEach(com.jlshell.plugin.api.lifecycle.Registration::close); registrations.clear();
         if (automaticUpdateTimer != null) automaticUpdateTimer.stop();
+        apiBackgroundLeases.values().forEach(ProgramConnectionRouteService::closeQuietly);
+        apiBackgroundLeases.clear();
+        com.jlshell.plugin.loader.HostExtensionRegistry.workspaceUi(null);
         withSwing(SwingWorkbench::close);
     }
 
@@ -369,12 +378,18 @@ public class MainWindow {
                 .thenAccept(confirmed -> { if (confirmed) CompletableFuture.runAsync(() -> connectionProfileService.delete(selected.id()), executor)
                         .whenComplete((ignored, error) -> UiThread.run(() -> { if (error != null) showError(ExceptionMessages.userMessage(error)); else loadConnections(); })); });
     }
-    private void openLocalShellTab(ConnectionProfile profile, com.jlshell.terminal.service.TerminalViewHandle handle) {
+    private void openLocalShellTab(ConnectionProfile profile, com.jlshell.terminal.service.TerminalViewHandle handle) { openLocalShellTab(profile,handle,true); }
+    private void openLocalShellTab(ConnectionProfile profile, com.jlshell.terminal.service.TerminalViewHandle handle,boolean focus) {
         localShellHandles.add(handle);
+        com.jlshell.plugin.loader.HostExtensionRegistry.bindLocal(handle.sessionId().toString(),profile.id());
+        var terminalRegistration=handle.terminalAccess().map(access -> com.jlshell.plugin.loader.HostExtensionRegistry.terminal(
+                new com.jlshell.plugin.api.host.HostExtensions.Session(access.sessionId(),profile.displayName(),"localhost",System.getProperty("user.name"),true,false),access))
+                .orElse(com.jlshell.plugin.api.lifecycle.Registration.noop());
         WorkspacePage tab = new WorkspacePage(profile.displayName()); tab.getProperties().put("connectionProfile", profile);
-        tab.getProperties().put("closeAction", (java.util.function.Supplier<CompletableFuture<Void>>) () -> handle.closeAsync().whenComplete((ignored, error) -> UiThread.run(() -> localShellHandles.remove(handle))));
+        tab.getProperties().put("terminalSessionId",handle.sessionId().toString());
+        tab.getProperties().put("closeAction", (java.util.function.Supplier<CompletableFuture<Void>>) () -> handle.closeAsync().whenComplete((ignored, error) -> UiThread.run(() -> { localShellHandles.remove(handle); terminalRegistration.close(); })));
         withSwing(view -> { TerminalPopupBridge.install(handle.component()); view.addTab(tab, profile.displayName(), handle.component(), () -> closeTab(tab), profile.summary()); view.selectTab(tab); });
-        workspaceTabs.add(tab); workspaceTabs.select(tab); handle.requestFocus();
+        workspaceTabs.add(tab); workspaceTabs.select(tab); if(focus) handle.requestFocus();
         viewModel.statusMessageProperty().set(i18nService.get("status.connected", profile.displayName()));
     }
     private List<Item> buildTabContextMenu(WorkspacePage tab) {
@@ -387,7 +402,10 @@ public class MainWindow {
         if (tab instanceof SessionWorkspaceTab session) { result.add(SwingMenuBridge.separator()); result.add(action("tab.duplicateSession", () -> connectProfile(session.getConnectionProfile()))); }
         return List.copyOf(result);
     }
-    private void removeWorkspaceTab(WorkspacePage tab) { workspaceTabs.remove(tab); withSwing(view -> view.removeTab(tab)); updateWindowTitle(); }
+    private void removeWorkspaceTab(WorkspacePage tab) {
+        String id=tab instanceof SessionWorkspaceTab ssh ? ssh.getSessionId() : (String)tab.getProperties().get("terminalSessionId");
+        if(id!=null) com.jlshell.plugin.loader.HostExtensionRegistry.unbind(id);
+        workspaceTabs.remove(tab); withSwing(view -> view.removeTab(tab)); updateWindowTitle(); }
     private void closeTab(WorkspacePage tab) {
         if (!closingTabs.add(tab)) return;
         CompletableFuture<Void> closed;
@@ -402,6 +420,7 @@ public class MainWindow {
         }));
     }
     private void showError(String message) {
+        com.jlshell.plugin.loader.HostExtensionRegistry.error("UI", null, null, message);
         viewModel.statusMessageProperty().set(message);
         SwingMessages.show(i18nService.get("error.title"), message, themeService, i18nService);
     }
@@ -536,7 +555,7 @@ public class MainWindow {
 
     private String selectedApiSessionId() {
         WorkspacePage selected = workspaceTabs.selected();
-        return selected instanceof SessionWorkspaceTab sessionTab ? sessionTab.getSessionId() : null;
+        return selected instanceof SessionWorkspaceTab sessionTab ? sessionTab.getSessionId() : selected == null ? null : (String) selected.getProperties().get("terminalSessionId");
     }
 
     private String formatConnectionTitle(ConnectionProfile profile) {
@@ -864,6 +883,136 @@ public class MainWindow {
         connectProfile(selected);
     }
 
+    private final java.util.concurrent.ConcurrentMap<String,AutoCloseable> apiBackgroundLeases=new java.util.concurrent.ConcurrentHashMap<>();
+    private void installProgramWorkspaceUi() {
+        com.jlshell.plugin.loader.HostExtensionRegistry.workspaceUi(new com.jlshell.plugin.loader.WorkspaceUi() {
+            public CompletableFuture<com.jlshell.program.api.ProgramWorkspaceService.UiContext> context() {
+                return swingWorkbench.thenCompose(view -> UiThread.supplyAsync(() -> {
+                    var profile = selectedConnection();
+                    String active = selectedApiSessionId();
+                    java.awt.Component focus = java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+                    String terminal = com.jlshell.plugin.loader.HostExtensionRegistry.terminalEntries(active).stream()
+                            .filter(entry -> workspaceTabs.selected() instanceof SessionWorkspaceTab ssh
+                                    && ssh.getTerminalWorkspaceView().ownsTerminalFocus(entry.terminalId(), focus))
+                            .map(com.jlshell.plugin.loader.HostExtensionRegistry.TerminalEntry::terminalId).findFirst().orElse(null);
+                    if (terminal == null) {
+                        var entries = com.jlshell.plugin.loader.HostExtensionRegistry.terminalEntries(active);
+                        if (entries.size() == 1) terminal = entries.getFirst().terminalId();
+                    }
+                    return new com.jlshell.program.api.ProgramWorkspaceService.UiContext(profile == null ? null : profile.id(),
+                            active, terminal, activeProjectId, themeService.currentTheme().name(), view.frame().getWidth(), view.frame().getHeight());
+                }));
+            }
+            public CompletableFuture<String> open(com.jlshell.program.api.ProgramWorkspaceService.OpenRequest request) {
+                return CompletableFuture.supplyAsync(() -> connectionProfileService.listProfiles().stream().filter(profile -> profile.id().equals(request.connectionId()))
+                        .findFirst().orElseThrow(() -> new IllegalArgumentException("Saved connection not found")),executor)
+                        .thenCompose(profile -> openApiConnection(profile,request)).whenComplete((value,error) -> {
+                            if (error != null) com.jlshell.plugin.loader.HostExtensionRegistry.error("CONNECTION", null, request.connectionId(), ExceptionMessages.userMessage(error));
+                        });
+            }
+            public CompletableFuture<com.jlshell.program.api.ProgramWorkspaceService.Selection> choose(com.jlshell.program.api.ProgramWorkspaceService.SelectionRequest request) {
+                return com.jlshell.plugin.loader.HostExtensionRegistry.workspace().sessions().thenCompose(values ->
+                        com.jlshell.ui.swing.WorkspaceSelectionDialog.choose(request,values,i18nService,themeService));
+            }
+            public CompletableFuture<com.jlshell.program.api.ProgramWorkspaceService.RoleSelection> chooseRoles(com.jlshell.program.api.ProgramWorkspaceService.RoleRequest request) {
+                return com.jlshell.plugin.loader.HostExtensionRegistry.workspace().sessions().thenCompose(values ->
+                        com.jlshell.ui.swing.WorkspaceSelectionDialog.roles(request,values,i18nService,themeService));
+            }
+            public CompletableFuture<Void> reveal(String id,String terminalId,boolean focus) {
+                return ensureApiWorkspace(id,focus).thenCompose(page -> UiThread.supplyAsync(() -> {
+                    if(focus) {
+                        workspaceTabs.select(page);
+                        if(page instanceof SessionWorkspaceTab ssh) ssh.getTerminalWorkspaceView().focusTerminal(terminalId);
+                        else localShellHandles.stream().filter(handle -> handle.sessionId().toString().equals(id)).findFirst().ifPresent(com.jlshell.terminal.service.TerminalViewHandle::requestFocus);
+                    }
+                    return (Void)null;
+                }));
+            }
+            public CompletableFuture<Void> ensureFiles(String id) {
+                return ensureApiWorkspace(id,false).thenCompose(page -> swingWorkbench.thenCompose(view -> UiThread.supplyAsync(() -> { view.ensureFiles(page); return (Void)null; })));
+            }
+            public CompletableFuture<Void> closeSession(String id) {
+                return UiThread.supplyAsync(() -> workspaceTabs.pages().stream().filter(page -> apiSessionId(page).equals(id)).findFirst())
+                        .thenCompose(page -> {
+                            if(page.isEmpty()) return sessionManager.closeSession(new com.jlshell.core.model.SessionId(java.util.UUID.fromString(id)))
+                                    .whenComplete((value,error) -> ProgramConnectionRouteService.closeQuietly(apiBackgroundLeases.remove(id)));
+                            WorkspacePage tab=page.get();
+                            CompletableFuture<Void> closing;
+                            if(tab instanceof SessionWorkspaceTab ssh) closing=ssh.closeWorkspace();
+                            else {
+                                @SuppressWarnings("unchecked") var close=(java.util.function.Supplier<CompletableFuture<Void>>)tab.getProperties().get("closeAction");
+                                closing=close==null?CompletableFuture.completedFuture(null):close.get();
+                            }
+                            return closing.thenCompose(ignored -> UiThread.supplyAsync(() -> { removeWorkspaceTab(tab); afterWorkspaceTabRemoved(); return (Void)null; }));
+                        });
+            }
+        });
+    }
+    private final java.util.Map<String,CompletableFuture<WorkspacePage>> apiWorkspacePromotions = new java.util.HashMap<>();
+    private CompletableFuture<WorkspacePage> ensureApiWorkspace(String id,boolean focus) {
+        synchronized (apiWorkspacePromotions) {
+            var pending = apiWorkspacePromotions.get(id);
+            if (pending != null) return pending;
+            var result = promoteApiWorkspace(id, focus);
+            apiWorkspacePromotions.put(id, result);
+            result.whenComplete((page, error) -> {
+                synchronized (apiWorkspacePromotions) { apiWorkspacePromotions.remove(id, result); }
+            });
+            return result;
+        }
+    }
+    private CompletableFuture<WorkspacePage> promoteApiWorkspace(String id,boolean focus) {
+        return UiThread.supplyAsync(() -> workspaceTabs.pages().stream().filter(page -> id.equals(apiSessionId(page))).findFirst())
+                .thenCompose(existing -> {
+                    if(existing.isPresent()) return CompletableFuture.completedFuture(existing.get());
+                    var binding=com.jlshell.plugin.loader.HostExtensionRegistry.binding(id).orElseThrow(() -> new IllegalStateException("Session has no saved connection metadata"));
+                    var session=sessionManager.getSession(new com.jlshell.core.model.SessionId(java.util.UUID.fromString(id))).orElseThrow(() -> new IllegalArgumentException("Session closed"));
+                    return CompletableFuture.supplyAsync(() -> connectionProfileService.listProfiles().stream().filter(profile -> profile.id().equals(binding.connectionId())).findFirst()
+                            .orElseThrow(() -> new IllegalArgumentException("Saved connection no longer exists")),executor)
+                            .thenCompose(profile -> UiThread.supplyAsync(() -> {
+                                AutoCloseable lease=apiBackgroundLeases.remove(id);
+                                return openWorkspace(profile,session,lease,focus);
+                            }).thenCompose(java.util.function.Function.identity()))
+                            .thenCompose(ignored -> UiThread.supplyAsync(() -> apiWorkspacePage(id)));
+                });
+    }
+    private String apiSessionId(WorkspacePage page) {
+        return page instanceof SessionWorkspaceTab ssh ? ssh.getSessionId() : java.util.Objects.toString(page.getProperties().get("terminalSessionId"),"");
+    }
+    private WorkspacePage apiWorkspacePage(String id) {
+        return workspaceTabs.pages().stream().filter(page -> id.equals(apiSessionId(page))).findFirst()
+                .orElseThrow(() -> new IllegalStateException("This session has no terminal workspace"));
+    }
+    private CompletableFuture<String> openApiConnection(ConnectionProfile profile,com.jlshell.program.api.ProgramWorkspaceService.OpenRequest request) {
+        if(profile.connectionType()==ConnectionType.LOCAL_SHELL) {
+            if(request.presentation()==com.jlshell.program.api.ProgramWorkspaceService.Presentation.BACKGROUND)
+                return CompletableFuture.failedFuture(new UnsupportedOperationException("Local shells require TAB presentation"));
+            var terminalRequest=new com.jlshell.terminal.model.TerminalViewRequest(profile.displayName(),null,null,themeService.activeColorScheme(),terminalRuntimeSettings());
+            return localShellLauncher.launch(profile.displayName(),terminalRequest).thenCompose(handle -> UiThread.supplyAsync(() -> {
+                WorkspacePage previous=workspaceTabs.selected(); openLocalShellTab(profile,handle,request.focus());
+                if(!request.focus() && previous!=null) workspaceTabs.select(previous);
+                return handle.sessionId().toString();
+            }));
+        }
+        return CompletableFuture.supplyAsync(() -> connectionProfileService.toConnectionRequest(profile.id()),executor)
+                .thenCompose(connection -> connectionRouteService.route(profile,connection))
+                .thenCompose(routed -> sessionManager.openSession(routed.request()).handle((session,error) -> {
+                    if(error!=null) { ProgramConnectionRouteService.closeQuietly(routed.lease()); throw new java.util.concurrent.CompletionException(error); }
+                    return new RoutedSshSession(session,routed.lease());
+                })).thenCompose(routed -> {
+                    String id=routed.session().sessionId().toString();
+                    if(request.presentation()==com.jlshell.program.api.ProgramWorkspaceService.Presentation.BACKGROUND) {
+                        if (routed.routeLease() != null) apiBackgroundLeases.put(id,routed.routeLease());
+                        routed.session().addDisconnectListener(reason -> {
+                            com.jlshell.plugin.loader.HostExtensionRegistry.error("DISCONNECTED",id,profile.id(),reason);
+                            ProgramConnectionRouteService.closeQuietly(apiBackgroundLeases.remove(id));
+                        });
+                        return CompletableFuture.completedFuture(id);
+                    }
+                    return UiThread.supplyAsync(() -> openWorkspace(profile,routed.session(),routed.routeLease(),request.focus())).thenCompose(java.util.function.Function.identity());
+                });
+    }
+
     private void connectProfile(ConnectionProfile selected) {
         if (!beginConnecting(selected)) {
             log.debug("Ignoring duplicate connect request for {}", selected.summary());
@@ -909,6 +1058,7 @@ public class MainWindow {
                     try {
                         if (throwable != null) {
                             log.error("Local shell launch failed for {}", profile.displayName(), throwable);
+                            com.jlshell.plugin.loader.HostExtensionRegistry.error("LOCAL_SHELL", null, profile.id(), ExceptionMessages.userMessage(throwable));
                             showError(i18nService.get("status.connectionFailed",
                                     throwable.getCause() == null ? throwable.getMessage() : throwable.getCause().getMessage()));
                             return;
@@ -946,6 +1096,7 @@ public class MainWindow {
                     if (throwable != null) {
                         var reason = ExceptionMessages.connectionReason(throwable);
                         log.error("SSH connection failed for {}: reason={}", selected.summary(), reason, throwable);
+                        com.jlshell.plugin.loader.HostExtensionRegistry.error(reason.name(), null, selected.id(), ExceptionMessages.userMessage(throwable));
                         UiThread.run(() -> {
                             showError(i18nService.get("status.connectionFailed",
                                     reason == com.jlshell.core.exception.ConnectionException.Reason.UNKNOWN
@@ -970,14 +1121,21 @@ public class MainWindow {
                 });
     }
 
-    private void openWorkspace(ConnectionProfile profile, com.jlshell.core.session.SshSession sshSession,
+    private CompletableFuture<String> openWorkspace(ConnectionProfile profile, com.jlshell.core.session.SshSession sshSession,
                                AutoCloseable routeLease) {
+        return openWorkspace(profile,sshSession,routeLease,true);
+    }
+    private CompletableFuture<String> openWorkspace(ConnectionProfile profile, com.jlshell.core.session.SshSession sshSession,
+                               AutoCloseable routeLease,boolean focus) {
+        CompletableFuture<String> result=new CompletableFuture<>();
+        WorkspacePage previous=workspaceTabs.selected();
         log.info("Opening workspace for session {}", sshSession.sessionId());
         // recordSessionOpened 含 DB 写入，移到后台线程
         CompletableFuture.supplyAsync(
                 () -> connectionProfileService.recordSessionOpened(sshSession.sessionId(), profile.id(), profile.summary()),
                 executor
         ).whenComplete((historyId, throwable) -> UiThread.run(() -> {
+            try {
             if (throwable != null) {
                 log.warn("Failed to record session history for {}", sshSession.sessionId(), throwable);
             }
@@ -1011,15 +1169,16 @@ public class MainWindow {
                                 return;
                             }
                             view.addTab(tab, profile.displayName(), surface, () -> UiThread.run(() -> closeTab(tab)), profile.summary());
-                            view.selectTab(tab);
+                            if(focus) view.selectTab(tab); else if(previous!=null) view.selectTab(previous);
                         }));
             }
             workspaceTabs.add(tab);
-            workspaceTabs.select(tab);
+            if(focus || previous==null) workspaceTabs.select(tab);
             log.info("Workspace tab added for session {}", sshSession.sessionId());
             tab.initialize().whenComplete((unused, t) -> UiThread.run(() -> {
                 try {
                     if (t != null) {
+                        result.completeExceptionally(t);
                         log.error("Workspace initialization failed for session {}", sshSession.sessionId(), t);
                         showError(i18nService.get("status.terminalOpenFailed", t.getMessage()));
                         tab.closeWorkspace().whenComplete((closed, closeError) -> UiThread.run(() -> {
@@ -1030,6 +1189,8 @@ public class MainWindow {
                             }
                         }));
                     } else {
+                        if(focus) javax.swing.SwingUtilities.invokeLater(() -> { if(workspaceTabs.selected()==tab && tab.getTerminalWorkspaceView()!=null) tab.getTerminalWorkspaceView().focusTerminal(null); });
+                        result.complete(sshSession.sessionId().toString());
                         log.info("Workspace initialization completed for session {}", sshSession.sessionId());
                         viewModel.statusMessageProperty().set(i18nService.get("status.connected", profile.summary()));
                     }
@@ -1037,7 +1198,13 @@ public class MainWindow {
                     finishConnecting(profile);
                 }
             }));
+            } catch(Throwable error) {
+                ProgramConnectionRouteService.closeQuietly(routeLease);
+                sessionManager.closeSession(sshSession.sessionId());
+                result.completeExceptionally(error);
+            }
         }));
+        return result;
     }
 
     private void afterWorkspaceTabRemoved() {

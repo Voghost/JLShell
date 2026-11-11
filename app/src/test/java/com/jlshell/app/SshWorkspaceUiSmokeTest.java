@@ -104,6 +104,7 @@ class SshWorkspaceUiSmokeTest {
         var widget = SwingExecutors.supplyOnEdtAsync(() -> JlshellJediTermWidget.create(120, 40,
                 new JlshellSettingsProvider(font, TerminalColorScheme.dark()), key -> key)).get(10, TimeUnit.SECONDS);
         var handle = mock(TerminalViewHandle.class);
+        when(handle.encodingName()).thenReturn("UTF-8");
         when(handle.component()).thenReturn(widget);
         when(handle.currentDirectory()).thenReturn("");
         when(handle.onDirectoryChanged(any())).thenReturn(com.jlshell.plugin.api.lifecycle.Registration.noop());

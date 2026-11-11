@@ -142,6 +142,12 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
         navigation.setOpaque(false);
     }
 
+    public SwingSftpBrowser ensureFiles() {
+        if(closed) throw new IllegalStateException("Session surface closed");
+        if(files==null && filesFactory!=null) { files=filesFactory.get(); rightHost.add(files,"files"); }
+        if(files==null) throw new IllegalStateException("File browser unavailable");
+        return files;
+    }
     void selectPage(int index, boolean reveal) {
         if (closed || index < 0) return;
         selectedPageIndex = index;
@@ -183,6 +189,15 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
         if ("monitor".equals(key)) return 0;
         for (int i = 1; i < pageTabs.size(); i++) if (java.util.Objects.equals(key, toolKey(i))) return i;
         return -1;
+    }
+
+    com.jlshell.plugin.api.host.HostExtensions.ViewOptions toolOptions(String key) {
+        int index=toolIndex(key);
+        if(index<0 || index>=pageTabs.size()) return null;
+        WorkspacePage tab=pageTabs.get(index);
+        if(tab==null) return null;
+        Object host=tab.getProperties().get("jlshell.hostExtensions");
+        return host instanceof com.jlshell.plugin.loader.ScopedHostExtensions extensions ? extensions.viewOptions() : null;
     }
 
     String toolTitle(String key) {
@@ -421,7 +436,7 @@ public final class SwingSessionView extends JPanel implements NativeTerminalHost
             terminalBody.add(component, BorderLayout.CENTER);
             terminalBody.revalidate();
             terminalBody.repaint();
-            viewHandle.requestFocus();
+            if(isShowing()) viewHandle.requestFocus();
         });
     }
 

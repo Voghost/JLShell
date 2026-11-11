@@ -36,6 +36,34 @@ class SshjSftpServiceTest {
     private volatile CountDownLatch blockedWrite;
     private volatile CountDownLatch releaseWrite;
 
+    @Test void readsOnlyTheRequestedRangeAndRejectsUnboundedRequests() throws Exception {
+        Files.writeString(remote.resolve("preview.txt"),"0123456789");
+        assertArrayEquals("3456".getBytes(java.nio.charset.StandardCharsets.UTF_8), service.readRange(session,"/preview.txt",3,4).get(5,TimeUnit.SECONDS));
+        assertArrayEquals(new byte[0],service.readRange(session,"/preview.txt",100,4).get(5,TimeUnit.SECONDS));
+        assertThrows(ExecutionException.class,() -> service.readRange(session,"/preview.txt",-1,4).get());
+        assertThrows(ExecutionException.class,() -> service.readRange(session,"/preview.txt",0,5*1024*1024).get());
+    }
+
+    @Test void atomicEditsKeepBackupsAndRejectStaleRevisions() throws Exception {
+        Files.writeString(remote.resolve("code.txt"), "before");
+        var original = service.readVersioned(session,"/code.txt").get(5,TimeUnit.SECONDS);
+        var result = service.writeAtomic(session,"/code.txt","after".getBytes(java.nio.charset.StandardCharsets.UTF_8),original.sha256(),false,true).get(5,TimeUnit.SECONDS);
+        assertEquals("after",Files.readString(remote.resolve("code.txt")));
+        assertEquals("before",Files.readString(remote.resolve(result.backupPath().substring(1))));
+        assertThrows(ExecutionException.class,() -> service.writeAtomic(session,"/code.txt",new byte[0],original.sha256(),false,true).get(5,TimeUnit.SECONDS));
+        assertEquals("after",Files.readString(remote.resolve("code.txt")));
+        assertThrows(ExecutionException.class,() -> service.writeAtomic(session,"/code.txt",new byte[0],null,true,false).get(5,TimeUnit.SECONDS));
+        try (var files = Files.list(remote)) { assertTrue(files.noneMatch(path -> path.getFileName().toString().contains(".jlshell-tmp-"))); }
+    }
+
+    @Test void failedStagedWritePreservesOriginalFile() throws Exception {
+        Files.writeString(remote.resolve("code.txt"),"original");
+        rejectAfter = 1;
+        assertThrows(ExecutionException.class,() -> service.writeAtomic(session,"/code.txt","replacement".getBytes(),null,false,false).get(5,TimeUnit.SECONDS));
+        assertEquals("original",Files.readString(remote.resolve("code.txt")));
+        try (var files = Files.list(remote)) { assertTrue(files.noneMatch(path -> path.getFileName().toString().contains(".jlshell-tmp-"))); }
+    }
+
     @BeforeEach void connect() throws Exception {
         remote = Files.createDirectory(temporary.resolve("remote"));
         var factory = new SftpSubsystemFactory.Builder().build();
@@ -63,6 +91,7 @@ class SshjSftpServiceTest {
         client.connect("127.0.0.1", server.getPort()); client.authPassword("test", "test");
         session = mock(SshSession.class);
         when(session.unwrap(SSHClient.class)).thenReturn(Optional.of(client));
+        when(session.target()).thenReturn(new com.jlshell.core.model.ConnectionTarget("127.0.0.1",server.getPort(),"test",null,null));
         worker = Executors.newSingleThreadExecutor(); service = new SshjSftpService(worker);
     }
 

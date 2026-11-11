@@ -79,11 +79,20 @@ public class RefreshableTerminalPanel extends TerminalPanel {
     private TerminalLogHighlighter logHighlighter;
     private Font lastVisualFont;
     private float lastVisualLineSpacing;
-    public record PopupAction(String label, String shortcut, boolean enabled, boolean separator, Runnable action) {}
+    public record PopupAction(String label, String shortcut, boolean enabled, boolean separator, Runnable action,
+                              String pluginGroup, java.util.List<PopupAction> children) {
+        public PopupAction { children = java.util.List.copyOf(children); }
+        public PopupAction(String label, String shortcut, boolean enabled, boolean separator, Runnable action) {
+            this(label, shortcut, enabled, separator, action, null, java.util.List.of());
+        }
+    }
     @FunctionalInterface public interface PopupPresenter {
         void show(java.awt.Component invoker, int x, int y, java.util.List<PopupAction> actions);
     }
     private PopupPresenter popupPresenter;
+    private java.util.function.Supplier<java.util.List<PopupAction>> extensionActions = java.util.List::of;
+    public void setExtensionActions(java.util.function.Supplier<java.util.List<PopupAction>> actions) { extensionActions=actions; }
+
     public void setPopupPresenter(PopupPresenter presenter) { popupPresenter = presenter; }
 
     /**
@@ -523,6 +532,7 @@ public class RefreshableTerminalPanel extends TerminalPanel {
                 }
                 public void addSeparator() { actions.add(new PopupAction("", "", false, true, null)); }
             });
+            actions.addAll(extensionActions.get());
             return new JPopupMenu() {
                 @Override public void show(java.awt.Component invoker, int x, int y) {
                     popupPresenter.show(invoker, x, y, java.util.List.copyOf(actions));

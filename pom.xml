@@ -78,6 +78,7 @@
         <central.skipPublishing>false</central.skipPublishing>
         <junit.version>5.10.2</junit.version>
         <mockito.version>5.24.0</mockito.version>
+        <byte-buddy.version>1.17.7</byte-buddy.version>
         <assertj.version>3.26.0</assertj.version>
     </properties>
 
@@ -91,6 +92,17 @@
 
     <dependencyManagement>
         <dependencies>
+            <!-- Align Mockito instrumentation with JDK 25 when AssertJ is also present. -->
+            <dependency>
+                <groupId>net.bytebuddy</groupId>
+                <artifactId>byte-buddy</artifactId>
+                <version>${byte-buddy.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>net.bytebuddy</groupId>
+                <artifactId>byte-buddy-agent</artifactId>
+                <version>${byte-buddy.version}</version>
+            </dependency>
             <!-- SSH -->
             <dependency>
                 <groupId>com.hierynomus</groupId>

@@ -21,6 +21,11 @@ import com.jlshell.plugin.api.storage.SecureStorage;
 public interface PluginContext extends com.jlshell.plugin.api.ui.FontAwareContext {
 
     /** Current theme name — "dark" or "light". */
+    /** Optional host interaction services, scoped to this plugin's lifecycle. */
+    default com.jlshell.plugin.api.host.HostExtensions host() {
+        return com.jlshell.plugin.api.host.HostExtensions.unavailable();
+    }
+
     String themeName();
 
     /** Observable theme name — plugins can listen for changes. */

@@ -54,6 +54,7 @@ class SwingSftpBrowserTest {
     @Test void bottomDockShowsLocalAndRemoteSideBySideAndRetainsNavigation() throws Exception {
         Files.writeString(temporary.resolve("test.txt"), "content");
         var session = mock(SshSession.class);
+        when(session.sessionId()).thenReturn(com.jlshell.core.model.SessionId.randomId());
         var service = mock(SftpService.class);
         when(service.listDirectory(eq(session), anyString())).thenReturn(CompletableFuture.completedFuture(
                 new RemoteDirectoryListing("/fixture", List.of(file("/fixture/test.txt", "test.txt")))));
@@ -89,6 +90,7 @@ class SwingSftpBrowserTest {
         Files.writeString(temporary.resolve("abc.txt"), "abc");
         Files.createDirectory(temporary.resolve("folder"));
         var session = mock(SshSession.class);
+        when(session.sessionId()).thenReturn(com.jlshell.core.model.SessionId.randomId());
         var service = mock(SftpService.class);
         when(service.listDirectory(eq(session), anyString())).thenReturn(CompletableFuture.completedFuture(
                 new RemoteDirectoryListing("/fixture", List.of(dir("/fixture/folder", "folder"), file("/fixture/abc.txt", "abc.txt")))));
@@ -145,7 +147,8 @@ class SwingSftpBrowserTest {
     }
 
     @Test void followsCurrentTerminalOnOpenAndDirectoryChangesAndCanBePaused() throws Exception {
-        var session = mock(SshSession.class); var service = mock(SftpService.class);
+        var session = mock(SshSession.class);
+        when(session.sessionId()).thenReturn(com.jlshell.core.model.SessionId.randomId()); var service = mock(SftpService.class);
         var slow = new CompletableFuture<RemoteDirectoryListing>();
         when(service.listDirectory(eq(session), anyString())).thenAnswer(call -> {
             String target = call.getArgument(1);
@@ -183,7 +186,9 @@ class SwingSftpBrowserTest {
         Files.createDirectory(temporary.resolve("Documents"));
         Files.createDirectory(temporary.resolve("Projects"));
         Files.writeString(temporary.resolve("README.md"), "local fixture");
-        SshSession session = mock(SshSession.class); SftpService service = mock(SftpService.class);
+        SshSession session = mock(SshSession.class);
+        when(session.sessionId()).thenReturn(com.jlshell.core.model.SessionId.randomId());
+        SftpService service = mock(SftpService.class);
         CompletableFuture<RemoteDirectoryListing> slow = new CompletableFuture<>();
         when(service.listDirectory(eq(session), anyString())).thenAnswer(call -> {
             String path = call.getArgument(1);
@@ -320,23 +325,26 @@ class SwingSftpBrowserTest {
         } catch (Exception error) { throw new RuntimeException(error); }
     }
     private static void clickTreeNode(String name) throws Exception {
-        Point point = edt(() -> {
+        edt(() -> {
             JTree tree = popupTree(); assertNotNull(tree);
             for (int row = 0; row < tree.getRowCount(); row++) {
                 var path = tree.getPathForRow(row);
-                if (name.equals(path.getLastPathComponent().toString())) {
-                    Rectangle bounds = tree.getPathBounds(path); Point screen = tree.getLocationOnScreen();
-                    return new Point(screen.x + bounds.x + Math.min(32, bounds.width - 2), screen.y + bounds.y + bounds.height / 2);
+                if (!name.equals(path.getLastPathComponent().toString())) continue;
+                Rectangle bounds = tree.getPathBounds(path);
+                int x = bounds.x + Math.min(32, bounds.width - 2), y = bounds.y + bounds.height / 2;
+                // Explicit counts keep this regression independent of OS double-click timing.
+                for (int count = 1; count <= 2; count++) {
+                    long time = System.currentTimeMillis();
+                    tree.dispatchEvent(new java.awt.event.MouseEvent(tree, java.awt.event.MouseEvent.MOUSE_PRESSED,
+                            time, java.awt.event.InputEvent.BUTTON1_DOWN_MASK, x, y, count, false, java.awt.event.MouseEvent.BUTTON1));
+                    tree.dispatchEvent(new java.awt.event.MouseEvent(tree, java.awt.event.MouseEvent.MOUSE_RELEASED,
+                            time + 1, 0, x, y, count, false, java.awt.event.MouseEvent.BUTTON1));
+                    if (count == 1) assertNotNull(popupTree(), "A single click must only select; the tree stays open");
                 }
+                return null;
             }
             throw new AssertionError("Missing visible tree node: " + name);
         });
-        Robot robot = new Robot(); robot.mouseMove(point.x, point.y);
-        robot.mousePress(java.awt.event.InputEvent.BUTTON1_DOWN_MASK);
-        robot.mouseRelease(java.awt.event.InputEvent.BUTTON1_DOWN_MASK); robot.waitForIdle();
-        edt(() -> { assertNotNull(popupTree(), "A single click must only select; the tree stays open"); return null; });
-        robot.mousePress(java.awt.event.InputEvent.BUTTON1_DOWN_MASK);
-        robot.mouseRelease(java.awt.event.InputEvent.BUTTON1_DOWN_MASK); robot.waitForIdle();
     }
     private static RemoteFileEntry dir(String path, String name) { return new RemoteFileEntry(path, name, RemoteFileType.DIRECTORY, 0, "rwxr-xr-x", Instant.parse("2026-10-14T09:00:00Z"), 1000, 1000); }
     private static RemoteFileEntry file(String path, String name) { return new RemoteFileEntry(path, name, RemoteFileType.FILE, 24576, "rw-r--r--", Instant.parse("2026-10-14T09:00:00Z"), 1000, 1000); }

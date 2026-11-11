@@ -77,6 +77,7 @@ public class AppContext implements AutoCloseable {
     private final MemoryReclaimService memoryReclaimService;
     private final AccountService accountService;
     private final com.jlshell.ui.service.HostPluginFonts pluginFonts;
+    private final com.jlshell.app.api.DefaultProgramWorkspaceService workspaceService;
 
     public AppContext() { this(null); }
 
@@ -147,6 +148,7 @@ public class AppContext implements AutoCloseable {
             var rpcTiming = timing.step("plugin-host-and-rpc-services");
             // 6. Plugins — 延迟到首次 getAvailablePlugins()/activatePlugin() 才扫描 JAR
             String hostVersion = com.jlshell.ui.dialog.PreferencesDialog.getVersion();
+            com.jlshell.plugin.loader.HostExtensionRegistry.applicationVersion(hostVersion);
             com.jlshell.plugin.loader.PluginEnablementService pluginEnablementService =
                     new com.jlshell.plugin.loader.PluginEnablementService(appSettingsService);
             PluginManager pluginManager = new PluginManager(
@@ -208,7 +210,18 @@ public class AppContext implements AutoCloseable {
             ProgramApiRegistry programApiRegistry = new DefaultProgramApiRegistry();
             ProgramSessionService programSessionService = new CoreProgramSessionService(
                     connectionProfileService::toConnectionRequest, sessionManager, executor);
+            java.util.function.Function<String,com.jlshell.plugin.api.capability.FileExplorer> fileAccess = id -> {
+                var session = sessionManager.getSession(new com.jlshell.core.model.SessionId(java.util.UUID.fromString(id)));
+                if (session.isPresent()) return new com.jlshell.plugin.loader.SshSessionContextAdapter(session.get(),sftpService).fileExplorer();
+                if (!com.jlshell.plugin.loader.HostExtensionRegistry.localSession(id)) throw new IllegalArgumentException("Session not found");
+                return new com.jlshell.app.api.LocalAgentFiles(executor);
+            };
+            workspaceService=new com.jlshell.app.api.DefaultProgramWorkspaceService(connectionProfileService,sessionManager,executor,fileAccess,new com.jlshell.app.api.SqliteWorkspaceJobStore(jdbi));
+            com.jlshell.plugin.loader.HostExtensionRegistry.workspace(workspaceService);
             ProgramApiContext programApiContext = new ProgramApiContext() {
+                @Override public com.jlshell.program.api.ProgramWorkspaceService workspace() { return workspaceService; }
+                private final com.jlshell.program.api.ProgramWorkbenchService workbench = new com.jlshell.app.api.DefaultProgramWorkbenchService(fileAccess,workspaceService);
+                @Override public com.jlshell.program.api.ProgramWorkbenchService workbench() { return workbench; }
                 @Override public ProgramApiRegistry registry() { return programApiRegistry; }
                 @Override public ProgramSessionService sessions() { return programSessionService; }
                 @Override public String apiToken() { return externalApiToken; }
@@ -328,6 +341,7 @@ public class AppContext implements AutoCloseable {
         if (apiServer != null) apiServer.stop();
         programApiProviders.forEach(ProgramApiProvider::deactivate);
         if (programPluginManager != null) programPluginManager.deactivateAll();
+        workspaceService.close();
         pluginFonts.close();
         if (accountService != null) accountService.shutdown();
         if (memoryReclaimService != null) memoryReclaimService.close();

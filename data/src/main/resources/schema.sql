@@ -109,3 +109,11 @@ CREATE TABLE IF NOT EXISTS plugin_secure_storage (
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (plugin_id, key)
 );
+
+CREATE TABLE IF NOT EXISTS agent_jobs (
+    job_id          TEXT PRIMARY KEY NOT NULL,
+    job_json        TEXT NOT NULL,
+    checkpoint_json TEXT NOT NULL DEFAULT '{}',
+    revision        INTEGER NOT NULL DEFAULT 0,
+    updated_at      TEXT NOT NULL
+);

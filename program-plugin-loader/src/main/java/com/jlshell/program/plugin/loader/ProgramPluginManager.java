@@ -301,6 +301,8 @@ public class ProgramPluginManager {
             if (descriptor.context() instanceof PluginContext pluginContext) {
                 pluginManager.adoptContext(null, descriptor.id(), pluginContext);
             }
+            if (descriptor.context().host() instanceof com.jlshell.plugin.loader.ScopedHostExtensions extensions)
+                extensions.pluginName(descriptor.instance().displayName(java.util.Locale.getDefault()));
             timing.run("plugin-code", () -> descriptor.instance().activate(descriptor.context()));
             pluginActivated = true;
             if (programApiContext != null && descriptor.instance() instanceof ProgramApiProvider provider) {

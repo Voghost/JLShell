@@ -26,6 +26,9 @@ import org.slf4j.LoggerFactory;
  * 同时解析终端输出中的 OSC 7 序列以追踪当前工作目录。
  */
 public class ShellTtyConnector implements TtyConnector {
+    private volatile java.util.function.BiConsumer<com.jlshell.plugin.api.host.TerminalAccess.EventKind,String> eventSink = (kind,text) -> {};
+    void eventSink(java.util.function.BiConsumer<com.jlshell.plugin.api.host.TerminalAccess.EventKind,String> sink) { eventSink = sink; }
+
 
     private static final Logger log = LoggerFactory.getLogger(ShellTtyConnector.class);
 
@@ -125,6 +128,9 @@ public class ShellTtyConnector implements TtyConnector {
         write(directoryIntegration.command());
     }
 
+    boolean commandTrackingSupported() { return directoryIntegration!=null && directoryIntegration.trackingAvailable(); }
+    boolean shellReady() { return directoryIntegration!=null && directoryIntegration.completed(); }
+
     @Override
     public int read(char[] buffer, int offset, int length) throws IOException {
         if (length == 0) {
@@ -134,6 +140,7 @@ public class ShellTtyConnector implements TtyConnector {
             while (true) {
                 int queued = drainFilteredOutput(buffer, offset, length);
                 if (queued > 0) {
+                    eventSink.accept(com.jlshell.plugin.api.host.TerminalAccess.EventKind.OUTPUT,new String(buffer,offset,queued));
                     return queued;
                 }
 
@@ -198,6 +205,7 @@ public class ShellTtyConnector implements TtyConnector {
         try {
             outputStream.write(bytes);
             outputStream.flush();
+            eventSink.accept(com.jlshell.plugin.api.host.TerminalAccess.EventKind.INPUT,new String(bytes,java.nio.charset.StandardCharsets.UTF_8));
         } catch (IOException exception) {
             log.warn("[TtyConnector] '{}' write failed (connection likely dead): connected={}, channelOpen={}, error={}",
                     name, connected.get(), shellChannel.isOpen(), exception.getMessage());

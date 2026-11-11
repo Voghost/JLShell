@@ -107,10 +107,18 @@ public final class PerformanceTrace {
         return text.substring(0, Math.min(text.length(), 160)).replaceAll("[\\p{Cntrl}\\s=]+", "_");
     }
 
-    record Event(String traceId, String parentId, String operation, String subject, String stage,
+    public record Event(String traceId, String parentId, String operation, String subject, String stage,
                  String event, String outcome, long durationMs, long elapsedMs, boolean slow, String errorType) {}
 
+    private static final java.util.ArrayDeque<Event> recent = new java.util.ArrayDeque<>();
+    public static synchronized java.util.List<Event> recentEvents() { return java.util.List.copyOf(recent); }
+    private static synchronized void remember(Event event) {
+        if(!event.event().equals("end")) return;
+        if(recent.size()==1000) recent.removeFirst();
+        recent.addLast(event);
+    }
     private static void log(Event event) {
+        remember(event);
         var logger = LoggerFactory.getLogger("com.jlshell.performance");
         String pattern = "Performance traceId={} parentId={} operation={} subject={} stage={} event={} outcome={} durationMs={} elapsedMs={} slow={} errorType={}";
         Object[] args = {event.traceId, event.parentId, event.operation, event.subject, event.stage,

@@ -103,6 +103,14 @@ public class SshSessionContextAdapter implements SshSessionContext {
     @Override
     public FileExplorer fileExplorer() {
         return new FileExplorer() {
+            @Override public CompletableFuture<com.jlshell.program.api.ProgramFileService.Content> readVersioned(String path) {
+                return guardedFuture(() -> sftpService.readVersioned(session, path).thenApply(value ->
+                        new com.jlshell.program.api.ProgramFileService.Content(path, value.bytes(), value.sha256())));
+            }
+            @Override public CompletableFuture<com.jlshell.program.api.ProgramFileService.WriteResult> writeAtomic(com.jlshell.program.api.ProgramFileService.WriteRequest request) {
+                return guardedFuture(() -> sftpService.writeAtomic(session, request.path(), request.content(), request.expectedSha256(), request.createOnly(), request.backup())
+                        .thenApply(value -> new com.jlshell.program.api.ProgramFileService.WriteResult(value.path(), value.previousSha256(), value.sha256(), value.backupPath(), value.bytesWritten())));
+            }
             @Override
             public CompletableFuture<List<RemoteFile>> listDirectory(String path) {
                 return guardedFuture(() -> sftpService.listDirectory(session, path)
@@ -153,6 +161,28 @@ public class SshSessionContextAdapter implements SshSessionContext {
                                 try { java.nio.file.Files.deleteIfExists(tmpFile); } catch (Exception ignored) {}
                             });
                 });
+            }
+
+            @Override public CompletableFuture<byte[]> readRange(String path,long offset,int length) {
+                return guardedFuture(() -> sftpService.readRange(session,path,offset,length));
+            }
+            @Override public CompletableFuture<RemoteFile> stat(String path) {
+                return guardedFuture(() -> sftpService.stat(session,path).thenApply(e -> new RemoteFile(
+                        e.name(),e.path(),e.size(),e.isDirectory(),e.permissionString(),e.modifiedAt())));
+            }
+            @Override public CompletableFuture<Void> rename(String source,String target) {
+                return guardedFuture(() -> sftpService.rename(session,source,target));
+            }
+            @Override public CompletableFuture<Void> createDirectory(String path,boolean recursive) {
+                return guardedFuture(() -> sftpService.createDirectory(session,path,recursive));
+            }
+            @Override public CompletableFuture<Void> upload(Path local,String remote,
+                    Consumer<FileExplorer.Progress> progress,java.util.function.BooleanSupplier cancelled) {
+                return guardedFuture(() -> sftpService.upload(session,new TransferRequest(local,remote,null,0),transferListener(progress,cancelled)));
+            }
+            @Override public CompletableFuture<Void> download(String remote,Path local,
+                    Consumer<FileExplorer.Progress> progress,java.util.function.BooleanSupplier cancelled) {
+                return guardedFuture(() -> sftpService.download(session,new TransferRequest(local,remote,null,0),transferListener(progress,cancelled)));
             }
 
             @Override
@@ -304,6 +334,17 @@ public class SshSessionContextAdapter implements SshSessionContext {
             try { channel.close(); } catch (Exception ignored) {}
             readerThread.interrupt();
         }
+    }
+
+    private static TransferProgressListener transferListener(Consumer<FileExplorer.Progress> listener,
+            java.util.function.BooleanSupplier cancelled) {
+        return new TransferProgressListener() {
+            @Override public boolean isCancelled() { return cancelled != null && cancelled.getAsBoolean(); }
+            @Override public void onProgress(com.jlshell.sftp.model.TransferProgress value) {
+                if (listener != null) listener.accept(new FileExplorer.Progress(value.transferredBytes(),value.totalBytes()));
+            }
+            @Override public void onCompleted(com.jlshell.sftp.model.TransferProgress value) { onProgress(value); }
+        };
     }
 
     private static <T> CompletableFuture<T> guardedFuture(Supplier<CompletableFuture<T>> supplier) {

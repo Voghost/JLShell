@@ -42,11 +42,14 @@ public final class ProgramApiCatalog {
     private ProgramApiCatalog() {}
 
     public static List<ProgramApiDefinition> definitions() {
-        return DEFINITIONS;
+        var result = new java.util.ArrayList<>(DEFINITIONS);
+        result.addAll(WorkspaceRpcCatalog.workbenchDefinitions());
+        result.addAll(WorkspaceRpcCatalog.definitions());
+        return List.copyOf(result);
     }
 
     public static List<String> methodNames() {
-        return DEFINITIONS.stream().map(ProgramApiDefinition::method).toList();
+        return definitions().stream().map(ProgramApiDefinition::method).toList();
     }
 
     private static ProgramApiDefinition api(String method, String description, boolean requiresSession,

@@ -245,7 +245,25 @@ public final class SwingPluginSettingsPage extends JPanel implements AutoCloseab
                 .thenAccept(removable -> SwingUtilities.invokeLater(() -> { if (!closed) uninstall.setEnabled(removable && !operating); }));
         uninstall.addActionListener(event -> confirm(true, i18n.get("plugins.store.uninstallTitle"),
                 i18n.get("plugins.store.uninstallMessage", entry.metadata().displayName()), i18n.get("plugins.store.uninstall"), () -> uninstall(entry)));
-        body.add(heading(entry.metadata().displayName(), entry.metadata().author() + " · " + entry.metadata().scope(), toggle, uninstall), BorderLayout.NORTH);
+        JButton diagnostics=new JButton(i18n.get("plugin.diagnostics"));
+        diagnostics.addActionListener(event -> {
+            var rows=com.jlshell.core.support.PerformanceTrace.recentEvents().stream()
+                    .filter(trace -> trace.subject().contains(entry.metadata().id())).toList();
+            Object[][] data=rows.stream().map(trace -> new Object[]{trace.operation(),trace.stage(),trace.durationMs(),trace.outcome()}).toArray(Object[][]::new);
+            JTable table=new JTable(new javax.swing.table.DefaultTableModel(data,new Object[]{i18n.get("plugin.diagnostics.operation"),i18n.get("plugin.diagnostics.stage"),i18n.get("plugin.diagnostics.duration"),i18n.get("plugin.diagnostics.outcome")}) {
+                @Override public boolean isCellEditable(int row,int column) { return false; }
+            });
+            JDialog dialog=new JDialog(SwingUtilities.getWindowAncestor(this),i18n.get("plugin.diagnostics")+" · "+entry.metadata().displayName());
+            JPanel panel=new JPanel(new BorderLayout(8,8)); panel.add(new JScrollPane(table));
+            JPanel footer=new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT));
+            var tasks=com.jlshell.plugin.loader.HostExtensionRegistry.tasks(entry.metadata().id());
+            footer.add(new JLabel(i18n.get("plugin.diagnostics.tasks")+" · "+tasks.size()));
+            JButton cancelTasks=new JButton(i18n.get("plugin.diagnostics.cancelTasks")); cancelTasks.setEnabled(!tasks.isEmpty());
+            cancelTasks.addActionListener(e -> { com.jlshell.plugin.loader.HostExtensionRegistry.tasks(entry.metadata().id()).forEach(task -> task.cancel().run()); cancelTasks.setEnabled(false); });
+            footer.add(cancelTasks); panel.add(footer,BorderLayout.SOUTH);
+            dialog.add(panel); dialog.setSize(760,420); dialog.setLocationRelativeTo(this); dialog.setVisible(true);
+        });
+        body.add(heading(entry.metadata().displayName(), entry.metadata().author() + " · " + entry.metadata().scope(), toggle, uninstall,diagnostics), BorderLayout.NORTH);
         JTabbedPane detailTabs = new JTabbedPane();
         JPanel overview = new JPanel(new BorderLayout(0, 12));
         overview.add(text(entry.metadata().description() + "\n\n" + Objects.toString(entry.metadata().compatibilityWarning(), "")), BorderLayout.NORTH);

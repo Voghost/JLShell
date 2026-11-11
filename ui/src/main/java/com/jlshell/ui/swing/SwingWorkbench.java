@@ -57,7 +57,7 @@ public final class SwingWorkbench implements AutoCloseable {
         }
     }
 
-    public static final List<String> TEXT_KEYS = List.of("statusbar.activity", "statusbar.needsAttention", "statusbar.noLogs", "statusbar.recentLogs", "statusbar.local", "statusbar.connected", "statusbar.connecting", "statusbar.disconnected", "statusbar.transfers", "statusbar.time", "statusbar.level", "statusbar.source", "statusbar.message", "statusbar.session","action.newConnection", "sidebar.newFolder",
+    public static final List<String> TEXT_KEYS = List.of("statusbar.tasks", "statusbar.activity", "statusbar.needsAttention", "statusbar.noLogs", "statusbar.recentLogs", "statusbar.local", "statusbar.connected", "statusbar.connecting", "statusbar.disconnected", "statusbar.transfers", "statusbar.time", "statusbar.level", "statusbar.source", "statusbar.message", "statusbar.session","action.newConnection", "sidebar.newFolder",
             "action.editConnection", "action.deleteConnection", "action.refresh", "action.preferences",
             "action.connect", "sidebar.toggle", "sidebar.connections", "sidebar.search.prompt", "project.menu.manage",
             "project.label.default", "welcome.tagline", "welcome.favoriteHint", "welcome.recentHint", "welcome.title", "welcome.subtitle", "welcome.quickStart",
@@ -203,6 +203,7 @@ public final class SwingWorkbench implements AutoCloseable {
     private int dropStripeIndex=-1;
     private Cursor toolDragCursor;
     private final ToolDockState toolLayout;
+    private final boolean hasSavedToolLayout;
     private final java.util.Map<SwingSessionView, java.util.Set<String>> closedBottomTools = new java.util.WeakHashMap<>();
     private String rightKey = "files", bottomLeftKey = "monitor", bottomRightKey;
     private final JPanel bottomRightBody = new JPanel(new BorderLayout());
@@ -286,6 +287,7 @@ public final class SwingWorkbench implements AutoCloseable {
         if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Workbench requires EDT");
         this.actions = actions;
         this.texts = Map.copyOf(texts);
+        hasSavedToolLayout=texts.get(ToolDockState.SETTING)!=null && !texts.get(ToolDockState.SETTING).isBlank();
         toolLayout = ToolDockState.decode(texts.get(ToolDockState.SETTING));
         sidebarWidth = toolLayout.sidebar;
         dockHeight = toolLayout.height;
@@ -1303,6 +1305,10 @@ public final class SwingWorkbench implements AutoCloseable {
         if (tabViews.isEmpty()) ((CardLayout) workspace.getLayout()).show(workspace, "welcome");
     }
 
+    public void ensureFiles(Object id) {
+        if(!(tabViews.get(id) instanceof SwingSessionView session)) throw new IllegalStateException("Session surface is not ready");
+        session.ensureFiles();
+    }
     public void selectTab(Object id) {
         Component host = tabHosts.get(id);
         JTabbedPane owner = groupFor(host);
@@ -2259,6 +2265,17 @@ public final class SwingWorkbench implements AutoCloseable {
     private List<String> tools(SwingSessionView session, ToolDockState.Anchor anchor) {
         List<String> keys = new ArrayList<>(); keys.add("monitor");
         for (var option : session.toolPageOptions()) { String key = session.toolKey(option.index()); if (key != null) keys.add(key); }
+        for(String key:keys) if(!toolLayout.positions.containsKey(key)) {
+            var options=session.toolOptions(key);
+            if(options!=null) {
+                toolLayout.positions.put(key,ToolDockState.Anchor.valueOf(options.anchor().name()));
+                if(!hasSavedToolLayout) {
+                    toolLayout.width=Math.max(180,Math.min(1600,options.preferredWidth()));
+                    toolLayout.height=Math.max(96,Math.min(1200,options.preferredHeight()));
+                    dockHeight=toolLayout.height;
+                }
+            }
+        }
         List<String> ordered = new ArrayList<>(toolLayout.positions.keySet());
         for (String key : keys) if (!ordered.contains(key)) ordered.add(key);
         return ordered.stream().filter(keys::contains).filter(key -> toolLayout.anchor(key) == anchor).toList();
@@ -2347,6 +2364,16 @@ public final class SwingWorkbench implements AutoCloseable {
         closedBottomTools.computeIfAbsent(session, ignored -> new java.util.HashSet<>()).add(key);
         boolean empty = tools(session, anchor).stream().allMatch(closedBottomTools.get(session)::contains);
         if (empty) hideDock(anchor); else { syncToolWindow(); persistToolLayout(); }
+    }
+
+    private void publishPluginLayout(Component component, ToolDockState.Anchor anchor, boolean maximized) {
+        if(component instanceof JComponent swing && swing.getClientProperty("jlshell.hostExtensions") instanceof com.jlshell.plugin.loader.ScopedHostExtensions host) {
+            var position=com.jlshell.plugin.api.host.HostExtensions.Anchor.valueOf(anchor.name());
+            swing.putClientProperty("jlshell.dockAnchor",position);
+            swing.putClientProperty("jlshell.maximized",maximized);
+            host.publishLayout(new com.jlshell.plugin.api.host.HostExtensions.Layout(position,swing.getWidth(),swing.getHeight(),swing.isShowing(),maximized));
+        }
+        if(component instanceof Container container) for(Component child:container.getComponents()) publishPluginLayout(child,anchor,maximized);
     }
 
     private void syncToolWindow() {
@@ -2452,6 +2479,9 @@ public final class SwingWorkbench implements AutoCloseable {
         rebuildStripe(session, ToolDockState.Anchor.BOTTOM_RIGHT, rightBottomStripe);
         rightRail.revalidate(); leftRail.revalidate(); rightRail.repaint(); leftRail.repaint();
         rightDockBody.revalidate(); rightDockBody.repaint();
+        publishPluginLayout(rightDockBody,ToolDockState.Anchor.RIGHT,rightToolMaximized);
+        publishPluginLayout(dockBody,ToolDockState.Anchor.BOTTOM_LEFT,false);
+        publishPluginLayout(bottomRightBody,ToolDockState.Anchor.BOTTOM_RIGHT,false);
     }
 
     private com.jlshell.ui.swing.idea.IdeaListPopup popupMenu(List<SwingMenuBridge.Item> specs) {
