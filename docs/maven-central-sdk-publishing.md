@@ -1,6 +1,6 @@
 # JLShell SDK Maven Central 发布
 
-JLShell 对外发布两个 Java 21 SDK，Maven 坐标与 Java 源码包名相互独立：
+JLShell 使用 JDK 25 构建，对外发布两个 Java 21 字节码 SDK，Maven 坐标与 Java 源码包名相互独立：
 
 ```text
 net.oomn.jlshell:plugin-api
@@ -36,9 +36,11 @@ gpg --armor --export-secret-keys <KEY_ID>
 
 手动运行 GitHub Actions 工作流 `Publish JLShell SDK to Maven Central`：
 
-- `sourceRef`：默认 `main`，正式发布应使用已合入 `main` 的提交或标签。
-- `sdkVersion`：不可覆盖的语义版本；本次只读字体扩展使用 `1.7.0`，已公开的
-  `1.0.0` 至 `1.6.0` 不得覆盖。
+- `sourceRef` 默认 `main`。支持已合入 `main` 的提交或标签，也支持明确选择的完整 40 位提交 SHA。
+  后者用于独立发布已验证的 SDK 候选代码，工作流核对检出结果与该 SHA 完全一致。
+  只上传 SDK，不因此合并或发布同一提交中的桌面改动。分支名仍必须通过 `main` 祖先校验。
+- `sdkVersion` 使用不可覆盖的语义版本，本次纯 Swing 迁移使用 `2.0.0`。已公开的
+  `1.0.0` 至 `1.7.0` 不得覆盖。
 - `autoPublish`：首次发布保持 `false`。工作流会上传并等待 Central 校验，通过后由维护者
   在 Portal 中检查并手动 Publish。确认流程稳定后才可选择 `true` 自动公开。
 
@@ -106,3 +108,14 @@ Session、Program 和 Program 会话贡献通过 `context.fonts()` 读取终端�
 同时发布 `net.oomn.jlshell:plugin-api:1.7.0` 和 `net.oomn.jlshell:program-api:1.7.0`。
 program-api 无新增接口，只保持两包版本及依赖一致。新 SDK 的使用需要包含对应实现的
 宿主；SDK 独立发布不代表已有 0.1.71 Beta 已支持该字体能力。
+
+## SDK 2.0.0 与 Java 25
+
+`plugin-api` 和 `program-api` 同时发布 2.0.0。移除 JavaFX 页面、属性及集合契约，
+页面使用 Swing 组件工厂，属性变更使用 `ObservableValue` 和可注销的 `Registration`。
+1.x 插件需要迁移并重新编译。SDK 保留 Java 21 字节码，宿主与打包运行时使用 Java 25。
+已发布的 0.2.2 及更早宿主应继续使用 1.x，新 SDK 需要新版纯 Swing 宿主。
+
+升级 Java 25 的首个桌面安装包必须选择 `update_type=full`，因为旧 Java 21 运行时
+无法执行新版宿主字节码。Release 工作流默认完整更新，后续同一运行时的 JAR 更新
+需将 `min_launcher_version` 设为首个包含 Java 25 运行时的桌面版本。

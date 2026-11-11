@@ -12,16 +12,16 @@ for option in "$@"; do
 done
 preview_java_home="${JLSHELL_PREVIEW_JAVA_HOME:-${JAVA_HOME:-}}"
 if [[ -z "$preview_java_home" || ! -x "$preview_java_home/bin/java" ]] ||
-   ! "$preview_java_home/bin/java" -version 2>&1 | head -n 1 | grep -q '"21[.\"]'; then
-    if [[ -x /opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/java ]]; then
-        preview_java_home=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
+   ! "$preview_java_home/bin/java" -version 2>&1 | head -n 1 | grep -q '"25[.\"]'; then
+    if [[ -x /opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home/bin/java ]]; then
+        preview_java_home=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home
     elif [[ -x /usr/libexec/java_home ]]; then
-        preview_java_home="$(/usr/libexec/java_home -v 21 2>/dev/null || true)"
+        preview_java_home="$(/usr/libexec/java_home -v 25 2>/dev/null || true)"
     fi
 fi
 if [[ ! -x "$preview_java_home/bin/java" ]] ||
-   ! "$preview_java_home/bin/java" -version 2>&1 | head -n 1 | grep -q '"21[.\"]'; then
-    echo "需要 JDK 21；请设置 JLSHELL_PREVIEW_JAVA_HOME。" >&2
+   ! "$preview_java_home/bin/java" -version 2>&1 | head -n 1 | grep -q '"25[.\"]'; then
+    echo "需要 JDK 25；请设置 JLSHELL_PREVIEW_JAVA_HOME。" >&2
     exit 1
 fi
 if [[ "$preview_build" == true ]]; then
@@ -56,6 +56,8 @@ echo "滚动诊断：$preview_trace_scroll"
     "-Xmx${JLSHELL_JVM_XMX:-512m}" \
     -XX:+ExplicitGCInvokesConcurrent \
     -XX:+UseG1GC \
+    -XX:+UseCompactObjectHeaders \
+    --enable-native-access=ALL-UNNAMED \
     -XX:G1PeriodicGCInterval=30000 \
     -XX:MinHeapFreeRatio=20 \
     -XX:MaxHeapFreeRatio=40 \

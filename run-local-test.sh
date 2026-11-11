@@ -19,7 +19,7 @@ for option in "$@"; do
   --no-build   使用最近一次已构建的预览包
   --trace-scroll  输出滚动事件间隔、绘制间隔和绘制耗时诊断，不记录终端内容
 
-可通过 JLSHELL_PREVIEW_JAVA_HOME 指定 JDK 21，或通过
+可通过 JLSHELL_PREVIEW_JAVA_HOME 指定 JDK 25，或通过
 JLSHELL_PREVIEW_HOME 指定独立预览数据目录。
 EOF
             exit 0 ;;

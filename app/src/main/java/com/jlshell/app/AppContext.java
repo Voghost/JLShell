@@ -4,11 +4,8 @@ import java.util.Locale;
 import java.util.List;
 import java.util.ServiceLoader;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
-import com.jlshell.core.config.CoreExecutorProperties;
 import com.jlshell.core.service.AppSettingsService;
 import com.jlshell.core.service.FontProfileService;
 import com.jlshell.core.service.SessionManager;
@@ -17,7 +14,6 @@ import com.jlshell.core.service.impl.DefaultSessionManager;
 import com.jlshell.core.service.impl.InMemorySessionRegistry;
 import com.jlshell.core.service.impl.PersistentFontProfileService;
 import com.jlshell.core.shortcut.ShortcutRegistry;
-import com.jlshell.core.support.NamedThreadFactory;
 import com.jlshell.app.api.CoreProgramSessionService;
 import com.jlshell.app.api.HostAccountSessionService;
 import com.jlshell.data.config.CredentialEncryptionProperties;
@@ -107,15 +103,10 @@ public class AppContext implements AutoCloseable {
             // 3. Core services
             AppSettingsService appSettingsService = new JdbiAppSettingsService(jdbi);
 
-            CoreExecutorProperties executorProperties = new CoreExecutorProperties();
-            executor = new ThreadPoolExecutor(
-                    executorProperties.getCorePoolSize(),
-                    executorProperties.getMaxPoolSize(),
-                    executorProperties.getKeepAlive().toMillis(), TimeUnit.MILLISECONDS,
-                    new LinkedBlockingQueue<>(executorProperties.getQueueCapacity()),
-                    new NamedThreadFactory("jlshell-ssh"),
-                    new ThreadPoolExecutor.CallerRunsPolicy()
-            );
+            // Blocking SSH, SFTP and persistence tasks use one virtual thread per operation.
+            // Saturation must never run network work on the caller's Swing EDT.
+            executor = java.util.concurrent.Executors.newThreadPerTaskExecutor(
+                    Thread.ofVirtual().name("jlshell-io-", 0).factory());
 
             SessionRegistry sessionRegistry = new InMemorySessionRegistry();
             FontProfileService fontProfileService = new PersistentFontProfileService(appSettingsService);

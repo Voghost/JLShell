@@ -3,7 +3,7 @@ setlocal
 cd /d "%~dp0"
 
 if not defined JAVA_HOME (
-    echo Please set JAVA_HOME to a JDK 21 installation.
+    echo Please set JAVA_HOME to a JDK 25 installation.
     exit /b 1
 )
 set "BUILD_GOAL=package"
@@ -19,5 +19,5 @@ if not defined APP_JAR (
     echo Application JAR was not generated.
     exit /b 1
 )
-"%JAVA_HOME%\bin\java.exe" -Xms32m -Xmx512m --add-exports=java.desktop/sun.swing=ALL-UNNAMED --add-opens=java.desktop/sun.swing=ALL-UNNAMED --add-opens=java.desktop/javax.swing=ALL-UNNAMED -jar "%APP_JAR%"
+"%JAVA_HOME%\bin\java.exe" -Xms32m -Xmx512m -XX:+UseCompactObjectHeaders --enable-native-access=ALL-UNNAMED --add-exports=java.desktop/sun.swing=ALL-UNNAMED --add-opens=java.desktop/sun.swing=ALL-UNNAMED --add-opens=java.desktop/javax.swing=ALL-UNNAMED -jar "%APP_JAR%"
 exit /b %errorlevel%

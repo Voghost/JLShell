@@ -27,10 +27,10 @@ DIST_DIR="$SCRIPT_DIR/dist"
 APP_JAR=""
 LAUNCHER_JAR=""
 
-# JDK 21 locations — override via env vars if needed
-JDK21_MAC="${JDK21_MAC:-/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home}"
-JDK21_WIN="${JDK21_WIN:-}"   # path to a Windows JDK 21 (only needed for --win on non-Windows)
-JDK21_LINUX="${JDK21_LINUX:-}"  # path to a Linux JDK 21 (only needed for --linux on non-Linux)
+# JDK 25 locations — override via env vars if needed
+JDK25_MAC="${JDK25_MAC:-${JDK21_MAC:-/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home}}"
+JDK25_WIN="${JDK25_WIN:-${JDK21_WIN:-}}"   # path to a Windows JDK 25 (only needed for --win on non-Windows)
+JDK25_LINUX="${JDK25_LINUX:-${JDK21_LINUX:-}}"  # path to a Linux JDK 25 (only needed for --linux on non-Linux)
 
 write_vmoptions_file() {
     local file="$1"
@@ -41,6 +41,8 @@ write_vmoptions_file() {
 -Xmx$JLSHELL_JVM_XMX
 -XX:+ExplicitGCInvokesConcurrent
 -XX:+UseG1GC
+-XX:+UseCompactObjectHeaders
+--enable-native-access=ALL-UNNAMED
 -XX:G1PeriodicGCInterval=30000
 -XX:MinHeapFreeRatio=20
 -XX:MaxHeapFreeRatio=40
@@ -129,8 +131,8 @@ run_jlink() {
 # ── Step 4: Assemble packages ─────────────────────────────────────────────────
 
 assemble_mac() {
-    local jdk="${JDK21_MAC}"
-    [[ -d "$jdk" ]] || err "macOS JDK 21 not found at $jdk — set JDK21_MAC env var"
+    local jdk="${JDK25_MAC}"
+    [[ -d "$jdk" ]] || err "macOS JDK 25 not found at $jdk — set JDK25_MAC env var"
 
     local work="$DIST_DIR/mac-work"
     rm -rf "$work" && mkdir -p "$work"
@@ -190,6 +192,8 @@ assemble_mac() {
         --java-options "-Xmx$JLSHELL_JVM_XMX" \
         --java-options "-XX:+ExplicitGCInvokesConcurrent" \
         --java-options "-XX:+UseG1GC" \
+        --java-options "-XX:+UseCompactObjectHeaders" \
+        --java-options "--enable-native-access=ALL-UNNAMED" \
         --java-options "-XX:G1PeriodicGCInterval=30000" \
         --java-options "-XX:MinHeapFreeRatio=20" \
         --java-options "-XX:MaxHeapFreeRatio=40" \
@@ -227,8 +231,8 @@ EOF
 }
 
 assemble_linux() {
-    local jdk="${JDK21_LINUX:-$JDK21_MAC}"  # fallback to mac JDK for module detection
-    [[ -d "$jdk" ]] || err "Linux JDK 21 not found — set JDK21_LINUX env var"
+    local jdk="${JDK25_LINUX:-$JDK25_MAC}"  # fallback to mac JDK for module detection
+    [[ -d "$jdk" ]] || err "Linux JDK 25 not found — set JDK25_LINUX env var"
 
     local work="$DIST_DIR/linux-work/$APP_NAME"
     rm -rf "$DIST_DIR/linux-work" && mkdir -p "$work"
@@ -246,7 +250,7 @@ assemble_linux() {
     cat > "$work/JLShell.sh" <<LAUNCHER
 #!/bin/bash
 DIR="\$(cd "\$(dirname "\$0")" && pwd)"
-DEFAULT_VM_OPTS=(-Xms32m -Xmx512m -XX:+ExplicitGCInvokesConcurrent -XX:+UseG1GC -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40)
+DEFAULT_VM_OPTS=(-Xms32m -Xmx512m -XX:+ExplicitGCInvokesConcurrent -XX:+UseG1GC -XX:+UseCompactObjectHeaders --enable-native-access=ALL-UNNAMED -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40)
 USER_VMOPTIONS="\${XDG_CONFIG_HOME:-\$HOME/.config}/jlshell/JLShell.vmoptions"
 BUNDLED_VMOPTIONS="\$DIR/JLShell.vmoptions"
 VMOPTIONS_FILE=""
@@ -295,8 +299,8 @@ DESKTOP
 }
 
 assemble_win() {
-    local jdk="${JDK21_WIN:-$JDK21_MAC}"  # fallback for module detection
-    [[ -d "$jdk" ]] || err "Windows JDK 21 not found — set JDK21_WIN env var"
+    local jdk="${JDK25_WIN:-$JDK25_MAC}"  # fallback for module detection
+    [[ -d "$jdk" ]] || err "Windows JDK 25 not found — set JDK25_WIN env var"
 
     local work="$DIST_DIR/win-work/$APP_NAME"
     rm -rf "$DIST_DIR/win-work" && mkdir -p "$work"
@@ -315,7 +319,7 @@ assemble_win() {
 setlocal
 set DIR=%~dp0
 set JAVA=%DIR%runtime\bin\javaw.exe
-set VM_OPTS=-Xms32m -Xmx512m -XX:+ExplicitGCInvokesConcurrent -XX:+UseG1GC -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40
+set VM_OPTS=-Xms32m -Xmx512m -XX:+ExplicitGCInvokesConcurrent -XX:+UseG1GC -XX:+UseCompactObjectHeaders --enable-native-access=ALL-UNNAMED -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40
 set USER_VMOPTIONS=%APPDATA%\JLShell\JLShell.vmoptions
 set BUNDLED_VMOPTIONS=%DIR%JLShell.vmoptions
 set VMOPTIONS_FILE=

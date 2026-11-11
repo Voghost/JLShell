@@ -66,7 +66,7 @@ Pre-built packages with bundled JRE (~50 MB, no JDK required):
 
 ## Build from Source
 
-**Requirements:** JDK 21, Maven 3.9+
+**Requirements:** JDK 25, Maven 3.9+
 
 ```bash
 # Run locally (current platform)
@@ -75,9 +75,9 @@ Pre-built packages with bundled JRE (~50 MB, no JDK required):
 # Build distributable package for current platform
 ./build-dist.sh
 
-# Build for all platforms (requires JDK 21 for each target platform)
-JDK21_LINUX=/path/to/linux-jdk21 \
-JDK21_WIN=/path/to/win-jdk21 \
+# Build for all platforms (requires JDK 25 for each target platform)
+JDK25_LINUX=/path/to/linux-jdk25 \
+JDK25_WIN=/path/to/win-jdk25 \
 ./build-dist.sh --all
 ```
 
@@ -392,7 +392,7 @@ jlshell-parent
 
 ## Tech Stack
 
-- **Java 21** + **Swing / FlatLaf** (UI)
+- **Java 25** + **Swing / FlatLaf** (UI)
 - **SSHJ** (SSH/SFTP client)
 - **JediTerm** (terminal emulator, native Swing)
 - **JDBI 3** + **HikariCP** + **SQLite** (persistence, WAL mode)

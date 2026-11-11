@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-JLShell is a Maven multi-module Java 21 desktop application. Key modules are:
+JLShell is a Maven multi-module Java 25 desktop application. Key modules are:
 
 - `app/`: entry point and manual dependency wiring in `AppContext`.
 - `ui/`: native Swing views, services, themes, fonts, and i18n bundles.
@@ -23,13 +23,13 @@ Sources use `src/main/java`; tests use `src/test/java`; resources use `src/main/
 - `./run-local-test.sh`: build and start the native Swing app using isolated test data.
 - `./run-local-test.sh --real-data`: start with the current user’s saved connections and plugins.
 - `./build-dist.sh`: create a platform distributable in `dist/`.
-- `./build-dist.sh --all`: build all platform packages; requires env vars such as `JDK21_WIN`.
+- `./build-dist.sh --all`: build all platform packages; requires env vars such as `JDK25_WIN`.
 
-Use JDK 21 and Maven 3.9+. Runtime scripts include required JVM `--add-opens` flags.
+Use JDK 25 and Maven 3.9+. Runtime scripts include required JVM `--add-opens` flags.
 
 ## Coding Style & Naming Conventions
 
-Use 4-space indentation, UTF-8, and Java 21 idioms. Keep packages under `com.jlshell.<module>`. Name classes `PascalCase`, methods and fields `camelCase`, constants `UPPER_SNAKE_CASE`, and tests `*Test`.
+Use 4-space indentation, UTF-8, and Java 25 idioms. Keep packages under `com.jlshell.<module>`. Name classes `PascalCase`, methods and fields `camelCase`, constants `UPPER_SNAKE_CASE`, and tests `*Test`.
 
 The project uses manual dependency injection; add services through `app/src/main/java/com/jlshell/app/AppContext.java`. Keep blocking DB, SSH, and SFTP work off the Swing event dispatch thread. Chinese comments are acceptable when they clarify design intent.
 

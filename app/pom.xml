@@ -105,12 +105,14 @@
                             <icon>${project.basedir}/src/main/resources/icons/app_icon.ico</icon>
                             <jre>
                                 <path>runtime</path>
-                                <minVersion>21</minVersion>
+                                <minVersion>25</minVersion>
                                 <opts>
                                     <opt>-Xms${jlshell.jvm.xms}</opt>
                                     <opt>-Xmx${jlshell.jvm.xmx}</opt>
                                     <opt>-XX:+ExplicitGCInvokesConcurrent</opt>
                                     <opt>-XX:+UseG1GC</opt>
+                                    <opt>-XX:+UseCompactObjectHeaders</opt>
+                                    <opt>--enable-native-access=ALL-UNNAMED</opt>
                                     <opt>-XX:G1PeriodicGCInterval=30000</opt>
                                     <opt>-XX:MinHeapFreeRatio=20</opt>
                                     <opt>-XX:MaxHeapFreeRatio=40</opt>

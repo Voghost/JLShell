@@ -28,7 +28,7 @@ on:
       update_type:
         description: 'JAR updates for compatible runtimes. Select full when bundled Java/native modules change.'
         required: true
-        default: 'jar'
+        default: 'full'
         type: choice
         options:
           - jar
@@ -84,7 +84,7 @@ jobs:
 
       - uses: actions/setup-java@v4
         with:
-          java-version: '21.0.11'
+          java-version: '25'
           distribution: 'liberica'
           java-package: 'jdk'
           cache: maven
@@ -134,7 +134,7 @@ jobs:
 
       - uses: actions/setup-java@v4
         with:
-          java-version: '21.0.11'
+          java-version: '25'
           distribution: 'liberica'
           java-package: 'jdk'
           cache: maven
@@ -207,7 +207,7 @@ jobs:
             --runtime-image dist/jre \
             --icon dist/AppIcon.icns \
             --vendor JLShell \
-            --description "JLShell SSH Client" \
+            --description "JLShell" \
             --java-options "--add-exports=java.desktop/sun.swing=ALL-UNNAMED" \
             --java-options "--add-opens=java.desktop/sun.swing=ALL-UNNAMED" \
             --java-options "--add-opens=java.desktop/javax.swing=ALL-UNNAMED" \
@@ -215,6 +215,8 @@ jobs:
             --java-options "-Xmx512m" \
             --java-options "-XX:+ExplicitGCInvokesConcurrent" \
             --java-options "-XX:+UseG1GC" \
+            --java-options "-XX:+UseCompactObjectHeaders" \
+            --java-options "--enable-native-access=ALL-UNNAMED" \
             --java-options "-XX:G1PeriodicGCInterval=30000" \
             --java-options "-XX:MinHeapFreeRatio=20" \
             --java-options "-XX:MaxHeapFreeRatio=40" \
@@ -309,7 +311,7 @@ jobs:
 
       - uses: actions/setup-java@v4
         with:
-          java-version: '21.0.11'
+          java-version: '25'
           distribution: 'liberica'
           java-package: 'jdk'
           cache: maven
@@ -365,6 +367,8 @@ jobs:
           -Xmx512m
           -XX:+ExplicitGCInvokesConcurrent
           -XX:+UseG1GC
+          -XX:+UseCompactObjectHeaders
+          --enable-native-access=ALL-UNNAMED
           -XX:G1PeriodicGCInterval=30000
           -XX:MinHeapFreeRatio=20
           -XX:MaxHeapFreeRatio=40
@@ -373,7 +377,7 @@ jobs:
           cat > dist/linux-work/JLShell/JLShell.sh <<'EOF'
           #!/bin/bash
           DIR="$(cd "$(dirname "$0")" && pwd)"
-          DEFAULT_VM_OPTS=(-Xms32m -Xmx512m -XX:+ExplicitGCInvokesConcurrent -XX:+UseG1GC -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40)
+          DEFAULT_VM_OPTS=(-Xms32m -Xmx512m -XX:+ExplicitGCInvokesConcurrent -XX:+UseG1GC -XX:+UseCompactObjectHeaders --enable-native-access=ALL-UNNAMED -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40)
           USER_VMOPTIONS="${XDG_CONFIG_HOME:-$HOME/.config}/jlshell/JLShell.vmoptions"
           BUNDLED_VMOPTIONS="$DIR/JLShell.vmoptions"
           VMOPTIONS_FILE=""
@@ -428,6 +432,8 @@ jobs:
           -Xmx512m
           -XX:+ExplicitGCInvokesConcurrent
           -XX:+UseG1GC
+          -XX:+UseCompactObjectHeaders
+          --enable-native-access=ALL-UNNAMED
           -XX:G1PeriodicGCInterval=30000
           -XX:MinHeapFreeRatio=20
           -XX:MaxHeapFreeRatio=40
@@ -436,7 +442,7 @@ jobs:
           cat > $PKG/opt/jlshell/JLShell.sh <<'EOF'
           #!/bin/bash
           DIR="$(cd "$(dirname "$0")" && pwd)"
-          DEFAULT_VM_OPTS=(-Xms32m -Xmx512m -XX:+ExplicitGCInvokesConcurrent -XX:+UseG1GC -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40)
+          DEFAULT_VM_OPTS=(-Xms32m -Xmx512m -XX:+ExplicitGCInvokesConcurrent -XX:+UseG1GC -XX:+UseCompactObjectHeaders --enable-native-access=ALL-UNNAMED -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40)
           USER_VMOPTIONS="${XDG_CONFIG_HOME:-$HOME/.config}/jlshell/JLShell.vmoptions"
           BUNDLED_VMOPTIONS="$DIR/JLShell.vmoptions"
           VMOPTIONS_FILE=""
@@ -527,6 +533,8 @@ jobs:
           -Xmx512m
           -XX:+ExplicitGCInvokesConcurrent
           -XX:+UseG1GC
+          -XX:+UseCompactObjectHeaders
+          --enable-native-access=ALL-UNNAMED
           -XX:G1PeriodicGCInterval=30000
           -XX:MinHeapFreeRatio=20
           -XX:MaxHeapFreeRatio=40
@@ -536,7 +544,7 @@ jobs:
           cat > $APPDIR/AppRun <<'EOF'
           #!/bin/bash
           HERE="$(cd "$(dirname "$0")" && pwd)"
-          DEFAULT_VM_OPTS=(-Xms32m -Xmx512m -XX:+ExplicitGCInvokesConcurrent -XX:+UseG1GC -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40)
+          DEFAULT_VM_OPTS=(-Xms32m -Xmx512m -XX:+ExplicitGCInvokesConcurrent -XX:+UseG1GC -XX:+UseCompactObjectHeaders --enable-native-access=ALL-UNNAMED -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40)
           USER_VMOPTIONS="${XDG_CONFIG_HOME:-$HOME/.config}/jlshell/JLShell.vmoptions"
           BUNDLED_VMOPTIONS="$HERE/usr/JLShell.vmoptions"
           VMOPTIONS_FILE=""
@@ -597,7 +605,7 @@ jobs:
 
       - uses: actions/setup-java@v4
         with:
-          java-version: '21.0.11'
+          java-version: '25'
           distribution: 'liberica'
           java-package: 'jdk'
           cache: maven
@@ -678,7 +686,7 @@ jobs:
             --runtime-image dist/runtime \
             --icon app/src/main/resources/icons/app_icon.ico \
             --vendor JLShell \
-            --description "JLShell SSH Client" \
+            --description "JLShell" \
             --java-options "--add-exports=java.desktop/sun.swing=ALL-UNNAMED" \
             --java-options "--add-opens=java.desktop/sun.swing=ALL-UNNAMED" \
             --java-options "--add-opens=java.desktop/javax.swing=ALL-UNNAMED" \
@@ -686,6 +694,8 @@ jobs:
             --java-options "-Xmx512m" \
             --java-options "-XX:+ExplicitGCInvokesConcurrent" \
             --java-options "-XX:+UseG1GC" \
+            --java-options "-XX:+UseCompactObjectHeaders" \
+            --java-options "--enable-native-access=ALL-UNNAMED" \
             --java-options "-XX:G1PeriodicGCInterval=30000" \
             --java-options "-XX:MinHeapFreeRatio=20" \
             --java-options "-XX:MaxHeapFreeRatio=40" \
@@ -702,7 +712,7 @@ jobs:
 
           cd dist/win-image && 7z a -tzip -mx=9 "../JLShell-${VERSION}-win-x64.zip" JLShell && cd ../..
 
-          # jpackage 21 always invokes WiX with the en-us culture. The
+          # jpackage 25 always invokes WiX with the en-us culture. The
           # resource directory intentionally provides its Chinese strings
           # as MsiInstallerStrings_en.wxl so that culture is overridden.
           "$JDK/bin/jpackage" \
@@ -715,7 +725,7 @@ jobs:
             --runtime-image dist/runtime \
             --icon app/src/main/resources/icons/app_icon.ico \
             --vendor JLShell \
-            --description "JLShell SSH Client" \
+            --description "JLShell" \
             --java-options "--add-exports=java.desktop/sun.swing=ALL-UNNAMED" \
             --java-options "--add-opens=java.desktop/sun.swing=ALL-UNNAMED" \
             --java-options "--add-opens=java.desktop/javax.swing=ALL-UNNAMED" \
@@ -723,6 +733,8 @@ jobs:
             --java-options "-Xmx512m" \
             --java-options "-XX:+ExplicitGCInvokesConcurrent" \
             --java-options "-XX:+UseG1GC" \
+            --java-options "-XX:+UseCompactObjectHeaders" \
+            --java-options "--enable-native-access=ALL-UNNAMED" \
             --java-options "-XX:G1PeriodicGCInterval=30000" \
             --java-options "-XX:MinHeapFreeRatio=20" \
             --java-options "-XX:MaxHeapFreeRatio=40" \
