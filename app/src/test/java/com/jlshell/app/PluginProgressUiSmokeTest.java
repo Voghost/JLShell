@@ -4,11 +4,10 @@ import com.jlshell.core.service.AppSettingsService;
 import com.jlshell.terminal.service.ColorSchemeRegistry;
 import com.jlshell.terminal.support.SwingExecutors;
 import com.jlshell.ui.service.I18nService;
-import com.jlshell.ui.support.FxThread;
+import com.jlshell.ui.support.UiThread;
 import com.jlshell.ui.swing.*;
 import com.jlshell.ui.theme.*;
 import com.jlshell.plugin.api.PluginContext;
-import javafx.application.Platform;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import javax.swing.*;
@@ -24,10 +23,6 @@ import static org.mockito.Mockito.*;
 @EnabledIfSystemProperty(named="jlshell.ui.smoke", matches="true")
 class PluginProgressUiSmokeTest {
     @BeforeAll static void toolkit() throws Exception {
-        var ready = new CompletableFuture<Void>();
-        try { Platform.startup(() -> { Platform.setImplicitExit(false); ready.complete(null); }); }
-        catch (IllegalStateException running) { Platform.runLater(() -> ready.complete(null)); }
-        ready.get(10, TimeUnit.SECONDS);
     }
     private static <T> T edt(java.util.function.Supplier<T> action) throws Exception {
         return SwingExecutors.supplyOnEdtAsync(action).get(10, TimeUnit.SECONDS);
@@ -54,19 +49,19 @@ class PluginProgressUiSmokeTest {
         when(settings.get(anyString(),anyString())).thenAnswer(call->call.getArgument(1));
         when(settings.get(anyString())).thenReturn(Optional.empty());
         ColorSchemeRegistry schemes=mock(ColorSchemeRegistry.class);when(schemes.findByName(anyString())).thenReturn(Optional.empty());
-        ThemeService themes=FxThread.supplyAsync(()->new ThemeService(settings,schemes,worker)).get(10,TimeUnit.SECONDS);
+        ThemeService themes=UiThread.supplyAsync(()->new ThemeService(settings,schemes,worker)).get(10,TimeUnit.SECONDS);
         I18nService i18n=new I18nService(Locale.SIMPLIFIED_CHINESE);
         try {
             for(AppTheme theme:AppTheme.values()) {
-                FxThread.supplyAsync(()->{themes.setTheme(theme);return null;}).get(10,TimeUnit.SECONDS);
-                var progress=FxThread.supplyAsync(()->new SwingProgressDialog(themes,i18n,"fixture.progress",i18n.get("updates.downloading"))).get(10,TimeUnit.SECONDS);
+                UiThread.supplyAsync(()->{themes.setTheme(theme);return null;}).get(10,TimeUnit.SECONDS);
+                var progress=UiThread.supplyAsync(()->new SwingProgressDialog(themes,i18n,"fixture.progress",i18n.get("updates.downloading"))).get(10,TimeUnit.SECONDS);
                 JDialog dialog=window("fixture.progress");
                 edt(()->{NativeSettingsProbe.assertNative(dialog);assertTrue(NativeSettingsProbe.all(dialog,JProgressBar.class).getFirst().isIndeterminate());capture(dialog,"updates-checking-"+theme);return null;});
                 progress.update(.42);
                 edt(()->{var bar=NativeSettingsProbe.all(dialog,JProgressBar.class).getFirst();assertFalse(bar.isIndeterminate());assertEquals(420,bar.getValue());capture(dialog,"updates-download-"+theme);NativeSettingsProbe.button(dialog,i18n.get("updates.background")).doClick();return null;});
                 progress.update(1);progress.close();edt(()->{assertFalse(dialog.isDisplayable());return null;});
             }
-            FxThread.supplyAsync(()->{var fast=new SwingProgressDialog(themes,i18n,"fixture.fast", "Checking");fast.close();return null;}).get(10,TimeUnit.SECONDS);
+            UiThread.supplyAsync(()->{var fast=new SwingProgressDialog(themes,i18n,"fixture.fast", "Checking");fast.close();return null;}).get(10,TimeUnit.SECONDS);
             edt(()->{assertTrue(Arrays.stream(Window.getWindows()).noneMatch(w->"fixture.fast".equals(w.getName())&&w.isDisplayable()));return null;});
         }finally{worker.shutdownNow();}
     }
@@ -105,7 +100,7 @@ class PluginProgressUiSmokeTest {
             PluginContext context=mock(PluginContext.class);when(context.supportsSwingViews()).thenReturn(true);
             when(context.locale()).thenReturn(Locale.SIMPLIFIED_CHINESE);when(context.sshSession()).thenReturn(Optional.empty());
             java.util.concurrent.atomic.AtomicReference<java.util.function.Supplier<JComponent>> factory=new java.util.concurrent.atomic.AtomicReference<>();
-            doAnswer(call->{factory.set(call.getArgument(1));return null;}).when(context).openSwingTab(anyString(),any());
+            doAnswer(call->{factory.set(call.getArgument(1));return null;}).when(context).openTab(anyString(),any());
             plugin.getClass().getMethod("activate",PluginContext.class).invoke(plugin,context);assertNotNull(factory.get());
             JComponent page=edt(()->{SwingTheme.install(AppTheme.DARK,"#3574f0",null,13);return factory.get().get();});
             SwingExecutors.runOnEdtAsync(()->{

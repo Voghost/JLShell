@@ -218,7 +218,7 @@ public class SshSessionContextAdapter implements SshSessionContext {
             this.channel = channel;
 
             // Start a background thread to continuously read from the shell's output stream
-            readerThread = new Thread(() -> {
+            readerThread = Thread.ofVirtual().name("interactive-session-reader").unstarted(() -> {
                 try (BufferedReader reader = new BufferedReader(new InputStreamReader(channel.remoteOutput()))) {
                     String line;
                     while (running && channel.isOpen()) {
@@ -230,8 +230,7 @@ public class SshSessionContextAdapter implements SshSessionContext {
                         }
                     }
                 } catch (Exception ignored) {}
-            }, "interactive-session-reader");
-            readerThread.setDaemon(true);
+            });
             readerThread.start();
 
             // Send the initial command

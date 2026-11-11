@@ -5,16 +5,9 @@ import com.jlshell.terminal.model.TerminalColorScheme;
 import com.jlshell.terminal.service.ColorSchemeRegistry;
 import com.jlshell.terminal.support.SwingExecutors;
 import com.jlshell.ui.service.I18nService;
-import com.jlshell.ui.support.DeferredSettingsPage;
-import com.jlshell.ui.support.FxThread;
+import com.jlshell.ui.support.UiThread;
 import com.jlshell.ui.theme.AppTheme;
 import com.jlshell.ui.theme.ThemeService;
-import javafx.application.Platform;
-import javafx.scene.control.Button;
-import javafx.scene.control.Tab;
-import javafx.scene.control.TabPane;
-import javafx.scene.control.TextField;
-import javafx.scene.layout.VBox;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -36,10 +29,6 @@ import static org.junit.jupiter.api.Assertions.*;
 @EnabledIfSystemProperty(named = "jlshell.ui.smoke", matches = "true")
 class SwingPreferencesLoadingTest {
     @BeforeAll static void toolkit() throws Exception {
-        var ready = new CompletableFuture<Void>();
-        try { Platform.startup(() -> { Platform.setImplicitExit(false); ready.complete(null); }); }
-        catch (IllegalStateException running) { Platform.runLater(() -> ready.complete(null)); }
-        ready.get(10, TimeUnit.SECONDS);
         edt(() -> { SwingTheme.install(AppTheme.DARK, "#3574f0", null, 13); return null; });
     }
 
@@ -48,7 +37,7 @@ class SwingPreferencesLoadingTest {
         AtomicInteger initialLoads = new AtomicInteger(), secondLoads = new AtomicInteger();
         var finished = new CompletableFuture<Void>();
         try {
-            Platform.runLater(() -> {
+            com.jlshell.ui.support.UiThread.run(() -> {
                 try {
                     var settings = new AppSettingsService() {
                         public Optional<String> get(String key) { return Optional.empty(); }
@@ -59,23 +48,29 @@ class SwingPreferencesLoadingTest {
                         @Override public Optional<TerminalColorScheme> findByName(String name) { return Optional.empty(); }
                     };
                     var themes = new ThemeService(settings, registry, executor);
-                    Tab unused = new Tab("Unvisited", new DeferredSettingsPage(() -> {
+                    var unused = new SwingPreferencesDialog.Page(0, "Unvisited", null, "unused", () -> {
                         throw new AssertionError("An unvisited page must not be initialized");
-                    }, "unused"));
-                    Tab initial = new Tab("Initial", new DeferredSettingsPage(() -> {
+                    });
+                    var initial = new SwingPreferencesDialog.Page(1, "Initial", null, "initial-search", () -> {
                         initialLoads.incrementAndGet();
-                        TextField editor = new TextField("original"); editor.setId("lazy.editor");
-                        return new VBox(editor);
-                    }, "initial-search"));
-                    Tab second = new Tab("Second", new DeferredSettingsPage(() -> {
+                        return CompletableFuture.completedFuture(() -> {
+                            JTextField editor = new JTextField("original"); editor.setName("lazy.editor");
+                            JPanel content = new JPanel(); content.add(editor); return content;
+                        });
+                    });
+                    var second = new SwingPreferencesDialog.Page(2, "Second", null, "needle", () -> {
                         secondLoads.incrementAndGet();
-                        TextField editor = new TextField("second"); editor.setId("lazy.second");
-                        return new VBox(editor);
-                    }, "needle"));
-                    TabPane tabs = new TabPane(unused, initial, second);
-                    tabs.getSelectionModel().select(initial);
-                    SwingPreferencesDialog.showAndWait(tabs, new Button(), new I18nService(Locale.ENGLISH), themes, () -> {});
-                    finished.complete(null);
+                        return CompletableFuture.completedFuture(() -> {
+                            JTextField editor = new JTextField("second"); editor.setName("lazy.second");
+                            JPanel content = new JPanel(); content.add(editor); return content;
+                        });
+                    });
+                    SwingPreferencesDialog.showAsync(java.util.List.of(unused, initial, second), 1,
+                            new I18nService(Locale.ENGLISH), themes, com.jlshell.plugin.api.ui.ObservableValue.constant(false),
+                            () -> CompletableFuture.completedFuture(null), () -> CompletableFuture.completedFuture(null))
+                            .whenComplete((ignored, error) -> {
+                                if (error != null) finished.completeExceptionally(error); else finished.complete(null);
+                            });
                 } catch (Throwable failure) { finished.completeExceptionally(failure); }
             });
             JDialog dialog = await(() -> java.util.Arrays.stream(Window.getWindows())
@@ -84,7 +79,7 @@ class SwingPreferencesLoadingTest {
             assertEquals(1, initialLoads.get()); assertEquals(0, secondLoads.get());
             JTextField editor = edt(() -> (JTextField) named(dialog, "lazy.editor"));
             edt(() -> { editor.setText("unsaved"); return null; });
-            FxThread.supplyAsync(() -> null).get(10, TimeUnit.SECONDS);
+            UiThread.supplyAsync(() -> null).get(10, TimeUnit.SECONDS);
             edt(() -> { ((JTextField) named(dialog, "settings.search")).setText("needle"); return null; });
             await(() -> named(dialog, "lazy.second"));
             assertEquals(1, secondLoads.get());

@@ -27,17 +27,10 @@ DIST_DIR="$SCRIPT_DIR/dist"
 APP_JAR=""
 LAUNCHER_JAR=""
 
-# JDK 21 locations — override via env vars if needed
-JDK21_MAC="${JDK21_MAC:-/opt/homebrew/Cellar/openjdk@21/21.0.11/libexec/openjdk.jdk/Contents/Home}"
-JDK21_WIN="${JDK21_WIN:-}"   # path to a Windows JDK 21 (only needed for --win on non-Windows)
-JDK21_LINUX="${JDK21_LINUX:-}"  # path to a Linux JDK 21 (only needed for --linux on non-Linux)
-
-# JavaFX SDK paths for jlink (download from https://gluonhq.com/products/javafx/)
-# Only needed if you want to jlink JavaFX modules too.
-# Leave empty to skip JavaFX jlink (fat jar already contains natives).
-JAVAFX_MODS_MAC="${JAVAFX_MODS_MAC:-}"
-JAVAFX_MODS_WIN="${JAVAFX_MODS_WIN:-}"
-JAVAFX_MODS_LINUX="${JAVAFX_MODS_LINUX:-}"
+# JDK 25 locations — override via env vars if needed
+JDK25_MAC="${JDK25_MAC:-${JDK21_MAC:-/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home}}"
+JDK25_WIN="${JDK25_WIN:-${JDK21_WIN:-}}"   # path to a Windows JDK 25 (only needed for --win on non-Windows)
+JDK25_LINUX="${JDK25_LINUX:-${JDK21_LINUX:-}}"  # path to a Linux JDK 25 (only needed for --linux on non-Linux)
 
 write_vmoptions_file() {
     local file="$1"
@@ -48,6 +41,8 @@ write_vmoptions_file() {
 -Xmx$JLSHELL_JVM_XMX
 -XX:+ExplicitGCInvokesConcurrent
 -XX:+UseG1GC
+-XX:+UseCompactObjectHeaders
+--enable-native-access=ALL-UNNAMED
 -XX:G1PeriodicGCInterval=30000
 -XX:MinHeapFreeRatio=20
 -XX:MaxHeapFreeRatio=40
@@ -92,7 +87,7 @@ current_os() {
 # ── Step 1: Maven build ───────────────────────────────────────────────────────
 build_jar() {
     log "Building launcher and app jar with cross-platform natives (profile: dist)..."
-    mvn package -DskipTests -pl launcher,app -am -P dist -q
+    mvn package -DskipTests -pl launcher,app -am -q
     APP_JAR="$(ls "$SCRIPT_DIR"/app/target/jlshell-app-*.jar | head -1)"
     LAUNCHER_JAR="$(ls "$SCRIPT_DIR"/launcher/target/jlshell-launcher-*.jar | head -1)"
     [[ -f "$APP_JAR" ]] || err "App jar not found"
@@ -101,7 +96,7 @@ build_jar() {
     ok "Launcher jar: $LAUNCHER_JAR ($(du -sh "$LAUNCHER_JAR" | cut -f1))"
 }
 
-# ── Step 2: Required Java modules (fixed list, covers Spring Boot + JavaFX + SQLite + SSH) ──
+# ── Step 2: Required Java modules (fixed list, covers Swing + SQLite + SSH) ──
 detect_modules() {
     # jdeps on a shaded fat jar can be unreliable; use a curated list that covers all runtime needs.
     echo "java.base,java.compiler,java.desktop,java.logging,java.management,java.naming,java.net.http,java.prefs,java.scripting,java.security.jgss,java.sql,java.xml,jdk.crypto.ec,jdk.httpserver,jdk.jfr,jdk.localedata,jdk.naming.dns,jdk.net,jdk.unsupported,jdk.unsupported.desktop,jdk.zipfs"
@@ -112,7 +107,6 @@ run_jlink() {
     local jdk="$1"
     local modules="$2"
     local output="$3"
-    local javafx_mods="$4"
 
     local jlink="$jdk/bin/jlink"
     [[ -x "$jlink" ]] || err "jlink not found at $jlink"
@@ -120,11 +114,6 @@ run_jlink() {
     rm -rf "$output"
 
     local module_path="$jdk/jmods"
-    if [[ -n "$javafx_mods" && -d "$javafx_mods" ]]; then
-        module_path="$javafx_mods:$module_path"
-        # Add JavaFX modules
-        modules="$modules,javafx.base,javafx.controls,javafx.graphics,javafx.swing"
-    fi
 
     log "Running jlink → $output"
     "$jlink" \
@@ -134,7 +123,7 @@ run_jlink() {
         --strip-debug \
         --no-man-pages \
         --no-header-files \
-        --vm=server --compress zip-9
+        --vm=server --compress zip-9 --include-locales=en,zh
 
     ok "JRE size: $(du -sh "$output" | cut -f1)"
 }
@@ -142,8 +131,8 @@ run_jlink() {
 # ── Step 4: Assemble packages ─────────────────────────────────────────────────
 
 assemble_mac() {
-    local jdk="${JDK21_MAC}"
-    [[ -d "$jdk" ]] || err "macOS JDK 21 not found at $jdk — set JDK21_MAC env var"
+    local jdk="${JDK25_MAC}"
+    [[ -d "$jdk" ]] || err "macOS JDK 25 not found at $jdk — set JDK25_MAC env var"
 
     local work="$DIST_DIR/mac-work"
     rm -rf "$work" && mkdir -p "$work"
@@ -152,7 +141,7 @@ assemble_mac() {
     local jre_dir="$work/jre"
     local modules
     modules=$(detect_modules)
-    run_jlink "$jdk" "$modules" "$jre_dir" "${JAVAFX_MODS_MAC:-}"
+    run_jlink "$jdk" "$modules" "$jre_dir"
 
     # Build AppIcon.icns (jpackage needs it before invocation)
     local icon_src="$SCRIPT_DIR/app/src/main/resources/icons/app_icon.png"
@@ -203,6 +192,8 @@ assemble_mac() {
         --java-options "-Xmx$JLSHELL_JVM_XMX" \
         --java-options "-XX:+ExplicitGCInvokesConcurrent" \
         --java-options "-XX:+UseG1GC" \
+        --java-options "-XX:+UseCompactObjectHeaders" \
+        --java-options "--enable-native-access=ALL-UNNAMED" \
         --java-options "-XX:G1PeriodicGCInterval=30000" \
         --java-options "-XX:MinHeapFreeRatio=20" \
         --java-options "-XX:MaxHeapFreeRatio=40" \
@@ -240,8 +231,8 @@ EOF
 }
 
 assemble_linux() {
-    local jdk="${JDK21_LINUX:-$JDK21_MAC}"  # fallback to mac JDK for module detection
-    [[ -d "$jdk" ]] || err "Linux JDK 21 not found — set JDK21_LINUX env var"
+    local jdk="${JDK25_LINUX:-$JDK25_MAC}"  # fallback to mac JDK for module detection
+    [[ -d "$jdk" ]] || err "Linux JDK 25 not found — set JDK25_LINUX env var"
 
     local work="$DIST_DIR/linux-work/$APP_NAME"
     rm -rf "$DIST_DIR/linux-work" && mkdir -p "$work"
@@ -249,7 +240,7 @@ assemble_linux() {
     local modules
     modules=$(detect_modules)
 
-    run_jlink "$jdk" "$modules" "$work/runtime" "${JAVAFX_MODS_LINUX:-}"
+    run_jlink "$jdk" "$modules" "$work/runtime"
 
     mkdir -p "$work/app"
     cp "$LAUNCHER_JAR" "$work/$LAUNCHER_MAIN_JAR"
@@ -259,7 +250,7 @@ assemble_linux() {
     cat > "$work/JLShell.sh" <<LAUNCHER
 #!/bin/bash
 DIR="\$(cd "\$(dirname "\$0")" && pwd)"
-DEFAULT_VM_OPTS=(-Xms32m -Xmx512m -XX:+ExplicitGCInvokesConcurrent -XX:+UseG1GC -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40)
+DEFAULT_VM_OPTS=(-Xms32m -Xmx512m -XX:+ExplicitGCInvokesConcurrent -XX:+UseG1GC -XX:+UseCompactObjectHeaders --enable-native-access=ALL-UNNAMED -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40)
 USER_VMOPTIONS="\${XDG_CONFIG_HOME:-\$HOME/.config}/jlshell/JLShell.vmoptions"
 BUNDLED_VMOPTIONS="\$DIR/JLShell.vmoptions"
 VMOPTIONS_FILE=""
@@ -308,8 +299,8 @@ DESKTOP
 }
 
 assemble_win() {
-    local jdk="${JDK21_WIN:-$JDK21_MAC}"  # fallback for module detection
-    [[ -d "$jdk" ]] || err "Windows JDK 21 not found — set JDK21_WIN env var"
+    local jdk="${JDK25_WIN:-$JDK25_MAC}"  # fallback for module detection
+    [[ -d "$jdk" ]] || err "Windows JDK 25 not found — set JDK25_WIN env var"
 
     local work="$DIST_DIR/win-work/$APP_NAME"
     rm -rf "$DIST_DIR/win-work" && mkdir -p "$work"
@@ -317,7 +308,7 @@ assemble_win() {
     local modules
     modules=$(detect_modules)
 
-    run_jlink "$jdk" "$modules" "$work/runtime" "${JAVAFX_MODS_WIN:-}"
+    run_jlink "$jdk" "$modules" "$work/runtime"
 
     mkdir -p "$work/app"
     cp "$LAUNCHER_JAR" "$work/$LAUNCHER_MAIN_JAR"
@@ -328,7 +319,7 @@ assemble_win() {
 setlocal
 set DIR=%~dp0
 set JAVA=%DIR%runtime\bin\javaw.exe
-set VM_OPTS=-Xms32m -Xmx512m -XX:+ExplicitGCInvokesConcurrent -XX:+UseG1GC -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40
+set VM_OPTS=-Xms32m -Xmx512m -XX:+ExplicitGCInvokesConcurrent -XX:+UseG1GC -XX:+UseCompactObjectHeaders --enable-native-access=ALL-UNNAMED -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40
 set USER_VMOPTIONS=%APPDATA%\JLShell\JLShell.vmoptions
 set BUNDLED_VMOPTIONS=%DIR%JLShell.vmoptions
 set VMOPTIONS_FILE=

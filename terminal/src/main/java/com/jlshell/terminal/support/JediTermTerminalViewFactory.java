@@ -29,6 +29,9 @@ public class JediTermTerminalViewFactory implements TerminalViewFactory {
     private final Function<String, String> i18n;
     private final Runnable awtFontReadyHook;
     private final ShortcutRegistry shortcutRegistry;
+    private com.jlshell.terminal.service.TerminalHighlightService highlights;
+    public void setHighlights(com.jlshell.terminal.service.TerminalHighlightService highlights) { this.highlights = highlights; }
+
 
     public JediTermTerminalViewFactory(FontProfileService fontProfileService, ExecutorService executorService,
                                        Function<String, String> i18n) {
@@ -88,6 +91,7 @@ public class JediTermTerminalViewFactory implements TerminalViewFactory {
                 JlshellSettingsProvider settingsProvider =
                         new JlshellSettingsProvider(
                                 request.fontProfile(), request.colorScheme(), request.runtimeSettings(), shortcutRegistry);
+                settingsProvider.setHighlights(highlights);
                 JlshellJediTermWidget widget = JlshellJediTermWidget.create(
                         request.shellRequest().terminalSize().columns(),
                         request.shellRequest().terminalSize().rows(),

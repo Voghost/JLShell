@@ -1,27 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 preview_repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-preview_renderer=swing
 preview_build=true
+preview_trace_scroll=false
 for option in "$@"; do
     case "$option" in
-        --javafx) preview_renderer=javafx ;;
         --no-build) preview_build=false ;;
-        *) echo "用法：ui/run-preview.sh [--javafx] [--no-build]" >&2; exit 2 ;;
+        --trace-scroll) preview_trace_scroll=true ;;
+        *) echo "用法：ui/run-preview.sh [--no-build] [--trace-scroll]" >&2; exit 2 ;;
     esac
 done
 preview_java_home="${JLSHELL_PREVIEW_JAVA_HOME:-${JAVA_HOME:-}}"
 if [[ -z "$preview_java_home" || ! -x "$preview_java_home/bin/java" ]] ||
-   ! "$preview_java_home/bin/java" -version 2>&1 | head -n 1 | grep -q '"21[.\"]'; then
-    if [[ -x /opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/java ]]; then
-        preview_java_home=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
+   ! "$preview_java_home/bin/java" -version 2>&1 | head -n 1 | grep -q '"25[.\"]'; then
+    if [[ -x /opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home/bin/java ]]; then
+        preview_java_home=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home
     elif [[ -x /usr/libexec/java_home ]]; then
-        preview_java_home="$(/usr/libexec/java_home -v 21 2>/dev/null || true)"
+        preview_java_home="$(/usr/libexec/java_home -v 25 2>/dev/null || true)"
     fi
 fi
 if [[ ! -x "$preview_java_home/bin/java" ]] ||
-   ! "$preview_java_home/bin/java" -version 2>&1 | head -n 1 | grep -q '"21[.\"]'; then
-    echo "需要 JDK 21；请设置 JLSHELL_PREVIEW_JAVA_HOME。" >&2
+   ! "$preview_java_home/bin/java" -version 2>&1 | head -n 1 | grep -q '"25[.\"]'; then
+    echo "需要 JDK 25；请设置 JLSHELL_PREVIEW_JAVA_HOME。" >&2
     exit 1
 fi
 if [[ "$preview_build" == true ]]; then
@@ -47,17 +47,27 @@ if [[ -f "$preview_sysmon" ]]; then
     mkdir -p "$preview_plugins"
     cp "$preview_sysmon" "$preview_plugins/sysmon.jar"
 fi
-echo "预览渲染器：$preview_renderer"
+echo "界面：原生 Swing"
 echo "独立用户目录：$preview_home"
 echo "独立运行包：$preview_jar"
+echo "滚动诊断：$preview_trace_scroll"
 "$preview_java_home/bin/java" \
+    "-Xms${JLSHELL_JVM_XMS:-32m}" \
+    "-Xmx${JLSHELL_JVM_XMX:-512m}" \
+    -XX:+ExplicitGCInvokesConcurrent \
+    -XX:+UseG1GC \
+    -XX:+UseCompactObjectHeaders \
+    --enable-native-access=ALL-UNNAMED \
+    -XX:G1PeriodicGCInterval=30000 \
+    -XX:MinHeapFreeRatio=20 \
+    -XX:MaxHeapFreeRatio=40 \
     --add-exports=java.desktop/sun.swing=ALL-UNNAMED \
     --add-opens=java.desktop/sun.swing=ALL-UNNAMED \
     --add-opens=java.desktop/javax.swing=ALL-UNNAMED \
     -Dapple.laf.useScreenMenuBar=true \
     -Dapple.awt.application.name=JLShell \
     -Duser.home="$preview_home" \
-    -Djlshell.ui.preview=true \
+    -Djlshell.ui.preview="${JLSHELL_PREVIEW_MODE:-true}" \
     -Djlshell.preview.plugins="$preview_plugins" \
-    -Djlshell.ui.renderer="$preview_renderer" \
+    -Djlshell.terminal.traceScroll="$preview_trace_scroll" \
     -jar "$preview_jar"

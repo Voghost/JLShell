@@ -7,7 +7,7 @@ final class RuntimeJvmOptions {
     private RuntimeJvmOptions() {}
 
     static List<String> defaults() {
-        return List.of("-Xms32m", "-Xmx512m", "-XX:+UseG1GC",
+        return List.of("--enable-native-access=ALL-UNNAMED", "-Xms32m", "-Xmx512m", "-XX:+UseG1GC", "-XX:+UseCompactObjectHeaders",
                 "-XX:+ExplicitGCInvokesConcurrent", "-XX:G1PeriodicGCInterval=30000",
                 "-XX:MinHeapFreeRatio=20", "-XX:MaxHeapFreeRatio=40");
     }

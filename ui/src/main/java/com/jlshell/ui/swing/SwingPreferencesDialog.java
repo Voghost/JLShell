@@ -1,13 +1,7 @@
 package com.jlshell.ui.swing;
 
 import com.jlshell.ui.service.I18nService;
-import com.jlshell.ui.support.FxThread;
 import com.jlshell.ui.theme.ThemeService;
-import javafx.application.Platform;
-import javafx.beans.value.ChangeListener;
-import javafx.scene.Node;
-import javafx.scene.Parent;
-import javafx.scene.control.TabPane;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -19,30 +13,28 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicReference;
 
-/**
- * SettingsDialog / SettingsEditor / SettingsTreeView 的 Swing 外壳适配。
- * 搜索树、面包屑、分栏和动作栏遵循 IDEA；现有 FX 配置页与保存动作原样复用。
- */
+/** Native settings navigation, cached lazy pages and apply/cancel lifecycle. */
 public final class SwingPreferencesDialog {
-    private static final class Page {
+    public static final class Page {
         final int index;
-        final javafx.scene.control.Tab tab;
         final String title, group, searchText;
-        Node content;
-        TabPane headerTabs;
+        final java.util.function.Supplier<java.util.concurrent.CompletableFuture<java.util.function.Supplier<JComponent>>> loader;
         java.util.function.Supplier<JComponent> nativeView;
-        java.util.function.Supplier<java.util.concurrent.CompletableFuture<Page>> loader;
         java.util.concurrent.CompletableFuture<Page> loading;
-        Page(int index, javafx.scene.control.Tab tab, String group, String searchText) {
-            this.index = index; this.tab = tab; this.title = tab.getText(); this.group = group; this.searchText = searchText;
+        public Page(int index, String title, String group, String searchText,
+                    java.util.function.Supplier<java.util.concurrent.CompletableFuture<java.util.function.Supplier<JComponent>>> loader) {
+            this.index = index; this.title = title; this.group = group;
+            this.searchText = (title + " " + group + " " + searchText).toLowerCase(Locale.ROOT);
+            this.loader = loader;
         }
         int index() { return index; }
         String title() { return title; }
         String group() { return group; }
         String searchText() { return searchText; }
-        Node content() { return content; }
-        TabPane headerTabs() { return headerTabs; }
         java.util.function.Supplier<JComponent> nativeView() { return nativeView; }
+        java.util.concurrent.CompletableFuture<Page> load() {
+            return loader.get().thenApply(factory -> { nativeView = factory; return this; });
+        }
     }
     private record Entry(String title, Page page) { public String toString() { return title; } }
 
@@ -73,13 +65,14 @@ public final class SwingPreferencesDialog {
 
     private SwingPreferencesDialog(List<Page> pages, int initial, I18nService i18n,
                                    ThemeService themes, boolean applyDisabled,
-                                   Runnable applyAction, Runnable okAction, Runnable closed) {
+                                   java.util.function.Supplier<java.util.concurrent.CompletableFuture<Void>> applyAction,
+                                   java.util.function.Supplier<java.util.concurrent.CompletableFuture<Void>> okAction, Runnable closed) {
+        SwingTheme.install(themes);
         this.pages = pages;
         this.themes = themes;
         this.pageLoadFailed = i18n.get("settings.page.loadFailed");
         owner = SwingDialogChrome.owner();
-        // AWT 应用模态过滤器会阻止 JFXPanel 中的 Glass 下拉弹窗接收鼠标。
-        // 使用禁用宿主窗口实现模态，FX 嵌套事件循环仍保持 showAndWait 的调用顺序。
+        // 统一原生弹窗的宿主禁用与关闭恢复行为。
         dialog = new SwingModalDialog(owner, i18n.get("preferences.title") + " — JLShell");
         dialog.setName("jlshell.settings");
         dialog.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
@@ -211,6 +204,10 @@ public final class SwingPreferencesDialog {
                 disposed = true;
                 filterTimer.stop();
                 contentHost.removeAll();
+                nativePages.values().forEach(page -> {
+                    if (page instanceof AutoCloseable resource) try { resource.close(); }
+                    catch (Exception error) { org.slf4j.LoggerFactory.getLogger(SwingPreferencesDialog.class).warn("Cannot close settings page", error); }
+                });
                 nativePages.clear();
                 closed.run();
             }
@@ -240,40 +237,34 @@ public final class SwingPreferencesDialog {
         rebuildTree(initial);
     }
 
-    private void runAction(Runnable action, boolean close) {
+    private void runAction(java.util.function.Supplier<java.util.concurrent.CompletableFuture<Void>> action, boolean close) {
         if (busy) return;
         busy = true;
         busyFocus = dialog.getFocusOwner();
         inputBlocker.setVisible(true);
         inputBlocker.requestFocusInWindow();
-        FxThread.run(() -> {
-            boolean succeeded = false;
-            try {
-                action.run();
-                themes.refreshUi();
-                var theme = themes.currentTheme();
-                String accent = themes.accentColor().color(), family = themes.uiFontFamily();
-                int size = themes.uiFontSize();
-                SwingUtilities.invokeLater(() -> {
-                    if (owner instanceof RootPaneContainer host
-                            && host.getRootPane().getClientProperty("jlshell.workbench") instanceof SwingWorkbench workbench) {
-                        workbench.applyTheme(theme, accent, family, size);
-                    }
-                    refreshTheme();
-                });
-                succeeded = true;
+        java.util.concurrent.CompletableFuture<Void> result;
+        try { result = action.get(); }
+        catch (RuntimeException error) { result = java.util.concurrent.CompletableFuture.failedFuture(error); }
+        result.whenComplete((ignored, error) -> SwingUtilities.invokeLater(() -> {
+            if (disposed) return;
+            busy = false;
+            inputBlocker.setVisible(false);
+            if (error != null) {
+                org.slf4j.LoggerFactory.getLogger(SwingPreferencesDialog.class).warn("Cannot apply settings", error);
+                JLabel failure = new JLabel(pageLoadFailed);
+                contentHost.add(failure, BorderLayout.SOUTH);
+            } else {
+                if (owner instanceof RootPaneContainer host
+                        && host.getRootPane().getClientProperty("jlshell.workbench") instanceof SwingWorkbench workbench) {
+                    workbench.applyTheme(themes.currentTheme(), themes.accentColor().color(), themes.uiFontFamily(), themes.uiFontSize());
+                }
+                refreshTheme();
+                if (close) dialog.dispose();
             }
-            finally {
-                boolean dispose = close && succeeded;
-                SwingUtilities.invokeLater(() -> {
-                    busy = false;
-                    inputBlocker.setVisible(false);
-                    if (dispose) dialog.dispose();
-                    else if (busyFocus != null) busyFocus.requestFocusInWindow();
-                    busyFocus = null;
-                });
-            }
-        });
+            if (!close && busyFocus != null) busyFocus.requestFocusInWindow();
+            busyFocus = null;
+        }));
     }
 
     private void refreshTheme() {
@@ -307,7 +298,7 @@ public final class SwingPreferencesDialog {
             contentHost.add(progress, BorderLayout.NORTH);
             contentHost.revalidate(); contentHost.repaint();
             pageTabs.removeAll(); pageTabs.revalidate(); pageTabs.repaint();
-            if (page.loading == null) page.loading = page.loader.get();
+            if (page.loading == null) page.loading = page.load();
             page.loading.whenComplete((ready, failure) -> SwingUtilities.invokeLater(() -> {
                 if (disposed || selected != page) return;
                 if (failure != null) {
@@ -327,7 +318,6 @@ public final class SwingPreferencesDialog {
         contentHost.removeAll();
         JComponent nativePage = nativePages.computeIfAbsent(page.index(), ignored -> page.nativeView().get());
         nativePage.setName("settings.nativePage." + page.index());
-        nativePage.putClientProperty("jlshell.formModel", page.content());
         contentHost.add(nativePage);
         SwingUtilities.invokeLater(() -> { if (selected == page && !disposed) resetInitialScroll(nativePage); });
         contentHost.revalidate(); contentHost.repaint();
@@ -378,29 +368,11 @@ public final class SwingPreferencesDialog {
     }
 
     private void refreshPageTabs(Page page) {
-        FxThread.run(() -> {
-            List<String> titles = page.headerTabs() == null ? List.of()
-                    : page.headerTabs().getTabs().stream().map(javafx.scene.control.Tab::getText).toList();
-            int index = page.headerTabs() == null ? -1 : page.headerTabs().getSelectionModel().getSelectedIndex();
-            SwingUtilities.invokeLater(() -> {
-                if (selected != page) return;
-                pageTabs.removeAll();
-                for (int i = 0; i < titles.size(); i++) {
-                    int tabIndex = i;
-                    JToggleButton button = new JToggleButton(titles.get(i), index == i);
-                    button.setName("settings.pluginTab." + i);
-                    button.setBorderPainted(index == i);
-                    button.setContentAreaFilled(index == i);
-                    button.putClientProperty("FlatLaf.style", java.util.Map.of(
-                            "selectedBackground", SwingTheme.color("popupSelection"),
-                            "selectedForeground", UIManager.getColor("Label.foreground"), "arc", 6));
-                    button.addActionListener(event -> FxThread.run(() ->
-                            page.headerTabs().getSelectionModel().select(tabIndex)));
-                    pageTabs.add(button);
-                }
-                pageTabs.revalidate(); pageTabs.repaint();
-            });
-        });
+        pageTabs.removeAll();
+        JComponent content = nativePages.get(page.index());
+        if (content != null && content.getClientProperty("jlshell.header") instanceof JComponent header) pageTabs.add(header);
+        pageTabs.revalidate();
+        pageTabs.repaint();
     }
 
     private void styleTreeSelection() {
@@ -443,104 +415,29 @@ public final class SwingPreferencesDialog {
         if (preferredNode != null) tree.setSelectionPath(new TreePath(preferredNode.getPath()));
     }
 
-    private static void searchableText(Node node, StringBuilder text) {
-        if (node instanceof javafx.scene.control.Labeled label) text.append(' ').append(label.getText());
-        if (node instanceof javafx.scene.control.TextInputControl input) text.append(' ').append(input.getPromptText());
-        if (node instanceof Parent parent) for (Node child : parent.getChildrenUnmodifiable()) searchableText(child, text);
-    }
-
-    /** FX 与 EDT 各自继续处理事件；禁止 FX 等待 invokeAndWait，以免再次发生启动死锁。 */
-    public static void showAndWait(TabPane tabs, javafx.scene.control.Button fxApply,
-                                   I18nService i18n, ThemeService themes, Runnable okAction) {
-        if (!Platform.isFxApplicationThread()) throw new IllegalStateException("Settings model requires FX thread");
-        List<Page> pages = new ArrayList<>();
-        List<SwingFormRenderer> nativeRenderers = new ArrayList<>();
-        for (int index = 0; index < tabs.getTabs().size(); index++) {
-            var tab = tabs.getTabs().get(index);
-            String group = switch (index) {
-                case 0, 1 -> i18n.get("settings.group.appearance");
-                case 3, 4 -> i18n.get("settings.group.tools");
-                default -> null;
-            };
-            StringBuilder text = new StringBuilder(tab.getText()).append(' ').append(group).append(' ')
-                    .append(tab.getContent().getProperties().getOrDefault("jlshell.settingsSearchText", ""));
-            searchableText(tab.getContent(), text);
-            pages.add(new Page(index, tab, group, text.toString().toLowerCase(Locale.ROOT)));
-        }
-        int initial = tabs.getSelectionModel().getSelectedIndex();
-        boolean disabled = fxApply.isDisabled();
-        Object loop = new Object();
-        AtomicReference<SwingPreferencesDialog> view = new AtomicReference<>();
-        AtomicReference<Throwable> error = new AtomicReference<>();
-        java.util.concurrent.atomic.AtomicBoolean closedState = new java.util.concurrent.atomic.AtomicBoolean();
-        List<Runnable> removeHeaderListeners = new ArrayList<>();
-        for (Page page : pages) page.loader = () -> FxThread.supplyAsync(() -> {
-            if (closedState.get()) throw new java.util.concurrent.CancellationException("Settings closed");
-            page.content = com.jlshell.ui.support.DeferredSettingsPage.materialize(page.tab.getContent());
-            page.content.getStyleClass().add("idea-settings-content");
-            page.headerTabs = (TabPane) page.content.getProperties().get("jlshell.headerTabs");
-            if (page.headerTabs != null) page.headerTabs.getStyleClass().add("plugin-external-tabs");
-            SwingFormRenderer renderer = new SwingFormRenderer(i18n, true);
-            nativeRenderers.add(renderer);
-            page.nativeView = page.index == 0
-                    ? SwingSettingsGeneralPage.prepare(page.content, renderer, i18n) : renderer.prepare(page.content);
-            if (page.headerTabs != null) {
-                ChangeListener<Object> listener = (o, old, value) -> {
-                    if (view.get() != null && !closedState.get()) view.get().refreshPageTabs(page);
-                };
-                page.headerTabs.getSelectionModel().selectedIndexProperty().addListener(listener);
-                removeHeaderListeners.add(() -> page.headerTabs.getSelectionModel().selectedIndexProperty().removeListener(listener));
-                for (var tab : page.headerTabs.getTabs()) {
-                    tab.textProperty().addListener(listener);
-                    removeHeaderListeners.add(() -> tab.textProperty().removeListener(listener));
-                }
-            }
-            return page;
-        });
-        // 只准备首个可见页面，其余页面由 EDT 选择后异步交给 FX 创建。
-        Page first = pages.get(Math.max(0, initial));
-        first.loading = first.loader.get();
-        first.loading.join(); // 已在 FX 线程同步执行，无跨线程等待。
-        ChangeListener<Boolean> applyListener = (o, old, value) -> SwingUtilities.invokeLater(() -> {
-            if (view.get() != null) view.get().apply.setEnabled(!value);
-        });
-        ChangeListener<Object> themeListener = (o, old, value) -> SwingUtilities.invokeLater(() -> {
-            if (view.get() != null) {
-                view.get().refreshTheme();
-                if (view.get().selected != null) view.get().refreshPageTabs(view.get().selected);
-            }
-        });
-        javafx.collections.ListChangeListener<javafx.stage.Window> modalListener = change -> {
-            boolean modal = javafx.stage.Window.getWindows().stream().anyMatch(window ->
-                    window instanceof javafx.stage.Stage stage && stage.isShowing()
-                            && stage.getModality() != javafx.stage.Modality.NONE);
-            SwingUtilities.invokeLater(() -> {
-                if (view.get() != null) view.get().dialog.setEnabled(!modal);
-            });
-        };
-        fxApply.disabledProperty().addListener(applyListener);
-        themes.currentThemeProperty().addListener(themeListener);
-        themes.accentColorProperty().addListener(themeListener);
-        javafx.stage.Window.getWindows().addListener(modalListener);
-        Runnable closed = () -> FxThread.run(() -> {
-            closedState.set(true);
-            removeHeaderListeners.forEach(Runnable::run);
-            nativeRenderers.forEach(SwingFormRenderer::close);
-            fxApply.disabledProperty().removeListener(applyListener);
-            themes.currentThemeProperty().removeListener(themeListener);
-            themes.accentColorProperty().removeListener(themeListener);
-            javafx.stage.Window.getWindows().removeListener(modalListener);
-            Platform.exitNestedEventLoop(loop, null);
-        });
+    public static java.util.concurrent.CompletableFuture<Void> showAsync(List<Page> pages, int initial,
+            I18nService i18n, ThemeService themes, com.jlshell.plugin.api.ui.ObservableValue<Boolean> canApply,
+            java.util.function.Supplier<java.util.concurrent.CompletableFuture<Void>> applyAction,
+            java.util.function.Supplier<java.util.concurrent.CompletableFuture<Void>> okAction) {
+        var result = new java.util.concurrent.CompletableFuture<Void>();
         SwingUtilities.invokeLater(() -> {
+            var registrations = new ArrayList<com.jlshell.plugin.api.lifecycle.Registration>();
             try {
-                SwingPreferencesDialog created = new SwingPreferencesDialog(pages, initial, i18n, themes,
-                        disabled, fxApply::fire, okAction, closed);
-                view.set(created);
-                created.dialog.setVisible(true);
-            } catch (Throwable failure) { error.set(failure); closed.run(); }
+                var view = new SwingPreferencesDialog(pages, initial, i18n, themes, !canApply.get(), applyAction, okAction, () -> {
+                    registrations.forEach(com.jlshell.plugin.api.lifecycle.Registration::close);
+                    result.complete(null);
+                });
+                registrations.add(canApply.subscribe(enabled -> SwingUtilities.invokeLater(() -> {
+                    if (!view.disposed) view.apply.setEnabled(enabled);
+                })));
+                registrations.add(themes.onThemeChanged(theme -> SwingUtilities.invokeLater(() -> { if (!view.disposed) view.refreshTheme(); })));
+                registrations.add(themes.onAccentColorChanged(accent -> SwingUtilities.invokeLater(() -> { if (!view.disposed) view.refreshTheme(); })));
+                view.dialog.setVisible(true);
+            } catch (RuntimeException | Error error) {
+                registrations.forEach(com.jlshell.plugin.api.lifecycle.Registration::close);
+                result.completeExceptionally(error);
+            }
         });
-        Platform.enterNestedEventLoop(loop);
-        if (error.get() != null) throw new IllegalStateException("Cannot display settings", error.get());
+        return result;
     }
 }

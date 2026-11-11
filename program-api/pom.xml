@@ -15,6 +15,10 @@
     <name>JLShell Program API</name>
     <description>JavaFX-free public SPI for extending JLShell host JSON-RPC methods and session operations.</description>
 
+    <properties>
+        <maven.compiler.release>21</maven.compiler.release>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>com.google.code.gson</groupId>

@@ -15,13 +15,6 @@
             <groupId>net.oomn.jlshell</groupId>
             <artifactId>plugin-api</artifactId>
             <version>${project.version}</version>
-            <exclusions>
-                <!-- api-server 不依赖 JavaFX；只用 rpc 契约包 -->
-                <exclusion>
-                    <groupId>org.openjfx</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-            </exclusions>
         </dependency>
         <dependency>
             <groupId>net.oomn.jlshell</groupId>

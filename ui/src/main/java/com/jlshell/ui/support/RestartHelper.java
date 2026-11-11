@@ -4,7 +4,6 @@ import java.io.File;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * Centralised restart helper.
@@ -44,7 +43,6 @@ public final class RestartHelper {
         try {
             cleanup.run();
         } finally {
-            javafx.application.Platform.exit();
             Runtime.getRuntime().halt(0);
         }
     }
@@ -56,21 +54,16 @@ public final class RestartHelper {
         try {
             List<String> command = buildRestartCommand();
             if (command == null || command.isEmpty()) {
-                System.err.println("JLShell: cannot determine restart command, skipping relaunch");
-                return;
+                throw new IllegalStateException("Cannot determine the JLShell restart command");
             }
             ProcessBuilder pb = new ProcessBuilder(command);
             pb.directory(new File(System.getProperty("user.dir", ".")));
             // Inherit both stdout and stderr so the new process output is visible
             pb.inheritIO();
             Process child = pb.start();
-            // Brief wait to confirm the process started (don't block shutdown)
-            boolean started = child.waitFor(2, java.util.concurrent.TimeUnit.SECONDS);
-            if (!started) {
-                System.err.println("JLShell: new process did not start within 2 seconds");
-            }
+            System.err.println("JLShell: restart process started, pid=" + child.pid());
         } catch (Exception e) {
-            System.err.println("JLShell: failed to launch restart process: " + e.getMessage());
+            throw new IllegalStateException("Failed to start the JLShell launcher", e);
         }
     }
 
@@ -79,24 +72,38 @@ public final class RestartHelper {
      *
      * <p>Strategy:
      * <ol>
-     *   <li>Try {@link ProcessHandle} to get the exact command and arguments</li>
-     *   <li>Fall back to constructing from {@code java.home} + {@code jlshell.active.jar}</li>
+     *   <li>Relaunch the branded native executable when available</li>
+     *   <li>Relaunch the bootstrap JAR and wait for this process to exit</li>
+     *   <li>Use the original process command for direct development launches</li>
+     *   <li>Fall back to {@code java.home} and {@code jlshell.active.jar}</li>
      * </ol>
      */
     private static List<String> buildRestartCommand() {
-        // Strategy 1: Use ProcessHandle
+        String launcherJar = System.getProperty("jlshell.launcher.jar", "");
+        String nativeLauncher = System.getProperty("jpackage.app-path", "");
+        if (!nativeLauncher.isBlank() && java.nio.file.Files.isRegularFile(Path.of(nativeLauncher))) {
+            // The bootstrap reads this child-only marker before selecting the verified update.
+            return List.of(nativeLauncher, "--jlshell-restart-parent=" + ProcessHandle.current().pid());
+        }
+        if (!launcherJar.isBlank()) {
+            String executable = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win")
+                    ? "javaw.exe" : "java";
+            List<String> command = new ArrayList<>();
+            command.add(Path.of(System.getProperty("java.home"), "bin", executable).toString());
+            java.lang.management.ManagementFactory.getRuntimeMXBean().getInputArguments().stream()
+                    .filter(argument -> !argument.startsWith("-Djlshell.restart.parentPid="))
+                    .forEach(command::add);
+            command.add("-Djlshell.restart.parentPid=" + ProcessHandle.current().pid());
+            command.add("-jar");
+            command.add(launcherJar);
+            return command;
+        }
         ProcessHandle.Info info = ProcessHandle.current().info();
-        Optional<String> commandOpt = info.command();
-        Optional<String[]> argsOpt = info.arguments();
-
-        if (commandOpt.isPresent()) {
-            List<String> cmd = new ArrayList<>();
-            cmd.add(commandOpt.get());
-            argsOpt.ifPresent(args -> cmd.addAll(List.of(args)));
-            // Validate: the command should be a java binary or a JLShell native launcher
-            if (!cmd.isEmpty()) {
-                return cmd;
-            }
+        if (info.command().isPresent() && info.arguments().isPresent()) {
+            List<String> command = new ArrayList<>();
+            command.add(info.command().get());
+            command.addAll(List.of(info.arguments().get()));
+            return command;
         }
 
         // Strategy 2: Construct from system properties
@@ -126,6 +133,8 @@ public final class RestartHelper {
         cmd.add("-Xms32m");
         cmd.add("-Xmx512m");
         cmd.add("-XX:+UseG1GC");
+        cmd.add("-XX:+UseCompactObjectHeaders");
+        cmd.add("--enable-native-access=ALL-UNNAMED");
         cmd.add("-XX:+ExplicitGCInvokesConcurrent");
         cmd.add("-XX:G1PeriodicGCInterval=30000");
         cmd.add("-XX:MinHeapFreeRatio=20");

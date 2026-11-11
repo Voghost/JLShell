@@ -3,7 +3,7 @@ package com.jlshell.ui.swing;
 import javax.swing.*;
 import java.awt.*;
 
-/** Modeless AWT peer with explicit ownership, compatible with JavaFX popup event delivery. */
+/** Modeless AWT peer with explicit ownership, with asynchronous results and native popup event delivery. */
 final class SwingModalDialog extends JDialog {
     private boolean blocked;
     private boolean ownerWasEnabled;

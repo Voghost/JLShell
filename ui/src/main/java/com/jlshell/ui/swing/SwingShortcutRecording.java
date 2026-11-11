@@ -1,6 +1,5 @@
 package com.jlshell.ui.swing;
 
-import com.jlshell.ui.support.FxThread;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.KeyEvent;
@@ -33,14 +32,11 @@ public final class SwingShortcutRecording {
                 if(event.getKeyCode()==KeyEvent.VK_ESCAPE){cancel.run();return true;}
                 String spec=spec(event);if(spec==null)return true;
                 manager.removeKeyEventDispatcher(active[0]);active[0]=null;
-                FxThread.run(()->{
-                    String error=binding.commit().apply(spec);
-                    SwingUtilities.invokeLater(()->{
-                        button.putClientProperty("jlshell.recording",false);
-                        if(error!=null){button.setText(original[0]);button.setToolTipText(error);}
-                        original[0]=null;
-                    });
-                });
+                String error=binding.commit().apply(spec);
+                button.putClientProperty("jlshell.recording",false);
+                if(error!=null){button.setText(original[0]);button.setToolTipText(error);}
+                else button.setToolTipText(null);
+                original[0]=null;
                 return true;
             };
             manager.addKeyEventDispatcher(active[0]);

@@ -24,7 +24,12 @@ public class ColorSchemeRegistry {
 
     public List<TerminalColorScheme> builtInSchemes() {
         if (builtInCache == null) {
-            builtInCache = builtInLoader.loadAll();
+            var schemes = new ArrayList<>(builtInLoader.loadAll());
+            // The UI's light-mode fallback must also be selectable and restorable by name.
+            if (schemes.stream().noneMatch(s -> s.name().equals(TerminalColorScheme.light().name()))) {
+                schemes.add(TerminalColorScheme.light());
+            }
+            builtInCache = List.copyOf(schemes);
         }
         return builtInCache;
     }

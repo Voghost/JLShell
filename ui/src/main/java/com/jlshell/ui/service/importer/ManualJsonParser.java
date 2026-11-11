@@ -86,7 +86,7 @@ public class ManualJsonParser {
         String name = optString(obj, "name", "unnamed");
         String host = optString(obj, "host", "");
         if (host.isBlank()) {
-            log.warn("Skip entry without host: {}", obj);
+            log.warn("Skip import entry without host");
             return null;
         }
         int port = optInt(obj, "port", 22);

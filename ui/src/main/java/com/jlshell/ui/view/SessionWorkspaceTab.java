@@ -1,5 +1,6 @@
 package com.jlshell.ui.view;
 
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 import com.jlshell.core.model.SessionState;
@@ -22,24 +23,29 @@ import com.jlshell.plugin.loader.PluginRuntimeServices;
 import java.time.Instant;
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.theme.ThemeService;
-import com.jlshell.ui.support.FxThread;
-import javafx.beans.value.ChangeListener;
-import javafx.scene.control.Label;
-import javafx.scene.control.Tab;
-import javafx.scene.control.TabPane;
-import javafx.scene.layout.StackPane;
+import com.jlshell.ui.support.UiThread;
+import com.jlshell.ui.model.WorkspaceTabs;
+import com.jlshell.ui.model.WorkspacePage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * 单个 SSH 会话工作区 Tab。
  */
-public class SessionWorkspaceTab extends Tab {
+public class SessionWorkspaceTab extends WorkspacePage {
 
     private static final Logger log = LoggerFactory.getLogger(SessionWorkspaceTab.class);
 
     private final String historyId;
-    private SshSession sshSession;
+    private volatile SshSession sshSession;
+    private volatile boolean closing;
+    private boolean reconnecting;
+    private CompletableFuture<Void> closeFuture;
+    private java.util.function.BiConsumer<String, Runnable> reconnectFailureHandler = (message, retry) -> { };
+
+    public void setReconnectFailureHandler(java.util.function.BiConsumer<String, Runnable> handler) {
+        reconnectFailureHandler = handler;
+    }
     private final SessionManager sessionManager;
     private final ConnectionProfileService connectionProfileService;
     private TerminalWorkspaceView terminalWorkspaceView;
@@ -70,15 +76,15 @@ public class SessionWorkspaceTab extends Tab {
     private final FontProfileService fontProfileService;
     private final AppSettingsService appSettingsService;
 
-    private boolean filePaneInitialized;
-    private boolean nativeFiles;
-    private Tab pluginsTab;
+    private WorkspacePage pluginsTab;
+    private final com.jlshell.core.support.MutableValue<List<PluginsTabView.PinnedShortcut>> pinnedShortcuts = new com.jlshell.core.support.MutableValue<>(List.of());
+    public com.jlshell.plugin.api.ui.ObservableValue<List<PluginsTabView.PinnedShortcut>> pinnedShortcuts() { return pinnedShortcuts; }
     private PluginsTabView pluginsTabView;
-    private final ChangeListener<java.util.Locale> localeListener;
-    /** SFTP 面板，首次激活时创建 */
-    private SftpBrowserPane sftpPane;
+    private final com.jlshell.plugin.api.lifecycle.Registration localeSubscription;
+    private final com.jlshell.core.support.MutableValue<TerminalWorkspaceView> terminalChanges = new com.jlshell.core.support.MutableValue<>(null);
+    public com.jlshell.plugin.api.ui.ObservableValue<TerminalWorkspaceView> terminalChanges() { return terminalChanges; }
     /** 会话内容模型，保存终端、文件和插件标签。 */
-    private final TabPane innerTabPane;
+    private final WorkspaceTabs innerTabPane;
 
     public SessionWorkspaceTab(
             ConnectionProfile connectionProfile,
@@ -136,55 +142,62 @@ public class SessionWorkspaceTab extends Tab {
                 themeService
         );
 
-        Tab terminalTab = new Tab(i18nService.get("workspace.terminal"), terminalWorkspaceView);
+        WorkspacePage terminalTab = new WorkspacePage(i18nService.get("workspace.terminal"));
         terminalTab.setClosable(false);
-        Tab filesTab = new Tab(i18nService.get("workspace.files"),
-                new StackPane(new Label(i18nService.get("status.connecting", connectionProfile.summary()))));
+        WorkspacePage filesTab = new WorkspacePage(i18nService.get("workspace.files"));
         filesTab.setClosable(false);
-        filesTab.selectedProperty().addListener((obs, oldSelected, selected) -> {
-            if (selected) {
-                initializeFilePane(filesTab);
-            }
-        });
-
-        TabPane workspaceTabs = new TabPane(terminalTab, filesTab);
-        workspaceTabs.getStyleClass().add("session-inner-tabs");
+        WorkspaceTabs workspaceTabs = new WorkspaceTabs();
+        workspaceTabs.add(terminalTab); workspaceTabs.add(filesTab);
         this.innerTabPane = workspaceTabs;
 
         // 注册重连回调：断连后点击"重新连接"时触发
         terminalWorkspaceView.setOnReconnect(this::reconnect);
 
         if (pluginManager != null) {
-            pluginsTab = new Tab(i18nService.get("workspace.plugins"));
+            pluginsTab = new WorkspacePage(i18nService.get("workspace.plugins"));
             pluginsTab.setClosable(false);
             pluginsTabView = new PluginsTabView(
                     pluginManager, programSessionRegistry, sessionId, sshSession, workspaceTabs,
-                    i18nService, themeService, sftpService, capabilityBus, storageFactory, appSettingsService);
-            pluginsTab.setContent(pluginsTabView);
-            pluginsTab.getProperties().put(PluginsTabView.PINNED_SHORTCUTS, pluginsTabView.getProperties().get(PluginsTabView.PINNED_SHORTCUTS));
-            workspaceTabs.getTabs().add(pluginsTab);
+                    i18nService, themeService, sftpService, capabilityBus, storageFactory, appSettingsService, pinnedShortcuts);
+            pluginsTab.setContent(pluginsTabView.prepareNativeView());
+            workspaceTabs.add(pluginsTab);
         }
 
-        localeListener = (obs, oldLocale, newLocale) -> {
+        localeSubscription = i18nService.onLocaleChanged(newLocale -> UiThread.run(() -> {
             if (pluginsTab != null) {
                 pluginsTab.setText(i18nService.get("workspace.plugins"));
             }
-        };
-        i18nService.localeProperty().addListener(localeListener);
+        }));
 
-        setContent(workspaceTabs);
+
     }
 
     public CompletableFuture<Void> initialize() {
         return terminalWorkspaceView.initialize();
     }
 
+    public void showPlugins() {
+        if (pluginsTab != null) innerTabPane.select(pluginsTab);
+    }
+
+    public List<PluginsTabView.PluginMenuItem> pluginMenuItems() {
+        return pluginsTabView == null ? List.of() : pluginsTabView.createMenuItems();
+    }
+
+    public boolean isPluginSelected(String pluginId) {
+        WorkspacePage selected = innerTabPane.selected();
+        return selected != null && java.util.Objects.equals(pluginId, selected.getProperties().get("pluginId"));
+    }
+
     public void applyColorScheme(TerminalColorScheme scheme) {
         terminalWorkspaceView.applyColorScheme(scheme);
     }
 
-    public CompletableFuture<Void> closeWorkspace() {
-        i18nService.localeProperty().removeListener(localeListener);
+    public synchronized CompletableFuture<Void> closeWorkspace() {
+        if (closeFuture != null) return closeFuture;
+        closing = true;
+        SshSession sessionToClose = sshSession;
+        localeSubscription.close();
         if (programSessionRegistry != null) {
             programSessionRegistry.deactivateSession(sshSession.sessionId().toString());
         }
@@ -195,9 +208,9 @@ public class SessionWorkspaceTab extends Tab {
             pluginsTabView.dispose();
             pluginsTabView = null;
         }
-        return terminalWorkspaceView.closeAsync()
+        closeFuture = terminalWorkspaceView.closeAsync()
                 .exceptionally(throwable -> null)
-                .thenCompose(unused -> sessionManager.closeSession(sshSession.sessionId()))
+                .thenCompose(unused -> sessionManager.closeSession(sessionToClose.sessionId()))
                 .handle((unused, throwable) -> {
                     connectionProfileService.recordSessionClosed(
                             historyId,
@@ -214,69 +227,35 @@ public class SessionWorkspaceTab extends Tab {
                 .whenComplete((unused, throwable) -> {
                     releaseConnectionRoute();
                     notifySessionCountChanged();
-                    FxThread.run(this::disposeUiReferences);
+                    UiThread.run(this::disposeUiReferences);
                 });
+        return closeFuture;
     }
 
     private void disposeUiReferences() {
         sshSession.removeDisconnectListener(statsDisconnectListener);
         releaseConnectionRoute();
-        if (sftpPane != null) {
-            sftpPane.dispose();
-            sftpPane = null;
-        }
-        innerTabPane.getTabs().forEach(tab -> tab.setContent(null));
-        innerTabPane.getTabs().clear();
+        innerTabPane.pages().forEach(tab -> tab.setContent(null));
+        innerTabPane.clear();
         setContent(null);
         terminalWorkspaceView = null;
         pluginsTab = null;
+        reconnectFailureHandler = (message, retry) -> { };
     }
 
-    /**
-     * 文件页签首次激活时再创建 SFTP 面板，避免连接瞬间同时初始化终端和文件管理导致界面卡顿。
-     */
-    private void initializeFilePane(Tab filesTab) {
-        if (nativeFiles || filePaneInitialized) {
-            return;
-        }
-        filePaneInitialized = true;
-        sftpPane = new SftpBrowserPane(connectionProfile, sshSession, sftpService, i18nService, themeService);
-        // 连接终端 cwd 属性，实现"跟随终端目录"
-        sftpPane.setTerminalCwdProperty(terminalWorkspaceView.cwdProperty());
-        filesTab.setContent(sftpPane);
-    }
-
-    /** Native host owns file rendering; retain tab selection only as navigation state. FX thread. */
     public java.util.function.Supplier<com.jlshell.ui.swing.SwingSftpBrowser> prepareNativeFiles() {
-        nativeFiles = true;
         return com.jlshell.ui.swing.SwingSftpBrowser.prepare(sshSession, sftpService, i18nService,
                 connectionProfile.defaultRemotePath(), terminalWorkspaceView.cwdProperty());
     }
 
     /** 返回内层 TabPane（Terminal / Files / Plugins） */
-    public TabPane getInnerTabPane() {
+    public WorkspaceTabs getInnerTabPane() {
         return innerTabPane;
     }
 
     public TerminalWorkspaceView getTerminalWorkspaceView() {
         return terminalWorkspaceView;
     }
-
-    /**
-     * 控制内层 TabPane 的 tab-header-area 显隐。
-     * CSS 方式对 JavaFX 内部布局不可靠，使用程序化方式直接操作子节点。
-     */
-    public void setTabHeadersVisible(boolean visible) {
-        for (javafx.scene.Node node : innerTabPane.getChildrenUnmodifiable()) {
-            if (node.getStyleClass().contains("tab-header-area")) {
-                node.setManaged(visible);
-                node.setVisible(visible);
-                return;
-            }
-        }
-    }
-
-    /** 控制终端工作区顶部插件与字体工具栏的显隐。 */
 
     /** 控制终端底部实时状态栏的显隐。 */
     public void setStatusBarVisible(boolean visible) {
@@ -290,6 +269,8 @@ public class SessionWorkspaceTab extends Tab {
      * 重连期间在终端区域显示加载指示器。
      */
     private void reconnect() {
+        if (closing || reconnecting) return;
+        reconnecting = true;
         log.info("[Reconnect] Starting reconnect for '{}' ({})", connectionProfile.displayName(), connectionProfile.summary());
         if (programSessionRegistry != null) {
             programSessionRegistry.deactivateSession(sshSession.sessionId().toString());
@@ -338,8 +319,13 @@ public class SessionWorkspaceTab extends Tab {
                 .thenCompose(routed -> {
                     com.jlshell.core.session.SshSession newSession = routed.session();
                     log.info("[Reconnect] SSH reconnected for session {}", newSession.sessionId());
-                    // 4. 在 FX 线程替换 sshSession 和终端视图
-                    return FxThread.supplyAsync(() -> {
+                    // 在 EDT 替换会话与终端，关闭后的迟到连接须立即释放。
+                    return UiThread.supplyAsync(() -> {
+                        if (closing) {
+                            ProgramConnectionRouteService.closeQuietly(routed.routeLease());
+                            sessionManager.closeSession(newSession.sessionId());
+                            throw new java.util.concurrent.CancellationException("Workspace is closing");
+                        }
                         this.sshSession = newSession;
                         this.connectionRouteLease = routed.routeLease();
                         this.sshSession.addDisconnectListener(statsDisconnectListener);
@@ -357,19 +343,21 @@ public class SessionWorkspaceTab extends Tab {
                         this.terminalWorkspaceView = newView;
 
                         // 替换 Terminal tab 的内容
-                        innerTabPane.getTabs().getFirst().setContent(newView);
+                        terminalChanges.set(newView);
                         return newView;
                     }).thenCompose(TerminalWorkspaceView::initialize);
                 })
-                .whenComplete((unused, throwable) -> FxThread.run(() -> {
+                .whenComplete((unused, throwable) -> UiThread.run(() -> {
+                    reconnecting = false;
+                    if (closing) return;
                     if (throwable != null) {
                         log.error("[Reconnect] Failed to reconnect '{}': {}", connectionProfile.displayName(), throwable.getMessage());
-                        // 重连失败：清除旧 overlay，让下次断连时重新显示
-                        terminalWorkspaceView.markReconnected();
+                        terminalWorkspaceView.closeAsync();
+                        reconnectFailureHandler.accept(
+                                i18nService.get("status.terminalOpenFailed", throwable.getMessage()), this::reconnect);
                     } else {
                         log.info("[Reconnect] Successfully reconnected '{}'", connectionProfile.displayName());
                         terminalWorkspaceView.markReconnected();
-                        resetFilePaneAfterReconnect();
                         resetPluginPaneAfterReconnect();
                     }
                 }));
@@ -391,19 +379,6 @@ public class SessionWorkspaceTab extends Tab {
     private record RoutedSession(com.jlshell.core.session.SshSession session, AutoCloseable routeLease) {
     }
 
-    private void resetFilePaneAfterReconnect() {
-        filePaneInitialized = false;
-        if (sftpPane != null) {
-            sftpPane.dispose();
-            sftpPane = null;
-        }
-        innerTabPane.getTabs().stream()
-                .filter(t -> t.getText().equals(i18nService.get("workspace.files")))
-                .findFirst()
-                .ifPresent(t -> t.setContent(new StackPane(new Label(
-                        i18nService.get("status.connecting", connectionProfile.summary())))));
-    }
-
     private void resetPluginPaneAfterReconnect() {
         if (pluginManager == null || pluginsTab == null) {
             return;
@@ -411,13 +386,12 @@ public class SessionWorkspaceTab extends Tab {
         if (pluginsTabView != null) {
             pluginsTabView.dispose();
         }
-        innerTabPane.getTabs().removeIf(tab -> tab != pluginsTab && tab.getProperties().get("pluginId") != null);
+        innerTabPane.pages().stream().filter(tab -> tab != pluginsTab && tab.getProperties().get("pluginId") != null).toList().forEach(innerTabPane::remove);
         String newSessionId = sshSession.sessionId().toString();
         pluginsTabView = new PluginsTabView(
                 pluginManager, programSessionRegistry, newSessionId, sshSession, innerTabPane,
                 i18nService, themeService,
-                sftpService, capabilityBus, storageFactory, appSettingsService);
-        pluginsTab.setContent(pluginsTabView);
-        pluginsTab.getProperties().put(PluginsTabView.PINNED_SHORTCUTS, pluginsTabView.getProperties().get(PluginsTabView.PINNED_SHORTCUTS));
+                sftpService, capabilityBus, storageFactory, appSettingsService, pinnedShortcuts);
+        pluginsTab.setContent(pluginsTabView.prepareNativeView());
     }
 }

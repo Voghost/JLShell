@@ -1,23 +1,23 @@
 package com.jlshell.app;
 
+import com.jlshell.ui.support.UiThread;
 import com.jlshell.ui.dialog.AboutDialog;
 import com.jlshell.ui.dialog.ProjectManagerDialog;
 import com.jlshell.ui.model.ProjectProfile;
 import com.jlshell.ui.service.ConnectionProfileService;
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.service.VaultService;
-import com.jlshell.ui.swing.SwingFxPanel;
 import com.jlshell.ui.swing.SwingWorkbench;
 import com.jlshell.ui.theme.AppTheme;
 import com.jlshell.ui.theme.ThemeService;
-import javafx.application.Platform;
-import javafx.scene.control.*;
-import javafx.scene.paint.Color;
-import javafx.stage.Stage;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.junit.jupiter.api.io.TempDir;
 import javax.swing.*;
+import java.awt.Component;
+import java.awt.Container;
+import java.awt.Dimension;
+import java.awt.Rectangle;
 import java.awt.Window;
 import java.awt.image.BufferedImage;
 import java.nio.file.*;
@@ -47,7 +47,7 @@ class DialogUiSmokeTest {
     public static class Probe {
         static CompletableFuture<Void> open(Runnable action) {
             var future = new CompletableFuture<Void>();
-            Platform.runLater(() -> { try { action.run(); future.complete(null); } catch(Throwable e) { future.completeExceptionally(e); } });
+            com.jlshell.ui.support.UiThread.run(() -> { try { action.run(); future.complete(null); } catch(Throwable e) { future.completeExceptionally(e); } });
             return future;
         }
         static JDialog window(String name) throws Exception {
@@ -61,25 +61,9 @@ class DialogUiSmokeTest {
             }
             throw new AssertionError("Missing dialog: "+name);
         }
-        static SwingFxPanel panel(JDialog dialog,String name)throws Exception {
-            SwingFxPanel panel=edt(()->(SwingFxPanel)named(dialog,name));
-            fx(()->{panel.getScene().getRoot().applyCss();panel.getScene().getRoot().layout();return null;});
-            return panel;
-        }
-        static void readable(SwingFxPanel panel,String selector)throws Exception {
-            fx(()-> {
-                panel.getScene().getRoot().applyCss(); panel.getScene().getRoot().layout();
-                Label label=(Label)panel.getScene().getRoot().lookup(selector);
-                assertNotNull(label); assertFalse(label.getText().isBlank());
-                Color foreground=(Color)label.getTextFill();
-                Color background=(Color)label.getBackground().getFills().getFirst().getFill();
-                assertTrue(Math.abs(brightness(foreground)-brightness(background))>0.35,
-                        selector+" must not paint its text with the badge background color");
-                assertTrue(label.getWidth()<450,"Status badges must size to their text");
-                return null;
-            });
-        }
-        static double brightness(Color c) { return .2126*c.getRed()+.7152*c.getGreen()+.0722*c.getBlue(); }
+
+
+
         static void capture(JDialog dialog,String name)throws Exception {
             Path directory=Path.of(System.getProperty("jlshell.dialog.review"));Files.createDirectories(directory);
             Thread.sleep(200);
@@ -96,14 +80,29 @@ class DialogUiSmokeTest {
             closed.get(10,TimeUnit.SECONDS);
             assertFalse(edt(dialog::isShowing));
         }
+        static void assertAboutComplete(JDialog dialog, String pageName) {
+            dialog.validate();
+            JScrollPane scroll = (JScrollPane) named(dialog, pageName);
+            assertNotNull(scroll);
+            assertFalse(scroll.getVerticalScrollBar().isVisible(), () -> "关于页出现纵向滚动条，viewport="
+                    + scroll.getViewport().getExtentSize() + ", content=" + scroll.getViewport().getView().getPreferredSize());
+            for (String name : java.util.List.of("about.resources", "about.details", "about.footer")) {
+                Component component = named(scroll, name);
+                assertNotNull(component, name);
+                Rectangle bounds = SwingUtilities.convertRectangle(component.getParent(), component.getBounds(), scroll.getViewport().getView());
+                assertTrue(scroll.getViewport().getViewRect().contains(bounds), name + " 必须完整显示: " + bounds);
+            }
+            assertEquals(4, ((Container) named(scroll, "about.resources")).getComponentCount());
+            assertEquals(12, ((Container) named(scroll, "about.details")).getComponentCount());
+        }
         public static void main(String[] args) {
             try{verify();System.exit(0);}catch(Throwable e){e.printStackTrace();System.exit(2);}
         }
         static void verify()throws Exception {
             java.util.Locale.setDefault(java.util.Locale.SIMPLIFIED_CHINESE);
-            Platform.startup(()->Platform.setImplicitExit(false));
-            AppContext context=fx(()->{var value=new AppContext();main=value.getMainWindow();owner=new Stage();
-                owner.setScene(main.createScene(owner));main.showSwingWindow(owner,()->{});return value;});
+
+            AppContext context=fx(()->{var value=new AppContext();main=value.getMainWindow();owner=null;
+                main.showSwingWindow(owner,()->{});return value;});
             @SuppressWarnings("unchecked") SwingWorkbench workbench=((CompletableFuture<SwingWorkbench>)field(main,"swingWorkbench")).get(10,TimeUnit.SECONDS);
             I18nService i18n=(I18nService)field(main,"i18nService");
             ThemeService themes=(ThemeService)field(main,"themeService");
@@ -116,7 +115,7 @@ class DialogUiSmokeTest {
                 JDialog settings=window("jlshell.settings");
                 assertNotNull(edt(()->named(settings,"dialog.header")),"Settings must have the themed dialog header");
                 edt(()->{((JTextField)named(settings,"settings.search")).setText(i18n.get("preferences.tab.account"));return null;});Thread.sleep(300);
-                edt(()->{NativeSettingsProbe.assertNative(settings);assertNotNull(NativeSettingsProbe.styled(settings,"account-status-badge"));
+                edt(()->{NativeSettingsProbe.assertNative(settings);assertNotNull(named(settings,"account-status-badge"));
                     NativeSettingsProbe.button(settings,i18n.get("account.login.password.action")).doClick();return null;});
                 JDialog login=window("jlshell.account");
                 edt(()->{NativeSettingsProbe.assertNative(login);assertFalse(NativeSettingsProbe.all(login,JPasswordField.class).isEmpty());return null;});
@@ -126,38 +125,40 @@ class DialogUiSmokeTest {
                 edt(()->{((JButton)named(settings,"settings.cancel")).doClick();return null;});settingsClosed.get(10,TimeUnit.SECONDS);
 
                 var checks=new java.util.concurrent.atomic.AtomicInteger();
-                var aboutClosed=open(()->AboutDialog.show(owner,i18n,themes,checks::incrementAndGet));
+                var aboutClosed=AboutDialog.show(owner,i18n,themes,checks::incrementAndGet);
                 JDialog about=window("jlshell.about");
                 assertFalse(edt(workbench.frame()::isEnabled));
-                edt(()->{NativeSettingsProbe.assertNative(about);assertTrue(NativeSettingsProbe.all(about,JLabel.class).stream().anyMatch(label->"JLShell".equals(label.getText())&&label.getFont().getSize()>=30));return null;});
+                edt(()->{NativeSettingsProbe.assertNative(about);assertTrue(NativeSettingsProbe.all(about,JLabel.class).stream().anyMatch(label->"JLShell".equals(label.getText())&&label.getFont().getSize()>=30));assertAboutComplete(about,"dialog.content");return null;});
                 capture(about,"about-"+theme.name().toLowerCase());
                 if(theme==AppTheme.DARK) {
+                    Dimension original = edt(about::getSize);
+                    edt(()->{about.setSize(560,350);about.validate();return null;});
+                    edt(()->{JScrollPane scroll=(JScrollPane)named(about,"dialog.content");
+                        assertTrue(scroll.getVerticalScrollBar().isVisible(),"小窗口需要保留滚动以访问全部内容");
+                        scroll.getVerticalScrollBar().setValue(scroll.getVerticalScrollBar().getMaximum());
+                        Component footer=named(scroll,"about.footer");
+                        Rectangle bounds=SwingUtilities.convertRectangle(footer.getParent(),footer.getBounds(),scroll.getViewport().getView());
+                        assertTrue(scroll.getViewport().getViewRect().contains(bounds),"小窗口滚动后页脚应可见");return null;});
+                    edt(()->{about.setSize(original);about.validate();((JScrollPane)named(about,"dialog.content")).getVerticalScrollBar().setValue(0);return null;});
                     edt(()->{NativeSettingsProbe.button(about,i18n.get("menu.help.checkUpdates")).doClick();return null;});
                     aboutClosed.get(10,TimeUnit.SECONDS);
                     assertEquals(1,checks.get(),"Original check-updates action must close its dialog and run once");
                 } else close(about,aboutClosed);
                 assertTrue(edt(workbench.frame()::isEnabled),"Closing standalone dialog must restore its host");
 
-                var projectClosed=open(()->ProjectManagerDialog.show(owner,profiles,i18n,themes,vault,null,ignored->{}));
+                var projectClosed=ProjectManagerDialog.show(owner,profiles,i18n,themes,vault,null,ignored->{});
                 JDialog projects=window("jlshell.projects");
-                SwingFxPanel projectPanel=panel(projects,"dialog.content");
-                fx(()->{
-                    @SuppressWarnings("unchecked") ListView<ProjectProfile> list=(ListView<ProjectProfile>)projectPanel.getScene().getRoot().lookup(".project-manager-list");
-                    Color background=(Color)list.getBackground().getFills().getFirst().getFill();
-                    Label name=(Label)projectPanel.getScene().getRoot().lookup(".project-manager-item-name");
-                    assertTrue(Math.abs(brightness((Color)name.getTextFill())-brightness(background))>.35);
-                    return null;
-                });
-                if(theme==AppTheme.DARK) fx(()->{
-                    var root=projectPanel.getScene().getRoot();
-                    root.lookupAll(".button").stream().filter(Button.class::isInstance).map(Button.class::cast)
-                            .filter(button->i18n.get("project.action.new").equals(button.getText())).findFirst().orElseThrow().fire();
-                    ((TextField)root.lookup(".project-manager-input")).setText("UI 验收项目");
-                    root.lookupAll(".button").stream().filter(Button.class::isInstance).map(Button.class::cast)
-                            .filter(button->i18n.get("project.action.save").equals(button.getText())).findFirst().orElseThrow().fire();
-                    assertTrue(profiles.listProjects().stream().anyMatch(project->"UI 验收项目".equals(project.name())),"Original save handler must remain connected");
-                    return null;
-                });
+                edt(() -> { NativeSettingsProbe.assertNative(projects); return null; });
+                if(theme==AppTheme.DARK) {
+                    edt(() -> {
+                        ((JButton) named(projects,"projects.new")).doClick();
+                        ((JTextField) named(projects,"projects.name")).setText("UI 验收项目");
+                        ((JButton) named(projects,"projects.save")).doClick();
+                        return null;
+                    });
+                    for (int attempt = 0; attempt < 200 && profiles.listProjects().stream().noneMatch(project -> "UI 验收项目".equals(project.name())); attempt++) Thread.sleep(25);
+                    assertTrue(profiles.listProjects().stream().anyMatch(project->"UI 验收项目".equals(project.name())),"Project save must reach encrypted persistence");
+                }
                 capture(projects,"projects-"+theme.name().toLowerCase());close(projects,projectClosed);
             }
             edt(()->{workbench.close();return null;});fx(()->{context.close();return null;});

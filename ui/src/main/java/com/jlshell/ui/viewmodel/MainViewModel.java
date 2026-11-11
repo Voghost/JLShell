@@ -1,41 +1,19 @@
 package com.jlshell.ui.viewmodel;
 
+import com.jlshell.core.support.MutableValue;
 import com.jlshell.ui.model.ConnectionProfile;
 import com.jlshell.ui.theme.AppTheme;
-import javafx.beans.property.ObjectProperty;
-import javafx.beans.property.SimpleObjectProperty;
-import javafx.beans.property.SimpleStringProperty;
-import javafx.beans.property.StringProperty;
-import javafx.collections.FXCollections;
-import javafx.collections.ObservableList;
+import java.util.List;
 
-/**
- * 主窗口 ViewModel。
- */
-public class MainViewModel {
-
-    private final ObservableList<ConnectionProfile> connections = FXCollections.observableArrayList();
-    private final ObjectProperty<ConnectionProfile> selectedConnection = new SimpleObjectProperty<>();
-    private final StringProperty statusMessage = new SimpleStringProperty("Ready");
-    private final ObjectProperty<AppTheme> activeTheme = new SimpleObjectProperty<>(AppTheme.DARK);
-
-    public ObservableList<ConnectionProfile> connections() {
-        return connections;
-    }
-
-    public ObjectProperty<ConnectionProfile> selectedConnectionProperty() {
-        return selectedConnection;
-    }
-
-    public StringProperty statusMessageProperty() {
-        return statusMessage;
-    }
-
-    public ObjectProperty<AppTheme> activeThemeProperty() {
-        return activeTheme;
-    }
-
-    public void replaceConnections(java.util.List<ConnectionProfile> items) {
-        connections.setAll(items);
-    }
+/** 主窗口状态。 */
+public final class MainViewModel {
+    private List<ConnectionProfile> connections = List.of();
+    private final MutableValue<ConnectionProfile> selectedConnection = new MutableValue<>(null);
+    private final MutableValue<String> statusMessage = new MutableValue<>("Ready");
+    private final MutableValue<AppTheme> activeTheme = new MutableValue<>(AppTheme.DARK);
+    public List<ConnectionProfile> connections() { return connections; }
+    public MutableValue<ConnectionProfile> selectedConnectionProperty() { return selectedConnection; }
+    public MutableValue<String> statusMessageProperty() { return statusMessage; }
+    public MutableValue<AppTheme> activeThemeProperty() { return activeTheme; }
+    public void replaceConnections(List<ConnectionProfile> items) { connections = List.copyOf(items); }
 }

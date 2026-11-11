@@ -15,6 +15,43 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 class TerminalVisualRefreshTest {
 
     @Test
+    void existingTextAndHistoryFollowThemeWhileRemoteRgbRemainsLiteral() throws Exception {
+        SwingExecutors.runOnEdtAsync(() -> {
+            var settings = new JlshellSettingsProvider(new FontProfile("Monospaced", 13, false, 1), TerminalColorScheme.light());
+            var style = new StyleState(); style.setDefaultStyle(settings.defaultTextStyle());
+            var buffer = new TerminalTextBuffer(40, 4, style);
+            var panel = new RefreshableTerminalPanel(settings, buffer, style, settings, key -> key);
+            panel.init(new javax.swing.JScrollBar()); panel.setSize(panel.getPreferredSize());
+            var terminal = new com.jediterm.terminal.model.JediTerminal(panel, buffer, style);
+            panel.setCoordAccessor(terminal);
+            try {
+                terminal.reset(true);
+                terminal.writeCharacters("banner");
+                var existing = buffer.getStyledCharAt(0, 0).getSecond();
+                org.junit.jupiter.api.Assertions.assertNotEquals(existing.getForeground(), existing.getBackground());
+                var explicit = com.jediterm.terminal.TerminalColor.rgb(248, 250, 252);
+                terminal.characterAttributes(new com.jediterm.terminal.TextStyle(null, explicit));
+                terminal.carriageReturn(); terminal.newLine(); terminal.writeCharacters("remote RGB");
+                var remoteStyle = buffer.getStyledCharAt(0, 1).getSecond();
+                terminal.characterAttributes(settings.defaultTextStyle());
+                for (int i = 0; i < 8; i++) { terminal.carriageReturn(); terminal.newLine(); terminal.writeCharacters("output"); }
+                for (var scheme : new TerminalColorScheme[]{TerminalColorScheme.dark(), TerminalColorScheme.light(), TerminalColorScheme.dark()}) {
+                    settings.updateColorScheme(scheme); panel.refreshVisuals();
+                    var expected = new com.jediterm.core.Color(scheme.background().getRed(), scheme.background().getGreen(), scheme.background().getBlue());
+                    assertEquals(expected, existing.getBackground().toColor());
+                    assertEquals(expected, buffer.getStyledCharAt(0, -buffer.getHistoryLinesCount()).getSecond().getBackground().toColor());
+                    assertEquals(explicit, remoteStyle.getBackground());
+                    assertEquals(new com.jediterm.core.Color(248, 250, 252), remoteStyle.getBackground().toColor());
+                    var image = new java.awt.image.BufferedImage(panel.getWidth(), panel.getHeight(), java.awt.image.BufferedImage.TYPE_INT_RGB);
+                    var graphics = image.createGraphics();
+                    try { panel.paintComponent(graphics); } finally { graphics.dispose(); }
+                    assertEquals(scheme.background().getRGB(), image.getRGB(0, 0));
+                }
+            } finally { panel.dispose(); }
+        }).get(10, TimeUnit.SECONDS);
+    }
+
+    @Test
     void colorRefreshDoesNotResizeButFontAndLineSpacingDo() throws Exception {
         SwingExecutors.runOnEdtAsync(() -> {
             var settings = new JlshellSettingsProvider(new FontProfile("Monospaced", 13, false, 1),

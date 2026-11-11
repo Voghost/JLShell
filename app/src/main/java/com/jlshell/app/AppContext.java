@@ -4,11 +4,8 @@ import java.util.Locale;
 import java.util.List;
 import java.util.ServiceLoader;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
-import com.jlshell.core.config.CoreExecutorProperties;
 import com.jlshell.core.service.AppSettingsService;
 import com.jlshell.core.service.FontProfileService;
 import com.jlshell.core.service.SessionManager;
@@ -17,7 +14,6 @@ import com.jlshell.core.service.impl.DefaultSessionManager;
 import com.jlshell.core.service.impl.InMemorySessionRegistry;
 import com.jlshell.core.service.impl.PersistentFontProfileService;
 import com.jlshell.core.shortcut.ShortcutRegistry;
-import com.jlshell.core.support.NamedThreadFactory;
 import com.jlshell.app.api.CoreProgramSessionService;
 import com.jlshell.app.api.HostAccountSessionService;
 import com.jlshell.data.config.CredentialEncryptionProperties;
@@ -107,15 +103,10 @@ public class AppContext implements AutoCloseable {
             // 3. Core services
             AppSettingsService appSettingsService = new JdbiAppSettingsService(jdbi);
 
-            CoreExecutorProperties executorProperties = new CoreExecutorProperties();
-            executor = new ThreadPoolExecutor(
-                    executorProperties.getCorePoolSize(),
-                    executorProperties.getMaxPoolSize(),
-                    executorProperties.getKeepAlive().toMillis(), TimeUnit.MILLISECONDS,
-                    new LinkedBlockingQueue<>(executorProperties.getQueueCapacity()),
-                    new NamedThreadFactory("jlshell-ssh"),
-                    new ThreadPoolExecutor.CallerRunsPolicy()
-            );
+            // Blocking SSH, SFTP and persistence tasks use one virtual thread per operation.
+            // Saturation must never run network work on the caller's Swing EDT.
+            executor = java.util.concurrent.Executors.newThreadPerTaskExecutor(
+                    Thread.ofVirtual().name("jlshell-io-", 0).factory());
 
             SessionRegistry sessionRegistry = new InMemorySessionRegistry();
             FontProfileService fontProfileService = new PersistentFontProfileService(appSettingsService);
@@ -148,7 +139,7 @@ public class AppContext implements AutoCloseable {
             var sshTiming = timing.step("ssh-sftp-services");
             // 5. SSH / SFTP
             SshjConnectionManager connectionManager = new SshjConnectionManager(
-                    executor, new EphemeralTrustHostKeyVerifier(), new HostKeyConfirmationService(i18nService, themeService));
+                    executor, new EphemeralTrustHostKeyVerifier(), new HostKeyConfirmationService(i18nService));
             SessionManager sessionManager = new DefaultSessionManager(connectionManager, sessionRegistry);
             SftpService sftpService = new SshjSftpService(executor);
 
@@ -198,11 +189,14 @@ public class AppContext implements AutoCloseable {
                     fontProfileService, executor, i18nService::get, BundledFontLoader::ensureAwtRegistered,
                     shortcutRegistry);
 
+            terminalViewFactory.setHighlights(themeService.terminalHighlights());
+
             ConnectionProfileService connectionProfileService = new ConnectionProfileService(
                     jdbi, credentialCipher, appSettingsService, vaultService);
             LocalShellLauncher localShellLauncher = new LocalShellLauncher(
                     fontProfileService, executor, i18nService, BundledFontLoader::ensureAwtRegistered,
                     shortcutRegistry);
+            localShellLauncher.setHighlights(themeService.terminalHighlights());
             memoryReclaimService = new MemoryReclaimService();
             UpdateService updateService = new UpdateService(appSettingsService, executor);
             this.accountService = new AccountService(appSettingsService,
@@ -309,8 +303,7 @@ public class AppContext implements AutoCloseable {
 
     private static void prepareSwingTheme(ThemeService themes, AppSettingsService settings,
                                           com.jlshell.core.support.PerformanceTrace timing) {
-        if ("javafx".equalsIgnoreCase(System.getProperty("jlshell.ui.renderer", "swing"))) return;
-        // 主题偏好已就绪：EDT 初始化 LAF，同时 FX 继续装配服务与插件。
+        // 主题偏好已就绪：EDT 初始化 LAF，同时启动线程继续装配服务与插件。
         // 不等待 EDT；窗口创建时 install() 会确认实际配置，并在预加载失败时重试。
         var theme = themes.currentTheme();
         String accent = themes.accentColor().color(), family = settings.get("ui.font.family", null);

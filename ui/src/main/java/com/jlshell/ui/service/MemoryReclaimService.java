@@ -1,6 +1,6 @@
 package com.jlshell.ui.service;
 
-import javafx.application.Platform;
+import java.awt.EventQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,10 +50,11 @@ public class MemoryReclaimService implements AutoCloseable {
         }
     }
 
+    /** Delivers the result asynchronously on Swing EDT. */
     public void requestNowWithStatus(java.util.function.Consumer<String> statusConsumer) {
         Objects.requireNonNull(statusConsumer, "statusConsumer");
         if (scheduler.isShutdown()) {
-            Platform.runLater(() -> statusConsumer.accept(""));
+            EventQueue.invokeLater(() -> statusConsumer.accept(""));
             return;
         }
         long before = usedHeapBytes();
@@ -62,7 +63,7 @@ public class MemoryReclaimService implements AutoCloseable {
             scheduler.schedule(() -> {
                 long after = usedHeapBytes();
                 String message = formatResult(before, after);
-                Platform.runLater(() -> statusConsumer.accept(message));
+                EventQueue.invokeLater(() -> statusConsumer.accept(message));
             }, MANUAL_STATUS_DELAY_MILLIS, TimeUnit.MILLISECONDS);
         });
     }

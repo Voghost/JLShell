@@ -1,751 +1,323 @@
 package com.jlshell.ui.view;
 
+import com.jlshell.core.model.*;
+import com.jlshell.core.security.CredentialPayload;
+import com.jlshell.data.entity.AuthenticationType;
+import com.jlshell.data.entity.VaultEncryptionMode;
+import com.jlshell.ui.dialog.VaultManagerDialog;
+import com.jlshell.ui.model.*;
+import com.jlshell.ui.service.ConnectionShareService;
+import com.jlshell.ui.service.I18nService;
+import com.jlshell.ui.service.VaultService;
+import com.jlshell.ui.support.ExceptionMessages;
+import com.jlshell.ui.swing.SwingFormDialog;
+import com.jlshell.ui.theme.ThemeService;
+import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+import java.awt.*;
+import java.awt.datatransfer.DataFlavor;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
-import com.jlshell.core.model.AuthenticationMethod;
-import com.jlshell.core.model.ConnectionRequest;
-import com.jlshell.core.model.ConnectionTarget;
-import com.jlshell.core.model.ConnectionType;
-import com.jlshell.core.model.HostKeyVerificationMode;
-import com.jlshell.core.security.CredentialPayload;
-import com.jlshell.data.entity.AuthenticationType;
-import com.jlshell.ui.model.ConnectionFormData;
-import com.jlshell.ui.model.FolderProfile;
-import com.jlshell.ui.model.ProjectProfile;
-import com.jlshell.ui.model.VaultEntryProfile;
-import com.jlshell.ui.service.ConnectionShareService;
-import com.jlshell.ui.service.I18nService;
-import com.jlshell.ui.service.VaultKeyService;
-import com.jlshell.ui.service.VaultService;
-import com.jlshell.ui.support.ExceptionMessages;
-import com.jlshell.ui.theme.ThemeService;
-import javafx.application.Platform;
-import javafx.beans.binding.Bindings;
-import javafx.collections.FXCollections;
-import javafx.collections.ObservableList;
-import javafx.geometry.Insets;
-import javafx.geometry.Pos;
-import javafx.scene.control.Button;
-import javafx.scene.control.ButtonType;
-import javafx.scene.control.CheckBox;
-import javafx.scene.control.ComboBox;
-import javafx.scene.control.Dialog;
-import javafx.scene.control.DialogPane;
-import javafx.scene.control.Hyperlink;
-import javafx.scene.control.Label;
-import javafx.scene.control.ListCell;
-import javafx.scene.control.PasswordField;
-import javafx.scene.control.Separator;
-import javafx.scene.control.Tab;
-import javafx.scene.control.TabPane;
-import javafx.scene.control.TextArea;
-import javafx.scene.control.TextField;
-import javafx.scene.layout.GridPane;
-import javafx.scene.layout.HBox;
-import javafx.scene.layout.VBox;
-import javafx.scene.paint.Color;
-import javafx.stage.Stage;
-import javafx.stage.Window;
-
-/**
- * 连接编辑对话框。
- */
+/** Native connection identity, authentication, options and connection-test form. */
 public final class ConnectionDialog {
-
     private ConnectionDialog() {}
+    @FunctionalInterface public interface ConnectionTester { CompletableFuture<String> test(ConnectionTestContext context); }
+    public record ConnectionTestContext(ConnectionRequest request, String connectionId, String projectId, String displayName) {}
 
-    @FunctionalInterface
-    public interface ConnectionTester {
-        CompletableFuture<String> test(ConnectionTestContext context);
+    public static Optional<ConnectionFormData> show(Object owner, I18nService i18n, ThemeService themes, ConnectionFormData initial,
+            List<ProjectProfile> projects, List<FolderProfile> folders, VaultService vault, ConnectionTester tester, int timeout) {
+        return Optional.ofNullable(SwingFormDialog.await(showAsync(owner, i18n, themes, initial, projects, folders, vault, tester, timeout)));
     }
 
-    public record ConnectionTestContext(
-            ConnectionRequest request,
-            String connectionId,
-            String projectId,
-            String displayName
-    ) { }
+    public static CompletableFuture<ConnectionFormData> showAsync(Object owner, I18nService i18n, ThemeService themes, ConnectionFormData initial,
+            List<ProjectProfile> projects, List<FolderProfile> folders, VaultService vault, ConnectionTester tester, int timeout) {
+        return SwingFormDialog.showAsync(i18n.get(initial.id() == null ? "dialog.connection.create" : "dialog.connection.edit"),
+                "jlshell.connection", i18n, themes, () -> {
+                    Editor editor = new Editor(initial, projects, folders, vault, tester, timeout, i18n, themes);
+                    return new SwingFormDialog.Form<>(editor, editor::submit);
+                }, 780, 570);
+    }
 
-    public static Optional<ConnectionFormData> show(
-            Window owner, I18nService i18n, ThemeService themeService, ConnectionFormData initialData,
-            List<ProjectProfile> projects, List<FolderProfile> folders,
-            VaultService vaultService,
-            ConnectionTester testConnection,
-            int connectTimeoutSeconds) {
-        Dialog<ConnectionFormData> dialog = new Dialog<>();
-        dialog.initOwner(owner);
-        dialog.setTitle(i18n.get(initialData.id() == null ? "dialog.connection.create" : "dialog.connection.edit"));
-        themeService.applyToDialog(dialog);
+    private static final class Editor extends JPanel implements AutoCloseable {
+        private final ConnectionFormData initial;
+        private final I18nService i18n;
+        private final ThemeService themes;
+        private final VaultService vault;
+        private final ConnectionTester tester;
+        private final List<ProjectProfile> projects;
+        private final int timeout;
+        private final JComboBox<ConnectionType> type = new JComboBox<>(ConnectionType.values());
+        private final JTextField name = new JTextField(), host = new JTextField(), port = new JTextField(), user = new JTextField(), keyPath = new JTextField(), remote = new JTextField();
+        private final JPasswordField password = new JPasswordField(), passphrase = new JPasswordField();
+        private final JComboBox<AuthenticationType> auth = new JComboBox<>(AuthenticationType.values());
+        private final JComboBox<HostKeyVerificationMode> hostKey = new JComboBox<>(HostKeyVerificationMode.values());
+        private final JComboBox<ProjectProfile> project;
+        private final JComboBox<FolderProfile> folder;
+        private final JComboBox<VaultEntryProfile> credentials = new JComboBox<>();
+        private final VaultEntryProfile none;
+        private final JTextArea description = new JTextArea(4, 30);
+        private final JCheckBox favorite;
+        private final JLabel result = new JLabel(" ");
+        private final JTabbedPane tabs = new JTabbedPane();
+        private final JButton test;
+        private final List<JPanel> sshRows = new ArrayList<>();
+        private final JPanel passwordRow, keyRow, passphraseRow, localHelp;
+        private String vaultId, keyContent;
+        private long vaultRevision, listRevision;
+        private boolean closed, updating, loading, testing;
 
-        DialogPane dialogPane = dialog.getDialogPane();
-        dialogPane.getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
-
-        // Connection type
-        ComboBox<ConnectionType> typeBox = new ComboBox<>(FXCollections.observableArrayList(ConnectionType.values()));
-        typeBox.setValue(initialData.connectionType());
-        typeBox.setId("connection-type");
-        enumLabels(typeBox, value -> value == ConnectionType.SSH ? "SSH" : i18n.get("connection.type.localShell"));
-
-        TextField displayNameField = new TextField(initialData.displayName());
-        TextField hostField = new TextField(initialData.host());
-        TextField portField = new TextField(String.valueOf(initialData.port()));
-        TextField usernameField = new TextField(initialData.username());
-        displayNameField.setId("connection-name");
-        hostField.setId("connection-host");
-        portField.setId("connection-port");
-        usernameField.setId("connection-user");
-        ComboBox<AuthenticationType> authTypeBox = new ComboBox<>(FXCollections.observableArrayList(AuthenticationType.values()));
-        authTypeBox.setValue(initialData.authenticationType());
-        authTypeBox.setId("connection-auth");
-        enumLabels(authTypeBox, value -> i18n.get("connection.auth." + value.name()));
-        PasswordField passwordField = new PasswordField();
-        passwordField.setText(initialData.password());
-        TextField privateKeyPathField = new TextField(initialData.privateKeyPath());
-        PasswordField passphraseField = new PasswordField();
-        passphraseField.setText(initialData.passphrase());
-        passwordField.setId("connection-password");
-        privateKeyPathField.setId("connection-key-path");
-        passphraseField.setId("connection-key-passphrase");
-        ComboBox<HostKeyVerificationMode> hostKeyBox =
-                new ComboBox<>(FXCollections.observableArrayList(HostKeyVerificationMode.values()));
-        hostKeyBox.setValue(initialData.hostKeyVerificationMode());
-        enumLabels(hostKeyBox, value -> i18n.get("connection.hostKey." + value.name()));
-        TextField defaultRemotePathField = new TextField(initialData.defaultRemotePath());
-        TextArea descriptionArea = new TextArea(initialData.description());
-        descriptionArea.setPrefRowCount(3);
-        CheckBox favoriteBox = new CheckBox(i18n.get("dialog.connection.favorite"));
-        favoriteBox.setSelected(initialData.favorite());
-
-        // Project selector
-        ObservableList<ProjectProfile> projectItems = FXCollections.observableArrayList();
-        projectItems.add(new ProjectProfile(null, i18n.get("project.label.default"), null));
-        projectItems.addAll(projects);
-        ComboBox<ProjectProfile> projectBox = new ComboBox<>(projectItems);
-        projectBox.setCellFactory(lv -> new ListCell<>() {
-            @Override protected void updateItem(ProjectProfile item, boolean empty) {
-                super.updateItem(item, empty);
-                setText(empty || item == null ? null : item.name());
-            }
-        });
-        projectBox.setButtonCell(new ListCell<>() {
-            @Override protected void updateItem(ProjectProfile item, boolean empty) {
-                super.updateItem(item, empty);
-                setText(empty || item == null ? null : item.name());
-            }
-        });
-        projectItems.stream()
-                .filter(p -> p.id() == null ? initialData.projectId() == null
-                        : p.id().equals(initialData.projectId()))
-                .findFirst().ifPresent(projectBox::setValue);
-
-        // Folder selector
-        ObservableList<FolderProfile> folderItems = FXCollections.observableArrayList();
-        folderItems.add(new FolderProfile(null, i18n.get("folder.none"), null, null, 0));
-        folderItems.addAll(folders);
-        ComboBox<FolderProfile> folderBox = new ComboBox<>(folderItems);
-        folderBox.setCellFactory(lv -> new ListCell<>() {
-            @Override protected void updateItem(FolderProfile item, boolean empty) {
-                super.updateItem(item, empty);
-                setText(empty || item == null ? null : item.name());
-            }
-        });
-        folderBox.setButtonCell(new ListCell<>() {
-            @Override protected void updateItem(FolderProfile item, boolean empty) {
-                super.updateItem(item, empty);
-                setText(empty || item == null ? null : item.name());
-            }
-        });
-        folderItems.stream()
-                .filter(f -> f.id() == null ? initialData.folderId() == null
-                        : f.id().equals(initialData.folderId()))
-                .findFirst().ifPresent(folderBox::setValue);
-
-        // Vault entry selector
-        VaultEntryProfile noneEntry = new VaultEntryProfile(null, i18n.get("vault.select.none"), null, null, null, null);
-        ObservableList<VaultEntryProfile> vaultItems = FXCollections.observableArrayList();
-        vaultItems.add(noneEntry);
-        ComboBox<VaultEntryProfile> vaultBox = new ComboBox<>(vaultItems);
-        vaultBox.setId("connection-vault");
-        vaultBox.setCellFactory(lv -> new ListCell<>() {
-            @Override protected void updateItem(VaultEntryProfile item, boolean empty) {
-                super.updateItem(item, empty);
-                if (empty || item == null) { setText(null); return; }
-                if (item.id() == null) {
-                    setText(item.name()); // "None (Manual)"
-                } else {
-                    setText(item.name() + " (" + (item.authenticationType() == AuthenticationType.PASSWORD ? "PWD" : "KEY") + ")");
-                }
-            }
-        });
-        vaultBox.setButtonCell(new ListCell<>() {
-            @Override protected void updateItem(VaultEntryProfile item, boolean empty) {
-                super.updateItem(item, empty);
-                if (empty || item == null) { setText(null); return; }
-                if (item.id() == null) {
-                    setText(item.name());
-                } else {
-                    setText(item.name() + " (" + (item.authenticationType() == AuthenticationType.PASSWORD ? "PWD" : "KEY") + ")");
-                }
-            }
-        });
-
-        // Load vault entries for current project
-        Runnable reloadVaultEntries = () -> {
-            ProjectProfile selectedProject = projectBox.getValue();
-            String pid = selectedProject != null ? selectedProject.id() : null;
-            vaultItems.setAll(noneEntry);
-            vaultItems.addAll(vaultService.listByProject(pid));
-            // Pre-select if initial data has vaultEntryId
-            if (initialData.vaultEntryId() != null) {
-                vaultItems.stream()
-                        .filter(v -> v.id() != null && v.id().equals(initialData.vaultEntryId()))
-                        .findFirst().ifPresent(vaultBox::setValue);
-            } else {
-                vaultBox.setValue(noneEntry);
-            }
-        };
-        projectBox.valueProperty().addListener((o, ov, nv) -> reloadVaultEntries.run());
-        reloadVaultEntries.run();
-
-        Hyperlink manageVaultLink = new Hyperlink(i18n.get("connection.vaultManage"));
-        manageVaultLink.setId("connection-manage-vault");
-        manageVaultLink.setStyle("-fx-font-size: 1em;");
-        manageVaultLink.setOnAction(e -> {
-            ProjectProfile selectedProject = projectBox.getValue();
-            String pid = selectedProject != null ? selectedProject.id() : null;
-            Stage stage = owner instanceof Stage value ? value : null;
-            com.jlshell.ui.dialog.VaultManagerDialog.show(
-                    stage, vaultService, i18n, themeService, pid, projects, null);
-            reloadVaultEntries.run();
-        });
-
-        // Vault selection → auto-fill & lock auth fields
-        String[] vaultEntryIdHolder = {initialData.vaultEntryId()};
-        String[] keyContentHolder = {initialData.keyContent()};
-
-        vaultBox.valueProperty().addListener((o, ov, nv) -> {
-            if (nv == null || nv.id() == null) {
-                // "None (Manual)" — unlock fields
-                vaultEntryIdHolder[0] = null;
-                keyContentHolder[0] = null;
-                // 这三个控件的禁用状态由下方绑定负责，不能在选择监听器里再次写绑定属性。
-                authTypeBox.setDisable(false);
-            } else {
-                // Vault entry selected — decrypt and fill
-                vaultEntryIdHolder[0] = nv.id();
-
-                // If CUSTOM mode and vault is locked, prompt for master password
-                if (nv.encryptionMode() == com.jlshell.data.entity.VaultEncryptionMode.CUSTOM
-                        && !vaultService.getKeyService().isUnlocked()) {
-                    com.jlshell.ui.dialog.VaultManagerDialog.PasswordDialog pwdDialog =
-                            new com.jlshell.ui.dialog.VaultManagerDialog.PasswordDialog(
-                                    owner instanceof Stage value ? value : null,
-                                    i18n, themeService, i18n.get("vault.unlock.title"), false);
-                    java.util.Optional<char[]> pwdResult = pwdDialog.showNativeAndWait();
-                    if (pwdResult.isPresent() && vaultService.getKeyService().unlock(pwdResult.get())) {
-                        java.util.Arrays.fill(pwdResult.get(), '\0');
-                    } else {
-                        // Failed to unlock — revert to "None"
-                        vaultBox.setValue(noneEntry);
-                        return;
-                    }
-                }
-
-                try {
-                    com.jlshell.ui.model.VaultEntryFormData vaultForm = vaultService.loadForm(nv.id());
-                    authTypeBox.setValue(vaultForm.authenticationType());
-                    passwordField.setText(vaultForm.password() != null ? vaultForm.password() : "");
-                    passphraseField.setText(vaultForm.passphrase() != null ? vaultForm.passphrase() : "");
-                    privateKeyPathField.setText(vaultForm.privateKeyPath() != null ? vaultForm.privateKeyPath() : "");
-                    keyContentHolder[0] = vaultForm.keyContent();
-                    // Lock fields
-                    authTypeBox.setDisable(true);
-                } catch (Exception ex) {
-                    // If vault entry can't be loaded, fall back to manual
-                    vaultEntryIdHolder[0] = null;
-                    keyContentHolder[0] = null;
-                    authTypeBox.setDisable(false);
-                }
-            }
-        });
-
-        // Trigger initial vault selection if vaultEntryId is set
-        if (initialData.vaultEntryId() != null) {
-            vaultItems.stream()
-                    .filter(v -> v.id() != null && v.id().equals(initialData.vaultEntryId()))
-                    .findFirst().ifPresent(v -> vaultBox.setValue(v));
+        Editor(ConnectionFormData initial, List<ProjectProfile> projects, List<FolderProfile> folders,
+               VaultService vault, ConnectionTester tester, int timeout, I18nService i18n, ThemeService themes) {
+            super(new BorderLayout(0, 10));
+            this.initial = initial; this.projects = projects; this.vault = vault; this.tester = tester;
+            this.timeout = timeout; this.i18n = i18n; this.themes = themes;
+            setName("dialog.content");
+            setBorder(BorderFactory.createEmptyBorder(12, 20, 12, 20));
+            name.setName("connection-name"); host.setName("connection-host"); port.setName("connection-port"); user.setName("connection-user");
+            type.setName("connection-type"); auth.setName("connection-auth"); credentials.setName("connection-vault");
+            password.setName("connection-password"); keyPath.setName("connection-key-path"); passphrase.setName("connection-key-passphrase");
+            labels(type, value -> value == ConnectionType.SSH ? "SSH" : i18n.get("connection.type.localShell"));
+            labels(auth, value -> i18n.get("connection.auth." + value.name()));
+            labels(hostKey, value -> i18n.get("connection.hostKey." + value.name()));
+            var projectOptions = new ArrayList<ProjectProfile>();
+            projectOptions.add(new ProjectProfile(null, i18n.get("project.label.default"), null)); projectOptions.addAll(projects);
+            project = new JComboBox<>(projectOptions.toArray(ProjectProfile[]::new)); labels(project, ProjectProfile::name);
+            selectProject(initial.projectId());
+            var folderOptions = new ArrayList<FolderProfile>();
+            folderOptions.add(new FolderProfile(null, i18n.get("folder.none"), null, null, 0)); folderOptions.addAll(folders);
+            folder = new JComboBox<>(folderOptions.toArray(FolderProfile[]::new)); labels(folder, FolderProfile::name);
+            folderOptions.stream().filter(value -> Objects.equals(value.id(), initial.folderId())).findFirst().ifPresent(folder::setSelectedItem);
+            none = new VaultEntryProfile(null, i18n.get("vault.select.none"), AuthenticationType.PASSWORD, VaultEncryptionMode.SYSTEM, null, null);
+            credentials.addItem(none);
+            labels(credentials, value -> value.name() + (value.id() == null ? "" : " · " + value.authenticationType().name()));
+            add(field("connection.displayName", name), BorderLayout.NORTH);
+            JPanel general = vertical(), options = vertical(), ssh = vertical();
+            localHelp = field("", new JLabel(i18n.get("connection.dialog.local.help")));
+            general.add(localHelp); general.add(field("connection.type", type));
+            JPanel address = new JPanel(new BorderLayout(10, 0)); address.add(host);
+            JPanel portArea = new JPanel(new BorderLayout(6, 0)); portArea.add(new JLabel(i18n.get("connection.port")), BorderLayout.WEST);
+            port.setColumns(5); portArea.add(port); address.add(portArea, BorderLayout.EAST);
+            sshRows.add(field("connection.host", address));
+            sshRows.add(field("connection.authType", auth)); sshRows.add(field("connection.username", user));
+            JButton manage = new JButton(i18n.get("connection.vaultManage")); manage.setName("connection-manage-vault");
+            JPanel vaultRow = new JPanel(new BorderLayout(8, 0)); vaultRow.add(credentials); vaultRow.add(manage, BorderLayout.EAST);
+            sshRows.add(field("connection.vaultEntry", vaultRow));
+            passwordRow = field("connection.password", password); keyRow = field("connection.privateKey", keyPath); passphraseRow = field("connection.passphrase", passphrase);
+            sshRows.add(passwordRow); sshRows.add(keyRow); sshRows.add(passphraseRow);
+            sshRows.forEach(general::add);
+            options.add(field("project.field.name", project)); options.add(field("folder.field.name", folder));
+            JPanel remoteRow = field("connection.remotePath", remote); sshRows.add(remoteRow); options.add(remoteRow);
+            description.setLineWrap(true); description.setWrapStyleWord(true);
+            options.add(field("connection.description", new JScrollPane(description)));
+            favorite = new JCheckBox(i18n.get("dialog.connection.favorite")); options.add(field("", favorite));
+            ssh.add(new JLabel(i18n.get("connection.dialog.ssh.help"))); ssh.add(field("connection.hostKeyMode", hostKey));
+            tabs.addTab(i18n.get("connection.dialog.tab.general"), new JScrollPane(general));
+            tabs.addTab(i18n.get("connection.dialog.tab.options"), new JScrollPane(options));
+            tabs.addTab(i18n.get("connection.dialog.tab.sshSsl"), new JScrollPane(ssh));
+            add(tabs);
+            test = new JButton(i18n.get("action.testConnection")); test.setName("connection-test");
+            JButton paste = new JButton(i18n.get("connection.share.pasteButton")); paste.setVisible(initial.id() == null);
+            JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0)); actions.add(test); actions.add(paste);
+            JPanel footer = new JPanel(new BorderLayout(0, 6)); footer.add(actions); footer.add(result, BorderLayout.SOUTH); add(footer, BorderLayout.SOUTH);
+            fill(initial);
+            vaultId = initial.vaultEntryId(); keyContent = initial.keyContent();
+            type.addActionListener(event -> updateAuth()); auth.addActionListener(event -> updateAuth());
+            credentials.addActionListener(event -> { if (!updating) loadVault(); });
+            project.addActionListener(event -> reloadVault(null));
+            manage.addActionListener(event -> VaultManagerDialog.show(null, vault, i18n, themes, projectId(), projects, null)
+                    .whenComplete((ignored, error) -> SwingUtilities.invokeLater(() -> { if (!closed) reloadVault(vaultId); })));
+            paste.addActionListener(event -> showPasteShareAsync(i18n).thenAccept(value -> { if (!closed && value != null) { fill(value); selectManual(); } }));
+            test.addActionListener(event -> test());
+            for (JTextField field : List.of(name, host, port, user)) field.getDocument().addDocumentListener(new DocumentListener() {
+                public void insertUpdate(DocumentEvent event) { updateValidation(); }
+                public void removeUpdate(DocumentEvent event) { updateValidation(); }
+                public void changedUpdate(DocumentEvent event) { updateValidation(); }
+            });
+            addHierarchyListener(event -> SwingUtilities.invokeLater(this::updateValidation));
+            updateAuth(); reloadVault(initial.vaultEntryId());
         }
-
-        // IDEA keeps the connection identity on a compact row above the tab strip.
-        displayNameField.setPromptText(i18n.get("connection.displayName"));
-        GridPane identityHeader = connectionFormGrid();
-        identityHeader.setPadding(new Insets(12, 20, 8, 20));
-        identityHeader.getStyleClass().add("connection-identity-header");
-        addConnectionField(identityHeader, 0, new Label(i18n.get("connection.displayName")), displayNameField);
-
-        // The tab pages use the same aligned label/control grid, grouped by purpose.
-        Label hostLabel = new Label(i18n.get("connection.host"));
-        Label portLabel = new Label(i18n.get("connection.port"));
-        Label usernameLabel = new Label(i18n.get("connection.username"));
-        Label authTypeLabel = new Label(i18n.get("connection.authType"));
-        Label passwordLabel = new Label(i18n.get("connection.password"));
-        Label privateKeyLabel = new Label(i18n.get("connection.privateKey"));
-        Label passphraseLabel = new Label(i18n.get("connection.passphrase"));
-        Label hostKeyLabel = new Label(i18n.get("connection.hostKeyMode"));
-        Label remotePathLabel = new Label(i18n.get("connection.remotePath"));
-        GridPane generalForm = connectionFormGrid();
-        GridPane optionsForm = connectionFormGrid();
-        GridPane sshForm = connectionFormGrid();
-        Label localShellInfo = new Label(i18n.get("connection.dialog.local.help"));
-        localShellInfo.getStyleClass().add("connection-tab-description");
-        localShellInfo.setWrapText(true);
-        generalForm.add(localShellInfo, 0, 0, 2, 1);
-        int generalRow = 1;
-        generalRow = addConnectionField(generalForm, generalRow, new Label(i18n.get("connection.type")), typeBox);
-        generalRow = addConnectionField(generalForm, generalRow, hostLabel,
-                new HBox(10, hostField, portLabel, portField));
-        HBox hostPortRow = (HBox) generalForm.getChildren().get(generalForm.getChildren().size() - 1);
-        hostPortRow.setAlignment(Pos.CENTER_LEFT);
-        HBox.setHgrow(hostField, javafx.scene.layout.Priority.ALWAYS);
-        hostField.setMaxWidth(Double.MAX_VALUE);
-        portField.setPrefWidth(105);
-        portField.setMaxWidth(105);
-        generalRow = addConnectionField(generalForm, generalRow, authTypeLabel, authTypeBox);
-        generalRow = addConnectionField(generalForm, generalRow, usernameLabel, usernameField);
-        Label vaultLabel = new Label(i18n.get("connection.vaultEntry"));
-        HBox vaultRow = new HBox(8, vaultBox, manageVaultLink);
-        vaultRow.setAlignment(Pos.CENTER_LEFT);
-        vaultBox.setMaxWidth(Double.MAX_VALUE);
-        HBox.setHgrow(vaultBox, javafx.scene.layout.Priority.ALWAYS);
-        generalRow = addConnectionField(generalForm, generalRow, vaultLabel, vaultRow);
-        generalRow = addConnectionField(generalForm, generalRow, passwordLabel, passwordField);
-        generalRow = addConnectionField(generalForm, generalRow, privateKeyLabel, privateKeyPathField);
-        addConnectionField(generalForm, generalRow, passphraseLabel, passphraseField);
-
-        int optionsRow = 0;
-        optionsRow = addConnectionField(optionsForm, optionsRow,
-                new Label(i18n.get("project.field.name")), projectBox);
-        optionsRow = addConnectionField(optionsForm, optionsRow,
-                new Label(i18n.get("folder.field.name")), folderBox);
-        optionsRow = addConnectionField(optionsForm, optionsRow,
-                new Label(i18n.get("connection.remotePath")), defaultRemotePathField);
-        optionsRow = addConnectionField(optionsForm, optionsRow,
-                new Label(i18n.get("connection.description")), descriptionArea);
-        optionsForm.add(favoriteBox, 1, optionsRow);
-        GridPane.setMargin(favoriteBox, new Insets(5, 0, 0, 0));
-        descriptionArea.setPrefRowCount(4);
-        descriptionArea.setWrapText(true);
-
-        Label sshIntro = new Label(i18n.get("connection.dialog.ssh.help"));
-        sshIntro.getStyleClass().add("connection-tab-description");
-        sshForm.add(sshIntro, 0, 0, 2, 1);
-        addConnectionField(sshForm, 1, hostKeyLabel, hostKeyBox);
-
-        Tab generalTab = connectionTab(i18n.get("connection.dialog.tab.general"), generalForm);
-        Tab optionsTab = connectionTab(i18n.get("connection.dialog.tab.options"), optionsForm);
-        Tab sshTab = connectionTab(i18n.get("connection.dialog.tab.sshSsl"), sshForm);
-        TabPane editorTabs = new TabPane(generalTab, optionsTab, sshTab);
-        editorTabs.getStyleClass().add("connection-tabs");
-        editorTabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
-        VBox.setVgrow(editorTabs, javafx.scene.layout.Priority.ALWAYS);
-
-        // Show/hide SSH fields based on type
-        javafx.beans.value.ChangeListener<ConnectionType> typeListener = (o, ov, nv) -> {
-            boolean isSsh = nv == ConnectionType.SSH;
-            localShellInfo.setVisible(!isSsh); localShellInfo.setManaged(!isSsh);
-            passwordLabel.setVisible(isSsh); passwordField.setVisible(isSsh);
-            privateKeyLabel.setVisible(isSsh); privateKeyPathField.setVisible(isSsh);
-            passphraseLabel.setVisible(isSsh); passphraseField.setVisible(isSsh);
-            sshTab.setDisable(!isSsh);
-            hostPortRow.setVisible(isSsh); hostPortRow.setManaged(isSsh);
-            remotePathLabel.setVisible(isSsh); defaultRemotePathField.setVisible(isSsh);
-            remotePathLabel.setManaged(isSsh); defaultRemotePathField.setManaged(isSsh);
-            vaultRow.setVisible(isSsh); vaultRow.setManaged(isSsh);
-            vaultLabel.setVisible(isSsh); vaultLabel.setManaged(isSsh);
-            hostLabel.setVisible(isSsh); hostField.setVisible(isSsh);
-            hostLabel.setManaged(isSsh); hostField.setManaged(isSsh);
-            portLabel.setVisible(isSsh); portField.setVisible(isSsh);
-            portLabel.setManaged(isSsh); portField.setManaged(isSsh);
-            usernameLabel.setVisible(isSsh); usernameField.setVisible(isSsh);
-            usernameLabel.setManaged(isSsh); usernameField.setManaged(isSsh);
-            authTypeLabel.setVisible(isSsh); authTypeBox.setVisible(isSsh);
-            authTypeLabel.setManaged(isSsh); authTypeBox.setManaged(isSsh);
-            hostKeyLabel.setVisible(isSsh); hostKeyBox.setVisible(isSsh);
-            hostKeyLabel.setManaged(isSsh); hostKeyBox.setManaged(isSsh);
-        };
-        typeBox.valueProperty().addListener(typeListener);
-        typeListener.changed(null, null, typeBox.getValue());
-
-        // 仅呈现当前认证方式的字段；原字段值、凭据绑定和校验规则不变。
-        Runnable updateAuthenticationRows = () -> {
-            boolean ssh = typeBox.getValue() == ConnectionType.SSH;
-            boolean key = authTypeBox.getValue() == AuthenticationType.PRIVATE_KEY;
-            passwordLabel.setVisible(ssh && !key); passwordField.setVisible(ssh && !key);
-            privateKeyLabel.setVisible(ssh && key); privateKeyPathField.setVisible(ssh && key);
-            passphraseLabel.setVisible(ssh && key); passphraseField.setVisible(ssh && key);
-            for (javafx.scene.Node node : generalForm.getChildren()) node.setManaged(node.isVisible());
-        };
-        authTypeBox.valueProperty().addListener((o, old, value) -> updateAuthenticationRows.run());
-        typeBox.valueProperty().addListener((o, old, value) -> {
-            updateAuthenticationRows.run();
-        });
-        updateAuthenticationRows.run();
-
-        // Auth type disable binding (only when not locked by vault)
-        passwordField.disableProperty().bind(
-                Bindings.createBooleanBinding(() ->
-                        vaultBox.getValue() != null && vaultBox.getValue().id() != null
-                                ? true
-                                : authTypeBox.getValue() == AuthenticationType.PRIVATE_KEY,
-                        vaultBox.valueProperty(), authTypeBox.valueProperty())
-        );
-        privateKeyPathField.disableProperty().bind(
-                Bindings.createBooleanBinding(() ->
-                        vaultBox.getValue() != null && vaultBox.getValue().id() != null
-                                ? true
-                                : authTypeBox.getValue() == AuthenticationType.PASSWORD,
-                        vaultBox.valueProperty(), authTypeBox.valueProperty())
-        );
-        passphraseField.disableProperty().bind(
-                Bindings.createBooleanBinding(() ->
-                        vaultBox.getValue() != null && vaultBox.getValue().id() != null
-                                ? true
-                                : authTypeBox.getValue() == AuthenticationType.PASSWORD,
-                        vaultBox.valueProperty(), authTypeBox.valueProperty())
-        );
-
-        // Test connection button + result label
-        Button testBtn = new Button(i18n.get("action.testConnection"));
-        testBtn.setId("connection-test");
-        testBtn.getStyleClass().add("button-primary");
-        testBtn.setStyle("-fx-padding:4 12;-fx-font-size: 1em;");
-        Button pasteShareBtn = new Button(i18n.get("connection.share.pasteButton"));
-        pasteShareBtn.setVisible(initialData.id() == null);
-        pasteShareBtn.setManaged(initialData.id() == null);
-        Label testResult = new Label();
-        testResult.setStyle("-fx-font-size: 1em;");
-
-        Runnable updateTestBtnVisibility = () -> {
-            boolean isSsh = typeBox.getValue() == ConnectionType.SSH;
-            testBtn.setVisible(isSsh);
-            testBtn.setManaged(isSsh);
-        };
-        typeBox.valueProperty().addListener((o, ov, nv) -> updateTestBtnVisibility.run());
-        updateTestBtnVisibility.run();
-
-        testBtn.setOnAction(e -> {
-            String host = hostField.getText() == null ? "" : hostField.getText().trim();
-            String portText = portField.getText() == null ? "" : portField.getText().trim();
-            String username = usernameField.getText() == null ? "" : usernameField.getText().trim();
-            if (host.isEmpty() || username.isEmpty()) {
-                testResult.setTextFill(Color.RED);
-                testResult.setText(i18n.get("testConnection.fillFields"));
-                return;
-            }
-            int port;
-            try { port = Integer.parseInt(portText.isEmpty() ? "22" : portText); }
-            catch (NumberFormatException ex) {
-                testResult.setTextFill(Color.RED);
-                testResult.setText(i18n.get("testConnection.invalidPort"));
-                return;
-            }
-
-            AuthenticationType authType = authTypeBox.getValue();
-            String pwd = passwordField.getText() == null ? "" : passwordField.getText();
-            String keyPath = privateKeyPathField.getText() == null ? "" : privateKeyPathField.getText().trim();
-            String passphr = passphraseField.getText() == null ? "" : passphraseField.getText();
-
-            // If vault entry selected, validate via vault
-            if (vaultEntryIdHolder[0] != null) {
-                // Vault handles credential — no need to validate password/keyPath here
-            } else {
-                if (authType == AuthenticationType.PASSWORD && pwd.isEmpty()) {
-                    testResult.setTextFill(Color.RED);
-                    testResult.setText(i18n.get("testConnection.fillFields"));
-                    return;
-                }
-                if (authType == AuthenticationType.PRIVATE_KEY && keyPath.isEmpty()) {
-                    testResult.setTextFill(Color.RED);
-                    testResult.setText(i18n.get("testConnection.fillFields"));
-                    return;
-                }
-            }
-
-            testBtn.setDisable(true);
-            testResult.setTextFill(Color.GRAY);
-            testResult.setText(i18n.get("testConnection.testing"));
-
-            // Build test request — if vault entry, use vault credentials
-            ConnectionRequest request;
-            if (vaultEntryIdHolder[0] != null) {
-                try {
-                    CredentialPayload credPayload = vaultService.toCredentialPayload(vaultEntryIdHolder[0]);
-                    request = new ConnectionRequest(
-                            displayNameField.getText() == null ? "" : displayNameField.getText().trim(),
-                            new ConnectionTarget(host, port, username, Duration.ofSeconds(connectTimeoutSeconds), null),
-                            authType == AuthenticationType.PASSWORD ? AuthenticationMethod.PASSWORD : AuthenticationMethod.PRIVATE_KEY,
-                            credPayload,
-                            hostKeyBox.getValue()
-                    );
-                } catch (Exception ex) {
-                    testBtn.setDisable(false);
-                    testResult.setTextFill(Color.RED);
-                    testResult.setText(i18n.get("testConnection.failed", ExceptionMessages.userMessage(ex)));
-                    return;
-                }
-            } else {
-                request = buildTestRequest(
-                        displayNameField.getText() == null ? "" : displayNameField.getText().trim(),
-                        host, port, username,
-                        authType, pwd, keyPath, passphr,
-                        hostKeyBox.getValue(),
-                        connectTimeoutSeconds);
-            }
-
-            ProjectProfile selectedProject = projectBox.getValue();
-            String projectId = selectedProject == null ? null : selectedProject.id();
-            String displayName = displayNameField.getText() == null ? "" : displayNameField.getText().trim();
-            ConnectionTestContext testContext = new ConnectionTestContext(
-                    request, initialData.id(), projectId, displayName);
-            testConnection.test(testContext).whenComplete((msg, ex) -> Platform.runLater(() -> {
-                testBtn.setDisable(false);
-                if (ex != null) {
-                    testResult.setTextFill(Color.RED);
-                    testResult.setText(i18n.get("testConnection.failed", ExceptionMessages.userMessage(ex)));
-                } else {
-                    testResult.setTextFill(Color.web("#16a34a"));
-                    testResult.setText(msg != null ? msg : i18n.get("testConnection.success"));
-                }
-            }));
-        });
-
-        testResult.setWrapText(true);
-        testResult.setMaxWidth(Double.MAX_VALUE);
-
-        pasteShareBtn.setOnAction(e -> showPasteShareDialog(owner, i18n, themeService)
-                .ifPresent(shared -> {
-                    typeBox.setValue(ConnectionType.SSH);
-                    displayNameField.setText(shared.displayName());
-                    hostField.setText(shared.host());
-                    portField.setText(String.valueOf(shared.port()));
-                    usernameField.setText(shared.username());
-                    authTypeBox.setValue(shared.authenticationType());
-                    passwordField.setText(shared.password());
-                    privateKeyPathField.setText(shared.privateKeyPath());
-                    passphraseField.setText(shared.passphrase());
-                    hostKeyBox.setValue(shared.hostKeyVerificationMode());
-                    defaultRemotePathField.setText(shared.defaultRemotePath());
-                    descriptionArea.setText(shared.description());
-                    favoriteBox.setSelected(shared.favorite());
-                    vaultBox.setValue(noneEntry);
-                    vaultEntryIdHolder[0] = null;
-                    keyContentHolder[0] = null;
-                }));
-
-        HBox testActions = new HBox(8, testBtn, pasteShareBtn);
-        testActions.setAlignment(Pos.CENTER_LEFT);
-        VBox testRow = new VBox(4, testActions, testResult);
-        testRow.getStyleClass().add("connection-test-footer");
-        Separator footerSeparator = new Separator();
-        VBox content = new VBox(0, identityHeader, editorTabs, footerSeparator, testRow);
-        content.getStyleClass().add("connection-editor");
-        dialogPane.setContent(content);
-        dialogPane.getStyleClass().add("connection-dialog-pane");
-        dialogPane.setPrefSize(780, 570);
-
-        dialogPane.lookupButton(ButtonType.OK).disableProperty().bind(Bindings.createBooleanBinding(
-                () -> {
-                    if (typeBox.getValue() == ConnectionType.LOCAL_SHELL) {
-                        return displayNameField.getText().isBlank();
-                    }
-                    return hostField.getText().isBlank() || usernameField.getText().isBlank();
-                },
-                typeBox.valueProperty(),
-                hostField.textProperty(),
-                usernameField.textProperty(),
-                displayNameField.textProperty()
-        ));
-
-        dialog.setResultConverter(buttonType -> {
-            if (buttonType != ButtonType.OK) return null;
-            ProjectProfile selectedProject = projectBox.getValue();
-            FolderProfile selectedFolder = folderBox.getValue();
-            return new ConnectionFormData(
-                    initialData.id(),
-                    displayNameField.getText(),
-                    hostField.getText(),
-                    Integer.parseInt(portField.getText().isBlank() ? "22" : portField.getText()),
-                    usernameField.getText(),
-                    authTypeBox.getValue(),
-                    passwordField.getText(),
-                    privateKeyPathField.getText(),
-                    passphraseField.getText(),
-                    hostKeyBox.getValue(),
-                    descriptionArea.getText(),
-                    defaultRemotePathField.getText(),
-                    favoriteBox.isSelected(),
-                    selectedProject != null ? selectedProject.id() : null,
-                    typeBox.getValue(),
-                    selectedFolder != null ? selectedFolder.id() : null,
-                    vaultEntryIdHolder[0],
-                    keyContentHolder[0]
-            );
-        });
-
-        return com.jlshell.ui.swing.SwingDialogHost.enabled()
-                ? com.jlshell.ui.swing.SwingDialogHost.showNativeAndWait(dialog, themeService, i18n, "jlshell.connection", 780, 570)
-                : dialog.showAndWait();
-    }
-
-    private static GridPane connectionFormGrid() {
-        GridPane form = new GridPane();
-        form.getStyleClass().addAll("form-grid", "connection-form");
-        form.setHgap(16);
-        form.setVgap(14);
-        form.setPadding(new Insets(18, 20, 20, 20));
-        var labels = new javafx.scene.layout.ColumnConstraints(122);
-        var values = new javafx.scene.layout.ColumnConstraints();
-        values.setHgrow(javafx.scene.layout.Priority.ALWAYS);
-        values.setFillWidth(true);
-        form.getColumnConstraints().addAll(labels, values);
-        return form;
-    }
-
-    private static int addConnectionField(GridPane form, int row, Label label, javafx.scene.Node field) {
-        label.getStyleClass().add("connection-field-label");
-        form.add(label, 0, row);
-        form.add(field, 1, row);
-        GridPane.setHgrow(field, javafx.scene.layout.Priority.ALWAYS);
-        if (field instanceof javafx.scene.layout.Region region) region.setMaxWidth(Double.MAX_VALUE);
-        return row + 1;
-    }
-
-    private static Tab connectionTab(String title, javafx.scene.Node content) {
-        javafx.scene.control.ScrollPane scroll = new javafx.scene.control.ScrollPane(content);
-        scroll.setFitToWidth(true);
-        scroll.setHbarPolicy(javafx.scene.control.ScrollPane.ScrollBarPolicy.NEVER);
-        scroll.setVbarPolicy(javafx.scene.control.ScrollPane.ScrollBarPolicy.AS_NEEDED);
-        scroll.getStyleClass().add("connection-tab-scroll");
-        Tab tab = new Tab(title, scroll);
-        tab.setClosable(false);
-        return tab;
-    }
-
-    private static <T> void enumLabels(ComboBox<T> box, java.util.function.Function<T, String> label) {
-        java.util.function.Supplier<ListCell<T>> cell = () -> new ListCell<>() {
-            @Override protected void updateItem(T item, boolean empty) {
-                super.updateItem(item, empty);
-                setText(empty || item == null ? null : label.apply(item));
-            }
-        };
-        box.setCellFactory(list -> cell.get());
-        box.setButtonCell(cell.get());
-    }
-
-    public static Optional<ConnectionFormData> showPasteShareDialog(Window owner, I18nService i18n,
-                                                                    ThemeService themeService) {
-        Dialog<ConnectionFormData> dialog = new Dialog<>();
-        dialog.initOwner(owner);
-        dialog.setTitle(i18n.get("connection.share.pasteTitle"));
-        dialog.setHeaderText(i18n.get("connection.share.pasteHeader"));
-        themeService.applyToDialog(dialog);
-
-        TextArea shareArea = new TextArea();
-        shareArea.setPromptText(i18n.get("connection.share.pasteHint"));
-        shareArea.setWrapText(true);
-        shareArea.setPrefSize(500, 180);
-
-        Label errorLabel = new Label();
-        errorLabel.setStyle("-fx-text-fill: #ef4444; -fx-font-size: 0.85em;");
-
-        VBox content = new VBox(8, shareArea, errorLabel);
-        content.setPadding(new Insets(8, 0, 0, 0));
-        dialog.getDialogPane().setContent(content);
-
-        ButtonType pasteType = new ButtonType(i18n.get("connection.share.fillButton"), ButtonType.OK.getButtonData());
-        dialog.getDialogPane().getButtonTypes().addAll(pasteType, ButtonType.CANCEL);
-        dialog.setResultConverter(button -> null);
-        Button pasteButton = (Button) dialog.getDialogPane().lookupButton(pasteType);
-        final ConnectionFormData[] parsed = new ConnectionFormData[1];
-        pasteButton.addEventFilter(javafx.event.ActionEvent.ACTION, event -> {
-            event.consume();
+        private JPanel field(String key, JComponent control) {
+            JPanel row = new JPanel(new BorderLayout(16, 0));
+            JLabel label = new JLabel(key.isEmpty() ? "" : i18n.get(key)); label.setPreferredSize(new Dimension(122, 28));
+            row.add(label, BorderLayout.WEST); row.add(control);
+            row.setBorder(BorderFactory.createEmptyBorder(6, 0, 6, 0));
+            row.setAlignmentX(LEFT_ALIGNMENT); row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+            return row;
+        }
+        private static JPanel vertical() {
+            JPanel panel = new JPanel(); panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+            panel.setBorder(BorderFactory.createEmptyBorder(12, 12, 16, 12)); return panel;
+        }
+        private String projectId() { return project.getSelectedItem() instanceof ProjectProfile value ? value.id() : null; }
+        private void selectProject(String id) {
+            for (int index = 0; index < project.getItemCount(); index++) if (Objects.equals(project.getItemAt(index).id(), id)) project.setSelectedIndex(index);
+        }
+        private void fill(ConnectionFormData form) {
+            type.setSelectedItem(form.connectionType()); name.setText(form.displayName()); host.setText(form.host()); port.setText(String.valueOf(form.port()));
+            user.setText(form.username()); auth.setSelectedItem(form.authenticationType()); password.setText(form.password()); keyPath.setText(form.privateKeyPath());
+            passphrase.setText(form.passphrase()); hostKey.setSelectedItem(form.hostKeyVerificationMode()); remote.setText(form.defaultRemotePath());
+            description.setText(form.description()); favorite.setSelected(form.favorite());
+        }
+        private void updateAuth() {
+            boolean ssh = type.getSelectedItem() == ConnectionType.SSH, key = auth.getSelectedItem() == AuthenticationType.PRIVATE_KEY;
+            sshRows.forEach(row -> row.setVisible(ssh)); localHelp.setVisible(!ssh);
+            passwordRow.setVisible(ssh && !key); keyRow.setVisible(ssh && key); passphraseRow.setVisible(ssh && key);
+            auth.setEnabled(vaultId == null && !loading); password.setEnabled(vaultId == null && !key && !loading);
+            keyPath.setEnabled(vaultId == null && key && !loading); passphrase.setEnabled(vaultId == null && key && !loading);
+            tabs.setEnabledAt(2, ssh); test.setVisible(ssh); test.setEnabled(!testing && !loading && tester != null);
+            updateValidation(); revalidate(); repaint();
+        }
+        private boolean valid() {
+            if (type.getSelectedItem() == ConnectionType.LOCAL_SHELL) return !name.getText().isBlank();
             try {
-                ConnectionShareService shareService = new ConnectionShareService();
-                String text = shareArea.getText() == null ? "" : shareArea.getText().trim();
-                if (!shareService.isShareText(text)) {
-                    errorLabel.setText(i18n.get("connection.share.invalidText"));
-                    return;
-                }
-                if (shareService.requiresShareCode(text)) {
-                    Optional<String> code = showShareCodeDialog(owner, i18n, themeService);
-                    if (code.isEmpty()) {
-                        return;
-                    }
-                    parsed[0] = shareService.importShareText(text, code.get().toCharArray(), null);
-                } else {
-                    parsed[0] = shareService.importShareText(text, null);
-                }
-                dialog.setResult(parsed[0]);
-                dialog.close();
-            } catch (Exception ex) {
-                errorLabel.setText(ex.getMessage());
+                int number = Integer.parseInt(port.getText().isBlank() ? "22" : port.getText().strip());
+                return !host.getText().isBlank() && !user.getText().isBlank() && number > 0 && number <= 65535;
+            } catch (NumberFormatException invalid) { return false; }
+        }
+        private void updateValidation() {
+            if (closed) return;
+            JRootPane root = getRootPane();
+            if (root != null && root.getDefaultButton() != null) root.getDefaultButton().setEnabled(valid() && !loading);
+        }
+        private void selectManual() {
+            vaultRevision++; vaultId = null; keyContent = null; loading = false;
+            updating = true; credentials.setSelectedItem(none); updating = false; updateAuth();
+        }
+        private void reloadVault(String selected) {
+            if (vault == null) return;
+            long revision = ++listRevision;
+            String id = projectId();
+            CompletableFuture.supplyAsync(() -> vault.listByProject(id)).whenComplete((entries, error) -> SwingUtilities.invokeLater(() -> {
+                if (closed || revision != listRevision) return;
+                if (error != null) { result.setText(ExceptionMessages.userMessage(error)); return; }
+                updating = true;
+                credentials.removeAllItems(); credentials.addItem(none); entries.forEach(credentials::addItem);
+                entries.stream().filter(entry -> Objects.equals(entry.id(), selected)).findFirst().ifPresent(credentials::setSelectedItem);
+                updating = false;
+                if (selected != null) loadVault(); else selectManual();
+            }));
+        }
+        private void loadVault() {
+            VaultEntryProfile entry = (VaultEntryProfile) credentials.getSelectedItem();
+            if (entry == null || entry.id() == null) { selectManual(); return; }
+            long revision = ++vaultRevision; loading = true; updateAuth();
+            CompletableFuture<Boolean> unlocked;
+            if (entry.encryptionMode() == VaultEncryptionMode.CUSTOM && !vault.getKeyService().isUnlocked()) {
+                unlocked = new VaultManagerDialog.PasswordDialog(null, i18n, themes, i18n.get("vault.unlock.title"), false).showAsync()
+                        .thenApplyAsync(secret -> {
+                            if (secret == null) return false;
+                            try { return vault.getKeyService().unlock(secret); }
+                            finally { Arrays.fill(secret, '\0'); }
+                        });
+            } else unlocked = CompletableFuture.completedFuture(true);
+            unlocked.thenApplyAsync(available -> available ? vault.loadForm(entry.id()) : null)
+                    .whenComplete((form, error) -> SwingUtilities.invokeLater(() -> {
+                        if (closed || revision != vaultRevision) return;
+                        loading = false;
+                        if (error != null || form == null) {
+                            selectManual();
+                            result.setText(error == null ? i18n.get("vault.unlock.failed") : ExceptionMessages.userMessage(error)); return;
+                        }
+                        vaultId = entry.id(); keyContent = form.keyContent(); auth.setSelectedItem(form.authenticationType());
+                        password.setText(Objects.toString(form.password(), "")); keyPath.setText(Objects.toString(form.privateKeyPath(), ""));
+                        passphrase.setText(Objects.toString(form.passphrase(), "")); updateAuth();
+                    }));
+        }
+        private ConnectionFormData submit() {
+            if (loading || !valid()) return null;
+            ProjectProfile selectedProject = (ProjectProfile) project.getSelectedItem();
+            FolderProfile selectedFolder = (FolderProfile) folder.getSelectedItem();
+            return new ConnectionFormData(initial.id(), name.getText(), host.getText(), Integer.parseInt(port.getText().isBlank() ? "22" : port.getText().strip()),
+                    user.getText(), (AuthenticationType) auth.getSelectedItem(), secret(password), keyPath.getText(), secret(passphrase),
+                    (HostKeyVerificationMode) hostKey.getSelectedItem(), description.getText(), remote.getText(), favorite.isSelected(),
+                    selectedProject == null ? null : selectedProject.id(), (ConnectionType) type.getSelectedItem(), selectedFolder == null ? null : selectedFolder.id(), vaultId, keyContent);
+        }
+        private void test() {
+            ConnectionFormData form = submit();
+            if (form == null || tester == null || testing) { result.setText(i18n.get("testConnection.fillFields")); return; }
+            if (form.vaultEntryId() == null && (form.authenticationType() == AuthenticationType.PASSWORD ? form.password().isEmpty() : form.privateKeyPath().isBlank())) {
+                result.setText(i18n.get("testConnection.fillFields")); return;
+            }
+            testing = true; updateAuth(); result.setText(i18n.get("testConnection.testing"));
+            CompletableFuture.supplyAsync(() -> {
+                ConnectionRequest request = form.vaultEntryId() == null ? buildTestRequest(form.displayName(), form.host().strip(), form.port(), form.username().strip(),
+                        form.authenticationType(), form.password(), form.privateKeyPath().strip(), form.passphrase(), form.hostKeyVerificationMode(), timeout)
+                        : new ConnectionRequest(form.displayName(), new ConnectionTarget(form.host().strip(), form.port(), form.username().strip(), Duration.ofSeconds(timeout), null),
+                                form.authenticationType() == AuthenticationType.PASSWORD ? AuthenticationMethod.PASSWORD : AuthenticationMethod.PRIVATE_KEY,
+                                vault.toCredentialPayload(form.vaultEntryId()), form.hostKeyVerificationMode());
+                return new ConnectionTestContext(request, initial.id(), form.projectId(), form.displayName());
+            }).thenCompose(context -> {
+                try { return tester.test(context).whenComplete((value, error) -> context.request().credential().clear()); }
+                catch (RuntimeException | Error error) { context.request().credential().clear(); throw error; }
+            }).whenComplete((message, error) -> SwingUtilities.invokeLater(() -> {
+                if (closed) return;
+                testing = false; updateAuth();
+                result.setText(error == null ? Objects.toString(message, i18n.get("testConnection.success"))
+                        : i18n.get("testConnection.failed", ExceptionMessages.userMessage(error)));
+            }));
+        }
+        @Override public void close() {
+            closed = true; vaultRevision++; listRevision++; password.setText(""); passphrase.setText(""); keyContent = null;
+        }
+    }
+
+    public static Optional<ConnectionFormData> showPasteShareDialog(Object owner, I18nService i18n, ThemeService themes) {
+        return Optional.ofNullable(SwingFormDialog.await(showPasteShareAsync(i18n)));
+    }
+    public static CompletableFuture<ConnectionFormData> showPasteShareAsync(I18nService i18n) {
+        return SwingFormDialog.showAsync(i18n.get("connection.share.pasteTitle"), "jlshell.connection.share", i18n, () -> {
+            JTextArea share = new JTextArea(8, 48); share.setLineWrap(true); share.setWrapStyleWord(true);
+            try {
+                String text = Objects.toString(Toolkit.getDefaultToolkit().getSystemClipboard().getData(DataFlavor.stringFlavor), "");
+                if (new ConnectionShareService().isShareText(text)) share.setText(text);
+            } catch (Exception ignored) { /* Clipboard contents may not be text. */ }
+            JPasswordField code = new JPasswordField();
+            code.putClientProperty("JTextField.placeholderText", i18n.get("connection.share.code"));
+            JLabel error = new JLabel(" ");
+            JPanel body = new JPanel(new BorderLayout(0, 8)); body.setBorder(BorderFactory.createEmptyBorder(16, 20, 16, 20));
+            body.add(new JScrollPane(share));
+            JPanel footer = new JPanel(new BorderLayout(0, 6)); footer.add(code); footer.add(error, BorderLayout.SOUTH); body.add(footer, BorderLayout.SOUTH);
+            return new SwingFormDialog.Form<>(body, () -> {
+                char[] secret = code.getPassword();
+                try {
+                    var shares = new ConnectionShareService();
+                    String text = share.getText().strip();
+                    if (!shares.isShareText(text)) { error.setText(i18n.get("connection.share.invalidText")); return null; }
+                    if (shares.requiresShareCode(text) && secret.length == 0) { error.setText(i18n.get("connection.share.importCodeHeader")); return null; }
+                    ConnectionFormData result = shares.requiresShareCode(text) ? shares.importShareText(text, secret, null) : shares.importShareText(text, null);
+                    share.setText(""); code.setText(""); return result;
+                } catch (RuntimeException failure) { error.setText(ExceptionMessages.userMessage(failure)); return null; }
+                finally { Arrays.fill(secret, '\0'); }
+            }, i18n.get("connection.share.fillButton"));
+        }, 620, 380);
+    }
+    private static <T> void labels(JComboBox<T> combo, java.util.function.Function<T, String> text) {
+        combo.setRenderer(new DefaultListCellRenderer() {
+            @Override public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean selected, boolean focus) {
+                @SuppressWarnings("unchecked") T item = (T) value;
+                return super.getListCellRendererComponent(list, item == null ? "" : text.apply(item), index, selected, focus);
             }
         });
-        return com.jlshell.ui.swing.SwingDialogHost.enabled()
-                ? com.jlshell.ui.swing.SwingDialogHost.showNativeAndWait(dialog, themeService, i18n, "jlshell.connection.share", 620, 340)
-                : dialog.showAndWait();
     }
-
-    private static Optional<String> showShareCodeDialog(Window owner, I18nService i18n, ThemeService themeService) {
-        Dialog<String> dialog = new Dialog<>();
-        dialog.initOwner(owner);
-        dialog.setTitle(i18n.get("connection.share.importCodeTitle"));
-        dialog.setHeaderText(i18n.get("connection.share.importCodeHeader"));
-        themeService.applyToDialog(dialog);
-
-        PasswordField codeField = new PasswordField();
-        codeField.setPromptText(i18n.get("connection.share.code"));
-        codeField.setPrefColumnCount(24);
-        VBox content = new VBox(8, new Label(i18n.get("connection.share.code")), codeField);
-        content.setPadding(new Insets(8, 0, 0, 0));
-        dialog.getDialogPane().setContent(content);
-
-        ButtonType importType = new ButtonType(i18n.get("import.button.import"), ButtonType.OK.getButtonData());
-        dialog.getDialogPane().getButtonTypes().addAll(importType, ButtonType.CANCEL);
-        dialog.setResultConverter(button -> button == importType ? codeField.getText().trim() : null);
-        return com.jlshell.ui.swing.SwingDialogHost.enabled()
-                ? com.jlshell.ui.swing.SwingDialogHost.showNativeAndWait(dialog, themeService, i18n, "jlshell.connection.share", 620, 340)
-                : dialog.showAndWait();
+    private static String secret(JPasswordField field) {
+        char[] value = field.getPassword();
+        try { return new String(value); } finally { Arrays.fill(value, '\0'); }
     }
-
-    private static ConnectionRequest buildTestRequest(
-            String displayName, String host, int port, String username,
-            AuthenticationType authType, String password,
-            String privateKeyPath, String passphrase,
-            HostKeyVerificationMode hostKeyMode,
-            int timeoutSeconds) {
-
-        CredentialPayload credential;
-        if (authType == AuthenticationType.PASSWORD) {
-            credential = CredentialPayload.forPassword(
-                    password.toCharArray());
-        } else {
-            Path keyPath = Path.of(privateKeyPath);
-            credential = CredentialPayload.forPrivateKey(
-                    keyPath,
-                    passphrase.toCharArray());
-        }
-
-        return new ConnectionRequest(
-                displayName,
-                new ConnectionTarget(host, port, username, Duration.ofSeconds(timeoutSeconds), null),
-                authType == AuthenticationType.PASSWORD ? AuthenticationMethod.PASSWORD : AuthenticationMethod.PRIVATE_KEY,
-                credential,
-                hostKeyMode
-        );
+    private static ConnectionRequest buildTestRequest(String displayName, String host, int port, String username, AuthenticationType authType,
+            String password, String keyPath, String passphrase, HostKeyVerificationMode mode, int timeout) {
+        char[] secret = (authType == AuthenticationType.PASSWORD ? password : passphrase).toCharArray();
+        try {
+            CredentialPayload credential = authType == AuthenticationType.PASSWORD ? CredentialPayload.forPassword(secret) : CredentialPayload.forPrivateKey(Path.of(keyPath), secret);
+            return new ConnectionRequest(displayName, new ConnectionTarget(host, port, username, Duration.ofSeconds(timeout), null),
+                    authType == AuthenticationType.PASSWORD ? AuthenticationMethod.PASSWORD : AuthenticationMethod.PRIVATE_KEY, credential, mode);
+        } finally { Arrays.fill(secret, '\0'); }
     }
 }

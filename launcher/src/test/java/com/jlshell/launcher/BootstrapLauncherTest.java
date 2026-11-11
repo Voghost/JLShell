@@ -21,6 +21,18 @@ class BootstrapLauncherTest {
     Path tempDir;
 
     @Test
+    void windowsIsolationKeepsTheBrandedNativeLauncher() throws Exception {
+        Path root = Files.createDirectories(tempDir.resolve("JLShell"));
+        Path launcher = Files.createFile(root.resolve("JLShell.exe"));
+        Path javaExecutable = Files.createDirectories(root.resolve("runtime/bin")).resolve("javaw.exe");
+        Files.createFile(javaExecutable);
+        assertEquals(launcher, BootstrapLauncher.nativeWindowsLauncher(root, java.util.Optional.of(javaExecutable.toString())).orElseThrow());
+        assertEquals(launcher, BootstrapLauncher.nativeWindowsLauncher(root, java.util.Optional.of(launcher.toString())).orElseThrow());
+        Files.delete(launcher);
+        assertTrue(BootstrapLauncher.nativeWindowsLauncher(root, java.util.Optional.of(javaExecutable.toString())).isEmpty());
+    }
+
+    @Test
     void buildsWindowsRelaunchCommandUsingBundledJava() {
         Path java = Path.of("D:/Program Files/JLShell/runtime/bin/javaw.exe");
         Path launcher = Path.of("D:/Program Files/JLShell/app/jlshell-launcher.jar");

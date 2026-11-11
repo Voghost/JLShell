@@ -5,11 +5,9 @@ import com.jlshell.sftp.model.*;
 import com.jlshell.sftp.service.SftpService;
 import com.jlshell.sftp.service.TransferProgressListener;
 import com.jlshell.ui.service.I18nService;
-import com.jlshell.ui.support.FxThread;
 import com.jlshell.ui.swing.idea.IdeaComponentPopup;
 import com.jlshell.ui.swing.idea.IdeaListPopup;
-import javafx.beans.property.StringProperty;
-import javafx.beans.value.ChangeListener;
+import com.jlshell.plugin.api.ui.ObservableValue;
 
 import javax.swing.*;
 import javax.swing.event.TreeExpansionEvent;
@@ -37,6 +35,8 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
     private final SftpService service;
     private final I18nService i18n;
     private final Browser local, remote;
+    private final JSplitPane browserSplit;
+    private double verticalRatio = .5, horizontalRatio = .5;
     private final JLabel message = new JLabel(" ");
     private final JProgressBar progress = new JProgressBar(0, 1000);
     private final JButton cancel;
@@ -46,6 +46,8 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
     private Runnable unbind = () -> {};
     private volatile boolean closed;
     private boolean transferring;
+    String activeTransferDescription() { return !closed && connected && transferring ? message.getText() : null; }
+
     private volatile boolean connected = true;
     private volatile boolean cancelled;
     private boolean follow = true;
@@ -53,21 +55,15 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
     private String terminalPath;
     private final Supplier<List<Path>> localRoots;
 
-    /** Capture the FX model on its owning thread; construct Swing components lazily on EDT. */
+    /** Construct the browser lazily on EDT and subscribe only for its visible lifetime. */
     public static Supplier<SwingSftpBrowser> prepare(SshSession session, SftpService service, I18nService i18n,
-                                                    String start, StringProperty cwd) {
+                                                    String start, ObservableValue<String> cwd) {
         return () -> {
             SwingSftpBrowser browser = new SwingSftpBrowser(session, service, i18n, start);
-            ChangeListener<String> listener = (observable, oldPath, path) -> SwingUtilities.invokeLater(() -> browser.terminalDirectory(path));
-            FxThread.run(() -> {
-                cwd.addListener(listener);
-                String path = cwd.get();
-                SwingUtilities.invokeLater(() -> {
-                    if (browser.closed) FxThread.run(() -> cwd.removeListener(listener));
-                    else browser.terminalDirectory(path);
-                });
-            });
-            browser.unbind = () -> FxThread.run(() -> cwd.removeListener(listener));
+            var subscription = cwd.subscribe(path -> SwingUtilities.invokeLater(() -> {
+                if (!browser.closed) browser.terminalDirectory(path);
+            }));
+            browser.unbind = subscription::close;
             return browser;
         };
     }
@@ -92,6 +88,7 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
         setName("sftp.browser"); setMinimumSize(new Dimension(260, 260));
         local = new Browser(false); remote = new Browser(true);
         JSplitPane split = new ResizeSplitPane(JSplitPane.VERTICAL_SPLIT, local, remote);
+        browserSplit = split;
         split.setName("sftp.verticalSplit"); split.setResizeWeight(.5); split.setDividerSize(5);
         split.setBorder(BorderFactory.createEmptyBorder()); split.setContinuousLayout(true);
         add(split);
@@ -111,6 +108,25 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
                 dismissPopups();
         });
         remote.navigate(remoteStart == null || remoteStart.isBlank() ? "." : remoteStart);
+    }
+
+    /** Reuse both browser views and in-flight transfers while adapting to the tool's dock. EDT only. */
+    void setBottomDocked(boolean bottom) {
+        int orientation = bottom ? JSplitPane.HORIZONTAL_SPLIT : JSplitPane.VERTICAL_SPLIT;
+        if (browserSplit.getOrientation() == orientation) return;
+        int extent = browserSplit.getOrientation() == JSplitPane.VERTICAL_SPLIT
+                ? browserSplit.getHeight() : browserSplit.getWidth();
+        if (extent > browserSplit.getDividerSize() && browserSplit.getDividerLocation() > 0) {
+            double ratio = Math.max(.15, Math.min(.85, browserSplit.getDividerLocation() / (double)(extent - browserSplit.getDividerSize())));
+            if (bottom) verticalRatio = ratio; else horizontalRatio = ratio;
+        }
+        browserSplit.setOrientation(orientation);
+        setMinimumSize(bottom ? new Dimension(460, 160) : new Dimension(260, 260));
+        revalidate();
+        SwingUtilities.invokeLater(() -> {
+            if (!closed && browserSplit.getOrientation() == orientation)
+                browserSplit.setDividerLocation(bottom ? horizontalRatio : verticalRatio);
+        });
     }
 
     private void cancelTransfer() { cancelled = true; cancel.setEnabled(false); }
@@ -182,6 +198,7 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
         final JButton transferButton;
         long sequence;
         String requestedPath;
+        private AWTEventListener pathDismissListener;
         Browser(boolean remoteSide) {
             super(new BorderLayout()); isRemote = remoteSide;
             setName(remoteSide ? "sftp.remote" : "sftp.local"); setMinimumSize(new Dimension(230, 130));
@@ -221,6 +238,13 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
             pathHost.setOpaque(false); pathHost.add(crumbs, "crumbs"); pathHost.add(editor, "edit");
             editor.setName(isRemote ? "sftp.remote.path" : "sftp.local.path"); IdeaFormStyle.apply(editor);
             editor.addActionListener(event -> { navigate(editor.getText()); showPath(false); });
+            editor.addFocusListener(new FocusAdapter() {
+                @Override public void focusLost(FocusEvent event) { showPath(false); }
+            });
+            editor.addHierarchyListener(event -> {
+                if ((event.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && !editor.isShowing())
+                    showPath(false);
+            });
             editor.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "path.cancel");
             editor.getActionMap().put("path.cancel", new AbstractAction() { public void actionPerformed(ActionEvent e) { showPath(false); } });
             pathRow.add(pathHost); pathRow.add(tool(WorkbenchIcon.Kind.EDIT, t("sftp.editPath"), () -> showPath(true)), BorderLayout.EAST);
@@ -287,10 +311,27 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
             table.getActionMap().put(name, new AbstractAction() { public void actionPerformed(ActionEvent event) { action.run(); } });
         }
         void showPath(boolean edit) {
+            if (pathDismissListener != null) {
+                Toolkit.getDefaultToolkit().removeAWTEventListener(pathDismissListener);
+                pathDismissListener = null;
+            }
             ((CardLayout) pathHost.getLayout()).show(pathHost, edit ? "edit" : "crumbs");
-            if (edit) { editor.setText(path); editor.requestFocusInWindow(); editor.selectAll(); }
+            editor.setText(path);
+            if (edit) {
+                pathDismissListener = event -> {
+                    if (event instanceof MouseEvent mouse && mouse.getID() == MouseEvent.MOUSE_PRESSED
+                            && mouse.getSource() instanceof Component source
+                            && source != editor && !SwingUtilities.isDescendingFrom(source, editor))
+                        showPath(false);
+                };
+                Toolkit.getDefaultToolkit().addAWTEventListener(pathDismissListener, AWTEvent.MOUSE_EVENT_MASK);
+                editor.requestFocusInWindow();
+                editor.selectAll();
+            }
         }
-        void refresh() { if (path != null) navigate(path); }
+        void refresh() {
+            if (path != null && Objects.equals(path, requestedPath)) loadDirectory(path, false);
+        }
         void up() {
             if (path == null) return;
             String parent = isRemote ? (path.equals("/") ? "/" : path.substring(0, Math.max(1, path.lastIndexOf('/'))))
@@ -298,14 +339,21 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
             navigate(parent);
         }
         void navigate(String target) {
+            loadDirectory(target, true);
+        }
+        void loadDirectory(String target, boolean navigating) {
             if (closed || isRemote && !connected || target == null || target.isBlank()) return;
-            dismissPopups();
+            if (navigating) dismissPopups();
             requestedPath = target;
             long request = ++sequence; count.setText(t("sftp.loading"));
             readDirectory(isRemote, target).whenComplete((listing, error) -> SwingUtilities.invokeLater(() -> {
                 if (closed || request != sequence) return;
                 if (error != null) { requestedPath = path; count.setText(t("sftp.error")); failure(error); return; }
-                path = listing.path; model.rows = listing.entries; model.fireTableDataChanged(); breadcrumbs();
+                boolean pathChanged = !Objects.equals(path, listing.path);
+                path = listing.path;
+                model.rows = listing.entries;
+                model.fireTableDataChanged();
+                if (navigating || pathChanged) breadcrumbs();
                 count.setText(i18n.get("sftp.itemCount", listing.entries.size()));
                 empty.setText(t("sftp.empty")); ((CardLayout) body.getLayout()).show(body, listing.entries.isEmpty() ? "empty" : "files");
             }));
@@ -552,6 +600,9 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
         String targetPath = destination == null ? target.path : destination;
         boolean overwrite = destination != null || files.stream().anyMatch(e -> target.model.rows.stream().anyMatch(t -> t.name.equals(e.name)));
         if (overwrite && JOptionPane.showConfirmDialog(this, t("sftp.overwrite"), t("sftp.transfer"), JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE) != JOptionPane.OK_OPTION) return;
+        String activityFiles = files.size() == 1 ? files.getFirst().name : files.getFirst().name + " … (" + files.size() + ")";
+        com.jlshell.core.support.RecentApplicationLogs.shared().append(Instant.now(), "INFO", "Transfer", t("statusbar.transferStarted") + " · " + activityFiles);
+        status(t("sftp.transfer"));
         transferring = true; local.updateTransferButton(); remote.updateTransferButton(); cancelled = false; progress.setValue(0); progress.setVisible(true); cancel.setEnabled(true); cancel.setVisible(true);
         CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
         for (Entry file : files) chain = chain.thenComposeAsync(ignored -> {
@@ -571,6 +622,8 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
             return from.isRemote ? service.download(session, request, listener) : service.upload(session, request, listener);
         });
         chain.whenComplete((v, error) -> SwingUtilities.invokeLater(() -> {
+            com.jlshell.core.support.RecentApplicationLogs.shared().append(Instant.now(), cancelled ? "INFO" : error != null ? "ERROR" : "SUCCESS", "Transfer",
+                    (cancelled ? t("sftp.cancelled") : error != null ? t("statusbar.transferFailed") : t("status.transferCompleted")) + " · " + activityFiles);
             if (closed) return; transferring = false; local.updateTransferButton(); remote.updateTransferButton(); progress.setVisible(false); cancel.setVisible(false);
             if (cancelled) status(t("sftp.cancelled")); else if (error != null) failure(error); else status(t("status.transferCompleted")); target.refresh();
         }));
@@ -662,6 +715,8 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
         }
     }
     private void dismissPopups() {
+        local.showPath(false);
+        remote.showPath(false);
         popups.forEach(popup -> popup.setVisible(false)); popups.clear();
         directoryPopups.forEach(IdeaComponentPopup::close); directoryPopups.clear();
     }

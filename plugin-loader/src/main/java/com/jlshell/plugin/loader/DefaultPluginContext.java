@@ -1,5 +1,8 @@
 package com.jlshell.plugin.loader;
 
+import com.jlshell.core.support.MutableValue;
+import com.jlshell.plugin.api.ui.ObservableValue;
+
 import java.util.Locale;
 import java.util.Optional;
 
@@ -13,12 +16,7 @@ import com.jlshell.plugin.api.security.PluginAccessPolicy;
 import com.jlshell.plugin.api.storage.PluginStorage;
 import com.jlshell.plugin.api.storage.SecureStorage;
 
-import javafx.beans.property.ReadOnlyObjectProperty;
-import javafx.beans.property.ReadOnlyStringProperty;
-import javafx.beans.property.SimpleObjectProperty;
-import javafx.beans.property.SimpleStringProperty;
-import javafx.beans.property.StringProperty;
-import javafx.scene.Node;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -32,8 +30,8 @@ public class DefaultPluginContext implements PluginContext {
     private final CapabilityBus capabilityBus;
     private final PluginStorage storage;
     private SecureStorage secureStorage;
-    private final StringProperty themeName = new SimpleStringProperty("dark");
-    private final SimpleObjectProperty<Locale> locale = new SimpleObjectProperty<>(Locale.getDefault());
+    private final MutableValue<String> themeName = new MutableValue<>("dark");
+    private final MutableValue<Locale> locale = new MutableValue<>(Locale.getDefault());
     private final Optional<SshSessionContext> sshSession;
     private final Callbacks callbacks;
     private HostEvents hostEvents = HostEvents.unavailable();
@@ -50,7 +48,7 @@ public class DefaultPluginContext implements PluginContext {
     }
 
     public interface Callbacks {
-        void openTab(String title, Node content);
+        void openTab(String title, java.util.function.Supplier<javax.swing.JComponent> content);
         default boolean supportsSwingViews() { return false; }
         default void openSwingTab(String title, java.util.function.Supplier<javax.swing.JComponent> content) {
             throw new UnsupportedOperationException("Swing views unavailable");
@@ -150,11 +148,11 @@ public class DefaultPluginContext implements PluginContext {
     }
 
     @Override
-    public ReadOnlyStringProperty themeNameProperty() {
+    public ObservableValue<String> themeNameProperty() {
         return themeName;
     }
 
-    public StringProperty writableThemeNameProperty() {
+    public MutableValue<String> writableThemeNameProperty() {
         return themeName;
     }
 
@@ -164,11 +162,11 @@ public class DefaultPluginContext implements PluginContext {
     }
 
     @Override
-    public ReadOnlyObjectProperty<Locale> localeProperty() {
+    public ObservableValue<Locale> localeProperty() {
         return locale;
     }
 
-    public SimpleObjectProperty<Locale> writableLocaleProperty() {
+    public MutableValue<Locale> writableLocaleProperty() {
         return locale;
     }
 
@@ -191,7 +189,7 @@ public class DefaultPluginContext implements PluginContext {
     }
 
     @Override
-    public void openTab(String title, Node content) {
+    public void openTab(String title, java.util.function.Supplier<javax.swing.JComponent> content) {
         callbacks.openTab(title, content);
     }
 

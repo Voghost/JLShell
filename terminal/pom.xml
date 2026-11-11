@@ -23,6 +23,11 @@
 
     <dependencies>
         <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna</artifactId>
+            <version>5.17.0</version>
+        </dependency>
+        <dependency>
             <groupId>com.jlshell</groupId>
             <artifactId>core</artifactId>
             <version>${project.version}</version>
@@ -31,14 +36,6 @@
             <groupId>com.jlshell</groupId>
             <artifactId>ssh</artifactId>
             <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.openjfx</groupId>
-            <artifactId>javafx-controls</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.openjfx</groupId>
-            <artifactId>javafx-swing</artifactId>
         </dependency>
         <dependency>
             <groupId>org.jetbrains.jediterm</groupId>

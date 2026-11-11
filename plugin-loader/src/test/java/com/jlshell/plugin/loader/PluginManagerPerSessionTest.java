@@ -37,7 +37,7 @@ class PluginManagerPerSessionTest {
         // 与桶的 registry 是同一对象（activateInstance 注册进桶，registryFor 读桶）。
         // adoptContext 的 contexts 是 ConcurrentHashMap 不接受 null，故用占位 ctx 先建桶。
         DefaultPluginContext placeholder = new DefaultPluginContext(pluginId, Optional.empty(), new DefaultPluginContext.Callbacks() {
-            @Override public void openTab(String t, javafx.scene.Node n) {}
+            @Override public void openTab(String t, java.util.function.Supplier<javax.swing.JComponent> n) {}
             @Override public void closeTab() {}
             @Override public void updateTabTitle(String t) {}
             @Override public String resolveI18n(String k, String f) { return f; }
@@ -46,7 +46,7 @@ class PluginManagerPerSessionTest {
         DefaultPluginContext ctx = new DefaultPluginContext(pluginId, sessionId,
                 mgr.registryFor(sessionId),
                 Optional.empty(), new DefaultPluginContext.Callbacks() {
-                    @Override public void openTab(String t, javafx.scene.Node n) {}
+                    @Override public void openTab(String t, java.util.function.Supplier<javax.swing.JComponent> n) {}
                     @Override public void closeTab() {}
                     @Override public void updateTabTitle(String t) {}
                     @Override public String resolveI18n(String k, String f) { return f; }
@@ -113,7 +113,7 @@ class PluginManagerPerSessionTest {
         mgr.registryForSession(sessionId);
         DefaultPluginContext ctx = new DefaultPluginContext(plugin.id(), sessionId,
                 mgr.registryFor(sessionId), Optional.empty(), new DefaultPluginContext.Callbacks() {
-            @Override public void openTab(String t, javafx.scene.Node n) {}
+            @Override public void openTab(String t, java.util.function.Supplier<javax.swing.JComponent> n) {}
             @Override public void closeTab() { closeCalls.incrementAndGet(); }
             @Override public void updateTabTitle(String t) {}
             @Override public String resolveI18n(String k, String f) { return f; }

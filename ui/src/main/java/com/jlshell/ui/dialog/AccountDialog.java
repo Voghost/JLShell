@@ -2,394 +2,329 @@ package com.jlshell.ui.dialog;
 
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.service.account.AccountService;
+import com.jlshell.ui.swing.SwingFormDialog;
 import com.jlshell.ui.theme.ThemeService;
-import javafx.application.Platform;
-import javafx.geometry.Insets;
-import javafx.geometry.Pos;
-import javafx.scene.control.Alert;
-import javafx.scene.control.Button;
-import javafx.scene.control.ButtonBar;
-import javafx.scene.control.ButtonType;
-import javafx.scene.control.Dialog;
-import javafx.scene.control.Label;
-import javafx.scene.control.PasswordField;
-import javafx.scene.control.TextField;
-import javafx.scene.control.Tooltip;
-import javafx.scene.image.Image;
-import javafx.scene.image.ImageView;
-import javafx.scene.input.Clipboard;
-import javafx.scene.input.ClipboardContent;
-import javafx.scene.layout.GridPane;
-import javafx.scene.layout.HBox;
-import javafx.scene.layout.VBox;
-import javafx.stage.Stage;
-
+import javax.imageio.ImageIO;
+import javax.swing.*;
+import java.awt.*;
+import java.awt.datatransfer.StringSelection;
 import java.io.ByteArrayInputStream;
+import java.util.Arrays;
 import java.util.Base64;
+import java.util.concurrent.CompletableFuture;
 
+/** Account forms use native controls. Network completions are guarded by the form lifecycle. */
 public final class AccountDialog {
-
     private AccountDialog() {}
 
-    public static void showLogin(Stage owner, I18nService i18n, ThemeService themeService,
-                                 AccountService accountService) {
-        show(owner, i18n, themeService, accountService, false);
+    public static CompletableFuture<Void> showLogin(Object owner, I18nService i18n, ThemeService themes, AccountService account) {
+        return show(i18n, themes, account, false);
     }
 
-    public static void showBrowserLogin(Stage owner, I18nService i18n, ThemeService themeService,
-                                        AccountService accountService) {
-        final AccountService.BrowserLoginAttempt attempt;
-        try {
-            attempt = accountService.loginWithBrowser();
-        } catch (RuntimeException error) {
-            showError(owner, i18n, themeService, resolveErrorMessage(error, i18n));
-            return;
+    public static CompletableFuture<Void> showRegister(Object owner, I18nService i18n, ThemeService themes, AccountService account) {
+        return show(i18n, themes, account, true);
+    }
+
+    public static CompletableFuture<Void> showBrowserLogin(Object owner, I18nService i18n, ThemeService themes, AccountService account) {
+        return SwingFormDialog.showMessageAsync(i18n.get("account.login.web.title"), "jlshell.account.browser", i18n, themes,
+                () -> new BrowserForm(i18n, account), 580, 280);
+    }
+
+    public static CompletableFuture<Void> showChangePassword(Object owner, I18nService i18n, ThemeService themes, AccountService account) {
+        return SwingFormDialog.showAsync(i18n.get("account.changePassword.title"), "jlshell.account.password", i18n, themes, () -> {
+            PasswordForm form = new PasswordForm(i18n, account);
+            return new SwingFormDialog.Form<>(form, form::submit, i18n.get("account.changePassword"));
+        }, 560, 340).thenApply(ignored -> null);
+    }
+
+    private static CompletableFuture<Void> show(I18nService i18n, ThemeService themes, AccountService account, boolean register) {
+        return SwingFormDialog.showAsync(i18n.get(register ? "account.register.title" : "account.login.title"),
+                "jlshell.account", i18n, themes, () -> {
+                    LoginForm form = new LoginForm(i18n, account, register);
+                    return new SwingFormDialog.Form<>(form, form::submit,
+                            i18n.get(register ? "account.register.action" : "account.login.action"));
+                }, 580, register ? 590 : 430).thenApply(ignored -> null);
+    }
+
+    private abstract static class AccountForm extends JPanel implements AutoCloseable {
+        final I18nService i18n;
+        final AccountService account;
+        final JLabel status = new JLabel(" ");
+        final JPanel fields = new JPanel(new GridBagLayout());
+        boolean closed;
+        boolean busy;
+        int row;
+
+        AccountForm(I18nService i18n, AccountService account) {
+            super(new BorderLayout(0, 12));
+            this.i18n = i18n;
+            this.account = account;
+            setBorder(BorderFactory.createEmptyBorder(20, 24, 20, 24));
+            add(fields, BorderLayout.NORTH);
+            status.setName("account.status");
+            add(status, BorderLayout.SOUTH);
         }
 
-        Dialog<Void> dialog = new Dialog<>();
-        dialog.setTitle(i18n.get("account.login.web.title"));
-        dialog.setHeaderText(null);
-        if (owner != null) dialog.initOwner(owner);
-        themeService.applyToDialog(dialog);
+        void field(String label, JComponent control) {
+            GridBagConstraints c = new GridBagConstraints();
+            c.gridy = row++;
+            c.gridx = 0;
+            c.anchor = GridBagConstraints.WEST;
+            c.insets = new Insets(6, 0, 6, 12);
+            fields.add(new JLabel(label), c);
+            c.gridx = 1;
+            c.weightx = 1;
+            c.fill = GridBagConstraints.HORIZONTAL;
+            fields.add(control, c);
+        }
 
-        Label status = new Label(i18n.get(attempt.browserOpened()
-                ? "account.login.web.waiting" : "account.login.web.manual"));
-        status.setWrapText(true);
-        status.setMaxWidth(480);
-        TextField url = new TextField(attempt.authorizationUri().toString());
-        url.setEditable(false);
-        url.setPrefColumnCount(48);
-        VBox content = new VBox(10, status, url);
-        content.setPadding(new Insets(18, 20, 8, 20));
-        dialog.getDialogPane().setContent(content);
+        void busy(boolean value) {
+            busy = value;
+            JRootPane root = getRootPane();
+            if (root != null && root.getDefaultButton() != null) root.getDefaultButton().setEnabled(!value);
+        }
 
-        ButtonType reopenType = new ButtonType(i18n.get("account.login.web.reopen"),
-                ButtonBar.ButtonData.LEFT);
-        ButtonType copyType = new ButtonType(i18n.get("account.login.web.copy"),
-                ButtonBar.ButtonData.LEFT);
-        dialog.getDialogPane().getButtonTypes().addAll(reopenType, copyType, ButtonType.CANCEL);
-        Button reopen = (Button) dialog.getDialogPane().lookupButton(reopenType);
-        Button copy = (Button) dialog.getDialogPane().lookupButton(copyType);
-        reopen.addEventFilter(javafx.event.ActionEvent.ACTION, event -> {
-            event.consume();
-            if (!attempt.openBrowser()) status.setText(i18n.get("account.login.web.manual"));
-        });
-        copy.addEventFilter(javafx.event.ActionEvent.ACTION, event -> {
-            event.consume();
-            ClipboardContent clipboard = new ClipboardContent();
-            clipboard.putString(attempt.authorizationUri().toString());
-            Clipboard.getSystemClipboard().setContent(clipboard);
-            status.setText(i18n.get("account.login.web.copied"));
-        });
-
-        boolean[] completed = {false};
-        attempt.completion().whenComplete((session, error) -> Platform.runLater(() -> {
-            completed[0] = true;
+        void complete(Throwable error) {
+            if (closed) return;
+            busy(false);
             if (error == null) {
-                dialog.close();
-            } else {
-                status.setText(i18n.get("account.login.web.failed",
-                        resolveErrorMessage(error, i18n)));
-                reopen.setDisable(true);
-                copy.setDisable(true);
-            }
-        }));
-        dialog.setOnCloseRequest(event -> {
-            if (!completed[0]) attempt.cancel();
-        });
-        if(com.jlshell.ui.swing.SwingDialogHost.enabled())com.jlshell.ui.swing.SwingDialogHost.showNativeAndWait(dialog,themeService,i18n,"jlshell.account",560,500);
-        else dialog.showAndWait();
-    }
-
-    public static void showRegister(Stage owner, I18nService i18n, ThemeService themeService,
-                                    AccountService accountService) {
-        show(owner, i18n, themeService, accountService, true);
-    }
-
-    private static void show(Stage owner, I18nService i18n, ThemeService themeService,
-                             AccountService accountService, boolean register) {
-        Dialog<Void> dialog = new Dialog<>();
-        dialog.setTitle(i18n.get(register ? "account.register.title" : "account.login.title"));
-        dialog.setHeaderText(null);
-        if (owner != null) dialog.initOwner(owner);
-        themeService.applyToDialog(dialog);
-
-        // ── 登录表单字段 ──
-        TextField username = new TextField();
-        username.setPromptText(i18n.get("account.username.prompt"));
-        TextField email = new TextField();
-        email.setPromptText("name@example.com");
-        PasswordField password = new PasswordField();
-        PasswordField confirmPassword = new PasswordField();
-
-        // ── 验证码控件（默认隐藏） ──
-        Label captchaLabel = new Label();
-        ImageView captchaImage = new ImageView();
-        captchaImage.setFitWidth(150);
-        captchaImage.setFitHeight(46);
-        captchaImage.setPreserveRatio(true);
-        Button captchaRefreshBtn = new Button(i18n.get("action.refresh"));
-        captchaRefreshBtn.setTooltip(new Tooltip(i18n.get("account.captcha.refresh")));
-        captchaRefreshBtn.setMinWidth(72);
-        captchaRefreshBtn.setPrefWidth(72);
-        VBox captchaVisual = new VBox(4, captchaLabel, new HBox(8, captchaImage, captchaRefreshBtn));
-        captchaVisual.setAlignment(Pos.CENTER_LEFT);
-        TextField captchaAnswer = new TextField();
-        captchaAnswer.setPromptText(i18n.get("account.captcha.prompt"));
-        captchaAnswer.setMinWidth(210);
-        VBox captchaRow = new VBox(6, captchaVisual, captchaAnswer);
-        captchaRow.setVisible(false);
-        captchaRow.setManaged(false);
-
-        // 验证码状态
-        String[] captchaToken = {null};
-
-        // 刷新验证码回调
-        Runnable refreshCaptcha = register
-                ? () -> fetchAndShowCaptcha(owner, i18n, accountService, "__register__",
-                        "register", captchaLabel, captchaImage, captchaAnswer,
-                        captchaRow, captchaToken)
-                : null;
-
-        captchaRefreshBtn.setOnAction(e -> {
-            if (refreshCaptcha != null) {
-                refreshCaptcha.run();
-            } else if (username.getText() != null && !username.getText().isBlank()) {
-                fetchAndShowCaptcha(owner, i18n, accountService, username.getText().strip(),
-                        null, captchaLabel, captchaImage, captchaAnswer,
-                        captchaRow, captchaToken);
-            }
-        });
-
-        // ── 注册：邮箱验证码 ──
-        Label verificationLabel = new Label(i18n.get("account.verification.code"));
-        TextField verificationCode = new TextField();
-        verificationCode.setPromptText(i18n.get("account.verification.code.prompt"));
-        verificationCode.setPrefWidth(120);
-        Button sendCodeBtn = new Button(i18n.get("account.verification.send"));
-        boolean[] codeSent = {false};
-        HBox verificationRow = new HBox(8, verificationCode, sendCodeBtn);
-        verificationRow.setAlignment(Pos.CENTER_LEFT);
-        if (register) {
-            // 注册时默认隐藏，captcha 验证成功后显示
-            verificationRow.setVisible(false);
-            verificationRow.setManaged(false);
+                Window window = SwingUtilities.getWindowAncestor(this);
+                if (window != null) window.dispose();
+            } else status.setText(resolveErrorMessage(error, i18n));
         }
 
-        // 发送验证码
-        sendCodeBtn.setOnAction(e -> {
-            String emailValue = email.getText() == null ? "" : email.getText().strip();
-            if (emailValue.isBlank()) {
-                showError(owner, i18n, themeService, i18n.get("account.error.missingFields"));
+        @Override public void close() { closed = true; }
+    }
+
+    private static final class BrowserForm extends AccountForm {
+        private AccountService.BrowserLoginAttempt attempt;
+        private boolean completed;
+        BrowserForm(I18nService i18n, AccountService account) {
+            super(i18n, account);
+            status.setText(i18n.get("account.login.web.waiting"));
+            JTextField url = new JTextField();
+            url.setEditable(false);
+            field("URL", url);
+            JButton reopen = new JButton(i18n.get("account.login.web.reopen"));
+            JButton copy = new JButton(i18n.get("account.login.web.copy"));
+            reopen.setEnabled(false);
+            copy.setEnabled(false);
+            JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+            actions.add(reopen);
+            actions.add(copy);
+            add(actions);
+            reopen.addActionListener(event -> CompletableFuture.supplyAsync(attempt::openBrowser)
+                    .thenAccept(opened -> SwingUtilities.invokeLater(() -> {
+                        if (!closed && !opened) status.setText(i18n.get("account.login.web.manual"));
+                    })));
+            copy.addActionListener(event -> {
+                Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(url.getText()), null);
+                status.setText(i18n.get("account.login.web.copied"));
+            });
+            CompletableFuture.supplyAsync(account::loginWithBrowser).whenComplete((started, error) -> SwingUtilities.invokeLater(() -> {
+                if (closed) { if (started != null) started.cancel(); return; }
+                if (error != null) { status.setText(resolveErrorMessage(error, i18n)); return; }
+                attempt = started;
+                url.setText(started.authorizationUri().toString());
+                reopen.setEnabled(true);
+                copy.setEnabled(true);
+                status.setText(i18n.get(started.browserOpened() ? "account.login.web.waiting" : "account.login.web.manual"));
+                started.completion().whenComplete((session, failure) -> SwingUtilities.invokeLater(() -> {
+                    if (closed) return;
+                    completed = true;
+                    reopen.setEnabled(false);
+                    copy.setEnabled(false);
+                    complete(failure);
+                }));
+            }));
+        }
+        @Override public void close() {
+            super.close();
+            if (!completed && attempt != null) attempt.cancel();
+        }
+    }
+
+    private static final class LoginForm extends AccountForm {
+        final boolean register;
+        final JTextField username = new JTextField(), email = new JTextField(), captchaAnswer = new JTextField(), verification = new JTextField();
+        final JPasswordField password = new JPasswordField(), confirm = new JPasswordField();
+        final JPanel captchaRow = new JPanel(new BorderLayout(8, 6));
+        final JLabel captcha = new JLabel();
+        final JButton sendCode;
+        Timer cooldown;
+        String captchaToken;
+        boolean codeSent;
+        long captchaRequest;
+
+        LoginForm(I18nService i18n, AccountService account, boolean register) {
+            super(i18n, account);
+            this.register = register;
+            username.setName("account.username");
+            password.setName("account.password");
+            field(i18n.get("account.username"), username);
+            if (register) field(i18n.get("account.email"), email);
+            field(i18n.get("account.password"), password);
+            if (register) field(i18n.get("account.confirmPassword"), confirm);
+            JButton refresh = new JButton(i18n.get("action.refresh"));
+            refresh.setToolTipText(i18n.get("account.captcha.refresh"));
+            refresh.addActionListener(event -> refreshCaptcha());
+            captchaRow.add(captcha);
+            captchaRow.add(refresh, BorderLayout.EAST);
+            captchaRow.add(captchaAnswer, BorderLayout.SOUTH);
+            captchaRow.setVisible(false);
+            field("", captchaRow);
+            sendCode = new JButton(i18n.get("account.verification.send"));
+            if (register) {
+                JPanel code = new JPanel(new BorderLayout(8, 0));
+                code.add(verification);
+                code.add(sendCode, BorderLayout.EAST);
+                field(i18n.get("account.verification.code"), code);
+                sendCode.addActionListener(event -> sendVerification());
+                refreshCaptcha();
+            }
+        }
+
+        void refreshCaptcha() {
+            String user = username.getText().strip();
+            if (!register && user.isBlank()) return;
+            long request = ++captchaRequest;
+            account.fetchCaptcha(register ? "__register__" : user, register ? "register" : null)
+                    .thenApply(challenge -> {
+                        Icon image = null;
+                        if (challenge != null && challenge.imageBase64() != null) {
+                            try {
+                                String encoded = challenge.imageBase64();
+                                byte[] bytes = Base64.getDecoder().decode(encoded.substring(encoded.indexOf(',') + 1));
+                                var decoded = ImageIO.read(new ByteArrayInputStream(bytes));
+                                if (decoded != null) image = new ImageIcon(decoded.getScaledInstance(150, 46, Image.SCALE_SMOOTH));
+                            } catch (Exception ignored) { /* Text challenges are also supported. */ }
+                        }
+                        return new Captcha(challenge, image);
+                    }).whenComplete((loaded, error) -> SwingUtilities.invokeLater(() -> {
+                        if (closed || request != captchaRequest) return;
+                        if (error != null) { status.setText(resolveErrorMessage(error, i18n)); return; }
+                        var challenge = loaded.challenge();
+                        boolean required = challenge != null && challenge.required();
+                        captchaToken = required ? challenge.token() : null;
+                        captchaRow.setVisible(required);
+                        captchaAnswer.setText("");
+                        captcha.setIcon(loaded.image());
+                        captcha.setText(required && loaded.image() == null ? challenge.question() : "");
+                        fields.revalidate();
+                        fields.repaint();
+                        if (required) captchaAnswer.requestFocusInWindow();
+                    }));
+        }
+
+        void sendVerification() {
+            String address = email.getText().strip();
+            if (address.isBlank()) { status.setText(i18n.get("account.error.missingFields")); return; }
+            if (captchaToken == null || captchaAnswer.getText().isBlank()) {
+                status.setText(i18n.get("account.captcha.prompt"));
                 return;
             }
-            String cToken = captchaToken[0];
-            String cAnswer = captchaAnswer.getText() == null ? "" : captchaAnswer.getText().strip();
-            if (cToken == null || cToken.isBlank() || cAnswer.isBlank()) {
-                showError(owner, i18n, themeService, i18n.get("account.captcha.prompt"));
-                return;
-            }
-            sendCodeBtn.setDisable(true);
-            accountService.sendVerification(emailValue, cToken, cAnswer)
-                    .whenComplete((v, error) -> Platform.runLater(() -> {
+            sendCode.setEnabled(false);
+            account.sendVerification(address, captchaToken, captchaAnswer.getText().strip())
+                    .whenComplete((value, error) -> SwingUtilities.invokeLater(() -> {
+                        if (closed) return;
                         if (error != null) {
-                            // 验证码可能已过期，刷新
-                            if (error instanceof AccountService.AccountHttpException httpEx
-                                    && "captcha_required".equals(httpEx.errorCode())) {
-                                if (refreshCaptcha != null) refreshCaptcha.run();
-                            }
-                            showError(owner, i18n, themeService, resolveErrorMessage(error, i18n));
-                            sendCodeBtn.setDisable(false);
+                            status.setText(resolveErrorMessage(error, i18n));
+                            sendCode.setEnabled(true);
+                            refreshCaptcha();
                             return;
                         }
-                        // 成功发送
-                        codeSent[0] = true;
-                        verificationRow.setVisible(true);
-                        verificationRow.setManaged(true);
-                        showInfo(owner, i18n, themeService, i18n.get("account.verification.sent"));
-                        startCooldown(sendCodeBtn, i18n, 60);
+                        codeSent = true;
+                        status.setText(i18n.get("account.verification.sent"));
+                        int[] remaining = {60};
+                        sendCode.setText(i18n.get("account.verification.resend", remaining[0]));
+                        cooldown = new Timer(1000, event -> {
+                            if (--remaining[0] > 0) sendCode.setText(i18n.get("account.verification.resend", remaining[0]));
+                            else {
+                                cooldown.stop();
+                                sendCode.setText(i18n.get("account.verification.send"));
+                                sendCode.setEnabled(true);
+                            }
+                        });
+                        cooldown.start();
                     }));
-        });
-
-        // ── 构建表单 ──
-        GridPane grid = new GridPane();
-        grid.setHgap(10);
-        grid.setVgap(10);
-        grid.setPadding(new Insets(18, 20, 8, 20));
-        int row = 0;
-        grid.add(new Label(i18n.get("account.username")), 0, row);
-        grid.add(username, 1, row++);
-        if (register) {
-            grid.add(new Label(i18n.get("account.email")), 0, row);
-            grid.add(email, 1, row++);
         }
-        grid.add(new Label(i18n.get("account.password")), 0, row);
-        grid.add(password, 1, row++);
-        if (register) {
-            grid.add(new Label(i18n.get("account.confirmPassword")), 0, row);
-            grid.add(confirmPassword, 1, row++);
-        }
-        // 验证码区域
-        grid.add(captchaRow, 0, row, 2, 1);
-        if (register) row++;
-        // 注册时：验证码行
-        if (register) {
-            grid.add(verificationLabel, 0, row);
-            grid.add(verificationRow, 1, row);
-        }
-        dialog.getDialogPane().setContent(grid);
 
-        ButtonType submitType = new ButtonType(
-                i18n.get(register ? "account.register.action" : "account.login.action"),
-                ButtonBar.ButtonData.OK_DONE);
-        dialog.getDialogPane().getButtonTypes().addAll(submitType, ButtonType.CANCEL);
-
-        Button submit = (Button) dialog.getDialogPane().lookupButton(submitType);
-        submit.addEventFilter(javafx.event.ActionEvent.ACTION, event -> {
-            event.consume();
-            String usernameValue = username.getText() == null ? "" : username.getText().strip();
-            String passwordValue = password.getText();
-            if (usernameValue.isBlank() || passwordValue == null || passwordValue.isBlank()) {
-                showError(owner, i18n, themeService, i18n.get("account.error.missingFields"));
-                return;
+        Boolean submit() {
+            if (busy) return null;
+            String user = username.getText().strip();
+            String secret = takePassword(password);
+            String confirmation = takePassword(confirm);
+            if (user.isBlank() || secret.isBlank() || register && email.getText().isBlank()) {
+                status.setText(i18n.get("account.error.missingFields"));
+                return null;
             }
-            if (register) {
-                String emailValue = email.getText() == null ? "" : email.getText().strip();
-                if (emailValue.isBlank()) {
-                    showError(owner, i18n, themeService, i18n.get("account.error.missingFields"));
-                    return;
-                }
-                if (!passwordValue.equals(confirmPassword.getText())) {
-                    showError(owner, i18n, themeService, i18n.get("account.error.passwordMismatch"));
-                    return;
-                }
-                if (!codeSent[0]) {
-                    showError(owner, i18n, themeService, i18n.get("account.verification.required"));
-                    return;
-                }
+            if (register && !secret.equals(confirmation)) {
+                status.setText(i18n.get("account.error.passwordMismatch"));
+                return null;
             }
-            submit.setDisable(true);
-            String emailValue = register ? (email.getText() == null ? "" : email.getText().strip()) : "";
-            String cToken = captchaToken[0];
-            String cAnswer = captchaAnswer.getText() == null ? "" : captchaAnswer.getText().strip();
-
-            var future = register
-                    ? accountService.register(usernameValue, emailValue, passwordValue,
-                            verificationCode.getText() == null ? "" : verificationCode.getText().strip())
-                    : accountService.login(usernameValue, passwordValue, cToken, cAnswer);
-            password.clear();
-            confirmPassword.clear();
-            captchaAnswer.clear();
-            verificationCode.clear();
-            future.whenComplete((session, error) -> Platform.runLater(() -> {
-                submit.setDisable(false);
-                if (error != null) {
-                    // 登录失败后检查是否需要验证码
-                    if (!register) {
-                        fetchAndShowCaptcha(owner, i18n, accountService, usernameValue,
-                                null, captchaLabel, captchaImage, captchaAnswer,
-                                captchaRow, captchaToken);
-                    }
-                    showError(owner, i18n, themeService, resolveErrorMessage(error, i18n));
-                    return;
-                }
-                dialog.close();
+            if (register && !codeSent) { status.setText(i18n.get("account.verification.required")); return null; }
+            busy(true);
+            password.setText("");
+            confirm.setText("");
+            var request = register ? account.register(user, email.getText().strip(), secret, verification.getText().strip())
+                    : account.login(user, secret, captchaToken, captchaAnswer.getText().strip());
+            captchaAnswer.setText("");
+            verification.setText("");
+            request.whenComplete((session, error) -> SwingUtilities.invokeLater(() -> {
+                if (closed) return;
+                if (error != null && !register) refreshCaptcha();
+                complete(error);
             }));
-        });
-
-        // 注册时：打开对话框时先获取验证码
-        if (register && refreshCaptcha != null) {
-            refreshCaptcha.run();
+            return null;
         }
 
-        if(com.jlshell.ui.swing.SwingDialogHost.enabled())com.jlshell.ui.swing.SwingDialogHost.showNativeAndWait(dialog,themeService,i18n,"jlshell.account",560,500);
-        else dialog.showAndWait();
-    }
-
-    /** 获取验证码并显示（支持图片验证码和文本验证码）。 */
-    private static void fetchAndShowCaptcha(Stage owner, I18nService i18n,
-                                            AccountService accountService, String username,
-                                            String purpose,
-                                            Label captchaLabel, ImageView captchaImage,
-                                            TextField captchaAnswer,
-                                            VBox captchaRow, String[] captchaToken) {
-        accountService.fetchCaptcha(username, purpose).whenComplete((challenge, error) -> {
-            Platform.runLater(() -> {
-                if (error != null || challenge == null || !challenge.required()) {
-                    captchaRow.setVisible(false);
-                    captchaRow.setManaged(false);
-                    captchaToken[0] = null;
-                    resizeDialogToContent(captchaRow);
-                    return;
-                }
-                captchaToken[0] = challenge.token();
-                // 优先显示图片验证码
-                if (challenge.imageBase64() != null && !challenge.imageBase64().isBlank()) {
-                    try {
-                        String dataUri = challenge.imageBase64();
-                        String base64;
-                        if (dataUri.contains(",")) {
-                            base64 = dataUri.substring(dataUri.indexOf(',') + 1);
-                        } else {
-                            base64 = dataUri;
-                        }
-                        byte[] imageBytes = Base64.getDecoder().decode(base64);
-                        Image img = new Image(new ByteArrayInputStream(imageBytes));
-                        captchaImage.setImage(img);
-                        captchaImage.setVisible(true);
-                        captchaImage.setManaged(true);
-                        captchaLabel.setVisible(false);
-                        captchaLabel.setManaged(false);
-                    } catch (Exception e) {
-                        // 图片解析失败，回退到文本
-                        captchaImage.setVisible(false);
-                        captchaImage.setManaged(false);
-                        captchaLabel.setText(challenge.question() != null ? challenge.question() : "");
-                        captchaLabel.setVisible(true);
-                        captchaLabel.setManaged(true);
-                    }
-                } else if (challenge.question() != null && !challenge.question().isBlank()) {
-                    captchaImage.setVisible(false);
-                    captchaImage.setManaged(false);
-                    captchaLabel.setText(challenge.question());
-                    captchaLabel.setVisible(true);
-                    captchaLabel.setManaged(true);
-                } else {
-                    captchaImage.setVisible(false);
-                    captchaImage.setManaged(false);
-                    captchaLabel.setVisible(false);
-                    captchaLabel.setManaged(false);
-                }
-                captchaRow.setVisible(true);
-                captchaRow.setManaged(true);
-                resizeDialogToContent(captchaRow);
-                captchaAnswer.requestFocus();
-            });
-        });
-    }
-
-    private static void resizeDialogToContent(javafx.scene.Node node) {
-        if (node.getScene() != null && node.getScene().getWindow() != null) {
-            node.getScene().getWindow().sizeToScene();
+        @Override public void close() {
+            super.close();
+            if (cooldown != null) cooldown.stop();
+            password.setText("");
+            confirm.setText("");
+            captchaAnswer.setText("");
+            verification.setText("");
         }
     }
 
-    /** 发送验证码后的 60 秒倒计时。 */
-    private static void startCooldown(Button btn, I18nService i18n, int seconds) {
-        Thread t = new Thread(() -> {
-            for (int i = seconds; i > 0; i--) {
-                final int remaining = i;
-                Platform.runLater(() ->
-                        btn.setText(i18n.get("account.verification.resend", String.valueOf(remaining))));
-                try { Thread.sleep(1000); } catch (InterruptedException e) { break; }
+    private record Captcha(AccountService.CaptchaChallenge challenge, Icon image) {}
+
+    private static final class PasswordForm extends AccountForm {
+        final JPasswordField previous = new JPasswordField(), password = new JPasswordField(), confirm = new JPasswordField();
+        PasswordForm(I18nService i18n, AccountService account) {
+            super(i18n, account);
+            field(i18n.get("account.changePassword.oldPassword"), previous);
+            field(i18n.get("account.changePassword.newPassword"), password);
+            field(i18n.get("account.changePassword.confirmPassword"), confirm);
+        }
+        Boolean submit() {
+            if (busy) return null;
+            String old = takePassword(previous), next = takePassword(password), confirmation = takePassword(confirm);
+            if (old.isBlank() || next.isBlank()) status.setText(i18n.get("account.error.missingFields"));
+            else if (next.length() < 8) status.setText(i18n.get("account.changePassword.error.minLength"));
+            else if (!next.equals(confirmation)) status.setText(i18n.get("account.changePassword.error.mismatch"));
+            else {
+                busy(true);
+                previous.setText(""); password.setText(""); confirm.setText("");
+                account.changePassword(old, next).whenComplete((session, error) -> SwingUtilities.invokeLater(() -> {
+                    if (closed) return;
+                    if (error == null) status.setText(i18n.get("account.changePassword.success"));
+                    complete(error);
+                }));
             }
-            Platform.runLater(() -> {
-                btn.setText(i18n.get("account.verification.send"));
-                btn.setDisable(false);
-            });
-        }, "jlshell-verification-cooldown");
-        t.setDaemon(true);
-        t.start();
+            return null;
+        }
+        @Override public void close() {
+            super.close();
+            previous.setText(""); password.setText(""); confirm.setText("");
+        }
+    }
+
+    private static String takePassword(JPasswordField field) {
+        char[] value = field.getPassword();
+        try { return new String(value); }
+        finally { Arrays.fill(value, '\0'); }
     }
 
     private static String resolveErrorMessage(Throwable error, I18nService i18n) {
@@ -424,36 +359,6 @@ public final class AccountDialog {
             current = current.getCause();
         }
         return rootMessage(error);
-    }
-
-    private static void showError(Stage owner, I18nService i18n, ThemeService themeService, String message) {
-        Alert alert = new Alert(Alert.AlertType.ERROR, message, ButtonType.OK);
-        alert.setTitle(i18n.get("account.title"));
-        alert.setHeaderText(null);
-        if (owner != null) alert.initOwner(owner);
-        themeService.applyToDialog(alert);
-        com.jlshell.ui.swing.SwingAlerts.showAndWait(alert, themeService, i18n);
-    }
-
-    private static void showInfo(Stage owner, I18nService i18n, ThemeService themeService, String message) {
-        Dialog<Void> dialog = new Dialog<>();
-        dialog.setTitle(i18n.get("account.title"));
-        dialog.setHeaderText(null);
-        if (owner != null) dialog.initOwner(owner);
-        themeService.applyToDialog(dialog);
-
-        Label messageLabel = new Label(message);
-        messageLabel.setWrapText(true);
-        messageLabel.setMinWidth(260);
-        messageLabel.setMaxWidth(360);
-
-        VBox content = new VBox(messageLabel);
-        content.setAlignment(Pos.CENTER_LEFT);
-        content.setPadding(new Insets(18, 20, 8, 20));
-        dialog.getDialogPane().setContent(content);
-        dialog.getDialogPane().getButtonTypes().add(ButtonType.OK);
-        if(com.jlshell.ui.swing.SwingDialogHost.enabled())com.jlshell.ui.swing.SwingDialogHost.showNativeAndWait(dialog,themeService,i18n,"jlshell.account",560,500);
-        else dialog.showAndWait();
     }
 
     private static String rootMessage(Throwable error) {

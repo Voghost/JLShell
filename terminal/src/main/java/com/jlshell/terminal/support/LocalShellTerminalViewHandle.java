@@ -40,6 +40,8 @@ public class LocalShellTerminalViewHandle implements TerminalViewHandle {
         return sessionId;
     }
 
+    @Override public String encodingName() { return ttyConnector.encodingName(); }
+
     @Override
     public String title() {
         return title;

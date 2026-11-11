@@ -25,6 +25,18 @@ on:
         options:
           - stable
           - beta
+      update_type:
+        description: 'JAR updates for compatible runtimes. Select full when bundled Java/native modules change.'
+        required: true
+        default: 'full'
+        type: choice
+        options:
+          - jar
+          - full
+      min_launcher_version:
+        description: 'Minimum launcher compatible with this JAR (installation-local updater requires 0.2.2+)'
+        required: true
+        default: '0.2.2'
       publish:
         description: 'Publish release on website immediately'
         required: true
@@ -50,9 +62,11 @@ env:
   VERSION: ${{ github.event.inputs.version }}
   RELEASE_BUILD_ONLY: ${{ github.event.inputs.build_only }}
   RELEASE_CHANNEL: ${{ github.event.inputs.channel }}
+  RELEASE_UPDATE_TYPE: ${{ inputs.update_type || 'full' }}
+  RELEASE_MIN_LAUNCHER_VERSION: ${{ inputs.min_launcher_version || '0.2.2' }}
   RELEASE_PUBLISH: ${{ github.event.inputs.publish }}
   RELEASE_ASSET_VISIBLE: ${{ github.event.inputs.asset_visible }}
-  MODULES: "java.base,java.compiler,java.desktop,java.logging,java.management,java.naming,java.net.http,java.prefs,java.scripting,java.security.jgss,java.sql,java.xml,jdk.crypto.ec,jdk.httpserver,jdk.jfr,jdk.localedata,jdk.naming.dns,jdk.net,jdk.unsupported,jdk.unsupported.desktop,jdk.zipfs,javafx.controls,javafx.swing"
+  MODULES: "java.base,java.compiler,java.desktop,java.logging,java.management,java.naming,java.net.http,java.prefs,java.scripting,java.security.jgss,java.sql,java.xml,jdk.crypto.ec,jdk.httpserver,jdk.jfr,jdk.localedata,jdk.naming.dns,jdk.net,jdk.unsupported,jdk.unsupported.desktop,jdk.zipfs"
 
 jobs:
   validate-release-notes:
@@ -70,9 +84,9 @@ jobs:
 
       - uses: actions/setup-java@v4
         with:
-          java-version: '21.0.11'
+          java-version: '25'
           distribution: 'liberica'
-          java-package: 'jdk+fx'
+          java-package: 'jdk'
           cache: maven
 
       - name: Test before release
@@ -120,9 +134,9 @@ jobs:
 
       - uses: actions/setup-java@v4
         with:
-          java-version: '21.0.11'
+          java-version: '25'
           distribution: 'liberica'
-          java-package: 'jdk+fx'
+          java-package: 'jdk'
           cache: maven
 
       - name: Set version from input
@@ -143,7 +157,7 @@ jobs:
           LAUNCHER_JAR=$(ls launcher/target/jlshell-launcher-*.jar | head -1)
           mkdir -p dist
           python .github/scripts/slim_distribution.py "$JAR" "dist/jlshell-app-${VERSION}.jar"
-          python .github/scripts/slim_distribution.py "$JAR" dist/jlshell-app-native.jar --target native --provided-javafx "$HOME/.m2/repository/org/openjfx"
+          python .github/scripts/slim_distribution.py "$JAR" dist/jlshell-app-native.jar --target native
           JAR=dist/jlshell-app-native.jar
           echo "JAR=$JAR" >> $GITHUB_ENV
           echo "LAUNCHER_JAR=$LAUNCHER_JAR" >> $GITHUB_ENV
@@ -159,7 +173,7 @@ jobs:
             --output dist/jre \
             --strip-debug --no-man-pages --no-header-files --vm=server --compress zip-9 --include-locales=en,zh
 
-          "dist/jre/bin/java" --add-modules=javafx.controls,javafx.swing -Djava.awt.headless=true -cp "$JAR" com.jlshell.app.DistributionSmoke
+          "dist/jre/bin/java" -Djava.awt.headless=true -cp "$JAR" com.jlshell.app.DistributionSmoke
 
           # Build AppIcon.icns (needed by jpackage)
           ICON_PNG=app/src/main/resources/icons/app_icon.png
@@ -193,8 +207,7 @@ jobs:
             --runtime-image dist/jre \
             --icon dist/AppIcon.icns \
             --vendor JLShell \
-            --description "JLShell SSH Client" \
-            --java-options "--add-modules=javafx.controls,javafx.swing" \
+            --description "JLShell" \
             --java-options "--add-exports=java.desktop/sun.swing=ALL-UNNAMED" \
             --java-options "--add-opens=java.desktop/sun.swing=ALL-UNNAMED" \
             --java-options "--add-opens=java.desktop/javax.swing=ALL-UNNAMED" \
@@ -202,6 +215,8 @@ jobs:
             --java-options "-Xmx512m" \
             --java-options "-XX:+ExplicitGCInvokesConcurrent" \
             --java-options "-XX:+UseG1GC" \
+            --java-options "-XX:+UseCompactObjectHeaders" \
+            --java-options "--enable-native-access=ALL-UNNAMED" \
             --java-options "-XX:G1PeriodicGCInterval=30000" \
             --java-options "-XX:MinHeapFreeRatio=20" \
             --java-options "-XX:MaxHeapFreeRatio=40" \
@@ -213,7 +228,7 @@ jobs:
             --dest dist/mac-work
 
           # Localize the macOS application menu metadata used by AppKit.
-          # JavaFX owns most menu wiring, but these bundle resources allow
+          # Native application menu wiring and these bundle resources allow
           # system-generated app-menu labels to follow macOS language fallback.
           /usr/libexec/PlistBuddy -c "Delete :NSRequiresAquaSystemAppearance" \
             dist/mac-work/JLShell.app/Contents/Info.plist >/dev/null 2>&1 || true
@@ -296,9 +311,9 @@ jobs:
 
       - uses: actions/setup-java@v4
         with:
-          java-version: '21.0.11'
+          java-version: '25'
           distribution: 'liberica'
-          java-package: 'jdk+fx'
+          java-package: 'jdk'
           cache: maven
 
       - name: Install tools
@@ -318,7 +333,7 @@ jobs:
           LAUNCHER_JAR=$(ls launcher/target/jlshell-launcher-*.jar | head -1)
           mkdir -p dist
           python .github/scripts/slim_distribution.py "$JAR" "dist/jlshell-app-${VERSION}.jar"
-          python .github/scripts/slim_distribution.py "$JAR" dist/jlshell-app-native.jar --target native --provided-javafx "$HOME/.m2/repository/org/openjfx"
+          python .github/scripts/slim_distribution.py "$JAR" dist/jlshell-app-native.jar --target native
           JAR=dist/jlshell-app-native.jar
           echo "JAR=$JAR" >> $GITHUB_ENV
           echo "LAUNCHER_JAR=$LAUNCHER_JAR" >> $GITHUB_ENV
@@ -331,7 +346,7 @@ jobs:
             --output dist/runtime \
             --strip-debug --no-man-pages --no-header-files --vm=server --compress zip-9 --include-locales=en,zh
 
-          "dist/runtime/bin/java" --add-modules=javafx.controls,javafx.swing -Djava.awt.headless=true -cp "$JAR" com.jlshell.app.DistributionSmoke
+          "dist/runtime/bin/java" -Djava.awt.headless=true -cp "$JAR" com.jlshell.app.DistributionSmoke
 
           cp "$LAUNCHER_JAR" dist/jlshell-launcher.jar
           mkdir -p dist/app
@@ -352,6 +367,8 @@ jobs:
           -Xmx512m
           -XX:+ExplicitGCInvokesConcurrent
           -XX:+UseG1GC
+          -XX:+UseCompactObjectHeaders
+          --enable-native-access=ALL-UNNAMED
           -XX:G1PeriodicGCInterval=30000
           -XX:MinHeapFreeRatio=20
           -XX:MaxHeapFreeRatio=40
@@ -360,7 +377,7 @@ jobs:
           cat > dist/linux-work/JLShell/JLShell.sh <<'EOF'
           #!/bin/bash
           DIR="$(cd "$(dirname "$0")" && pwd)"
-          DEFAULT_VM_OPTS=(-Xms32m -Xmx512m -XX:+ExplicitGCInvokesConcurrent -XX:+UseG1GC -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40)
+          DEFAULT_VM_OPTS=(-Xms32m -Xmx512m -XX:+ExplicitGCInvokesConcurrent -XX:+UseG1GC -XX:+UseCompactObjectHeaders --enable-native-access=ALL-UNNAMED -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40)
           USER_VMOPTIONS="${XDG_CONFIG_HOME:-$HOME/.config}/jlshell/JLShell.vmoptions"
           BUNDLED_VMOPTIONS="$DIR/JLShell.vmoptions"
           VMOPTIONS_FILE=""
@@ -383,7 +400,7 @@ jobs:
             fi
           fi
           exec "$DIR/runtime/bin/java" "${VM_OPTS[@]}" \
-            --add-modules=javafx.controls,javafx.swing \
+            \
             --add-exports=java.desktop/sun.swing=ALL-UNNAMED \
             --add-opens=java.desktop/sun.swing=ALL-UNNAMED \
             --add-opens=java.desktop/javax.swing=ALL-UNNAMED \
@@ -415,6 +432,8 @@ jobs:
           -Xmx512m
           -XX:+ExplicitGCInvokesConcurrent
           -XX:+UseG1GC
+          -XX:+UseCompactObjectHeaders
+          --enable-native-access=ALL-UNNAMED
           -XX:G1PeriodicGCInterval=30000
           -XX:MinHeapFreeRatio=20
           -XX:MaxHeapFreeRatio=40
@@ -423,7 +442,7 @@ jobs:
           cat > $PKG/opt/jlshell/JLShell.sh <<'EOF'
           #!/bin/bash
           DIR="$(cd "$(dirname "$0")" && pwd)"
-          DEFAULT_VM_OPTS=(-Xms32m -Xmx512m -XX:+ExplicitGCInvokesConcurrent -XX:+UseG1GC -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40)
+          DEFAULT_VM_OPTS=(-Xms32m -Xmx512m -XX:+ExplicitGCInvokesConcurrent -XX:+UseG1GC -XX:+UseCompactObjectHeaders --enable-native-access=ALL-UNNAMED -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40)
           USER_VMOPTIONS="${XDG_CONFIG_HOME:-$HOME/.config}/jlshell/JLShell.vmoptions"
           BUNDLED_VMOPTIONS="$DIR/JLShell.vmoptions"
           VMOPTIONS_FILE=""
@@ -446,7 +465,7 @@ jobs:
             fi
           fi
           exec "$DIR/runtime/bin/java" "${VM_OPTS[@]}" \
-            --add-modules=javafx.controls,javafx.swing \
+            \
             --add-exports=java.desktop/sun.swing=ALL-UNNAMED \
             --add-opens=java.desktop/sun.swing=ALL-UNNAMED \
             --add-opens=java.desktop/javax.swing=ALL-UNNAMED \
@@ -514,6 +533,8 @@ jobs:
           -Xmx512m
           -XX:+ExplicitGCInvokesConcurrent
           -XX:+UseG1GC
+          -XX:+UseCompactObjectHeaders
+          --enable-native-access=ALL-UNNAMED
           -XX:G1PeriodicGCInterval=30000
           -XX:MinHeapFreeRatio=20
           -XX:MaxHeapFreeRatio=40
@@ -523,7 +544,7 @@ jobs:
           cat > $APPDIR/AppRun <<'EOF'
           #!/bin/bash
           HERE="$(cd "$(dirname "$0")" && pwd)"
-          DEFAULT_VM_OPTS=(-Xms32m -Xmx512m -XX:+ExplicitGCInvokesConcurrent -XX:+UseG1GC -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40)
+          DEFAULT_VM_OPTS=(-Xms32m -Xmx512m -XX:+ExplicitGCInvokesConcurrent -XX:+UseG1GC -XX:+UseCompactObjectHeaders --enable-native-access=ALL-UNNAMED -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40)
           USER_VMOPTIONS="${XDG_CONFIG_HOME:-$HOME/.config}/jlshell/JLShell.vmoptions"
           BUNDLED_VMOPTIONS="$HERE/usr/JLShell.vmoptions"
           VMOPTIONS_FILE=""
@@ -546,7 +567,7 @@ jobs:
             fi
           fi
           exec "$HERE/usr/runtime/bin/java" "${VM_OPTS[@]}" \
-            --add-modules=javafx.controls,javafx.swing \
+            \
             --add-exports=java.desktop/sun.swing=ALL-UNNAMED \
             --add-opens=java.desktop/sun.swing=ALL-UNNAMED \
             --add-opens=java.desktop/javax.swing=ALL-UNNAMED \
@@ -584,9 +605,9 @@ jobs:
 
       - uses: actions/setup-java@v4
         with:
-          java-version: '21.0.11'
+          java-version: '25'
           distribution: 'liberica'
-          java-package: 'jdk+fx'
+          java-package: 'jdk'
           cache: maven
 
       - name: Install Python for ICO conversion
@@ -624,7 +645,7 @@ jobs:
           LAUNCHER_JAR=$(ls launcher/target/jlshell-launcher-*.jar | head -1)
           mkdir -p dist
           python .github/scripts/slim_distribution.py "$JAR" "dist/jlshell-app-${VERSION}.jar"
-          python .github/scripts/slim_distribution.py "$JAR" dist/jlshell-app-native.jar --target native --provided-javafx "$HOME/.m2/repository/org/openjfx"
+          python .github/scripts/slim_distribution.py "$JAR" dist/jlshell-app-native.jar --target native
           JAR=dist/jlshell-app-native.jar
           echo "JAR=$JAR" >> $GITHUB_ENV
           echo "LAUNCHER_JAR=$LAUNCHER_JAR" >> $GITHUB_ENV
@@ -640,7 +661,7 @@ jobs:
       - name: Verify native runtime and curated application
         shell: bash
         run: |
-          dist/runtime/bin/java --add-modules=javafx.controls,javafx.swing -Djava.awt.headless=true -cp "$JAR" com.jlshell.app.DistributionSmoke
+          dist/runtime/bin/java -Djava.awt.headless=true -cp "$JAR" com.jlshell.app.DistributionSmoke
 
       - name: Package Windows app image and installer
         shell: bash
@@ -665,8 +686,7 @@ jobs:
             --runtime-image dist/runtime \
             --icon app/src/main/resources/icons/app_icon.ico \
             --vendor JLShell \
-            --description "JLShell SSH Client" \
-            --java-options "--add-modules=javafx.controls,javafx.swing" \
+            --description "JLShell" \
             --java-options "--add-exports=java.desktop/sun.swing=ALL-UNNAMED" \
             --java-options "--add-opens=java.desktop/sun.swing=ALL-UNNAMED" \
             --java-options "--add-opens=java.desktop/javax.swing=ALL-UNNAMED" \
@@ -674,6 +694,8 @@ jobs:
             --java-options "-Xmx512m" \
             --java-options "-XX:+ExplicitGCInvokesConcurrent" \
             --java-options "-XX:+UseG1GC" \
+            --java-options "-XX:+UseCompactObjectHeaders" \
+            --java-options "--enable-native-access=ALL-UNNAMED" \
             --java-options "-XX:G1PeriodicGCInterval=30000" \
             --java-options "-XX:MinHeapFreeRatio=20" \
             --java-options "-XX:MaxHeapFreeRatio=40" \
@@ -690,7 +712,7 @@ jobs:
 
           cd dist/win-image && 7z a -tzip -mx=9 "../JLShell-${VERSION}-win-x64.zip" JLShell && cd ../..
 
-          # jpackage 21 always invokes WiX with the en-us culture. The
+          # jpackage 25 always invokes WiX with the en-us culture. The
           # resource directory intentionally provides its Chinese strings
           # as MsiInstallerStrings_en.wxl so that culture is overridden.
           "$JDK/bin/jpackage" \
@@ -703,8 +725,7 @@ jobs:
             --runtime-image dist/runtime \
             --icon app/src/main/resources/icons/app_icon.ico \
             --vendor JLShell \
-            --description "JLShell SSH Client" \
-            --java-options "--add-modules=javafx.controls,javafx.swing" \
+            --description "JLShell" \
             --java-options "--add-exports=java.desktop/sun.swing=ALL-UNNAMED" \
             --java-options "--add-opens=java.desktop/sun.swing=ALL-UNNAMED" \
             --java-options "--add-opens=java.desktop/javax.swing=ALL-UNNAMED" \
@@ -712,6 +733,8 @@ jobs:
             --java-options "-Xmx512m" \
             --java-options "-XX:+ExplicitGCInvokesConcurrent" \
             --java-options "-XX:+UseG1GC" \
+            --java-options "-XX:+UseCompactObjectHeaders" \
+            --java-options "--enable-native-access=ALL-UNNAMED" \
             --java-options "-XX:G1PeriodicGCInterval=30000" \
             --java-options "-XX:MinHeapFreeRatio=20" \
             --java-options "-XX:MaxHeapFreeRatio=40" \
@@ -976,14 +999,14 @@ jobs:
           payload = {
               "version": version,
               "channel": os.environ.get("RELEASE_CHANNEL") or "stable",
-              "updateType": "full",
+              "updateType": os.environ.get("RELEASE_UPDATE_TYPE", "full"),
               "title": release_metadata["title"],
               "summary": release_metadata["summary"],
               "releaseNotes": release_metadata["releaseNotes"],
               "releaseUrl": release_metadata["releaseUrl"],
               "mandatory": False,
-              "requiresFullInstaller": True,
-              "minLauncherVersion": "0.1.0",
+              "requiresFullInstaller": os.environ.get("RELEASE_UPDATE_TYPE", "full") != "jar",
+              "minLauncherVersion": os.environ.get("RELEASE_MIN_LAUNCHER_VERSION", "0.2.2"),
               "publish": os.environ.get("RELEASE_PUBLISH", "false").lower() == "true",
               "assets": payload_assets,
           }

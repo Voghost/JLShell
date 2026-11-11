@@ -8,8 +8,8 @@ import com.jlshell.core.model.FontProfile;
 import com.jlshell.core.model.SessionId;
 import com.jlshell.terminal.model.TerminalColorScheme;
 
-import javafx.beans.property.SimpleStringProperty;
-import javafx.beans.property.StringProperty;
+import com.jlshell.plugin.api.lifecycle.Registration;
+import java.util.function.Consumer;
 
 /**
  * 已创建的终端视图句柄。
@@ -20,6 +20,8 @@ public interface TerminalViewHandle extends AutoCloseable {
     SessionId sessionId();
 
     String title();
+
+    default String encodingName() { return "UTF-8"; }
 
     JComponent component();
 
@@ -33,8 +35,7 @@ public interface TerminalViewHandle extends AutoCloseable {
 
     /**
      * 把字符串注入到终端的输入流，等价于用户键入这些字符。
-     * 用于 JavaFX IME commit：在 SwingNode 下 AWT IME 链路不工作，
-     * UI 层接收 JavaFX 的 InputMethodEvent，commit 部分直接走这里。
+     * 供输入法提交和宿主快捷操作使用。
      */
     default void sendStringToTerminal(String text) {
         // 默认 no-op
@@ -58,8 +59,7 @@ public interface TerminalViewHandle extends AutoCloseable {
 
     /**
      * 返回 {@link #getCursorLocationInComponent()} 所使用的 Swing 组件尺寸。
-     * UI 层会用它把 Swing 逻辑坐标映射到 SwingNode 的 JavaFX 局部坐标；
-     * 这比假定两边永远 1:1 更能适应节点缩放和不同 DPI 的显示器。
+     * UI 层可用它映射终端逻辑坐标，适应不同 DPI 的显示器。
      */
     default java.awt.Dimension getTerminalComponentSize() {
         JComponent terminalComponent = component();
@@ -68,13 +68,18 @@ public interface TerminalViewHandle extends AutoCloseable {
                 : terminalComponent.getSize();
     }
 
+    /** Current directory reported by OSC 7, or an empty string before the first report. */
+    default String currentDirectory() {
+        return "";
+    }
+
     /**
-     * 终端当前工作目录（通过 OSC 7 序列追踪）。
-     * 可观察属性，目录变化时自动更新。
+     * Implementations with directory reporting deliver the current value and distinct changes on Swing EDT.
+     * Closing the registration suppresses queued callbacks and is idempotent.
      */
-    default StringProperty cwdProperty() {
-        // 默认返回一个不可变的空属性
-        return new SimpleStringProperty("");
+    default Registration onDirectoryChanged(Consumer<String> listener) {
+        java.util.Objects.requireNonNull(listener, "listener");
+        return Registration.noop();
     }
 
     @Override

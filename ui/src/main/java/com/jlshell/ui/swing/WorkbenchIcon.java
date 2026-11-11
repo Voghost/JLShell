@@ -47,15 +47,13 @@ public record WorkbenchIcon(Kind kind) implements Icon {
                 case MORE -> { for (int i = 3; i <= 13; i += 5) g.fillOval(7, i - 1, 2, 2); }
                 case HIDE -> g.drawLine(3, 8, 13, 8);
                 case MAXIMIZE -> {
-                    g.drawLine(2, 6, 2, 2); g.drawLine(2, 2, 6, 2);
-                    g.drawLine(10, 2, 14, 2); g.drawLine(14, 2, 14, 6);
-                    g.drawLine(14, 10, 14, 14); g.drawLine(14, 14, 10, 14);
-                    g.drawLine(6, 14, 2, 14); g.drawLine(2, 14, 2, 10);
+                    g.drawLine(2, 12, 2, 3); g.drawLine(2, 3, 3, 2); g.drawLine(3, 2, 13, 2);
+                    g.drawLine(13, 2, 14, 3); g.drawLine(14, 3, 14, 5); g.drawLine(2, 12, 4, 12);
+                    g.fillRoundRect(6, 6, 8, 7, 2, 2);
                 }
                 case RESTORE -> {
-                    g.drawRoundRect(2, 5, 9, 9, 1, 1);
-                    g.drawLine(5, 2, 14, 2); g.drawLine(14, 2, 14, 11);
-                    g.drawLine(5, 2, 5, 3); g.drawLine(13, 11, 14, 11);
+                    g.drawLine(5, 4, 5, 2); g.drawLine(5, 2, 14, 2); g.drawLine(14, 2, 14, 10); g.drawLine(14, 10, 12, 10);
+                    g.drawRoundRect(2, 5, 8, 8, 2, 2);
                 }
                 case FOCUS -> { g.drawOval(2, 2, 12, 12); g.drawOval(6, 6, 4, 4); g.drawLine(8, 0, 8, 3); g.drawLine(8, 13, 8, 15); g.drawLine(0, 8, 3, 8); g.drawLine(13, 8, 15, 8); }
                 case EXPAND_ALL -> { g.drawLine(8, 8, 8, 1); g.drawLine(5, 4, 8, 1); g.drawLine(11, 4, 8, 1); g.drawLine(8, 8, 8, 15); g.drawLine(5, 12, 8, 15); g.drawLine(11, 12, 8, 15); }

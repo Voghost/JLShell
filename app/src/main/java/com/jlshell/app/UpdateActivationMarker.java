@@ -6,7 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
- * Confirms that a jar selected by the bootstrap launcher reached the JavaFX UI.
+ * Confirms that a jar selected by the bootstrap launcher reached the native Swing UI.
  */
 final class UpdateActivationMarker {
 
@@ -20,7 +20,7 @@ final class UpdateActivationMarker {
 
         Path current = Path.of(System.getProperty(
                 "jlshell.update.dir",
-                Path.of(System.getProperty("user.home"), ".jlshell", "updates").toString()
+                Path.of(System.getProperty("jlshell.app.dir", System.getProperty("user.dir", ".")), "updates").toString()
         )).resolve("current.json");
         if (!Files.isRegularFile(current)) {
             return;
@@ -35,18 +35,10 @@ final class UpdateActivationMarker {
             if (!updated.equals(json)) {
                 Files.writeString(current, updated, StandardCharsets.UTF_8);
             }
-            deleteBundledBackupAfterConfirmedStartup();
+            // Keep the previous installed JAR for recovery until the next update.
         } catch (IOException ignored) {
             // Startup confirmation is best-effort; failure must not block the app.
         }
     }
 
-    private static void deleteBundledBackupAfterConfirmedStartup() throws IOException {
-        String bundledJar = System.getProperty("jlshell.bundled.jar", "");
-        if (bundledJar.isBlank()) {
-            return;
-        }
-        Path bundled = Path.of(bundledJar);
-        Files.deleteIfExists(bundled.resolveSibling(bundled.getFileName() + ".previous"));
-    }
 }

@@ -20,6 +20,6 @@ final class NativeSettingsProbe {
         return all(root,JButton.class).stream().filter(button->text.equals(button.getText())).findFirst().orElseThrow(()->new AssertionError("Missing native button: "+text));
     }
     static void assertNative(Component root) {
-        org.junit.jupiter.api.Assertions.assertTrue(all(root,javafx.embed.swing.JFXPanel.class).isEmpty(),"Settings must not contain any JFXPanel");
+        org.junit.jupiter.api.Assertions.assertTrue(all(root,Component.class).stream().noneMatch(component -> component.getClass().getName().startsWith("javafx.")),"Settings must not contain any JFXPanel");
     }
 }

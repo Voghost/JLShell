@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Curate supported native targets; optionally use JavaFX provided by the linked runtime.
+"""Curate supported native targets for the Swing-only application.
 
 Never use reachability-based class minimization: JDBC/JNA/SSH/plugin services load dynamically.
 """
@@ -29,24 +29,17 @@ def keep_native(name, targets):
     return True
 
 
-def slim(source, output, target='universal', provided_javafx=None):
+def slim(source, output, target='universal'):
     targets = list(TARGETS) if target == 'universal' else [target]
-    provided = set()
-    if provided_javafx:
-        for jar in Path(provided_javafx).glob('javafx-*/*/*.jar'):
-            if '-sources' in jar.name or '-javadoc' in jar.name:
-                continue
-            with zipfile.ZipFile(jar) as archive:
-                provided.update(i.filename for i in archive.infolist() if not i.filename.startswith('META-INF/'))
-        if 'javafx/application/Application.class' not in provided:
-            raise ValueError('JavaFX dependency entries not found; refusing to create an incomplete installer')
     output.parent.mkdir(parents=True, exist_ok=True)
     dropped = []
     with zipfile.ZipFile(source) as original, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as result:
+        if any(name.startswith(('javafx/', 'com/sun/javafx/', 'com/sun/glass/', 'com/sun/prism/')) for name in original.namelist()):
+            raise ValueError('Unexpected JavaFX entries in the Swing-only application payload')
         for item in original.infolist():
             if item.is_dir():
                 continue
-            if item.filename in BUILD_ONLY or item.filename in provided or not keep_native(item.filename, targets):
+            if item.filename in BUILD_ONLY or not keep_native(item.filename, targets):
                 dropped.append(item.filename)
                 continue
             result.writestr(item, original.read(item), compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
@@ -60,14 +53,13 @@ def slim(source, output, target='universal', provided_javafx=None):
             if not any(n.startswith('org/sqlite/native/' + TARGETS[selected][0]) for n in names):
                 raise ValueError(f'Missing SQLite native for {selected}')
     return {'target': target, 'beforeBytes': source.stat().st_size, 'afterBytes': output.stat().st_size,
-            'removedEntries': len(dropped), 'javafxFromRuntime': bool(provided_javafx)}
+            'removedEntries': len(dropped), 'swingOnly': True}
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('source', type=Path); p.add_argument('output', type=Path)
     p.add_argument('--target', choices=['universal', 'native', *TARGETS], default='universal')
-    p.add_argument('--provided-javafx', type=Path)
     args = p.parse_args()
     target = args.target
     if target == 'native':
@@ -75,7 +67,7 @@ def main():
         target += 'arm64' if platform.machine().lower() in ('aarch64', 'arm64') else 'x64'
     if args.source.resolve() == args.output.resolve():
         p.error('source and output must differ')
-    print(json.dumps(slim(args.source, args.output, target, args.provided_javafx), indent=2))
+    print(json.dumps(slim(args.source, args.output, target), indent=2))
 
 
 if __name__ == '__main__':

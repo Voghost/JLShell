@@ -33,25 +33,7 @@ if (fonts.available()) {
 再给控件设置初始值。相同字体/字号不重复通知。订阅尚未开始交付时连续发生多次修改，
 首次回调会收到最新配置，已过时的排队事件不会把控件字体退回旧值。
 
-回调线程不是 API 保证的一部分。Swing 控件更新使用 `SwingUtilities.invokeLater`；
-JavaFX 控件更新使用 `Platform.runLater`。回调只做轻量工作，不同步等待 UI、磁盘或网络。
-
-JavaFX 正文或编辑器示例：
-
-```java
-PluginFonts fonts = context.fonts();
-Registration subscription = Registration.noop();
-if (fonts.available()) {
-    subscription = fonts.onTerminalFontChanged(spec -> Platform.runLater(() -> {
-        if (viewClosed) return;
-        String family = spec.systemDefault() ? Font.getDefault().getFamily() : spec.family();
-        editor.setFont(Font.font(family, spec.size()));
-    }));
-}
-// 页面移除 / deactivate / 会话结束时：
-viewClosed = true;
-subscription.close();
-```
+回调线程不是 API 保证的一部分。Swing 控件更新使用 `SwingUtilities.invokeLater`。回调只做轻量工作，不同步等待 UI、磁盘或网络。
 
 Swing 界面字体示例（`label` 为正文标签）：
 
@@ -90,7 +72,7 @@ SDK 发布独立于桌面客户端：已发布的 0.1.71 Beta 尚未集成该字
 ## 验证
 
 - 完整 `mvn test` 通过，覆盖 API 默认兼容行为、Session 关闭和 Program 停用/重新启用。
-- `HostPluginFontsTest` 的 3 项真实 JavaFX 回归通过：持久设置跟随、连续变更顺序、无重复通知、回调异常隔离、关闭前排队事件取消，以及快照读取无存储访问。
+- `HostPluginFontsTest` 的宿主字体回归通过：持久设置跟随、连续变更顺序、无重复通知、回调异常隔离、关闭前排队事件取消，以及快照读取无存储访问。
 - `mvn -pl plugin-api,program-api -am package` 通过，SDK JAR 内包含新增字体契约。
 
 

@@ -34,31 +34,14 @@ final class SwingServerMonitor extends JPanel implements AutoCloseable {
     private int warningThreshold = 75, dangerThreshold = 90;
     private Runnable unbind = () -> {};
 
-    /** Snapshot FX properties on their owner thread and deliver immutable values to EDT. */
+    /** Immutable samples arrive from the controller and are rendered on EDT. */
     static java.util.function.Supplier<SwingServerMonitor> prepare(com.jlshell.ui.view.TerminalWorkspaceView source, I18nService i18n) {
-        int warning = source.monitorWarningThreshold(), danger = source.monitorDangerThreshold();
-        var latest = new java.util.concurrent.atomic.AtomicReference<>(source.monitorSnapshotProperty().get());
-        var view = new java.util.concurrent.atomic.AtomicReference<SwingServerMonitor>();
-        javafx.beans.value.ChangeListener<ServerMonitorSnapshot> listener = (o, old, next) -> {
-            latest.set(next);
-            SwingUtilities.invokeLater(() -> { if (view.get() != null) view.get().accept(next); });
-        };
-        source.monitorSnapshotProperty().addListener(listener);
         return () -> {
-            SwingServerMonitor panel = new SwingServerMonitor(i18n, type -> {
-                CompletableFuture<String> result = new CompletableFuture<>();
-                com.jlshell.ui.support.FxThread.run(() -> {
-                    try { source.queryMonitorDetail(type).whenComplete((text, error) -> {
-                        if (error == null) result.complete(text); else result.completeExceptionally(error);
-                    }); } catch (Throwable error) { result.completeExceptionally(error); }
-                });
-                return result;
-            });
-            panel.warningThreshold = warning;
-            panel.dangerThreshold = danger;
-            view.set(panel);
-            panel.unbind = () -> com.jlshell.ui.support.FxThread.run(() -> source.monitorSnapshotProperty().removeListener(listener));
-            panel.accept(latest.get());
+            SwingServerMonitor panel = new SwingServerMonitor(i18n, source::queryMonitorDetail);
+            panel.warningThreshold = source.monitorWarningThreshold();
+            panel.dangerThreshold = source.monitorDangerThreshold();
+            var subscription = source.monitorSnapshotProperty().subscribe(value -> SwingUtilities.invokeLater(() -> panel.accept(value)));
+            panel.unbind = subscription::close;
             return panel;
         };
     }

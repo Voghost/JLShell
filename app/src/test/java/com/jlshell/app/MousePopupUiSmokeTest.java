@@ -1,14 +1,9 @@
 package com.jlshell.app;
 
-import com.jlshell.ui.swing.SwingFxPanel;
 import com.jlshell.ui.swing.SwingWorkbench;
 import com.jlshell.ui.swing.idea.IdeaListPopup;
 import com.jlshell.ui.theme.AppTheme;
 import com.jlshell.ui.theme.ThemeService;
-import javafx.application.Platform;
-import javafx.scene.control.ComboBox;
-import javafx.scene.control.ListCell;
-import javafx.stage.Stage;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.junit.jupiter.api.io.TempDir;
@@ -36,7 +31,15 @@ class MousePopupUiSmokeTest {
                 "-Djlshell.ui.renderer=swing", "-cp", System.getProperty("java.class.path"), Probe.class.getName())
                 .redirectErrorStream(true).redirectOutput(log.toFile()).start();
         try {
-            assertTrue(process.waitFor(55, TimeUnit.SECONDS), () -> read(log));
+            boolean exited = process.waitFor(55, TimeUnit.SECONDS);
+            if (!exited) {
+                Process dump = new ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", "jcmd").toString(),
+                        Long.toString(process.pid()), "Thread.print").redirectErrorStream(true)
+                        .redirectOutput(ProcessBuilder.Redirect.appendTo(log.toFile())).start();
+                dump.waitFor(5, TimeUnit.SECONDS);
+                if (dump.isAlive()) dump.destroyForcibly();
+            }
+            assertTrue(exited, () -> read(log));
             assertEquals(0, process.exitValue(), () -> read(log));
             assertTrue(read(log).contains("MOUSE_POPUP_READY"), () -> read(log));
         } finally { if (process.isAlive()) process.destroyForcibly(); }
@@ -50,7 +53,8 @@ class MousePopupUiSmokeTest {
             robot.mouseMove(point.x, point.y);
             robot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
             robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
-            robot.waitForIdle();
+            // macOS native animations can keep Robot.waitForIdle waiting after EDT is already idle.
+            edt(() -> null);
             Thread.sleep(250);
         }
         static Point center(Component component) {
@@ -58,12 +62,7 @@ class MousePopupUiSmokeTest {
             point.translate(component.getWidth() / 2, component.getHeight() / 2);
             return point;
         }
-        static void mouseFx(SwingFxPanel panel, javafx.scene.Node node) throws Exception {
-            var bounds = fx(() -> node.localToScene(node.getBoundsInLocal()));
-            Point origin = edt(panel::getLocationOnScreen);
-            mouse(new Point(origin.x + (int) ((bounds.getMinX() + bounds.getMaxX()) / 2),
-                    origin.y + (int) ((bounds.getMinY() + bounds.getMaxY()) / 2)));
-        }
+
         static IdeaListPopup popup() throws Exception {
             for (int i = 0; i < 80; i++) {
                 IdeaListPopup value = edt(() -> {
@@ -99,11 +98,11 @@ class MousePopupUiSmokeTest {
         }
         static void verify() throws Exception {
             java.util.Locale.setDefault(java.util.Locale.SIMPLIFIED_CHINESE);
-            Platform.startup(() -> Platform.setImplicitExit(false));
+
             AppContext context = fx(() -> {
                 AppContext value = new AppContext();
-                main = value.getMainWindow(); owner = new Stage();
-                owner.setScene(main.createScene(owner));
+                main = value.getMainWindow(); owner = null;
+
                 main.showSwingWindow(owner, () -> {});
                 return value;
             });
@@ -138,7 +137,7 @@ class MousePopupUiSmokeTest {
             });
             assertNotNull(child, "Mouse must open the theme submenu");
             robot.keyPress(java.awt.event.KeyEvent.VK_ESCAPE); robot.keyRelease(java.awt.event.KeyEvent.VK_ESCAPE);
-            robot.waitForIdle(); Thread.sleep(100);
+            edt(() -> null); Thread.sleep(100);
             assertFalse(edt(child::isShowing));
             assertTrue(edt(root::isShowing));
             mouseRow(root, "主题");
@@ -177,7 +176,7 @@ class MousePopupUiSmokeTest {
             mouse(edt(() -> center(fontPicker)));
             assertTrue(edt(fontPicker::isPopupVisible));
             robot.keyPress(java.awt.event.KeyEvent.VK_ESCAPE);robot.keyRelease(java.awt.event.KeyEvent.VK_ESCAPE);
-            robot.waitForIdle();Thread.sleep(150);
+            edt(() -> null);Thread.sleep(150);
             assertFalse(edt(fontPicker::isPopupVisible), "Escape must dismiss the font popup");
             mouse(edt(() -> center(fontPicker)));
             assertTrue(edt(fontPicker::isPopupVisible));
@@ -221,36 +220,26 @@ class MousePopupUiSmokeTest {
             JTextField settingsSearch = edt(() -> (JTextField) named(dialog, "settings.search"));
             edt(() -> { settingsSearch.setText("快捷键"); return null; });
             Thread.sleep(300);
-            JTree actions=edt(()->(JTree)named(dialog,"settings.actionsTree"));
-            assertNotNull(actions);
-            var path=edt(()->actions.getPathForRow(1));
-            java.util.function.Supplier<JButton> recording=()->{
-                var node=path.getLastPathComponent();
-                Component row=actions.getCellRenderer().getTreeCellRendererComponent(actions,node,true,false,true,1,false);
-                return (JButton)named(row,"shortcut.app.newConnection.primary");
-            };
-            String oldBinding=edt(()->recording.get().getText());
-            java.util.function.Supplier<Point> keyPoint=()->{
-                Component row=recording.get();
-                // Renderer rows are not attached until editing, so use the tree row origin.
-                Point local=SwingUtilities.convertPoint(row,row.getWidth()/2,row.getHeight()/2,row.getParent().getParent());
-                Rectangle bounds=actions.getPathBounds(path);Point origin=actions.getLocationOnScreen();
-                origin.translate(bounds.x+local.x,bounds.y+local.y);return origin;
-            };
+            java.util.function.Supplier<JButton> recording = () ->
+                    (JButton) named(dialog, "shortcut.app.newConnection.primary");
+            assertNotNull(edt(recording::get));
+            String oldBinding = edt(() -> recording.get().getText());
+            java.util.function.Supplier<Point> keyPoint = () -> center(recording.get());
             mouse(edt(keyPoint));
             robot.keyPress(java.awt.event.KeyEvent.VK_ESCAPE); robot.keyRelease(java.awt.event.KeyEvent.VK_ESCAPE);
-            robot.waitForIdle(); Thread.sleep(200);
+            edt(() -> null); Thread.sleep(200);
             assertTrue(edt(dialog::isShowing), "Escape must cancel recording, not close settings");
             assertEquals(oldBinding, edt(()->recording.get().getText()));
             mouse(edt(keyPoint));
             robot.keyPress(java.awt.event.KeyEvent.VK_CONTROL); robot.keyPress(java.awt.event.KeyEvent.VK_SHIFT);
             robot.keyPress(java.awt.event.KeyEvent.VK_K); robot.keyRelease(java.awt.event.KeyEvent.VK_K);
             robot.keyRelease(java.awt.event.KeyEvent.VK_SHIFT); robot.keyRelease(java.awt.event.KeyEvent.VK_CONTROL);
-            robot.waitForIdle(); Thread.sleep(200);
+            edt(() -> null); Thread.sleep(200);
             var shortcuts = (com.jlshell.core.shortcut.ShortcutRegistry) field(main, "shortcutRegistry");
             assertEquals("ctrl shift K", fx(() -> shortcuts.getEffectivePrimary("app.newConnection")));
             JButton cancel = edt(() -> (JButton) named(dialog, "settings.cancel"));
             mouse(edt(() -> center(cancel)));
+            System.out.println("MOUSE_STEP settings-closed");
             fx(() -> null);
             edt(() -> null);
             var i18n = (com.jlshell.ui.service.I18nService) field(main, "i18nService");
@@ -268,14 +257,25 @@ class MousePopupUiSmokeTest {
                 }
                 return terminal;
             });
+            System.out.println("MOUSE_STEP terminal-created");
             Thread.sleep(400);
             for (AppTheme theme : java.util.List.of(AppTheme.DARK, AppTheme.LIGHT)) {
+                System.out.println("MOUSE_STEP terminal-theme " + theme);
                 fx(() -> { themes.setTheme(theme); return null; });
                 Thread.sleep(200);
+                edt(() -> {
+                    assertTrue(workbench.frame().isEnabled());
+                    assertTrue(widget.getTerminalPanel().isShowing());
+                    workbench.frame().toFront();
+                    widget.getTerminalPanel().requestFocusInWindow();
+                    return null;
+                });
                 Point terminalPoint = edt(() -> center(widget.getTerminalPanel()));
+                mouse(terminalPoint);
+                System.out.println("MOUSE_STEP terminal-focused " + theme);
                 robot.mouseMove(terminalPoint.x, terminalPoint.y);
                 robot.mousePress(InputEvent.BUTTON3_DOWN_MASK); robot.mouseRelease(InputEvent.BUTTON3_DOWN_MASK);
-                robot.waitForIdle(); Thread.sleep(200);
+                edt(() -> null); Thread.sleep(200);
                 IdeaListPopup terminalMenu = popup();
                 mouseRow(terminalMenu, "全选");
                 assertNotNull(edt(() -> widget.getTerminalPanel().getSelection()), "Terminal menu must execute the original Select All action");
@@ -289,7 +289,7 @@ class MousePopupUiSmokeTest {
             });
             robot.mouseMove(thumb.x, thumb.y); robot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
             for (int delta = 0; delta < 140; delta += 7) robot.mouseMove(thumb.x, thumb.y - delta);
-            robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK); robot.waitForIdle();
+            robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK); edt(() -> null);
             assertTrue(edt(bar::getValue) < before, "Real mouse thumb dragging must move terminal history");
             if (com.formdev.flatlaf.util.SystemInfo.isMacOS) {
                 assertTrue(fx(com.jlshell.ui.swing.MacMenuBridge::isInstalled));

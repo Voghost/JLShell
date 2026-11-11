@@ -65,6 +65,24 @@ public record TerminalColorScheme(
         };
     }
 
+    /** Classify built-in and custom schemes by their actual background, independent of name. */
+    public boolean isLight() {
+        double luminance = 0;
+        int[] channels = {background.getRed(), background.getGreen(), background.getBlue()};
+        double[] weights = {.2126, .7152, .0722};
+        for (int i = 0; i < channels.length; i++) {
+            double c = channels[i] / 255.0;
+            luminance += weights[i] * (c <= .04045 ? c / 12.92 : Math.pow((c + .055) / 1.055, 2.4));
+        }
+        return luminance > .5;
+    }
+
+    public TerminalColorScheme withOpacity(double value) {
+        return new TerminalColorScheme(name, background, foreground, cursorColor, selectionBackground, selectionForeground,
+                hyperlinkColor, searchMatchBackground, searchMatchForeground, black, red, green, yellow, blue, purple,
+                cyan, white, brightBlack, brightRed, brightGreen, brightYellow, brightBlue, brightPurple, brightCyan, brightWhite, value);
+    }
+
     public static TerminalColorScheme dark() {
         return new TerminalColorScheme(
                 "JLShell Bright",

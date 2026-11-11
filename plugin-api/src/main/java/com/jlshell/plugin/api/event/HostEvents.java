@@ -6,7 +6,7 @@ import com.jlshell.plugin.api.lifecycle.Registration;
 
 /**
  * 插件只读的宿主事件订阅入口。事件只能由宿主发布，监听器在发布事件的线程同步执行；
- * 需要更新 JavaFX UI 的插件应自行切换到 FX Application Thread。
+ * 需要更新 Swing 界面的插件应自行切换到 EDT。
  */
 public interface HostEvents {
 

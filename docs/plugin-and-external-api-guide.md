@@ -19,7 +19,7 @@
   同版本的 `net.oomn.jlshell:program-api`。两者都必须使用 `provided` scope。
 - 每个插件的 `id()` 必须是稳定且唯一的反向域名，例如 `com.example.deploy-tools`。它同时是能力路由键和私有存储命名空间，发布后不要随意修改。
 - 必须提供名称、版本、描述和宿主兼容范围。兼容范围为空会在插件页显示警告；不在范围内会显示不兼容。
-- 所有可能阻塞的 SSH、文件、网络或计算工作都必须异步执行，不能阻塞 JavaFX UI 线程。
+- 所有可能阻塞的 SSH、文件、网络或计算工作都必须异步执行，不能阻塞 Swing EDT。
 - 宿主会在停用插件时清理其已注册能力。插件仍应在 `deactivate()` 中关闭自身线程、订阅、交互式会话和 UI 资源；手动 `unregister` 是可选的提前清理。
 - 外部插件安装或替换 JAR 后重启 JLShell。插件扫描是惰性的，但已完成扫描的进程不会自动发现之后复制的新 JAR。
 
@@ -84,7 +84,7 @@ com.example.deploy.DeployToolsPlugin
 - `logViewer()`：读取末尾日志或 follow 日志。
 - `serverStatus()`：CPU、内存、磁盘、进程状态。
 
-所有以上操作均是异步 API。UI 更新必须切回 JavaFX 线程，例如 `Platform.runLater(...)`。
+所有以上操作均是异步 API。UI 更新必须切回 Swing EDT，例如 `SwingUtilities.invokeLater(...)`。
 
 ### 3.3 注册会话能力
 
@@ -159,7 +159,7 @@ public final class AgentBridgePlugin implements JlShellProgramPlugin {
 
 程序插件的 `ProgramPluginContext` 提供全局 `capabilityRegistry()`、`capabilityBus()`、私有 `storage()`、主题/语言/i18n、日志和通知。Program 插件本体没有固定 SSH 上下文；SDK 1.1.0 起可以通过 `sessionIntegration()` 注册一个会话贡献，由宿主在用户打开该贡献时提供生命周期受控的 `PluginContext` 和 `SshSessionContext`。
 
-程序插件可覆写 `settingsView(ProgramPluginContext)` 返回 JavaFX `Node`，其设置页会展示在“偏好设置 → Plugins”。不要在该方法中执行阻塞操作。
+程序插件可覆写 `settingsView(ProgramPluginContext)` 返回 `Supplier<JComponent>` 原生 Swing 工厂，其设置页会展示在“偏好设置 → Plugins”。不要在该方法中执行阻塞操作。
 
 ### 4.2 单一 Program 插件扩展 SSH 会话（SDK 1.1.0）
 
@@ -365,8 +365,8 @@ curl --fail-with-body \
 
 可直接以现有 demos 为模板。一个插件项目至少应：
 
-1. 依赖 `net.oomn.jlshell:plugin-api`；使用 JavaFX UI 时也依赖 `javafx-controls`。
-2. 生成含自身第三方依赖的 fat JAR，但不要把 `plugin-api`、JavaFX 或 SLF4J 打进 JAR（否则会造成宿主类加载冲突）。仓库 `plugins/pom.xml` 已提供 Shade 配置示例。
+1. 依赖 `net.oomn.jlshell:plugin-api`，页面通过 `Supplier<JComponent>` 在 Swing EDT 创建。
+2. 生成含自身第三方依赖的 fat JAR，但不要把 `plugin-api` 或 SLF4J 打进 JAR（否则会造成宿主类加载冲突）。仓库 `plugins/pom.xml` 已提供 Shade 配置示例。
 3. 在 `META-INF/services/` 中登记正确 SPI。
 4. 将会话插件 JAR 放到 `~/.jlshell/plugins/`，程序插件 JAR 放到 `~/.jlshell/program-plugins/`，然后重启。
 

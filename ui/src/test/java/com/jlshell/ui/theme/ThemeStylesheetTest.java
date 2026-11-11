@@ -1,21 +1,24 @@
 package com.jlshell.ui.theme;
 
-import javafx.css.CssParser;
+import com.jlshell.terminal.support.SwingExecutors;
+import com.jlshell.ui.swing.SwingTheme;
 import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 class ThemeStylesheetTest {
-
-    @Test
-    void bothPalettesAndSharedComponentsParseWithoutErrors() throws Exception {
-        CssParser.errorsProperty().clear();
-        for (String file : new String[]{"/css/dark-theme.css", "/css/light-theme.css", "/css/components.css"}) {
-            var resource = getClass().getResource(file);
-            assertNotNull(resource, file);
-            new CssParser().parse(resource);
-        }
-        assertTrue(CssParser.errorsProperty().isEmpty(), () -> CssParser.errorsProperty().toString());
+    @Test void bothNativePalettesProvideReadableTextAndSharedColors() throws Exception {
+        SwingExecutors.runOnEdtAsync(() -> {
+            for (AppTheme theme : AppTheme.values()) {
+                SwingTheme.install(theme, "#3574f0", null, 13);
+                var text = javax.swing.UIManager.getColor("Label.foreground");
+                var background = javax.swing.UIManager.getColor("Panel.background");
+                assertNotNull(text); assertNotNull(background);
+                assertTrue(Math.abs(luminance(text) - luminance(background)) > .35);
+                assertNotNull(SwingTheme.color("secondary"));
+            }
+        }).get(10, java.util.concurrent.TimeUnit.SECONDS);
+    }
+    private static double luminance(java.awt.Color color) {
+        return (.2126 * color.getRed() + .7152 * color.getGreen() + .0722 * color.getBlue()) / 255;
     }
 }

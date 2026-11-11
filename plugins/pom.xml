@@ -23,7 +23,6 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <plugin-api.version>0.1.0.RELEASE</plugin-api.version>
         <program-api.version>0.1.0.RELEASE</program-api.version>
-        <javafx.version>21.0.11</javafx.version>
     </properties>
 
     <dependencyManagement>
@@ -37,11 +36,6 @@
                 <groupId>net.oomn.jlshell</groupId>
                 <artifactId>program-api</artifactId>
                 <version>${program-api.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.openjfx</groupId>
-                <artifactId>javafx-controls</artifactId>
-                <version>${javafx.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.github.oshi</groupId>

@@ -25,13 +25,14 @@ def main():
             classpath = prop.attrib["value"]
             break
     if not classpath or not (root / "app/target/test-classes/com/jlshell/app/WorkbenchPerformanceProbe.class").is_file():
-        parser.error("Run mvn -pl app,launcher -am test with JDK 21 first")
+        parser.error("Run mvn -pl app,launcher -am test with JDK 25 first")
     java_home = os.environ.get("JAVA_HOME")
     java = str(Path(java_home) / "bin/java") if java_home else "java"
     output = args.output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="jlshell-performance-") as temporary:
-        command = [java, "-Xms32m", "-Xmx512m", "-XX:+UseG1GC", "-XX:+ExplicitGCInvokesConcurrent",
+        command = [java, "-Xms32m", "-Xmx512m", "-XX:+UseG1GC", "-XX:+UseCompactObjectHeaders", "--enable-native-access=ALL-UNNAMED",
+                   "-XX:+ExplicitGCInvokesConcurrent",
                    "-XX:G1PeriodicGCInterval=30000", "-XX:MinHeapFreeRatio=20", "-XX:MaxHeapFreeRatio=40",
                    "--add-exports=java.desktop/sun.swing=ALL-UNNAMED",
                    "--add-opens=java.desktop/sun.swing=ALL-UNNAMED",

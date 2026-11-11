@@ -10,6 +10,7 @@ public final class TerminalFontResolver {
     private TerminalFontResolver() {}
     private static final Set<String> AVAILABLE = Set.of(GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames());
     public static boolean isChinese(int codePoint) {
+        if (codePoint < 0x2E80) return false;
         Character.UnicodeBlock block = Character.UnicodeBlock.of(codePoint);
         return Character.UnicodeScript.of(codePoint) == Character.UnicodeScript.HAN
                 || block == Character.UnicodeBlock.CJK_SYMBOLS_AND_PUNCTUATION

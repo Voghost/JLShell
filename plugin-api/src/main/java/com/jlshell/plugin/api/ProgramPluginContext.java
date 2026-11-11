@@ -1,5 +1,7 @@
 package com.jlshell.plugin.api;
 
+import com.jlshell.plugin.api.ui.ObservableValue;
+
 import java.util.Locale;
 
 import com.jlshell.plugin.api.rpc.CapabilityBus;
@@ -12,18 +14,18 @@ import com.jlshell.plugin.api.session.ProgramSessionIntegration;
 import com.jlshell.plugin.api.storage.PluginStorage;
 import com.jlshell.plugin.api.storage.SecureStorage;
 import com.jlshell.program.api.AccountSessionService;
-import javafx.beans.property.ReadOnlyObjectProperty;
-import javafx.beans.property.ReadOnlyStringProperty;
+
+
 
 public interface ProgramPluginContext extends com.jlshell.plugin.api.ui.FontAwareContext {
 
     String themeName();
 
-    ReadOnlyStringProperty themeNameProperty();
+    ObservableValue<String> themeNameProperty();
 
     Locale locale();
 
-    ReadOnlyObjectProperty<Locale> localeProperty();
+    ObservableValue<Locale> localeProperty();
 
     CapabilityRegistry capabilityRegistry();
 

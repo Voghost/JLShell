@@ -13,12 +13,12 @@ import com.jlshell.plugin.api.rpc.CapabilityBus;
 import com.jlshell.plugin.api.rpc.SessionPluginActivator;
 import com.jlshell.plugin.api.storage.PluginStorage;
 import com.jlshell.sftp.service.SftpService;
-import javafx.application.Platform;
+import javax.swing.SwingUtilities;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * 供外部 API 使用的会话插件激活器：在 JavaFX 线程中调用插件生命周期，
+ * 供外部 API 使用的会话插件激活器：在 Swing EDT 中调用插件生命周期，
  * 但不给用户创建/选中任何插件标签页。
  */
 public final class HeadlessSessionPluginActivator implements SessionPluginActivator {
@@ -66,14 +66,14 @@ public final class HeadlessSessionPluginActivator implements SessionPluginActiva
                 result.completeExceptionally(error);
             }
         };
-        if (Platform.isFxApplicationThread()) {
+        if (SwingUtilities.isEventDispatchThread()) {
             cleanup.run();
         } else {
             try {
-                Platform.runLater(cleanup);
+                SwingUtilities.invokeLater(cleanup);
             } catch (IllegalStateException platformUnavailable) {
                 result.completeExceptionally(new IllegalStateException(
-                        "JLShell JavaFX runtime is not available for plugin cleanup", platformUnavailable));
+                        "JLShell Swing dispatcher is not available for plugin cleanup", platformUnavailable));
             }
         }
         return result;
@@ -106,27 +106,27 @@ public final class HeadlessSessionPluginActivator implements SessionPluginActiva
         Runnable activation = () -> {
             try {
                 if (!pluginManager.isPluginActive(sessionId, pluginId)) {
-                    activateOnFxThread(descriptor, sessionId, session);
+                    activateOnEdt(descriptor, sessionId, session);
                 }
                 result.complete(null);
             } catch (Throwable error) {
                 result.completeExceptionally(error);
             }
         };
-        if (Platform.isFxApplicationThread()) {
+        if (SwingUtilities.isEventDispatchThread()) {
             activation.run();
         } else {
             try {
-                Platform.runLater(activation);
+                SwingUtilities.invokeLater(activation);
             } catch (IllegalStateException platformUnavailable) {
                 result.completeExceptionally(new IllegalStateException(
-                        "JLShell JavaFX runtime is not available for plugin activation", platformUnavailable));
+                        "JLShell Swing dispatcher is not available for plugin activation", platformUnavailable));
             }
         }
         return result;
     }
 
-    private void activateOnFxThread(PluginDescriptor descriptor, String sessionId, SshSession session) {
+    private void activateOnEdt(PluginDescriptor descriptor, String sessionId, SshSession session) {
         Optional<SshSessionContext> sshContext = Optional.of(new SshSessionContextAdapter(session, sftpService));
         PluginStorage storage = storageFactory == null ? null : storageFactory.apply(descriptor.id());
         DefaultPluginContext context = new DefaultPluginContext(
@@ -141,7 +141,7 @@ public final class HeadlessSessionPluginActivator implements SessionPluginActiva
 
     /** API 驱动时不展示 UI；仍提供安全的 i18n fallback，供非 UI 插件使用。 */
     private static final class HeadlessCallbacks implements DefaultPluginContext.Callbacks {
-        @Override public void openTab(String title, javafx.scene.Node content) {}
+        @Override public void openTab(String title, java.util.function.Supplier<javax.swing.JComponent> content) {}
         @Override public void closeTab() {}
         @Override public void updateTabTitle(String title) {}
         @Override public String resolveI18n(String key, String fallback) { return fallback; }

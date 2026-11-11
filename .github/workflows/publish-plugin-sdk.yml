@@ -10,7 +10,7 @@ on:
       sdkVersion:
         description: Immutable Maven SDK version
         required: true
-        default: 1.4.0
+        default: 2.0.0
 
 permissions:
   contents: read
@@ -26,23 +26,29 @@ jobs:
           ref: ${{ inputs.sourceRef }}
           fetch-depth: 0
 
-      - name: Require source to be merged into main
+      - name: Require merged source or an immutable SDK candidate
         shell: bash
+        env:
+          SDK_SOURCE_REF: ${{ inputs.sourceRef }}
         run: |
+          if [[ "$SDK_SOURCE_REF" =~ ^[0-9a-fA-F]{40}$ ]] && [[ "$(git rev-parse HEAD)" == "${SDK_SOURCE_REF,,}" ]]; then
+            echo "Publishing the explicitly selected immutable SDK candidate $(git rev-parse HEAD)"
+            exit 0
+          fi
           if ! git show-ref --verify --quiet refs/remotes/origin/main; then
             echo "origin/main is unavailable in the checkout" >&2
             exit 1
           fi
           if ! git merge-base --is-ancestor HEAD refs/remotes/origin/main; then
-            echo "sourceRef must resolve to a commit already merged into main" >&2
+            echo "sourceRef must be merged into main or be a full immutable commit SHA" >&2
             exit 1
           fi
 
-      - name: Set up JDK 21 and Maven credentials
+      - name: Set up JDK 25 and Maven credentials
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
           cache: maven
           server-id: github
           server-username: GITHUB_ACTOR

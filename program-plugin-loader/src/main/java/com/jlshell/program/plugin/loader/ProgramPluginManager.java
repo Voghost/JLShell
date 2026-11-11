@@ -1,5 +1,8 @@
 package com.jlshell.program.plugin.loader;
 
+import com.jlshell.core.support.MutableValue;
+import com.jlshell.plugin.api.ui.ObservableValue;
+
 import java.net.URL;
 import java.net.URLClassLoader;
 import com.jlshell.core.support.PerformanceTrace;
@@ -36,10 +39,6 @@ import com.jlshell.plugin.loader.store.PluginPackageValidator;
 import com.jlshell.program.api.ProgramApiContext;
 import com.jlshell.program.api.ProgramApiProvider;
 import com.jlshell.program.api.AccountSessionService;
-import javafx.beans.property.ObjectProperty;
-import javafx.beans.property.SimpleObjectProperty;
-import javafx.beans.property.SimpleStringProperty;
-import javafx.beans.property.StringProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -68,8 +67,8 @@ public class ProgramPluginManager {
             Collections.newSetFromMap(new IdentityHashMap<>());
     private volatile boolean loaded;
 
-    private final StringProperty themeName = new SimpleStringProperty("dark");
-    private final ObjectProperty<Locale> locale = new SimpleObjectProperty<>(Locale.getDefault());
+    private final MutableValue<String> themeName = new MutableValue<>("dark");
+    private final MutableValue<Locale> locale = new MutableValue<>(Locale.getDefault());
 
     public ProgramPluginManager(String userPluginsDir, String hostVersion,
                                 PluginManager pluginManager,
@@ -227,6 +226,9 @@ public class ProgramPluginManager {
                 } catch (Exception error) {
                     jarTiming.failed(error);
                     log.warn("Failed to load program plugin JAR: {}", jarPath.getFileName(), error);
+                } catch (LinkageError | java.util.ServiceConfigurationError error) {
+                    jarTiming.failed(error);
+                    log.warn("Cannot load incompatible plugin JAR {}. Rebuild it against the current Swing SDK.", jarPath.getFileName(), error);
                 } catch (Error error) { jarTiming.failed(error); throw error; }
             }
         }
@@ -360,11 +362,11 @@ public class ProgramPluginManager {
         List.copyOf(active.keySet()).forEach(this::deactivatePlugin);
     }
 
-    public StringProperty themeNameProperty() {
+    public MutableValue<String> themeNameProperty() {
         return themeName;
     }
 
-    public ObjectProperty<Locale> localeProperty() {
+    public MutableValue<Locale> localeProperty() {
         return locale;
     }
 

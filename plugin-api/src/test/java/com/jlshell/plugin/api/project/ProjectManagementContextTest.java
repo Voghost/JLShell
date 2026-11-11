@@ -4,14 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.junit.jupiter.api.Test;
 
-import javafx.beans.property.SimpleStringProperty;
+import com.jlshell.plugin.api.ui.ObservableValue;
 
 class ProjectManagementContextTest {
 
     @Test
     void exposesProjectIdentityAndIsolatesTemporaryState() {
-        SimpleStringProperty name = new SimpleStringProperty("Remote");
-        SimpleStringProperty description = new SimpleStringProperty("Production servers");
+        var name = ObservableValue.constant("Remote");
+        var description = ObservableValue.constant("Production servers");
         ProjectManagementContext context = new ProjectManagementContext("project-1", name, description);
 
         context.putState("link.enabled", "true");

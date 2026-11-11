@@ -11,7 +11,7 @@ import com.jlshell.core.model.FontProfile;
 import com.jlshell.core.model.SessionId;
 import com.jlshell.terminal.model.TerminalColorScheme;
 import com.jlshell.terminal.service.TerminalViewHandle;
-import javafx.beans.property.StringProperty;
+import com.jlshell.plugin.api.lifecycle.Registration;
 
 /**
  * JediTerm 终端句柄默认实现。
@@ -57,8 +57,7 @@ public class DefaultTerminalViewHandle implements TerminalViewHandle {
 
     @Override
     public void requestFocus() {
-        // 焦点切换通常由 JavaFX 事件触发，如果这里同步等待 EDT，
-        // 在 macOS 的 SwingNode 桥接场景下容易形成 UI 线程互相等待。
+        // 焦点操作异步交给 EDT，避免阻塞发起操作的业务线程。
         SwingExecutors.runOnEdtAsync(() -> {
             widget.requestFocus();
             widget.requestFocusInWindow();
@@ -146,11 +145,16 @@ public class DefaultTerminalViewHandle implements TerminalViewHandle {
     }
 
     @Override
-    public StringProperty cwdProperty() {
-        return ttyConnector.cwdProperty();
+    public String currentDirectory() {
+        return ttyConnector.currentDirectory();
     }
 
-    /** 注册连接断开回调，回调在 JavaFX 应用线程执行。 */
+    @Override
+    public Registration onDirectoryChanged(Consumer<String> listener) {
+        return ttyConnector.onDirectoryChanged(listener);
+    }
+
+    /** 注册连接断开回调，回调在 Swing EDT 执行。 */
     public void setOnDisconnected(Consumer<ShellTtyConnector.DisconnectReason> callback) {
         ttyConnector.setOnDisconnected(callback);
     }

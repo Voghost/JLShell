@@ -8,7 +8,7 @@ spec = importlib.util.spec_from_file_location('slim', Path(__file__).with_name('
 slim = importlib.util.module_from_spec(spec); spec.loader.exec_module(slim)
 
 class SlimDistributionTest(unittest.TestCase):
-    def test_native_matrix_and_provided_javafx_preserve_runtime_contract(self):
+    def test_native_matrix_preserves_swing_runtime_contract(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory); source=root/'source.jar'
             entries={'META-INF/MANIFEST.MF':b'Manifest-Version: 1.0\n',
@@ -16,15 +16,13 @@ class SlimDistributionTest(unittest.TestCase):
                      'META-INF/LICENSE':b'license', 'icons/brand/jlshell.png':b'brand',
                      'icons/app_icon.png':b'duplicate', 'com/jlshell/app/Launcher.class':b'app',
                      'com/sun/jna/aix-ppc64/libjnidispatch.a':b'unsupported',
-                     'javafx/application/Application.class':b'fx', 'org/bouncycastle/reflective.class':b'keep'}
+                     'org/bouncycastle/reflective.class':b'keep'}
             for os,arch in [('Mac','aarch64'),('Mac','x86_64'),('Linux','x86_64'),('Windows','x86_64'),('Linux-Android','arm')]:
                 entries[f'org/sqlite/native/{os}/{arch}/native.so']=b'native'
             with zipfile.ZipFile(source,'w') as z:
                 for name,data in entries.items():z.writestr(name,data)
-            deps=root/'javafx-graphics/21';deps.mkdir(parents=True)
-            with zipfile.ZipFile(deps/'javafx.jar','w') as z:z.writestr('javafx/application/Application.class',b'fx')
             for target in ['universal',*slim.TARGETS]:
-                output=root/(target+'.jar');slim.slim(source,output,target,root if target!='universal' else None)
+                output=root/(target+'.jar');slim.slim(source,output,target)
                 with zipfile.ZipFile(output) as z:
                     names=set(z.namelist())
                     self.assertIn('META-INF/LICENSE',names);self.assertIn('META-INF/services/java.sql.Driver',names)
@@ -32,7 +30,16 @@ class SlimDistributionTest(unittest.TestCase):
                     self.assertNotIn('icons/app_icon.png',names)
                     self.assertNotIn('com/sun/jna/aix-ppc64/libjnidispatch.a',names)
                     self.assertFalse(any('Android' in n for n in names))
-                    self.assertEqual(target=='universal','javafx/application/Application.class' in names)
+                    self.assertNotIn('javafx/application/Application.class',names)
                     self.assertEqual(4 if target=='universal' else 1,len([n for n in names if n.startswith('org/sqlite/native/')]))
+
+    def test_rejects_accidental_javafx_dependency(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'source.jar'
+            with zipfile.ZipFile(source, 'w') as archive:
+                archive.writestr('javafx/application/Application.class', b'fx')
+            with self.assertRaisesRegex(ValueError, 'Unexpected JavaFX'):
+                slim.slim(source, root / 'output.jar')
 
 if __name__=='__main__':unittest.main()

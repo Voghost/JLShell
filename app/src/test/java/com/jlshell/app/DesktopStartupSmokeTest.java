@@ -1,6 +1,6 @@
 package com.jlshell.app;
 
-import javafx.application.Platform;
+import com.jlshell.ui.support.UiThread;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.junit.jupiter.api.io.TempDir;
@@ -42,7 +42,7 @@ class DesktopStartupSmokeTest {
             assertTrue(read(log).contains("DESKTOP_STARTUP_READY"), () -> read(log));
             assertTrue(read(log).contains("operation=startup subject=desktop stage=total event=end outcome=workbench-first-paint"),
                     () -> "Startup must measure actual Swing painting:\n" + read(log));
-            assertTrue(read(log).contains("stage=javafx-toolkit-bootstrap#"), () -> read(log));
+            assertFalse(read(log).contains("JavaFX Application Thread"), () -> read(log));
             assertTrue(read(log).contains("stage=database-schema#"), () -> read(log));
         } finally {
             if (process.isAlive()) {
@@ -70,9 +70,6 @@ class DesktopStartupSmokeTest {
             int healthyPulses = 0;
             while (System.nanoTime() < deadline) {
                 try {
-                    var fx = new CompletableFuture<Boolean>();
-                    Platform.runLater(() -> fx.complete(javafx.stage.Window.getWindows().stream()
-                            .noneMatch(javafx.stage.Window::isShowing)));
                     var awt = new CompletableFuture<JFrame>();
                     SwingUtilities.invokeLater(() -> {
                         boolean trayReady = !SystemTray.isSupported()
@@ -83,7 +80,8 @@ class DesktopStartupSmokeTest {
                                 .findFirst().orElse(null) : null;
                         awt.complete(frame);
                     });
-                    boolean splashClosed = fx.get(1, TimeUnit.SECONDS);
+                    boolean splashClosed = !com.jlshell.ui.support.UiThread.supplyAsync(() -> Arrays.stream(Window.getWindows())
+                            .anyMatch(window -> window.isShowing() && window instanceof javax.swing.JWindow)).get(1, TimeUnit.SECONDS);
                     JFrame frame = awt.get(1, TimeUnit.SECONDS);
                     if (splashClosed && frame != null && ++healthyPulses >= 3) {
                         System.out.println("DESKTOP_STARTUP_READY: splash closed, FX/EDT responsive, tray ready");
