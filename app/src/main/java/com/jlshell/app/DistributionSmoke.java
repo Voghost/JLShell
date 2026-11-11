@@ -4,8 +4,9 @@ package com.jlshell.app;
 public final class DistributionSmoke {
     public static void main(String[] args) throws Exception {
         System.setProperty("user.home", java.nio.file.Files.createTempDirectory("jlshell-distribution-smoke-").toString());
-        if (!javafx.application.Application.class.getModule().isNamed())
-            throw new IllegalStateException("JavaFX must be supplied by the linked runtime");
+        if (DistributionSmoke.class.getClassLoader().getResource("javafx/application/Application.class") != null
+                || ModuleLayer.boot().modules().stream().anyMatch(module -> module.getName().startsWith("javafx.")))
+            throw new IllegalStateException("Distribution contains unexpected JavaFX runtime classes");
         Class.forName("com.jlshell.ui.swing.SwingWorkbench");
         Class.forName("org.bouncycastle.jce.provider.BouncyCastleProvider");
         if (com.sun.jna.Native.POINTER_SIZE != 8) throw new IllegalStateException("Expected 64-bit native runtime");
@@ -19,6 +20,6 @@ public final class DistributionSmoke {
             if (!process.waitFor(15, java.util.concurrent.TimeUnit.SECONDS) || process.exitValue() != 0)
                 throw new IllegalStateException("Native terminal PTY smoke failed");
         } finally { process.destroyForcibly(); }
-        System.out.println("Distribution smoke passed: modular JavaFX, Swing, JDBC/SQLite, SSH crypto, JNA, native PTY");
+        System.out.println("Distribution smoke passed: Swing-only UI, JDBC/SQLite, SSH crypto, JNA, native PTY");
     }
 }

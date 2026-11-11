@@ -24,10 +24,6 @@
             <groupId>net.oomn.jlshell</groupId>
             <artifactId>plugin-api</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.openjfx</groupId>
-            <artifactId>javafx-controls</artifactId>
-        </dependency>
     </dependencies>
 
     <build>

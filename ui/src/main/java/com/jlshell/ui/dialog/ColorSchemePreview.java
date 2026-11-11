@@ -1,92 +1,39 @@
 package com.jlshell.ui.dialog;
 
 import com.jlshell.terminal.model.TerminalColorScheme;
-import javafx.geometry.Insets;
-import javafx.geometry.Pos;
-import javafx.scene.layout.HBox;
-import javafx.scene.layout.VBox;
-import javafx.scene.layout.Background;
-import javafx.scene.layout.BackgroundFill;
-import javafx.scene.layout.CornerRadii;
-import javafx.scene.paint.Color;
-import javafx.scene.shape.Rectangle;
-import javafx.scene.text.Font;
-import javafx.scene.text.Text;
-import javafx.scene.text.TextFlow;
+import javax.swing.JComponent;
+import java.awt.*;
 
-/**
- * 终端配色方案预览组件。
- * 显示缩略版终端输出：背景 + 前景文字 + 16 色 ANSI 色块。
- */
-public class ColorSchemePreview extends VBox {
+/** Native terminal sample with ANSI colors and an opaque text layer. */
+public final class ColorSchemePreview extends JComponent {
+    private TerminalColorScheme scheme = TerminalColorScheme.dark();
+    public ColorSchemePreview() { setPreferredSize(new Dimension(420, 114)); }
+    public void update(TerminalColorScheme value) { if (value != null) { scheme = value; repaint(); } }
 
-    private final VBox terminalBox;
-    private final TextFlow sampleText;
-    private final HBox colorRow1;
-    private final HBox colorRow2;
-    private final Text prompt = new Text("user@host ~ $ ");
-    private final Text command = new Text("ls");
-    private final Rectangle[] swatches = new Rectangle[16];
-    private final Text directory = new Text("\nDocuments/   ");
-    private final Text filename = new Text("README.md\n");
-    private final Text info = new Text("INFO connected   ");
-    private final Text warning = new Text("WARN retry   ");
-    private final Text error = new Text("ERROR timeout\n");
-
-    public ColorSchemePreview() {
-        setSpacing(4);
-        setPadding(new Insets(8));
-
-        terminalBox = new VBox(4);
-        terminalBox.setPadding(new Insets(6));
-
-        sampleText = new TextFlow();
-        sampleText.setMaxWidth(Double.MAX_VALUE);
-        prompt.setFont(Font.font("Monospaced", 11));
-        command.setFont(Font.font("Monospaced", 11));
-        sampleText.getChildren().addAll(prompt, command, directory, filename, info, warning, error);
-        for (Text text : new Text[]{directory, filename, info, warning, error}) text.setFont(Font.font("Monospaced", 12));
-
-        colorRow1 = new HBox(2);
-        colorRow1.setAlignment(Pos.CENTER_LEFT);
-        colorRow2 = new HBox(2);
-        colorRow2.setAlignment(Pos.CENTER_LEFT);
-        for (int i = 0; i < swatches.length; i++) {
-            swatches[i] = new Rectangle(16, 12);
-            swatches[i].setStyle("-fx-stroke:derive(-fx-text-fill,40%);-fx-stroke-width:0.5;");
-            (i < 8 ? colorRow1 : colorRow2).getChildren().add(swatches[i]);
-        }
-
-        terminalBox.getChildren().addAll(sampleText, colorRow1, colorRow2);
-        getChildren().add(terminalBox);
+    @Override protected void paintComponent(Graphics graphics) {
+        Graphics2D g = (Graphics2D) graphics.create();
+        try {
+            g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            g.setComposite(AlphaComposite.SrcOver.derive((float) scheme.opacity()));
+            g.setColor(scheme.background()); g.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
+            g.setComposite(AlphaComposite.SrcOver);
+            g.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+            int x = fragment(g, "user@host ~ $ ", scheme.foreground(), 12, 22);
+            fragment(g, "ls", scheme.green(), x, 22);
+            x = fragment(g, "Documents/  ", scheme.blue(), 12, 40);
+            fragment(g, "README.md", scheme.foreground(), x, 40);
+            x = fragment(g, "INFO connected  ", scheme.cyan(), 12, 58);
+            x = fragment(g, "WARN retry  ", scheme.yellow(), x, 58);
+            fragment(g, "ERROR timeout", scheme.red(), x, 58);
+            Color[] colors = scheme.ansiColors();
+            for (int index = 0; index < colors.length; index++) {
+                g.setColor(colors[index]); g.fillRect(12 + (index % 8) * 20, 70 + (index / 8) * 17, 17, 14);
+            }
+        } finally { g.dispose(); }
     }
 
-    public void update(TerminalColorScheme scheme) {
-        if (scheme == null) return;
-
-        Color bg = toFxColor(scheme.background(), scheme.opacity());
-        Color fg = toFxColor(scheme.foreground(), 1.0);
-
-        // 拖动仅更新绘制属性，避免逐帧格式化 CSS 并重新运行样式解析/布局。
-        terminalBox.setBackground(new Background(new BackgroundFill(bg, new CornerRadii(4), Insets.EMPTY)));
-
-        // Sample text
-        prompt.setFill(fg);
-        command.setFill(toFxColor(scheme.green(), 1.0));
-        directory.setFill(toFxColor(scheme.blue(), 1));
-        filename.setFill(fg);
-        info.setFill(toFxColor(scheme.cyan(), 1));
-        warning.setFill(toFxColor(scheme.yellow(), 1));
-        error.setFill(toFxColor(scheme.red(), 1));
-        java.awt.Color[] colors = {scheme.black(), scheme.red(), scheme.green(), scheme.yellow(), scheme.blue(),
-                scheme.purple(), scheme.cyan(), scheme.white(), scheme.brightBlack(), scheme.brightRed(),
-                scheme.brightGreen(), scheme.brightYellow(), scheme.brightBlue(), scheme.brightPurple(),
-                scheme.brightCyan(), scheme.brightWhite()};
-        for (int i = 0; i < swatches.length; i++) swatches[i].setFill(toFxColor(colors[i], 1.0));
+    private static int fragment(Graphics2D g, String text, Color color, int x, int y) {
+        g.setColor(color); g.drawString(text, x, y);
+        return x + g.getFontMetrics().stringWidth(text);
     }
-
-    private static Color toFxColor(java.awt.Color c, double opacity) {
-        return new Color(c.getRed() / 255.0, c.getGreen() / 255.0, c.getBlue() / 255.0, opacity);
-    }
-
 }

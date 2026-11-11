@@ -40,8 +40,23 @@ public final class BootstrapLauncher {
 
     public static void main(String[] args) {
         try {
+            List<String> applicationArguments = new ArrayList<>();
+            for (String argument : args) {
+                if (argument.startsWith("--jlshell-restart-parent=")) {
+                    System.setProperty("jlshell.restart.parentPid", argument.substring("--jlshell-restart-parent=".length()));
+                } else applicationArguments.add(argument);
+            }
+            args = applicationArguments.toArray(String[]::new);
+            String restartParent = System.getenv("JLSHELL_RESTART_PARENT_PID");
+            if (System.getProperty("jlshell.restart.parentPid", "").isBlank()
+                    && restartParent != null && restartParent.matches("[0-9]+")) {
+                System.setProperty("jlshell.restart.parentPid", restartParent);
+            }
             if (PreviewRuntime.enabled()) PreviewRuntime.configure();
             configureMacApplicationName();
+            if ("true".equalsIgnoreCase(System.getenv("JLSHELL_RUNTIME_ISOLATED"))) {
+                System.setProperty(ISOLATED_RUNTIME_PROPERTY, "true");
+            }
             if (relaunchWithIsolatedWindowsRuntime(args)) {
                 return;
             }
@@ -63,10 +78,10 @@ public final class BootstrapLauncher {
     }
 
     /**
-     * Relaunch on Windows with a deterministic DLL search path before JavaFX is
+     * Relaunch on Windows with a deterministic DLL search path before AWT is
      * initialized. The jpackage launcher already selects the bundled JVM, but
-     * Windows can still resolve glass.dll from an old Java installation on the
-     * user's PATH. A fresh javaw process is required because changing
+     * Windows can still resolve AWT or font DLLs from an old Java installation on the
+     * user's PATH. A fresh process with a sanitized environment is required because changing
      * java.library.path after JVM startup does not reliably change native DLL
      * resolution.
      */
@@ -76,21 +91,41 @@ public final class BootstrapLauncher {
         }
 
         Path javaHome = Path.of(System.getProperty("java.home")).toAbsolutePath().normalize();
-        Path javaExecutable = javaHome.resolve("bin/javaw.exe");
-        if (!Files.isRegularFile(javaExecutable)) {
-            javaExecutable = javaHome.resolve("bin/java.exe");
+        Path root = applicationRootDir().toAbsolutePath().normalize();
+        Optional<Path> nativeLauncher = nativeWindowsLauncher(root, ProcessHandle.current().info().command());
+        List<String> command;
+        if (nativeLauncher.isPresent()) {
+            command = new ArrayList<>();
+            command.add(nativeLauncher.get().toString());
+            command.addAll(Arrays.asList(args));
+        } else {
+            Path javaExecutable = javaHome.resolve("bin/javaw.exe");
+            if (!Files.isRegularFile(javaExecutable)) javaExecutable = javaHome.resolve("bin/java.exe");
+            if (!Files.isRegularFile(javaExecutable)) {
+                throw new IOException("Bundled Java executable not found under " + javaHome);
+            }
+            command = windowsRelaunchCommand(javaExecutable, launcherJar().toAbsolutePath().normalize(), args);
         }
-        if (!Files.isRegularFile(javaExecutable)) {
-            throw new IOException("Bundled Java executable not found under " + javaHome);
-        }
-
-        Path launcher = launcherJar().toAbsolutePath().normalize();
-        List<String> command = windowsRelaunchCommand(javaExecutable, launcher, args);
         ProcessBuilder processBuilder = new ProcessBuilder(command);
-        processBuilder.directory(applicationRootDir().toFile());
+        processBuilder.directory(root.toFile());
         sanitizeWindowsEnvironment(processBuilder.environment(), javaHome);
+        processBuilder.environment().put("JLSHELL_RUNTIME_ISOLATED", "true");
+        String restartParent = System.getProperty("jlshell.restart.parentPid", "");
+        if (!restartParent.isBlank()) processBuilder.environment().put("JLSHELL_RESTART_PARENT_PID", restartParent);
         processBuilder.start();
         return true;
+    }
+
+    /** Preserve the branded jpackage executable when isolating the Windows DLL search path. */
+    static Optional<Path> nativeWindowsLauncher(Path root, Optional<String> currentCommand) {
+        if (currentCommand.isPresent()) {
+            Path executable = Path.of(currentCommand.get()).toAbsolutePath().normalize();
+            if (root.equals(executable.getParent())
+                    && executable.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".exe")
+                    && Files.isRegularFile(executable)) return Optional.of(executable);
+        }
+        return Stream.of("JLShell.exe", "JLShellPreview.exe").map(root::resolve)
+                .filter(Files::isRegularFile).findFirst();
     }
 
     static List<String> windowsRelaunchCommand(Path javaExecutable, Path launcher, String[] args) {
@@ -107,8 +142,6 @@ public final class BootstrapLauncher {
         command.add("--add-exports=java.desktop/sun.swing=ALL-UNNAMED");
         command.add("--add-opens=java.desktop/sun.swing=ALL-UNNAMED");
         command.add("--add-opens=java.desktop/javax.swing=ALL-UNNAMED");
-        if (java.lang.module.ModuleFinder.ofSystem().find("javafx.controls").isPresent())
-            command.add("--add-modules=javafx.controls,javafx.swing");
         if (preview) {
             String previewHome = System.getProperty("jlshell.preview.home");
             if (previewHome != null && !previewHome.isBlank()) command.add("-Djlshell.preview.home=" + previewHome);
@@ -459,7 +492,7 @@ public final class BootstrapLauncher {
             Class<?> mainClass = Class.forName(APP_MAIN_CLASS, true, runtime.loader());
             Method main = mainClass.getMethod("main", String[].class);
             main.invoke(null, (Object) args);
-            // main() returning does not end AWT/JavaFX event threads. The shutdown
+            // main() returning does not end AWT event threads. The shutdown
             // hook retains the loader so lazy classes and resources remain available.
         } catch (InvocationTargetException error) {
             runtime.close();

@@ -1,27 +1,29 @@
 package com.jlshell.plugin.api.project;
 
+import com.jlshell.plugin.api.ui.ObservableValue;
+
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-import javafx.beans.property.ReadOnlyStringProperty;
+
 
 /** 单次“新建项目”交互的上下文；state 仅在该次对话框生命周期内存在。 */
 public final class ProjectCreationContext {
 
-    private final ReadOnlyStringProperty name;
-    private final ReadOnlyStringProperty description;
+    private final ObservableValue<String> name;
+    private final ObservableValue<String> description;
     private final Map<String, String> state = new ConcurrentHashMap<>();
 
-    public ProjectCreationContext(ReadOnlyStringProperty name, ReadOnlyStringProperty description) {
+    public ProjectCreationContext(ObservableValue<String> name, ObservableValue<String> description) {
         this.name = name;
         this.description = description;
     }
 
-    public ReadOnlyStringProperty nameProperty() {
+    public ObservableValue<String> nameProperty() {
         return name;
     }
 
-    public ReadOnlyStringProperty descriptionProperty() {
+    public ObservableValue<String> descriptionProperty() {
         return description;
     }
 

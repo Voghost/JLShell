@@ -2,13 +2,11 @@ package com.jlshell.ui.swing;
 
 import com.jlshell.terminal.support.SwingExecutors;
 import com.jlshell.ui.service.I18nService;
-import com.jlshell.ui.support.FxThread;
+import com.jlshell.ui.support.UiThread;
 import com.jlshell.ui.theme.AppTheme;
 import com.jlshell.ui.view.PluginsTabView;
-import javafx.application.Platform;
-import javafx.scene.control.Tab;
-import javafx.scene.control.TabPane;
-import javafx.scene.layout.Pane;
+import com.jlshell.ui.model.WorkspacePage;
+import com.jlshell.ui.model.WorkspaceTabs;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -27,10 +25,6 @@ import static org.junit.jupiter.api.Assertions.*;
 @EnabledIfSystemProperty(named = "jlshell.ui.smoke", matches = "true")
 class SwingToolWindowMaximizeTest {
     @BeforeAll static void toolkit() throws Exception {
-        var ready = new CompletableFuture<Void>();
-        try { Platform.startup(() -> { Platform.setImplicitExit(false); ready.complete(null); }); }
-        catch (IllegalStateException running) { Platform.runLater(() -> ready.complete(null)); }
-        ready.get(10, TimeUnit.SECONDS);
     }
 
     @ParameterizedTest @EnumSource(AppTheme.class)
@@ -132,7 +126,7 @@ class SwingToolWindowMaximizeTest {
             }).get(15, TimeUnit.SECONDS);
         } finally {
             SwingExecutors.runOnEdtAsync(workbench::close).get(10, TimeUnit.SECONDS);
-            FxThread.supplyAsync(() -> null).get(10, TimeUnit.SECONDS);
+            UiThread.supplyAsync(() -> null).get(10, TimeUnit.SECONDS);
         }
     }
 
@@ -188,8 +182,8 @@ class SwingToolWindowMaximizeTest {
                 assertEquals(2, popupList(frame).getModel().getSize());
                 assertEquals(0, connections.get(), "The tag must switch an existing session, never reconnect");
             }).get(15, TimeUnit.SECONDS);
-            FxThread.supplyAsync(() -> {
-                second.model.getTabs().removeLast();
+            UiThread.supplyAsync(() -> {
+                second.model.remove(second.model.pages().getLast());
                 second.view.publishPages();
                 return null;
             }).get(10, TimeUnit.SECONDS);
@@ -204,7 +198,7 @@ class SwingToolWindowMaximizeTest {
             }).get(10, TimeUnit.SECONDS);
         } finally {
             SwingExecutors.runOnEdtAsync(workbench::close).get(10, TimeUnit.SECONDS);
-            FxThread.supplyAsync(() -> null).get(10, TimeUnit.SECONDS);
+            UiThread.supplyAsync(() -> null).get(10, TimeUnit.SECONDS);
         }
     }
 
@@ -471,19 +465,20 @@ class SwingToolWindowMaximizeTest {
                 System.currentTimeMillis(), 0, cell.x + 5, cell.y + cell.height / 2, 1, false, java.awt.event.MouseEvent.BUTTON1));
     }
 
-    private record Fixture(SwingSessionView view, JTextArea editor, JPanel files, TabPane model) {}
+    private record Fixture(SwingSessionView view, JTextArea editor, JPanel files, WorkspaceTabs model) {}
 
     private static Fixture fixture(boolean extraPlugin) throws Exception { return fixture(extraPlugin, true); }
 
     private static Fixture fixture(boolean extraPlugin, boolean hasPlugin) throws Exception {
         JTextArea editor = SwingExecutors.supplyOnEdtAsync(JTextArea::new).get(10, TimeUnit.SECONDS);
-        var model = FxThread.supplyAsync(() -> {
-            var tabs = new TabPane(new Tab("Terminal"), new Tab("Files"), new Tab("Plugins"));
-            if (extraPlugin) tabs.getTabs().add(new Tab("Other plugin"));
-            var plugin = new Tab("Custom plugin", new Pane());
+        var model = UiThread.supplyAsync(() -> {
+            var tabs = new WorkspaceTabs();
+            tabs.add(new WorkspacePage("Terminal")); tabs.add(new WorkspacePage("Files")); tabs.add(new WorkspacePage("Plugins"));
+            if (extraPlugin) tabs.add(new WorkspacePage("Other plugin"));
+            var plugin = new WorkspacePage("Custom plugin");
             plugin.getProperties().put("pluginId", "test.editor");
             plugin.getProperties().put(PluginsTabView.NATIVE_VIEW, (java.util.function.Supplier<JComponent>) () -> editor);
-            if (hasPlugin) tabs.getTabs().add(plugin);
+            if (hasPlugin) tabs.add(plugin);
             return tabs;
         }).get(10, TimeUnit.SECONDS);
         var fixture = SwingExecutors.supplyOnEdtAsync(() -> {
@@ -492,7 +487,7 @@ class SwingToolWindowMaximizeTest {
             ((JPanel) view.rightToolWindow()).add(files, "files"); // 文件网络 I/O 与工作台布局独立。
             return new Fixture(view, editor, files, model);
         }).get(10, TimeUnit.SECONDS);
-        FxThread.supplyAsync(() -> { fixture.view.publishPages(); return null; }).get(10, TimeUnit.SECONDS);
+        UiThread.supplyAsync(() -> { fixture.view.publishPages(); return null; }).get(10, TimeUnit.SECONDS);
         SwingExecutors.runOnEdtAsync(() -> {}).get(10, TimeUnit.SECONDS);
         return fixture;
     }

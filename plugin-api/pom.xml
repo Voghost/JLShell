@@ -15,15 +15,15 @@
     <name>JLShell Plugin API</name>
     <description>Public SDK for JLShell session and program plugins, capability RPC, host events, project contributions, and secure plugin storage.</description>
 
+    <properties>
+        <maven.compiler.release>21</maven.compiler.release>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>net.oomn.jlshell</groupId>
             <artifactId>program-api</artifactId>
             <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.openjfx</groupId>
-            <artifactId>javafx-controls</artifactId>
         </dependency>
         <dependency>
             <groupId>com.google.code.gson</groupId>

@@ -1,33 +1,23 @@
 @echo off
 setlocal
+cd /d "%~dp0"
 
-set "JAVA_HOME=D:\jdk\openjdk-21.0.2_windows-x64_bin\jdk-21.0.2"
-
-if "%1"=="--build" goto do_build
-if "%1"=="-b" goto do_build
-
-echo installing modules ...
-call mvn install -DskipTests -q
-if %errorlevel% neq 0 (
-    echo install failed
-    exit /b %errorlevel%
+if not defined JAVA_HOME (
+    echo Please set JAVA_HOME to a JDK 25 installation.
+    exit /b 1
 )
+set "BUILD_GOAL=package"
+if "%1"=="--build" set "BUILD_GOAL=clean package"
+if "%1"=="-b" set "BUILD_GOAL=clean package"
 
-echo starting JLShell ...
-call mvn javafx:run -pl app
-goto end
+call mvn %BUILD_GOAL% -Pwith-plugins -DskipTests -q
+if errorlevel 1 exit /b %errorlevel%
 
-:do_build
-echo JDK: %JAVA_HOME%
-echo mvn clean install ...
-call mvn clean install -DskipTests -q
-if %errorlevel% neq 0 (
-    echo install failed
-    exit /b %errorlevel%
+set "APP_JAR="
+for %%F in (app\target\jlshell-app-*.jar) do set "APP_JAR=%%F"
+if not defined APP_JAR (
+    echo Application JAR was not generated.
+    exit /b 1
 )
-
-echo starting JLShell ...
-call mvn javafx:run -pl app
-
-:end
-endlocal
+"%JAVA_HOME%\bin\java.exe" -Xms32m -Xmx512m -XX:+UseCompactObjectHeaders --enable-native-access=ALL-UNNAMED --add-exports=java.desktop/sun.swing=ALL-UNNAMED --add-opens=java.desktop/sun.swing=ALL-UNNAMED --add-opens=java.desktop/javax.swing=ALL-UNNAMED -jar "%APP_JAR%"
+exit /b %errorlevel%

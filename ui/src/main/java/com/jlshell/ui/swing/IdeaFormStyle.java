@@ -14,6 +14,16 @@ import java.util.Map;
 final class IdeaFormStyle {
     private IdeaFormStyle() {}
 
+    static void applyTree(Component component) {
+        if (component instanceof JComboBox<?> || component instanceof javax.swing.text.JTextComponent
+                || component instanceof AbstractButton || component instanceof JSpinner) {
+            JComponent control = (JComponent) component;
+            if (!Boolean.FALSE.equals(control.getClientProperty("jlshell.ideaForm"))) apply(control);
+            return;
+        }
+        if (component instanceof Container container) for (Component child : container.getComponents()) applyTree(child);
+    }
+
     static void apply(JComponent component) {
         // Scroll panes may deliberately have EmptyBorder; their border does not accept FlatBorder style keys.
         if (component instanceof JScrollPane) return;

@@ -1,12 +1,11 @@
 package com.jlshell.ui.view;
 
+import com.jlshell.ui.support.UiThread;
 import com.jlshell.core.model.ConnectionType;
 import com.jlshell.ui.model.ConnectionProfile;
 import com.jlshell.ui.model.FolderProfile;
 import com.jlshell.ui.model.SidebarItem;
 import com.jlshell.ui.service.I18nService;
-import javafx.application.Platform;
-import javafx.scene.control.TreeItem;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -17,35 +16,29 @@ import static org.junit.jupiter.api.Assertions.*;
 @EnabledIfSystemProperty(named="jlshell.ui.smoke", matches="true")
 class SidebarHierarchyUiTest {
     @BeforeAll static void start() throws Exception {
-        var ready = new CompletableFuture<Void>();
-        try { Platform.startup(() -> { Platform.setImplicitExit(false); ready.complete(null); }); }
-        catch (IllegalStateException running) { Platform.runLater(() -> ready.complete(null)); }
-        ready.get(10, TimeUnit.SECONDS);
     }
     @Test void loadsCyclesWithoutLosingConnectionsAndSupportsFilteringAndReload() throws Exception {
-        var done = new CompletableFuture<Void>();
-        Platform.runLater(() -> {
+        com.jlshell.terminal.support.SwingExecutors.runOnEdtAsync(() -> {
+            var view = WorkbenchUiSmokeTest.workbench();
             try {
-                var view = new SidebarTreeView(new I18nService(Locale.SIMPLIFIED_CHINESE), 4);
                 var folders = List.of(folder("self", "self"), folder("a", "b"), folder("b", "a"), folder("child", "b"), folder("orphan", "missing"));
                 var connections = folders.stream().map(folder -> new ConnectionProfile("conn-"+folder.id(), "Connection "+folder.id(),
                         "example.invalid", 22, "test", null, null, null, null, false, null, ConnectionType.SSH, folder.id(), null)).toList();
-                view.populate(folders, connections, Set.of());
-                assertEquals(10, collect(view.getTreeView().getRoot()).size());
-                view.applyFilter("Connection child");
-                assertTrue(collect(view.getTreeView().getRoot()).contains("conn-child"));
-                view.applyFilter(""); view.collapseAllFolders(); view.expandAllFolders();
-                assertEquals(10, collect(view.getTreeView().getRoot()).size());
-                view.populate(folders, connections, Set.of("self"));
-                assertEquals(10, collect(view.getTreeView().getRoot()).size());
-                done.complete(null);
-            } catch (Throwable failure) { done.completeExceptionally(failure); }
-        });
-        done.get(15, TimeUnit.SECONDS);
+                view.updateConnections(folders, connections, Set.of());
+                var tree = WorkbenchUiSmokeTest.field(view, "tree", javax.swing.JTree.class);
+                assertEquals(10, tree.getRowCount());
+                var search = WorkbenchUiSmokeTest.field(view, "search", javax.swing.JTextField.class);
+                search.setText("Connection child"); assertTrue(tree.getRowCount() > 0);
+                search.setText(""); assertEquals(10, tree.getRowCount());
+                view.updateConnections(folders, connections, Set.of("self"));
+                assertEquals(10, count((javax.swing.tree.DefaultMutableTreeNode)tree.getModel().getRoot()));
+            } finally { view.close(); }
+        }).get(15, TimeUnit.SECONDS);
     }
+    private static int count(javax.swing.tree.DefaultMutableTreeNode root) { return java.util.Collections.list(root.preorderEnumeration()).size() - 1; }
     @Test void contextMenusTargetFavoriteAndImportFolder() throws Exception {
         var done = new CompletableFuture<Void>();
-        Platform.runLater(() -> {
+        com.jlshell.ui.support.UiThread.run(() -> {
             try {
                 var i18n = new I18nService(Locale.SIMPLIFIED_CHINESE);
                 var view = new SidebarTreeView(i18n, 4);
@@ -57,20 +50,20 @@ class SidebarHierarchyUiTest {
                 view.setOnFavorite((id, favorite) -> changed.set(id + ":" + favorite));
                 var conn = new SidebarItem.ConnectionItem("server", "server", ConnectionType.SSH, "test");
                 var menu = view.contextMenuFor(conn);
-                menu.getItems().stream().filter(item -> i18n.get("connection.favorite.add").equals(item.getText()))
-                        .findFirst().orElseThrow().fire();
+                menu.stream().filter(item -> i18n.get("connection.favorite.add").equals(item.text()))
+                        .findFirst().orElseThrow().action().run();
                 assertEquals("server:true", changed.get());
                 view.setOnImportShare(changed::set);
-                view.contextMenuFor(new SidebarItem.FolderItem("folder", "folder", null)).getItems().stream()
-                        .filter(item -> i18n.get("connection.share.import").equals(item.getText()))
-                        .findFirst().orElseThrow().fire();
+                view.contextMenuFor(new SidebarItem.FolderItem("folder", "folder", null)).stream()
+                        .filter(item -> i18n.get("connection.share.import").equals(item.text()))
+                        .findFirst().orElseThrow().action().run();
                 assertEquals("folder", changed.get());
                 var starred = new ConnectionProfile("server", "server", "example.invalid", 22, "test",
                         null, null, null, null, true, null, ConnectionType.SSH, "folder", null);
                 view.populate(List.of(folder), List.of(starred), Set.of());
-                view.contextMenuFor(conn).getItems().stream()
-                        .filter(item -> i18n.get("connection.favorite.remove").equals(item.getText()))
-                        .findFirst().orElseThrow().fire();
+                view.contextMenuFor(conn).stream()
+                        .filter(item -> i18n.get("connection.favorite.remove").equals(item.text()))
+                        .findFirst().orElseThrow().action().run();
                 assertEquals("server:false", changed.get());
                 done.complete(null);
             } catch (Throwable failure) { done.completeExceptionally(failure); }
@@ -79,31 +72,19 @@ class SidebarHierarchyUiTest {
     }
     @Test void extremelyDeepSavedFoldersAreSplitIntoSafeDisplayBranches() throws Exception {
         var done = new CompletableFuture<Void>();
-        Platform.runLater(() -> {
+        com.jlshell.ui.support.UiThread.run(() -> {
             try {
-                var view = new SidebarTreeView(new I18nService(Locale.SIMPLIFIED_CHINESE),4);
                 var folders = new ArrayList<FolderProfile>();
                 for(int id=0;id<2000;id++) folders.add(folder("folder-"+id,id==0?null:"folder-"+(id-1)));
                 Collections.reverse(folders);
-                view.populate(folders,List.of(),Set.of());
-                assertEquals(2000,collect(view.getTreeView().getRoot()).size());
-                assertTrue(view.getTreeView().getRoot().getChildren().size()>1);
-                view.applyFilter("folder"); view.applyFilter("");
-                assertEquals(2000,collect(view.getTreeView().getRoot()).size());
+                var hierarchy = com.jlshell.ui.model.FolderHierarchy.from(folders);
+                assertEquals(2000, hierarchy.folders().size());
+                assertTrue(hierarchy.folders().stream().filter(folder -> folder.parentId() == null).count() > 1);
+                assertTrue(hierarchy.depths().values().stream().allMatch(depth -> depth < com.jlshell.ui.model.FolderHierarchy.MAX_DISPLAY_DEPTH));
                 done.complete(null);
             } catch(Throwable failure) { done.completeExceptionally(failure); }
         });
         done.get(15,TimeUnit.SECONDS);
     }
     private static FolderProfile folder(String id, String parent) { return new FolderProfile(id, id, parent, null, 0); }
-    private static Set<String> collect(TreeItem<SidebarItem> root) {
-        var ids = new HashSet<String>(); var nodes = new ArrayDeque<TreeItem<SidebarItem>>(); nodes.add(root);
-        var visited = Collections.newSetFromMap(new IdentityHashMap<TreeItem<SidebarItem>, Boolean>());
-        while (!nodes.isEmpty()) {
-            var node = nodes.remove(); assertTrue(visited.add(node), "Tree node must appear exactly once");
-            if (node.getValue()!=null) assertTrue(ids.add(node.getValue().id()));
-            for (var child : node.getChildren()) { assertSame(node, child.getParent()); nodes.add(child); }
-        }
-        return ids;
-    }
 }

@@ -45,7 +45,7 @@ class LauncherUiSmokeTest {
         public static void main(String[] args) {
             try {
                 // 与 Launcher 正式路径相同，先等待本机窗口首次绘制，再允许 FX 初始化。
-                Launcher.showStartupBeforeJavaFx();
+                Launcher.showStartupBeforeToolkit();
                 Rectangle bounds = edt(() -> {
                     Window splash = java.util.Arrays.stream(Window.getWindows())
                             .filter(w -> "startup.splash".equals(w.getName()) && w.isShowing()).findFirst().orElseThrow();

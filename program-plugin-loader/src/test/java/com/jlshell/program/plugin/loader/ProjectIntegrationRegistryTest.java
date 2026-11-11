@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jlshell.plugin.api.project.ProjectCreationContext;
 import com.jlshell.plugin.api.project.ProjectCreationContribution;
-import javafx.scene.Node;
+
 import org.junit.jupiter.api.Test;
 
 class ProjectIntegrationRegistryTest {
@@ -43,7 +43,7 @@ class ProjectIntegrationRegistryTest {
         return new ProjectCreationContribution() {
             @Override public String id() { return id; }
             @Override public int order() { return order; }
-            @Override public Node createView(ProjectCreationContext context) { return null; }
+            @Override public java.util.function.Supplier<javax.swing.JComponent> createView(ProjectCreationContext context) { return null; }
         };
     }
 }

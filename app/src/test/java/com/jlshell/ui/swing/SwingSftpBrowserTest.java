@@ -1,5 +1,6 @@
 package com.jlshell.ui.swing;
 
+import com.jlshell.ui.support.UiThread;
 import com.jlshell.core.session.SshSession;
 import com.jlshell.sftp.model.*;
 import com.jlshell.sftp.service.SftpService;
@@ -144,10 +145,6 @@ class SwingSftpBrowserTest {
     }
 
     @Test void followsCurrentTerminalOnOpenAndDirectoryChangesAndCanBePaused() throws Exception {
-        var fxReady = new CompletableFuture<Void>();
-        try { javafx.application.Platform.startup(() -> { javafx.application.Platform.setImplicitExit(false); fxReady.complete(null); }); }
-        catch (IllegalStateException running) { javafx.application.Platform.runLater(() -> fxReady.complete(null)); }
-        fxReady.get(10, TimeUnit.SECONDS);
         var session = mock(SshSession.class); var service = mock(SftpService.class);
         var slow = new CompletableFuture<RemoteDirectoryListing>();
         when(service.listDirectory(eq(session), anyString())).thenAnswer(call -> {
@@ -155,8 +152,8 @@ class SwingSftpBrowserTest {
             if ("/slow".equals(target)) return slow;
             return CompletableFuture.completedFuture(new RemoteDirectoryListing(target, List.of()));
         });
-        var cwd = new javafx.beans.property.SimpleStringProperty("/terminal/initial");
-        Supplier<SwingSftpBrowser> factory = com.jlshell.ui.support.FxThread.supplyAsync(() ->
+        var cwd = new com.jlshell.core.support.MutableValue<>("/terminal/initial");
+        Supplier<SwingSftpBrowser> factory = com.jlshell.ui.support.UiThread.supplyAsync(() ->
                 SwingSftpBrowser.prepare(session, service, new I18nService(Locale.SIMPLIFIED_CHINESE), "/configured", cwd))
                 .get(10, TimeUnit.SECONDS);
         SwingSftpBrowser browser = edt(() -> { SwingTheme.install(AppTheme.DARK, "#3574f0", "SansSerif", 13); return factory.get(); });
@@ -165,18 +162,18 @@ class SwingSftpBrowserTest {
             JToggleButton follow = (JToggleButton) edt(() -> named(browser, "sftp.followTerminal"));
             await(() -> path.getText().equals("/terminal/initial"));
             assertTrue(edt(follow::isSelected));
-            com.jlshell.ui.support.FxThread.run(() -> cwd.set("/slow"));
+            com.jlshell.ui.support.UiThread.run(() -> cwd.set("/slow"));
             await(() -> mockingDetails(service).getInvocations().stream().anyMatch(i -> i.getMethod().getName().equals("listDirectory") && "/slow".equals(i.getArgument(1))));
             // Return to the displayed directory while the previous request is still pending.
-            com.jlshell.ui.support.FxThread.run(() -> cwd.set("/terminal/initial"));
+            com.jlshell.ui.support.UiThread.run(() -> cwd.set("/terminal/initial"));
             await(() -> mockingDetails(service).getInvocations().stream().filter(i -> i.getMethod().getName().equals("listDirectory") && "/terminal/initial".equals(i.getArgument(1))).count() >= 2);
             slow.complete(new RemoteDirectoryListing("/slow", List.of()));
             edt(() -> { follow.doClick(); return null; });
-            com.jlshell.ui.support.FxThread.supplyAsync(() -> { cwd.set("/中文 path%+"); return null; }).get(10, TimeUnit.SECONDS);
+            com.jlshell.ui.support.UiThread.supplyAsync(() -> { cwd.set("/中文 path%+"); return null; }).get(10, TimeUnit.SECONDS);
             edt(() -> { assertEquals("/terminal/initial", path.getText()); follow.doClick(); return null; });
             await(() -> path.getText().equals("/中文 path%+"));
             edt(() -> { browser.close(); return null; });
-            com.jlshell.ui.support.FxThread.supplyAsync(() -> { cwd.set("/after-close"); return null; }).get(10, TimeUnit.SECONDS);
+            com.jlshell.ui.support.UiThread.supplyAsync(() -> { cwd.set("/after-close"); return null; }).get(10, TimeUnit.SECONDS);
             edt(() -> null);
             verify(service, never()).listDirectory(session, "/after-close");
         } finally { edt(() -> { browser.close(); return null; }); }
@@ -213,7 +210,7 @@ class SwingSftpBrowserTest {
             edt(() -> {
                 assertTrue(named(browser, "sftp.remote").getY() > named(browser, "sftp.local").getY());
                 assertTrue(all(browser, JTree.class).isEmpty(), "Directory trees must not occupy the main layout");
-                assertTrue(all(browser, javafx.embed.swing.JFXPanel.class).isEmpty());
+                assertTrue(all(browser, java.awt.Component.class).stream().noneMatch(component -> component.getClass().getName().startsWith("javafx.")));
                 snapshot(frame, "sftp-dark.png");
                 ((JButton) named(browser, "sftp.remote.tree")).doClick(); return null;
             });

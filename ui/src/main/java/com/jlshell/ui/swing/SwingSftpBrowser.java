@@ -5,11 +5,9 @@ import com.jlshell.sftp.model.*;
 import com.jlshell.sftp.service.SftpService;
 import com.jlshell.sftp.service.TransferProgressListener;
 import com.jlshell.ui.service.I18nService;
-import com.jlshell.ui.support.FxThread;
 import com.jlshell.ui.swing.idea.IdeaComponentPopup;
 import com.jlshell.ui.swing.idea.IdeaListPopup;
-import javafx.beans.property.StringProperty;
-import javafx.beans.value.ChangeListener;
+import com.jlshell.plugin.api.ui.ObservableValue;
 
 import javax.swing.*;
 import javax.swing.event.TreeExpansionEvent;
@@ -57,21 +55,15 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
     private String terminalPath;
     private final Supplier<List<Path>> localRoots;
 
-    /** Capture the FX model on its owning thread; construct Swing components lazily on EDT. */
+    /** Construct the browser lazily on EDT and subscribe only for its visible lifetime. */
     public static Supplier<SwingSftpBrowser> prepare(SshSession session, SftpService service, I18nService i18n,
-                                                    String start, StringProperty cwd) {
+                                                    String start, ObservableValue<String> cwd) {
         return () -> {
             SwingSftpBrowser browser = new SwingSftpBrowser(session, service, i18n, start);
-            ChangeListener<String> listener = (observable, oldPath, path) -> SwingUtilities.invokeLater(() -> browser.terminalDirectory(path));
-            FxThread.run(() -> {
-                cwd.addListener(listener);
-                String path = cwd.get();
-                SwingUtilities.invokeLater(() -> {
-                    if (browser.closed) FxThread.run(() -> cwd.removeListener(listener));
-                    else browser.terminalDirectory(path);
-                });
-            });
-            browser.unbind = () -> FxThread.run(() -> cwd.removeListener(listener));
+            var subscription = cwd.subscribe(path -> SwingUtilities.invokeLater(() -> {
+                if (!browser.closed) browser.terminalDirectory(path);
+            }));
+            browser.unbind = subscription::close;
             return browser;
         };
     }
@@ -337,7 +329,9 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
                 editor.selectAll();
             }
         }
-        void refresh() { if (path != null) navigate(path); }
+        void refresh() {
+            if (path != null && Objects.equals(path, requestedPath)) loadDirectory(path, false);
+        }
         void up() {
             if (path == null) return;
             String parent = isRemote ? (path.equals("/") ? "/" : path.substring(0, Math.max(1, path.lastIndexOf('/'))))
@@ -345,14 +339,21 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
             navigate(parent);
         }
         void navigate(String target) {
+            loadDirectory(target, true);
+        }
+        void loadDirectory(String target, boolean navigating) {
             if (closed || isRemote && !connected || target == null || target.isBlank()) return;
-            dismissPopups();
+            if (navigating) dismissPopups();
             requestedPath = target;
             long request = ++sequence; count.setText(t("sftp.loading"));
             readDirectory(isRemote, target).whenComplete((listing, error) -> SwingUtilities.invokeLater(() -> {
                 if (closed || request != sequence) return;
                 if (error != null) { requestedPath = path; count.setText(t("sftp.error")); failure(error); return; }
-                path = listing.path; model.rows = listing.entries; model.fireTableDataChanged(); breadcrumbs();
+                boolean pathChanged = !Objects.equals(path, listing.path);
+                path = listing.path;
+                model.rows = listing.entries;
+                model.fireTableDataChanged();
+                if (navigating || pathChanged) breadcrumbs();
                 count.setText(i18n.get("sftp.itemCount", listing.entries.size()));
                 empty.setText(t("sftp.empty")); ((CardLayout) body.getLayout()).show(body, listing.entries.isEmpty() ? "empty" : "files");
             }));

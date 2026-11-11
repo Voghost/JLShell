@@ -4,112 +4,116 @@ import com.jlshell.terminal.model.TerminalHighlightConfig;
 import com.jlshell.terminal.model.TerminalHighlightConfig.Rule;
 import com.jlshell.terminal.support.TerminalLogHighlighter;
 import com.jlshell.ui.service.I18nService;
-import javafx.collections.FXCollections;
-import javafx.geometry.Pos;
-import javafx.scene.control.*;
-import javafx.scene.layout.*;
-import javafx.scene.paint.Color;
-import javafx.scene.text.Text;
+import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+import java.awt.*;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.function.Consumer;
 
-/** Shared FX/Swing form; rule drafts are validated with the same matcher used by terminals. */
-final class TerminalHighlightEditor {
+/** Native editor using the terminal's bounded matcher for validation and preview. */
+public final class TerminalHighlightEditor {
     private TerminalHighlightEditor() {}
-    static VBox create(TerminalHighlightConfig initial, I18nService i18n, Consumer<TerminalHighlightConfig> changed) {
-        CheckBox enabled = new CheckBox(i18n.get("highlight.enabled"));
-        enabled.setId("settings-highlight-enabled"); enabled.setSelected(initial.enabled());
-        var rules = FXCollections.observableArrayList(initial.rules());
-        ComboBox<Rule> selected = new ComboBox<>(rules);
-        selected.setId("settings-highlight-rule"); selected.setMaxWidth(Double.MAX_VALUE);
-        TextField name = new TextField(); name.setId("settings-highlight-name");
-        TextField expression = new TextField(); expression.setId("settings-highlight-expression");
-        CheckBox active = new CheckBox(i18n.get("highlight.ruleEnabled"));
-        CheckBox regex = new CheckBox(i18n.get("highlight.regex"));
-        CheckBox ignoreCase = new CheckBox(i18n.get("highlight.ignoreCase"));
-        ColorPicker color = new ColorPicker(); color.setId("settings-highlight-color");
-        Label error = new Label(); error.setId("settings-highlight-error"); error.getStyleClass().add("settings-hint"); error.setWrapText(true);
-        error.visibleProperty().bind(error.textProperty().isNotEmpty()); error.managedProperty().bind(error.visibleProperty());
-        Label status = new Label(); status.getStyleClass().add("settings-hint"); status.setWrapText(true);
-        status.visibleProperty().bind(status.textProperty().isNotEmpty()); status.managedProperty().bind(status.visibleProperty());
-        TextField sample = new TextField("2026-10-30 18:06:00 INFO connected | WARN slow query | ERROR failed | SUCCESS");
-        sample.setId("settings-highlight-sample");
-        HBox preview = new HBox(0); preview.setId("settings-highlight-preview");
-        preview.setBackground(new Background(new BackgroundFill(Color.web("#18191B"), CornerRadii.EMPTY, javafx.geometry.Insets.EMPTY)));
-        preview.setStyle("-fx-background-color: #18191B; -fx-padding: 12;");
-        ScrollPane previewScroll = new ScrollPane(preview); previewScroll.setFitToHeight(true);
-        previewScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
-        previewScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER); previewScroll.setPrefHeight(56);
-        Runnable refreshPreview = () -> {
-            preview.getChildren().clear();
-            var config = new TerminalHighlightConfig(enabled.isSelected(), List.copyOf(rules));
-            var spans = new TerminalLogHighlighter(config).match(sample.getText());
-            int offset = 0;
-            for (var span : spans) {
-                if (span.start() > offset) preview.getChildren().add(fragment(sample.getText().substring(offset, span.start()), Color.web("#D4D4D4")));
-                preview.getChildren().add(fragment(sample.getText().substring(span.start(), span.end()),
-                        Color.rgb(span.color().getRed(), span.color().getGreen(), span.color().getBlue())));
-                offset = span.end();
+    public static JComponent create(TerminalHighlightConfig initial, I18nService i18n, Consumer<TerminalHighlightConfig> changed) {
+        JPanel panel = new JPanel(); panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS)); panel.setOpaque(false);
+        JCheckBox enabled = new JCheckBox(i18n.get("highlight.enabled"), initial.enabled()); enabled.setName("settings-highlight-enabled");
+        List<Rule> rules = new ArrayList<>(initial.rules());
+        DefaultComboBoxModel<Rule> model = new DefaultComboBoxModel<>(rules.toArray(Rule[]::new));
+        JComboBox<Rule> selected = new JComboBox<>(model); selected.setName("settings-highlight-rule");
+        JTextField name = new JTextField(24); name.setName("settings-highlight-name");
+        JTextField expression = new JTextField(32); expression.setName("settings-highlight-expression");
+        JCheckBox active = new JCheckBox(i18n.get("highlight.ruleEnabled"));
+        JCheckBox regex = new JCheckBox(i18n.get("highlight.regex"));
+        JCheckBox ignoreCase = new JCheckBox(i18n.get("highlight.ignoreCase"));
+        JButton color = new JButton(" "); color.setName("settings-highlight-color"); color.setOpaque(true);
+        Color[] selectedColor = {new Color(0x38BDF8)};
+        JLabel status = new JLabel(" "); status.setName("settings-highlight-error");
+        JTextField sample = new JTextField("2026-10-30 18:06:00 INFO connected | WARN slow query | ERROR failed | SUCCESS");
+        sample.setName("settings-highlight-sample");
+        JTextPane preview = new JTextPane(); preview.setName("settings-highlight-preview"); preview.setEditable(false);
+        preview.setBackground(new Color(0x18191B)); preview.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        Runnable refresh = () -> {
+            preview.setText(sample.getText());
+            var document = preview.getStyledDocument();
+            var style = new javax.swing.text.SimpleAttributeSet(); javax.swing.text.StyleConstants.setForeground(style, new Color(0xD4D4D4));
+            document.setCharacterAttributes(0, document.getLength(), style, true);
+            for (var span : new TerminalLogHighlighter(new TerminalHighlightConfig(enabled.isSelected(), rules)).match(sample.getText())) {
+                var attributes = new javax.swing.text.SimpleAttributeSet(); javax.swing.text.StyleConstants.setForeground(attributes, span.color());
+                document.setCharacterAttributes(span.start(), span.end() - span.start(), attributes, false);
             }
-            if (offset < sample.getText().length()) preview.getChildren().add(fragment(sample.getText().substring(offset), Color.web("#D4D4D4")));
         };
-        Runnable publish = () -> {
-            changed.accept(new TerminalHighlightConfig(enabled.isSelected(), List.copyOf(rules)));
-            status.setText(""); refreshPreview.run();
-        };
+        Runnable publish = () -> { changed.accept(new TerminalHighlightConfig(enabled.isSelected(), rules)); status.setText(" "); refresh.run(); };
         Runnable load = () -> {
-            Rule rule = selected.getValue(); if (rule == null) return;
+            Rule rule = (Rule) selected.getSelectedItem();
+            if (rule == null) return;
             name.setText(rule.name()); expression.setText(rule.expression()); active.setSelected(rule.enabled());
-            regex.setSelected(rule.regex()); ignoreCase.setSelected(rule.ignoreCase()); color.setValue(Color.web(rule.color()));
-            error.setText(""); status.setText("");
+            regex.setSelected(rule.regex()); ignoreCase.setSelected(rule.ignoreCase());
+            selectedColor[0] = Color.decode(rule.color()); color.setBackground(selectedColor[0]); status.setText(" ");
         };
-        selected.valueProperty().addListener((obs, old, value) -> load.run());
-        Button save = new Button(i18n.get("highlight.saveRule")); save.setId("settings-highlight-save");
-        save.setOnAction(event -> {
-            String hex = String.format(java.util.Locale.ROOT, "#%02X%02X%02X", Math.round(color.getValue().getRed()*255),
-                    Math.round(color.getValue().getGreen()*255), Math.round(color.getValue().getBlue()*255));
-            Rule next = new Rule(name.getText().trim(), active.isSelected(), regex.isSelected(), ignoreCase.isSelected(), expression.getText(), hex);
-            if (next.name().isBlank()) { error.setText(i18n.get("highlight.invalid")); return; }
-            try { new TerminalLogHighlighter(new TerminalHighlightConfig(true, List.of(next))); }
-            catch (RuntimeException ex) { error.setText(i18n.get("highlight.invalid")); return; }
-            int index = selected.getSelectionModel().getSelectedIndex();
-            if (index < 0) {
-                if (rules.size() >= TerminalHighlightConfig.MAX_RULES) { error.setText(i18n.get("highlight.limit")); return; }
-                rules.add(next); index = rules.size()-1;
-            } else rules.set(index, next);
-            selected.getSelectionModel().select(index); error.setText(""); publish.run();
-            status.setText(i18n.get("highlight.saved"));
+        selected.addActionListener(event -> load.run());
+        color.addActionListener(event -> {
+            Color next = JColorChooser.showDialog(panel, i18n.get("highlight.color"), selectedColor[0]);
+            if (next != null) { selectedColor[0] = next; color.setBackground(next); }
         });
-        Button add = new Button(i18n.get("highlight.add")); add.setOnAction(e -> {
-            selected.getSelectionModel().clearSelection(); name.clear(); expression.clear(); active.setSelected(true);
-            regex.setSelected(false); ignoreCase.setSelected(true); color.setValue(Color.web("#38BDF8"));
-            error.setText(""); status.setText(i18n.get("highlight.draft"));
+        JButton save = button(i18n, "highlight.saveRule", () -> {
+            String hex = String.format(Locale.ROOT, "#%02X%02X%02X", selectedColor[0].getRed(), selectedColor[0].getGreen(), selectedColor[0].getBlue());
+            Rule next = new Rule(name.getText().strip(), active.isSelected(), regex.isSelected(), ignoreCase.isSelected(), expression.getText(), hex);
+            try {
+                if (next.name().isBlank()) throw new IllegalArgumentException();
+                new TerminalLogHighlighter(new TerminalHighlightConfig(true, List.of(next)));
+            } catch (RuntimeException error) { status.setText(i18n.get("highlight.invalid")); return; }
+            int index = selected.getSelectedIndex();
+            if (index < 0 && rules.size() >= TerminalHighlightConfig.MAX_RULES) { status.setText(i18n.get("highlight.limit")); return; }
+            if (index < 0) { rules.add(next); index = rules.size() - 1; }
+            else rules.set(index, next);
+            model.removeAllElements(); rules.forEach(model::addElement); selected.setSelectedIndex(index);
+            publish.run(); status.setText(i18n.get("highlight.saved"));
         });
-        Button remove = new Button(i18n.get("highlight.remove")); remove.setOnAction(e -> {
-            int index = selected.getSelectionModel().getSelectedIndex();
-            if (index >= 0) { rules.remove(index); selected.getSelectionModel().select(Math.min(index, rules.size()-1)); publish.run(); }
+        save.setName("settings-highlight-save");
+        JButton add = button(i18n, "highlight.add", () -> {
+            selected.setSelectedIndex(-1); name.setText(""); expression.setText("");
+            active.setSelected(true); regex.setSelected(false); ignoreCase.setSelected(true);
+            selectedColor[0] = new Color(0x38BDF8); color.setBackground(selectedColor[0]); status.setText(i18n.get("highlight.draft"));
         });
-        Button up = new Button(i18n.get("highlight.up")); up.setOnAction(e -> {
-            int index = selected.getSelectionModel().getSelectedIndex();
-            if (index > 0) { Rule rule = rules.remove(index); rules.add(index-1, rule); selected.getSelectionModel().select(index-1); publish.run(); }
+        JButton remove = button(i18n, "highlight.remove", () -> {
+            int index = selected.getSelectedIndex();
+            if (index >= 0) { rules.remove(index); model.removeElementAt(index); selected.setSelectedIndex(Math.min(index, rules.size() - 1)); publish.run(); }
         });
-        Button reset = new Button(i18n.get("highlight.reset")); reset.setOnAction(e -> {
-            rules.setAll(TerminalHighlightConfig.defaults().rules()); selected.getSelectionModel().selectFirst(); publish.run();
+        JButton up = button(i18n, "highlight.up", () -> {
+            int index = selected.getSelectedIndex();
+            if (index > 0) {
+                Rule rule = rules.remove(index); rules.add(index - 1, rule);
+                model.removeAllElements(); rules.forEach(model::addElement); selected.setSelectedIndex(index - 1); publish.run();
+            }
         });
-        enabled.selectedProperty().addListener((obs, old, value) -> publish.run());
-        sample.textProperty().addListener((obs, old, value) -> refreshPreview.run());
-        HBox actions = new HBox(8, add, remove, up, reset); actions.setAlignment(Pos.CENTER_LEFT);
-        GridPane fields = new GridPane(); fields.setHgap(12); fields.setVgap(10);
-        fields.add(new Label(i18n.get("highlight.name")), 0, 0); fields.add(name, 1, 0);
-        fields.add(new Label(i18n.get("highlight.expression")), 0, 1); fields.add(expression, 1, 1);
-        fields.add(new Label(i18n.get("highlight.color")), 0, 2); fields.add(new HBox(color), 1, 2);
-        GridPane.setHgrow(name, Priority.ALWAYS); GridPane.setHgrow(expression, Priority.ALWAYS);
-        VBox box = new VBox(10, enabled, selected, actions, fields, new HBox(12, active, regex, ignoreCase),
-                new HBox(save), error, status, new Label(i18n.get("highlight.preview")), sample, previewScroll);
-        selected.getSelectionModel().selectFirst(); refreshPreview.run();
-        return box;
+        JButton reset = button(i18n, "highlight.reset", () -> {
+            rules.clear(); rules.addAll(TerminalHighlightConfig.defaults().rules());
+            model.removeAllElements(); rules.forEach(model::addElement); selected.setSelectedIndex(0); publish.run();
+        });
+        JPanel fields = new JPanel(new GridLayout(0, 2, 12, 10)); fields.setOpaque(false);
+        fields.add(new JLabel(i18n.get("highlight.name"))); fields.add(name);
+        fields.add(new JLabel(i18n.get("highlight.expression"))); fields.add(expression);
+        fields.add(new JLabel(i18n.get("highlight.color"))); fields.add(color);
+        enabled.addActionListener(event -> publish.run());
+        sample.getDocument().addDocumentListener(new DocumentListener() {
+            public void insertUpdate(DocumentEvent event) { refresh.run(); }
+            public void removeUpdate(DocumentEvent event) { refresh.run(); }
+            public void changedUpdate(DocumentEvent event) { refresh.run(); }
+        });
+        for (JComponent component : List.of(enabled, selected, row(add, remove, up, reset), fields, row(active, regex, ignoreCase),
+                row(save), status, new JLabel(i18n.get("highlight.preview")), sample, new JScrollPane(preview))) {
+            component.setAlignmentX(Component.LEFT_ALIGNMENT); panel.add(component); panel.add(Box.createVerticalStrut(10));
+        }
+        load.run(); refresh.run(); return panel;
     }
-    private static Text fragment(String value, Color color) {
-        Text text = new Text(value); text.setFill(color); text.setFont(javafx.scene.text.Font.font("Monospaced", 12)); return text;
+
+    private static JButton button(I18nService i18n, String key, Runnable action) {
+        JButton button = new JButton(i18n.get(key)); button.addActionListener(event -> action.run()); return button;
+    }
+    private static JPanel row(JComponent... controls) {
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0)); row.setOpaque(false);
+        for (JComponent control : controls) row.add(control); return row;
     }
 }

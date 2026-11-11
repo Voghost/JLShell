@@ -13,7 +13,7 @@ class PreferencesDialogRuntimeDiagnosticsTest {
 
         assertTrue(report.contains("JLShell Environment Report"));
         assertTrue(report.contains("- JLShell:"));
-        assertTrue(report.contains("- JavaFX:"));
+        assertTrue(report.contains("- UI: Swing"));
         assertTrue(report.contains("- OS:"));
         assertTrue(report.contains("- Architecture:"));
         assertTrue(report.contains("- Locale:"));

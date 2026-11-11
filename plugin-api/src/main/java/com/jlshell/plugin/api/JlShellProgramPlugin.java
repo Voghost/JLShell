@@ -1,5 +1,7 @@
 package com.jlshell.plugin.api;
 
+import java.util.function.Supplier;
+import javax.swing.JComponent;
 import java.util.Locale;
 
 import com.jlshell.plugin.api.security.PluginAccessPolicyProvider;
@@ -28,7 +30,7 @@ public interface JlShellProgramPlugin {
 
     void deactivate();
 
-    default javafx.scene.Node settingsView(ProgramPluginContext context) {
+    default Supplier<JComponent> settingsView(ProgramPluginContext context) {
         return null;
     }
 

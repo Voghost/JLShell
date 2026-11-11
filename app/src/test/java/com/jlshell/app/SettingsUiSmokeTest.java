@@ -1,15 +1,10 @@
 package com.jlshell.app;
 
 import com.jlshell.core.service.AppSettingsService;
-import com.jlshell.ui.support.FxThread;
-import com.jlshell.ui.swing.SwingFxPanel;
+import com.jlshell.ui.support.UiThread;
 import com.jlshell.ui.swing.SwingWorkbench;
 import com.jlshell.ui.swing.idea.IdeaListPopup;
 import com.jlshell.ui.view.MainWindow;
-import javafx.application.Platform;
-import javafx.scene.Parent;
-import javafx.scene.control.TextField;
-import javafx.stage.Stage;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.junit.jupiter.api.io.TempDir;
@@ -52,9 +47,9 @@ class SettingsUiSmokeTest {
 
     public static class Probe {
         static MainWindow main;
-        static Stage owner;
+        static Object owner;
         static <T> T fx(Supplier<T> action) throws Exception {
-            return FxThread.supplyAsync(action).get(10, TimeUnit.SECONDS);
+            return UiThread.supplyAsync(action).get(10, TimeUnit.SECONDS);
         }
         static <T> T edt(Supplier<T> action) throws Exception {
             var result = new CompletableFuture<T>();
@@ -90,8 +85,10 @@ class SettingsUiSmokeTest {
         }
         static CompletableFuture<Void> open() {
             var result = new CompletableFuture<Void>();
-            Platform.runLater(() -> {
-                try { main.openPreferences(owner); result.complete(null); }
+            com.jlshell.ui.support.UiThread.run(() -> {
+                try { main.openPreferences(owner).whenComplete((ignored, error) -> {
+                    if (error == null) result.complete(null); else result.completeExceptionally(error);
+                }); }
                 catch (Throwable error) { result.completeExceptionally(error); }
             });
             return result;
@@ -206,7 +203,7 @@ class SettingsUiSmokeTest {
             edt(() -> { ((JTextField)named(dialog,"settings-highlight-expression")).setText("["); return null; });
             fx(() -> null); click(dialog,"settings-highlight-save"); fx(() -> null); edt(() -> null);
             // Default rule uses regex: malformed drafts show an error and cannot enter saved rules.
-            assertFalse(edt(() -> ((JTextArea)named(dialog,"settings-highlight-error")).getText().isBlank()));
+            assertFalse(edt(() -> ((JLabel)named(dialog,"settings-highlight-error")).getText().isBlank()));
             edt(() -> { ((JTextField)named(dialog,"settings-highlight-expression")).setText("UPLOAD_FAILED"); return null; });
             fx(() -> null); click(dialog,"settings-highlight-save"); fx(() -> null); edt(() -> null);
             click(dialog,"settings.apply"); fx(() -> null);
@@ -227,9 +224,11 @@ class SettingsUiSmokeTest {
             });
             Thread.sleep(150);
             edt(() -> {
-                var preview=(Container)named(dialog,"settings-highlight-preview");
-                assertTrue(NativeSettingsProbe.all(preview,JLabel.class).stream()
-                        .anyMatch(label -> java.awt.Color.decode("#F87171").equals(label.getForeground())),
+                var preview = (JTextPane) named(dialog, "settings-highlight-preview");
+                int match = preview.getText().indexOf("UPLOAD_FAILED");
+                assertTrue(match >= 0);
+                assertEquals(java.awt.Color.decode("#F87171"), javax.swing.text.StyleConstants.getForeground(
+                        preview.getStyledDocument().getCharacterElement(match).getAttributes()),
                         "Native preview must display the configured color");
                 return null;
             });
@@ -284,7 +283,7 @@ class SettingsUiSmokeTest {
             JTable table=edt(()->(JTable)named(dialog,"settings.importTable"));assertNotNull(table);
             int row=edt(()->table.getRowCount()-1);
             edt(()->{table.getModel().setValueAt("native-table-fixture",row,1);table.getModel().setValueAt("fixture-password",row,6);return null;});fx(()->null);edt(()->null);
-            edt(()->{assertEquals("native-table-fixture",table.getValueAt(row,1));assertEquals("•••",table.getValueAt(row,6));
+            edt(()->{assertEquals("native-table-fixture",table.getValueAt(row,1));assertEquals("•••", ((JLabel) table.prepareRenderer(table.getCellRenderer(row,6), row,6)).getText());
                 assertTrue(table.editCellAt(row,6));assertEquals("fixture-password",new String(((JPasswordField)table.getEditorComponent()).getPassword()));table.getCellEditor().cancelCellEditing();
                 NativeSettingsProbe.button(dialog,i18n.get("import.manual.pasteJson")).doClick();return null;});
             JDialog paste=DialogUiSmokeTest.Probe.window("jlshell.import.popup");
@@ -295,11 +294,13 @@ class SettingsUiSmokeTest {
             edt(()->{assertEquals(1,table.getRowCount());assertEquals("json-fixture",table.getValueAt(0,1));return null;});
         }
         static void verifyFolderAndShareForms() throws Exception {
-            var prompt = MainWindow.class.getDeclaredMethod("promptFolderName", Stage.class, String.class, String.class);
+            var prompt = MainWindow.class.getDeclaredMethod("promptFolderName", Object.class, String.class, String.class);
             prompt.setAccessible(true);
             var result = new CompletableFuture<Object>();
-            Platform.runLater(() -> {
-                try { result.complete(prompt.invoke(main, owner, "重命名分组", "原分组")); }
+            com.jlshell.ui.support.UiThread.run(() -> {
+                try { ((CompletableFuture<?>) prompt.invoke(main, owner, "重命名分组", "原分组")).whenComplete((value, error) -> {
+                    if (error == null) result.complete(value); else result.completeExceptionally(error);
+                }); }
                 catch (Throwable error) { result.completeExceptionally(error); }
             });
             JDialog folder = DialogUiSmokeTest.Probe.window("jlshell.folder.name");
@@ -311,11 +312,11 @@ class SettingsUiSmokeTest {
             fx(() -> null); edt(() -> null);
             DialogUiSmokeTest.Probe.capture(folder, "folder-name-swing");
             click(folder, "dialog.ok");
-            assertEquals(java.util.Optional.of("服务器分组"), result.get(10, TimeUnit.SECONDS));
-            var share = MainWindow.class.getDeclaredMethod("showConnectionShareDialog", Stage.class, com.jlshell.ui.model.ConnectionFormData.class);
+            assertEquals("服务器分组", result.get(10, TimeUnit.SECONDS));
+            var share = MainWindow.class.getDeclaredMethod("showConnectionShareDialog", Object.class, com.jlshell.ui.model.ConnectionFormData.class);
             share.setAccessible(true);
             var closed = new CompletableFuture<Void>();
-            Platform.runLater(() -> {
+            com.jlshell.ui.support.UiThread.run(() -> {
                 try { share.invoke(main, owner, com.jlshell.ui.model.ConnectionFormData.empty("test")); closed.complete(null); }
                 catch (Throwable error) { closed.completeExceptionally(error); }
             });
@@ -323,7 +324,7 @@ class SettingsUiSmokeTest {
             edt(() -> {
                 NativeSettingsProbe.assertNative(export);
                 assertFalse(((JTextField)named(export,"connection.share.code")).getText().isBlank());
-                assertFalse(((JTextArea)((JScrollPane)named(export,"connection.share.preview")).getViewport().getView()).getText().isBlank());
+                assertFalse(((JTextArea)named(export,"connection.share.preview")).getText().isBlank());
                 return null;
             });
             DialogUiSmokeTest.Probe.capture(export,"connection-share-swing");
@@ -332,12 +333,12 @@ class SettingsUiSmokeTest {
 
         static void verify() throws Exception {
             java.util.Locale.setDefault(java.util.Locale.SIMPLIFIED_CHINESE);
-            Platform.startup(() -> Platform.setImplicitExit(false));
+
             AppContext context = fx(() -> {
                 AppContext result = new AppContext();
                 main = result.getMainWindow();
-                owner = new Stage();
-                owner.setScene(main.createScene(owner));
+                owner = null;
+
                 main.showSwingWindow(owner, () -> {});
                 return result;
             });
@@ -346,17 +347,16 @@ class SettingsUiSmokeTest {
             edt(() -> { workbench.show(); return null; });
             fx(() -> {
                 try {
-                    var build = MainWindow.class.getDeclaredMethod("buildMenuBar", Stage.class);
+                    var build = MainWindow.class.getDeclaredMethod("buildMenuBar");
                     build.setAccessible(true);
-                    var menuBar = (javafx.scene.control.MenuBar) build.invoke(main, owner);
-                    var viewMenu = menuBar.getMenus().stream().filter(menu -> "视图".equals(menu.getText())).findFirst().orElseThrow();
-                    assertTrue(viewMenu.getItems().stream().anyMatch(item -> "恢复默认布局".equals(item.getText()) && item.getOnAction() != null));
-                    var pluginMenu = menuBar.getMenus().stream().filter(menu -> "插件".equals(menu.getText())).findFirst().orElseThrow();
-                    javafx.event.Event.fireEvent(pluginMenu, new javafx.event.Event(javafx.scene.control.Menu.ON_SHOWING));
-                    assertEquals("打开插件面板", pluginMenu.getItems().get(0).getText());
-                    assertTrue(pluginMenu.getItems().get(0).isDisable(), "没有打开会话时不能打开会话插件面板");
-                    assertEquals("管理插件", pluginMenu.getItems().get(1).getText());
-                    assertFalse(pluginMenu.getItems().get(1).isDisable());
+                    @SuppressWarnings("unchecked") var menus = (java.util.List<com.jlshell.ui.swing.SwingMenuBridge.Item>) build.invoke(main);
+                    var viewMenu = menus.stream().filter(menu -> "视图".equals(menu.text())).findFirst().orElseThrow();
+                    assertTrue(viewMenu.children().stream().anyMatch(item -> "恢复默认布局".equals(item.text()) && item.action() != null));
+                    var pluginMenu = menus.stream().filter(menu -> "插件".equals(menu.text())).findFirst().orElseThrow();
+                    assertEquals("打开插件面板", pluginMenu.children().get(0).text());
+                    assertTrue(pluginMenu.children().get(0).disabled());
+                    assertEquals("管理插件", pluginMenu.children().get(1).text());
+                    assertFalse(pluginMenu.children().get(1).disabled());
                     return null;
                 } catch (ReflectiveOperationException error) { throw new RuntimeException(error); }
             });

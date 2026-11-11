@@ -1,5 +1,7 @@
 package com.jlshell.plugin.api;
 
+import java.util.function.Supplier;
+import javax.swing.JComponent;
 import java.util.Locale;
 
 /**
@@ -7,7 +9,7 @@ import java.util.Locale;
  */
 public interface PluginView {
 
-    javafx.scene.Node createView(PluginContext context);
+    Supplier<JComponent> createView(PluginContext context);
 
     default void onTabSelected() {}
 

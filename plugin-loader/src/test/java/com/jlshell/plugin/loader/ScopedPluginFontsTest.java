@@ -32,7 +32,7 @@ class ScopedPluginFontsTest {
         var manager = new PluginManager("/not/exist"); manager.setFontService(source);
         var context = new DefaultPluginContext("test.font", "session", new CapabilityRegistryImpl(), Optional.empty(),
                 new DefaultPluginContext.Callbacks() {
-                    public void openTab(String title, javafx.scene.Node node) {}
+                    public void openTab(String title, java.util.function.Supplier<javax.swing.JComponent> node) {}
                     public void closeTab() {}
                     public void updateTabTitle(String title) {}
                     public String resolveI18n(String key, String fallback) { return fallback; }

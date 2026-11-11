@@ -1,5 +1,8 @@
 package com.jlshell.plugin.loader;
 
+import com.jlshell.core.support.MutableValue;
+import com.jlshell.plugin.api.ui.ObservableValue;
+
 import java.net.URL;
 import java.net.URLClassLoader;
 import com.jlshell.core.support.PerformanceTrace;
@@ -24,12 +27,6 @@ import com.jlshell.plugin.api.security.PluginOperation;
 import com.jlshell.plugin.api.storage.SecureStorage;
 import com.jlshell.plugin.loader.store.PluginPackageValidator;
 
-import javafx.beans.property.ObjectProperty;
-import javafx.beans.property.ReadOnlyLongProperty;
-import javafx.beans.property.ReadOnlyLongWrapper;
-import javafx.beans.property.SimpleObjectProperty;
-import javafx.beans.property.SimpleStringProperty;
-import javafx.beans.property.StringProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -65,10 +62,10 @@ public class PluginManager {
     private final Map<String, SessionPluginSet> activeBySession = new ConcurrentHashMap<>();
     private volatile boolean loaded = false;
 
-    private final StringProperty themeName = new SimpleStringProperty("dark");
-    private final ObjectProperty<Locale> locale = new SimpleObjectProperty<>(Locale.getDefault());
+    private final MutableValue<String> themeName = new MutableValue<>("dark");
+    private final MutableValue<Locale> locale = new MutableValue<>(Locale.getDefault());
     /** UI 通过该版本号感知插件目录重新扫描，避免每个 Session 持有过期列表。 */
-    private final ReadOnlyLongWrapper catalogRevision = new ReadOnlyLongWrapper(0);
+    private final MutableValue<Long> catalogRevision = new MutableValue<>(0L);
 
     public PluginManager(String userPluginsDir) {
         this(userPluginsDir, DEFAULT_HOST_VERSION, new PluginEnablementService());
@@ -170,6 +167,9 @@ public class PluginManager {
                 } catch (Exception error) {
                     jarTiming.failed(error);
                     log.warn("Failed to load plugin JAR: {}", jarPath.getFileName(), error);
+                } catch (LinkageError | java.util.ServiceConfigurationError error) {
+                    jarTiming.failed(error);
+                    log.warn("Cannot load incompatible plugin JAR {}. Rebuild it against the current Swing SDK.", jarPath.getFileName(), error);
                 } catch (Error error) { jarTiming.failed(error); throw error; }
             }
         }
@@ -209,15 +209,15 @@ public class PluginManager {
     }
 
     /** 每次重新扫描插件目录后递增，供所有已打开的 Session 页面刷新插件列表。 */
-    public ReadOnlyLongProperty catalogRevisionProperty() {
-        return catalogRevision.getReadOnlyProperty();
+    public ObservableValue<Long> catalogRevisionProperty() {
+        return catalogRevision;
     }
 
-    public StringProperty themeNameProperty() {
+    public MutableValue<String> themeNameProperty() {
         return themeName;
     }
 
-    public ObjectProperty<Locale> localeProperty() {
+    public MutableValue<Locale> localeProperty() {
         return locale;
     }
 

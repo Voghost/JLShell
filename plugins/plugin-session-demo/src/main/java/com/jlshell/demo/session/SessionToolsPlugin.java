@@ -1,5 +1,17 @@
 package com.jlshell.demo.session;
 
+import javax.swing.JComponent;
+import javax.swing.JLabel;
+import javax.swing.JButton;
+import javax.swing.JTextArea;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.BorderFactory;
+import javax.swing.SwingUtilities;
+import java.awt.BorderLayout;
+import java.awt.FlowLayout;
+import java.awt.GridLayout;
+import java.util.function.Supplier;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CompletableFuture;
 
@@ -9,15 +21,6 @@ import com.jlshell.plugin.api.NotificationLevel;
 import com.jlshell.plugin.api.PluginContext;
 import com.jlshell.plugin.api.PluginView;
 import com.jlshell.plugin.api.rpc.Capability;
-import javafx.application.Platform;
-import javafx.geometry.Insets;
-import javafx.scene.Node;
-import javafx.scene.control.Button;
-import javafx.scene.control.Label;
-import javafx.scene.control.TextArea;
-import javafx.scene.layout.HBox;
-import javafx.scene.layout.Priority;
-import javafx.scene.layout.VBox;
 
 /**
  * Session-level demo plugin. It is activated inside a workspace session.
@@ -73,25 +76,29 @@ public class SessionToolsPlugin implements JlShellPlugin, PluginView {
     @Override public PluginView view() { return this; }
 
     @Override
-    public Node createView(PluginContext context) {
-        Label title = new Label("Session-level plugin demo");
-        Label session = new Label("Session: "
+    public Supplier<JComponent> createView(PluginContext context) {
+        return () -> createPanel(context);
+    }
+
+    private JComponent createPanel(PluginContext context) {
+        JLabel title = new JLabel("Session-level plugin demo");
+        JLabel session = new JLabel("Session: "
                 + context.sshSession().map(s -> s.sessionId()).orElse("not available"));
-        session.setWrapText(true);
 
-        TextArea output = new TextArea();
+
+        JTextArea output = new JTextArea();
         output.setEditable(false);
-        output.setWrapText(true);
-        VBox.setVgrow(output, Priority.ALWAYS);
+        output.setLineWrap(true);
 
-        Button uptime = new Button("Run uptime");
-        uptime.setOnAction(e -> runCommand(context, "uptime", output));
 
-        Button whoami = new Button("Run whoami");
-        whoami.setOnAction(e -> runCommand(context, "whoami", output));
+        JButton uptime = new JButton("Run uptime");
+        uptime.addActionListener(e -> runCommand(context, "uptime", output));
 
-        Button storage = new Button("Storage check");
-        storage.setOnAction(e -> {
+        JButton whoami = new JButton("Run whoami");
+        whoami.addActionListener(e -> runCommand(context, "whoami", output));
+
+        JButton storage = new JButton("Storage check");
+        storage.addActionListener(e -> {
             if (context.storage() == null) {
                 output.setText("Plugin storage is not available.");
                 return;
@@ -101,16 +108,21 @@ public class SessionToolsPlugin implements JlShellPlugin, PluginView {
             context.showNotification("Session demo storage updated.", NotificationLevel.INFO);
         });
 
-        HBox actions = new HBox(8, uptime, whoami, storage);
-        VBox root = new VBox(10, title, session, actions, output);
-        root.setPadding(new Insets(12));
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        actions.add(uptime); actions.add(whoami); actions.add(storage);
+        JPanel header = new JPanel(new GridLayout(0, 1, 0, 8));
+        header.add(title); header.add(session); header.add(actions);
+        JPanel root = new JPanel(new BorderLayout(0, 10));
+        root.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
+        root.add(header, BorderLayout.NORTH);
+        root.add(new JScrollPane(output));
         return root;
     }
 
-    private static void runCommand(PluginContext context, String command, TextArea output) {
+    private static void runCommand(PluginContext context, String command, JTextArea output) {
         context.sshSession().ifPresentOrElse(ssh -> {
             output.setText("Running: " + command);
-            ssh.commandExecutor().execute(command).whenComplete((result, error) -> Platform.runLater(() -> {
+            ssh.commandExecutor().execute(command).whenComplete((result, error) -> SwingUtilities.invokeLater(() -> {
                 if (error != null) {
                     output.setText("Error: " + error.getMessage());
                     context.showNotification("Command failed: " + error.getMessage(), NotificationLevel.ERROR);

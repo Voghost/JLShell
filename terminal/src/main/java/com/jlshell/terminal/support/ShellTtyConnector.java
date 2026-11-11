@@ -14,9 +14,10 @@ import com.jediterm.terminal.Questioner;
 import com.jediterm.terminal.TtyConnector;
 import com.jlshell.core.model.TerminalSize;
 import com.jlshell.core.session.ShellChannel;
-import javafx.application.Platform;
-import javafx.beans.property.SimpleStringProperty;
-import javafx.beans.property.StringProperty;
+import com.jlshell.plugin.api.lifecycle.Registration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -37,13 +38,11 @@ public class ShellTtyConnector implements TtyConnector {
     private final AtomicBoolean closeStarted = new AtomicBoolean(false);
     private final CompletableFuture<Void> closeFuture = new CompletableFuture<>();
 
-    /** 终端当前工作目录，通过 OSC 7 序列追踪 */
-    private final StringProperty cwdProperty = new SimpleStringProperty("");
-
+    private volatile String currentDirectory = "";
+    // Accessed only on EDT, including registration, publication and removal.
+    private final List<DirectoryWatch> directoryWatches = new ArrayList<>();
     private final Osc7DirectoryParser directoryParser = new Osc7DirectoryParser(path ->
-            Platform.runLater(() -> {
-                if (!path.equals(cwdProperty.get())) cwdProperty.set(path);
-            }));
+            SwingExecutors.runOnEdtAsync(() -> publishDirectory(path)));
     private ShellDirectoryIntegration directoryIntegration;
 
     /** 过滤程序内部命令的单次 PTY 回显；正常终端输出仍原样交给 JediTerm。 */
@@ -71,9 +70,45 @@ public class ShellTtyConnector implements TtyConnector {
         this.executorService = executorService;
     }
 
-    /** 返回终端当前工作目录的可观察属性。 */
-    public StringProperty cwdProperty() {
-        return cwdProperty;
+    public String currentDirectory() {
+        return currentDirectory;
+    }
+
+    public Registration onDirectoryChanged(Consumer<String> listener) {
+        DirectoryWatch watch = new DirectoryWatch(Objects.requireNonNull(listener, "listener"));
+        SwingExecutors.runOnEdtAsync(() -> {
+            if (watch.closed.get() || closeStarted.get()) return;
+            directoryWatches.add(watch);
+            watch.deliver(currentDirectory);
+        });
+        return () -> {
+            watch.closed.set(true);
+            SwingExecutors.runOnEdtAsync(() -> directoryWatches.remove(watch));
+        };
+    }
+
+    private void publishDirectory(String path) {
+        if (closeStarted.get() || path.equals(currentDirectory)) return;
+        currentDirectory = path;
+        for (DirectoryWatch watch : List.copyOf(directoryWatches)) watch.deliver(path);
+    }
+
+    private static final class DirectoryWatch {
+        private final Consumer<String> listener;
+        private final AtomicBoolean closed = new AtomicBoolean();
+
+        private DirectoryWatch(Consumer<String> listener) {
+            this.listener = listener;
+        }
+
+        private void deliver(String path) {
+            if (closed.get()) return;
+            try {
+                listener.accept(path);
+            } catch (RuntimeException error) {
+                log.warn("Terminal directory listener failed", error);
+            }
+        }
     }
 
     /**
@@ -230,6 +265,7 @@ public class ShellTtyConnector implements TtyConnector {
         if (!closeStarted.compareAndSet(false, true)) {
             return;
         }
+        SwingExecutors.runOnEdtAsync(directoryWatches::clear);
 
         boolean wasConnected = connected.getAndSet(false);
         if (userInitiated && wasConnected) {
@@ -262,7 +298,7 @@ public class ShellTtyConnector implements TtyConnector {
         return closeFuture;
     }
 
-    /** 注册连接断开回调。回调在 JavaFX 应用线程执行。 */
+    /** 注册连接断开回调。回调在 Swing EDT 执行。 */
     public void setOnDisconnected(Consumer<DisconnectReason> callback) {
         this.onDisconnected = callback;
     }
@@ -279,7 +315,7 @@ public class ShellTtyConnector implements TtyConnector {
         }
         // 通知 UI 层
         if (cb != null && reason != DisconnectReason.USER_CLOSE) {
-            Platform.runLater(() -> cb.accept(reason));
+            SwingExecutors.runOnEdtAsync(() -> cb.accept(reason));
         }
     }
 }

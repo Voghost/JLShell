@@ -69,7 +69,7 @@ class ProgramSessionIntegrationRegistryTest {
             @Override public String description() { return "Test contribution"; }
             @Override public com.jlshell.plugin.api.session.ProgramSessionController activate(PluginContext context) {
                 activated.incrementAndGet();
-                context.openTab("Test", new javafx.scene.layout.Pane());
+                context.openTab("Test", javax.swing.JPanel::new);
                 return closed::incrementAndGet;
             }
         };
@@ -81,7 +81,7 @@ class ProgramSessionIntegrationRegistryTest {
                 "com.test.program", sessionId, pluginManager.registryForSession(sessionId),
                 new CapabilityBusImpl(pluginManager), null,
                 Optional.of(new TestSshSession(sessionId)), new DefaultPluginContext.Callbacks() {
-                    @Override public void openTab(String title, javafx.scene.Node content) { }
+                    @Override public void openTab(String title, java.util.function.Supplier<javax.swing.JComponent> content) { }
                     @Override public void closeTab() { tabsClosed.incrementAndGet(); }
                     @Override public void updateTabTitle(String title) { }
                     @Override public String resolveI18n(String key, String fallback) { return fallback; }

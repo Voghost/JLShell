@@ -43,7 +43,6 @@ public final class RestartHelper {
         try {
             cleanup.run();
         } finally {
-            javafx.application.Platform.exit();
             Runtime.getRuntime().halt(0);
         }
     }
@@ -73,6 +72,7 @@ public final class RestartHelper {
      *
      * <p>Strategy:
      * <ol>
+     *   <li>Relaunch the branded native executable when available</li>
      *   <li>Relaunch the bootstrap JAR and wait for this process to exit</li>
      *   <li>Use the original process command for direct development launches</li>
      *   <li>Fall back to {@code java.home} and {@code jlshell.active.jar}</li>
@@ -80,6 +80,11 @@ public final class RestartHelper {
      */
     private static List<String> buildRestartCommand() {
         String launcherJar = System.getProperty("jlshell.launcher.jar", "");
+        String nativeLauncher = System.getProperty("jpackage.app-path", "");
+        if (!nativeLauncher.isBlank() && java.nio.file.Files.isRegularFile(Path.of(nativeLauncher))) {
+            // The bootstrap reads this child-only marker before selecting the verified update.
+            return List.of(nativeLauncher, "--jlshell-restart-parent=" + ProcessHandle.current().pid());
+        }
         if (!launcherJar.isBlank()) {
             String executable = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win")
                     ? "javaw.exe" : "java";
@@ -128,6 +133,8 @@ public final class RestartHelper {
         cmd.add("-Xms32m");
         cmd.add("-Xmx512m");
         cmd.add("-XX:+UseG1GC");
+        cmd.add("-XX:+UseCompactObjectHeaders");
+        cmd.add("--enable-native-access=ALL-UNNAMED");
         cmd.add("-XX:+ExplicitGCInvokesConcurrent");
         cmd.add("-XX:G1PeriodicGCInterval=30000");
         cmd.add("-XX:MinHeapFreeRatio=20");

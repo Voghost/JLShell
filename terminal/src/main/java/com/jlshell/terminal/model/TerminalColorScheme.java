@@ -77,6 +77,12 @@ public record TerminalColorScheme(
         return luminance > .5;
     }
 
+    public TerminalColorScheme withOpacity(double value) {
+        return new TerminalColorScheme(name, background, foreground, cursorColor, selectionBackground, selectionForeground,
+                hyperlinkColor, searchMatchBackground, searchMatchForeground, black, red, green, yellow, blue, purple,
+                cyan, white, brightBlack, brightRed, brightGreen, brightYellow, brightBlue, brightPurple, brightCyan, brightWhite, value);
+    }
+
     public static TerminalColorScheme dark() {
         return new TerminalColorScheme(
                 "JLShell Bright",

@@ -1,5 +1,15 @@
 package com.jlshell.demo.program;
 
+import javax.swing.JComponent;
+import javax.swing.JLabel;
+import javax.swing.JButton;
+import javax.swing.JTextArea;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.BorderFactory;
+import java.awt.BorderLayout;
+import java.awt.GridLayout;
+import java.util.function.Supplier;
 import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
 
@@ -11,12 +21,6 @@ import com.jlshell.plugin.api.ProgramPluginContext;
 import com.jlshell.plugin.api.rpc.Capability;
 import com.jlshell.program.api.ProgramApiContext;
 import com.jlshell.program.api.ProgramApiProvider;
-import javafx.geometry.Insets;
-import javafx.scene.Node;
-import javafx.scene.control.Button;
-import javafx.scene.control.Label;
-import javafx.scene.control.TextArea;
-import javafx.scene.layout.VBox;
 
 /**
  * Program-level demo plugin. It has no SSH session and registers global capabilities.
@@ -73,31 +77,36 @@ public class HostToolsProgramPlugin implements JlShellProgramPlugin, ProgramApiP
     }
 
     @Override
-    public Node settingsView(ProgramPluginContext context) {
-        TextArea note = new TextArea(context.storage() == null
+    public Supplier<JComponent> settingsView(ProgramPluginContext context) {
+        return () -> createSettings(context);
+    }
+
+    private JComponent createSettings(ProgramPluginContext context) {
+        JTextArea note = new JTextArea(context.storage() == null
                 ? ""
                 : context.storage().get("demo.note", ""));
-        note.setPromptText("Stored in this plugin's private storage namespace.");
-        note.setPrefRowCount(4);
-        note.setWrapText(true);
+        note.setToolTipText("Stored in this plugin's private storage namespace.");
+        note.setRows(4);
+        note.setLineWrap(true);
 
-        Label runtime = new Label(runtimeText(context));
-        runtime.setWrapText(true);
+        JLabel runtime = new JLabel(runtimeText(context));
 
-        Button save = new Button("Save note");
-        save.setOnAction(e -> {
+
+        JButton save = new JButton("Save note");
+        save.addActionListener(e -> {
             if (context.storage() != null) {
                 context.storage().put("demo.note", note.getText() == null ? "" : note.getText());
             }
             context.showNotification("Program demo settings saved.", NotificationLevel.INFO);
         });
 
-        VBox root = new VBox(8,
-                new Label("Program-level plugin demo"),
-                runtime,
-                note,
-                save);
-        root.setPadding(new Insets(8));
+        JPanel root = new JPanel(new BorderLayout(0, 8));
+        JPanel header = new JPanel(new GridLayout(0, 1, 0, 8));
+        header.add(new JLabel("Program-level plugin demo")); header.add(runtime);
+        root.add(header, BorderLayout.NORTH);
+        root.add(new JScrollPane(note));
+        root.add(save, BorderLayout.SOUTH);
+        root.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         return root;
     }
 

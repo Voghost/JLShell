@@ -20,19 +20,13 @@ import com.jlshell.program.plugin.loader.ProgramSessionIntegrationRegistry;
 import com.jlshell.sftp.service.SftpService;
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.theme.ThemeService;
-import javafx.application.Platform;
-import javafx.beans.value.ChangeListener;
-import javafx.scene.control.Button;
-import javafx.scene.control.Label;
-import javafx.scene.control.ListCell;
-import javafx.scene.control.ListView;
-import javafx.scene.control.Tab;
-import javafx.scene.control.TabPane;
-import javafx.scene.layout.BorderPane;
-import javafx.scene.layout.VBox;
+import com.jlshell.ui.model.WorkspacePage;
+import com.jlshell.ui.model.WorkspaceTabs;
+import com.jlshell.core.support.MutableValue;
+import javax.swing.SwingUtilities;
 
 /** Lists Session plugins and session surfaces contributed by Program plugins. */
-public class PluginsTabView extends BorderPane {
+public class PluginsTabView {
 
     private final I18nService i18nService;
     private final PluginManager pluginManager;
@@ -41,45 +35,41 @@ public class PluginsTabView extends BorderPane {
     private final java.util.function.Function<String, PluginStorage> storageFactory;
     private final String sessionId;
     private final SshSessionContext sshContext;
-    private final TabPane workspaceTabs;
+    private final WorkspaceTabs workspaceTabs;
     private final Set<String> activatedSessionPluginIds =
             java.util.concurrent.ConcurrentHashMap.newKeySet();
-    private final ChangeListener<java.util.Locale> localeListener;
-    private final ChangeListener<Number> catalogRevisionListener;
+    private final com.jlshell.plugin.api.lifecycle.Registration localeSubscription;
+    private final com.jlshell.plugin.api.lifecycle.Registration catalogSubscription;
+    private final com.jlshell.plugin.api.lifecycle.Registration programCatalogSubscription;
     public static final String NATIVE_VIEW = "jlshell.plugin.swingView";
     private final java.util.concurrent.atomic.AtomicReference<com.jlshell.ui.swing.SwingPluginList> nativeView = new java.util.concurrent.atomic.AtomicReference<>();
-    private boolean disposed;
+    private volatile boolean disposed;
+    private volatile long activationGeneration;
+    private final Set<String> opening = new java.util.HashSet<>();
+    private java.util.concurrent.CompletableFuture<Void> activation = java.util.concurrent.CompletableFuture.completedFuture(null);
     public static final String PINNED_SHORTCUTS = "jlshell.pinnedPluginShortcuts";
     public record PinnedShortcut(String id, String title, Runnable open, com.jlshell.ui.swing.PluginIcons.Source icon) {}
-    private final javafx.collections.ObservableList<PinnedShortcut> pinnedShortcuts;
+    private final MutableValue<List<PinnedShortcut>> pinnedShortcuts;
     private final com.jlshell.core.service.AppSettingsService settings;
     private final Set<String> pinnedIds = new java.util.HashSet<>();
-    private final ListView<LaunchItem> listView = new ListView<>();
+    private List<LaunchItem> availableItems = List.of();
 
     public PluginsTabView(
             PluginManager pluginManager,
             ProgramSessionIntegrationRegistry programSessionRegistry,
             String sessionId,
             SshSession sshSession,
-            TabPane workspaceTabs,
+            WorkspaceTabs workspaceTabs,
             I18nService i18nService,
             ThemeService themeService,
             SftpService sftpService,
             CapabilityBus capabilityBus,
             java.util.function.Function<String, PluginStorage> storageFactory,
-            com.jlshell.core.service.AppSettingsService settings
+            com.jlshell.core.service.AppSettingsService settings, MutableValue<List<PinnedShortcut>> pinnedShortcuts
     ) {
         this.i18nService = i18nService;
         this.settings = settings;
-        Tab pluginListTab = workspaceTabs.getTabs().stream()
-                .filter(tab -> tab.getContent() == this || tab.getProperties().containsKey(PINNED_SHORTCUTS))
-                .findFirst().orElse(null);
-        // The list belongs to the session, so reconnecting can replace its entries without losing listeners.
-        @SuppressWarnings("unchecked")
-        var existing = pluginListTab == null ? null : (javafx.collections.ObservableList<PinnedShortcut>)
-                pluginListTab.getProperties().get(PINNED_SHORTCUTS);
-        pinnedShortcuts = existing == null ? javafx.collections.FXCollections.observableArrayList() : existing;
-        getProperties().put(PINNED_SHORTCUTS, pinnedShortcuts);
+        this.pinnedShortcuts = pinnedShortcuts;
         this.pluginManager = pluginManager;
         this.programSessionRegistry = programSessionRegistry;
         this.sessionId = sessionId;
@@ -88,91 +78,58 @@ public class PluginsTabView extends BorderPane {
         this.storageFactory = storageFactory;
         this.sshContext = new SshSessionContextAdapter(sshSession, sftpService);
 
-        listView.setId("session-plugin-list");
-        listView.setMinWidth(0);
-        listView.setFixedCellSize(-1);
-        listView.setCellFactory(ignored -> new ListCell<>() {
-            {
-                setMinWidth(0);
-                setContentDisplay(javafx.scene.control.ContentDisplay.GRAPHIC_ONLY);
-                prefWidthProperty().bind(listView.widthProperty().subtract(20));
-                setMaxWidth(Double.MAX_VALUE);
-            }
-            @Override protected void updateItem(LaunchItem item, boolean empty) {
-                super.updateItem(item, empty);
-                setText(null);
-                if (empty || item == null) { setGraphic(null); return; }
-                Label name = new Label(item.displayName(i18nService.getLocale()));
-                name.getStyleClass().add("plugin-name");
-                name.setWrapText(true); name.setMinWidth(0); name.setMaxWidth(Double.MAX_VALUE);
-                Label description = new Label(item.description(i18nService.getLocale()));
-                description.getStyleClass().add("plugin-desc");
-                description.setWrapText(true); description.setMinWidth(0); description.setMaxWidth(Double.MAX_VALUE);
-                Button open = new Button(i18nService.get("plugin.open"));
-                open.setOnAction(event -> requestOpen(item));
-                boolean pinned = pinnedIds.contains(item.tabKey());
-                javafx.scene.control.ToggleButton pin = new javafx.scene.control.ToggleButton(
-                        i18nService.get(pinned ? "plugin.unpinFromSidebar" : "plugin.pinToSidebar"));
-                pin.setId("plugin-pin-" + item.tabKey());
-                pin.setSelected(pinned);
-                pin.setOnAction(event -> {
-                    if (pin.isSelected()) pinnedIds.add(item.tabKey()); else pinnedIds.remove(item.tabKey());
-                    if (settings != null) settings.set("ui.pluginSidebar.pinned." + item.tabKey(), Boolean.toString(pin.isSelected()));
-                    publishPinnedShortcuts(); listView.refresh();
-                });
-                javafx.scene.layout.FlowPane actions = new javafx.scene.layout.FlowPane(6, 6, pin, open);
-                actions.setAlignment(javafx.geometry.Pos.CENTER_RIGHT);
-                VBox row = new VBox(6, name, description, actions);
-                row.getStyleClass().add("session-plugin-card");
-                row.setMinWidth(0);
-                row.prefWidthProperty().bind(javafx.beans.binding.Bindings.max(0, widthProperty().subtract(20)));
-                row.setMaxWidth(Double.MAX_VALUE);
-                setGraphic(row);
-            }
-        });
-
-        localeListener = (obs, oldLocale, newLocale) -> { listView.refresh(); publishPinnedShortcuts(); };
-        i18nService.localeProperty().addListener(localeListener);
-        catalogRevisionListener = (obs, oldRevision, newRevision) -> refreshOnFxThread();
+        localeSubscription = i18nService.onLocaleChanged(newLocale ->
+                SwingUtilities.invokeLater(() -> {
+                    if (!disposed) { publishPinnedShortcuts(); }
+                }));
         refreshPluginList();
-        pluginManager.catalogRevisionProperty().addListener(catalogRevisionListener);
-        if (programSessionRegistry != null) {
-            programSessionRegistry.revisionProperty().addListener(catalogRevisionListener);
-        }
+        catalogSubscription = pluginManager.catalogRevisionProperty().subscribe(revision -> refreshOnUiThread());
+        programCatalogSubscription = programSessionRegistry == null
+                ? com.jlshell.plugin.api.lifecycle.Registration.noop()
+                : programSessionRegistry.revisionProperty().subscribe(revision -> refreshOnUiThread());
     }
 
     private void requestOpen(LaunchItem item) {
         var timing = new com.jlshell.ui.support.PluginOpenTiming(item.tabKey());
-        com.jlshell.ui.support.FxThread.run(() -> { if (!disposed) activate(item, timing); else timing.finish("disposed"); });
-    }
-
-    /** 当前会话可用的插件入口，供主菜单在 FX 线程生成。 */
-    public List<javafx.scene.control.MenuItem> createMenuItems() {
-        return listView.getItems().stream().map(item -> {
-            var menuItem = new javafx.scene.control.MenuItem(item.displayName(i18nService.getLocale()));
-            menuItem.getProperties().put("jlshell.pluginId", item.tabKey());
-            menuItem.setOnAction(event -> requestOpen(item));
-            return menuItem;
-        }).toList();
-    }
-
-    private void activate(LaunchItem item, com.jlshell.ui.support.PluginOpenTiming timing) {
-        timing.mark("fx-dispatch");
-        for (Tab tab : workspaceTabs.getTabs()) {
-            if (item.tabKey().equals(tab.getProperties().get("pluginId"))) {
-                workspaceTabs.getSelectionModel().select(tab);
-                timing.finish("reused-tab");
-                return;
+        SwingUtilities.invokeLater(() -> {
+            timing.mark("edt-dispatch");
+            if (disposed) { timing.finish("disposed"); return; }
+            for (WorkspacePage page : workspaceTabs.pages()) {
+                if (item.tabKey().equals(page.getProperties().get("pluginId"))) {
+                    workspaceTabs.select(page); timing.finish("reused-tab"); return;
+                }
             }
-        }
+            if (!opening.add(item.tabKey())) { timing.finish("already-opening"); return; }
+            long generation = activationGeneration;
+            activation = activation.handle((ignored, error) -> null).thenRunAsync(() -> {
+                if (disposed || generation != activationGeneration) { timing.finish("disposed"); return; }
+                try { activate(item, timing, generation); }
+                finally { if (disposed || generation != activationGeneration) deactivateAfterUserClose(item); }
+            }).whenComplete((ignored, error) -> SwingUtilities.invokeLater(() -> {
+                opening.remove(item.tabKey());
+                if (error != null) {
+                    timing.failed(error);
+                    org.slf4j.LoggerFactory.getLogger(PluginsTabView.class).warn("Cannot open session plugin {}", item.tabKey(), error);
+                }
+            }));
+        });
+    }
 
+    /** 当前会话可用的插件入口，供主菜单生成。 */
+    public List<PluginMenuItem> createMenuItems() {
+        return availableItems.stream().map(item -> new PluginMenuItem(item.tabKey(), item.displayName(i18nService.getLocale()), () -> requestOpen(item))).toList();
+    }
+
+    public record PluginMenuItem(String id, String title, Runnable open) {}
+
+    private void activate(LaunchItem item, com.jlshell.ui.support.PluginOpenTiming timing, long generation) {
         try (var activation = timing.step("activation-and-context")) {
             try {
                 CapabilityRegistryImpl sessionRegistry = pluginManager.registryForSession(sessionId);
                 PluginStorage storage = storageFactory == null ? null : storageFactory.apply(item.ownerPluginId());
                 DefaultPluginContext context = new DefaultPluginContext(
                         item.ownerPluginId(), sessionId, sessionRegistry, capabilityBus, storage,
-                        Optional.of(sshContext), callbacks(item, timing));
+                        Optional.of(sshContext), callbacks(item, timing, generation));
                 context.writableThemeNameProperty().bind(pluginManager.themeNameProperty());
                 context.writableLocaleProperty().bind(pluginManager.localeProperty());
                 timing.mark("context-ready");
@@ -194,62 +151,47 @@ public class PluginsTabView extends BorderPane {
         }
     }
 
-    private DefaultPluginContext.Callbacks callbacks(LaunchItem item, com.jlshell.ui.support.PluginOpenTiming timing) {
+    private DefaultPluginContext.Callbacks callbacks(LaunchItem item, com.jlshell.ui.support.PluginOpenTiming timing, long generation) {
         return new DefaultPluginContext.Callbacks() {
-            private Tab openedTab;
+            private WorkspacePage openedTab;
 
-            @Override public boolean supportsSwingViews() { return com.jlshell.ui.swing.SwingDialogHost.enabled(); }
+            @Override public boolean supportsSwingViews() { return true; }
 
             @Override public void openSwingTab(String title, java.util.function.Supplier<javax.swing.JComponent> content) {
                 timing.mark("swing-view-request");
-                // On FX, publish immediately: the Swing view need not wait for activate() to return.
-                com.jlshell.ui.support.FxThread.run(() -> {
-                    if (disposed) { timing.finish("disposed"); return; }
-                    openedTab = new Tab(title, new javafx.scene.layout.Pane());
+                // 在 EDT 发布页面，插件后台初始化完成前即可创建并绘制界面。
+                SwingUtilities.invokeLater(() -> {
+                    if (disposed || generation != activationGeneration) { timing.finish("disposed"); return; }
+                    openedTab = new WorkspacePage(title);
+                    openedTab.setContent(content);
                     openedTab.getProperties().put("pluginId", item.tabKey());
                     openedTab.getProperties().put(NATIVE_VIEW, content);
                     openedTab.getProperties().put(com.jlshell.ui.support.PluginOpenTiming.PROPERTY, timing);
-                    openedTab.setOnClosed(event -> { timing.finish("closed-before-display"); deactivateAfterUserClose(item); });
-                    workspaceTabs.getTabs().add(openedTab);
-                    workspaceTabs.getSelectionModel().select(openedTab);
+                    openedTab.setOnClosed(() -> { timing.finish("closed-before-display"); deactivateAfterUserClose(item); });
+                    workspaceTabs.add(openedTab);
+                    workspaceTabs.select(openedTab);
                 });
             }
 
             @Override
-            public void openTab(String title, javafx.scene.Node content) {
-                timing.mark("fx-view-request");
-                com.jlshell.ui.support.FxThread.run(() -> {
-                    if (disposed) { timing.finish("disposed"); return; }
-                    openedTab = new Tab(title, content);
-                    openedTab.getProperties().put(com.jlshell.ui.support.PluginOpenTiming.PROPERTY, timing);
-                    if (!supportsSwingViews()) timing.observeFxContent(content);
-                    openedTab.setClosable(true);
-                    openedTab.getProperties().put("pluginId", item.tabKey());
-                    openedTab.setOnClosed(event -> { timing.finish("closed-before-display"); deactivateAfterUserClose(item); });
-                    workspaceTabs.getTabs().add(openedTab);
-                    workspaceTabs.getSelectionModel().select(openedTab);
-                });
+            public void openTab(String title, java.util.function.Supplier<javax.swing.JComponent> content) {
+                openSwingTab(title, content);
             }
 
             @Override
             public void closeTab() {
                 timing.finish("closed-before-display");
-                if (openedTab == null) {
-                    return;
-                }
-                Platform.runLater(() -> {
-                    if (openedTab != null && openedTab.getTabPane() != null) {
-                        openedTab.getTabPane().getTabs().remove(openedTab);
-                    }
+                SwingUtilities.invokeLater(() -> {
+                    if (openedTab != null) workspaceTabs.remove(openedTab);
                     openedTab = null;
                 });
             }
 
             @Override
             public void updateTabTitle(String title) {
-                if (openedTab != null) {
-                    Platform.runLater(() -> openedTab.setText(title));
-                }
+                SwingUtilities.invokeLater(() -> {
+                    if (openedTab != null) openedTab.setText(title);
+                });
             }
 
             @Override
@@ -268,12 +210,8 @@ public class PluginsTabView extends BorderPane {
         }
     }
 
-    private void refreshOnFxThread() {
-        if (Platform.isFxApplicationThread()) {
-            refreshPluginList();
-        } else {
-            Platform.runLater(this::refreshPluginList);
-        }
+    private void refreshOnUiThread() {
+        SwingUtilities.invokeLater(() -> { if (!disposed) refreshPluginList(); });
     }
 
     private void refreshPluginList() {
@@ -292,23 +230,22 @@ public class PluginsTabView extends BorderPane {
                 else pinnedIds.remove(item.tabKey());
             }
         }
-        listView.getItems().setAll(available);
+        availableItems = List.copyOf(available);
         publishPinnedShortcuts();
         Set<String> availableSessionIds = sessionPlugins.stream()
                 .map(PluginDescriptor::id)
                 .collect(java.util.stream.Collectors.toSet());
         activatedSessionPluginIds.retainAll(availableSessionIds);
-        setCenter(available.isEmpty() ? new Label(i18nService.get("plugin.noPlugins")) : listView);
     }
 
     private void publishPinnedShortcuts() {
         publishNativeList();
-        pinnedShortcuts.setAll(listView.getItems().stream().filter(item -> pinnedIds.contains(item.tabKey()))
+        pinnedShortcuts.set(availableItems.stream().filter(item -> pinnedIds.contains(item.tabKey()))
                 .map(item -> new PinnedShortcut(item.tabKey(), item.displayName(i18nService.getLocale()), () -> requestOpen(item), item.icon()))
                 .toList());
     }
 
-    /** FX 线程准备快照与动作；列表组件在 EDT 构建。 */
+    /** 列表组件在 EDT 延迟构建。 */
     public java.util.function.Supplier<javax.swing.JComponent> prepareNativeView() {
         var initial = nativeEntries();
         String search = i18nService.get("plugins.store.search"), open = i18nService.get("plugin.open"),
@@ -321,15 +258,15 @@ public class PluginsTabView extends BorderPane {
     }
 
     private List<com.jlshell.ui.swing.SwingPluginList.Entry> nativeEntries() {
-        return listView.getItems().stream().map(item -> new com.jlshell.ui.swing.SwingPluginList.Entry(
+        return availableItems.stream().map(item -> new com.jlshell.ui.swing.SwingPluginList.Entry(
                 item.tabKey(), item.displayName(i18nService.getLocale()), item.description(i18nService.getLocale()),
                 item.sessionPlugin() == null ? "Program" : item.sessionPlugin().version(), pinnedIds.contains(item.tabKey()),
                 () -> requestOpen(item),
-                selected -> Platform.runLater(() -> {
+                selected -> com.jlshell.ui.support.UiThread.run(() -> {
                     if (disposed) return;
                     if (selected) pinnedIds.add(item.tabKey()); else pinnedIds.remove(item.tabKey());
                     if (settings != null) settings.set("ui.pluginSidebar.pinned." + item.tabKey(), Boolean.toString(selected));
-                    publishPinnedShortcuts(); listView.refresh();
+                    publishPinnedShortcuts();
                 }), item.icon())).toList();
     }
 
@@ -343,6 +280,7 @@ public class PluginsTabView extends BorderPane {
     }
 
     public void stopPlugins() {
+        activationGeneration++;
         activatedSessionPluginIds.forEach(id -> pluginManager.deactivatePlugin(sessionId, id));
         activatedSessionPluginIds.clear();
         if (programSessionRegistry != null) {
@@ -352,14 +290,11 @@ public class PluginsTabView extends BorderPane {
 
     public void dispose() {
         disposed = true; nativeView.set(null);
-        i18nService.localeProperty().removeListener(localeListener);
-        pluginManager.catalogRevisionProperty().removeListener(catalogRevisionListener);
-        if (programSessionRegistry != null) {
-            programSessionRegistry.revisionProperty().removeListener(catalogRevisionListener);
-        }
+        localeSubscription.close();
+        catalogSubscription.close();
+        programCatalogSubscription.close();
         stopPlugins();
-        pinnedShortcuts.clear();
-        setCenter(null);
+        pinnedShortcuts.set(List.of());
     }
 
     private record LaunchItem(

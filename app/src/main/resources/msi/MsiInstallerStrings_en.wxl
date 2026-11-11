@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  jpackage 21 invokes WiX with -cultures:en-us and does not expose a locale
+  jpackage 25 invokes WiX with -cultures:en-us and does not expose a locale
   option. Keep this resource under the en name so it overrides the selected
   jpackage resource; the MSI Product language remains Simplified Chinese via
   overrides.wxi.
 -->
 <WixLocalization Culture="en-us" Codepage="936" xmlns="http://schemas.microsoft.com/wix/2006/localization">
+  <String Id="OsConditionMessage">此程序需要 Windows 10 或更高版本。</String>
+  <String Id="InstallDirNotEmptyDlgInstallDirExistMessage">文件夹 [INSTALLDIR] 已存在。是否仍要安装到该文件夹？</String>
   <String Id="message.install.dir.exist">文件夹 [INSTALLDIR] 已存在。是否仍要安装到该文件夹？</String>
   <String Id="MainFeatureTitle">主要功能</String>
   <String Id="DowngradeErrorMessage">已安装更新版本的 [ProductName]，无需降级安装。如需重新安装，请先卸载当前版本。</String>

@@ -1,5 +1,8 @@
 package com.jlshell.program.plugin.loader;
 
+import com.jlshell.core.support.MutableValue;
+import com.jlshell.plugin.api.ui.ObservableValue;
+
 import java.util.Locale;
 import java.util.Optional;
 
@@ -17,11 +20,6 @@ import com.jlshell.plugin.api.session.ProgramSessionIntegration;
 import com.jlshell.plugin.api.storage.PluginStorage;
 import com.jlshell.plugin.api.storage.SecureStorage;
 import com.jlshell.program.api.AccountSessionService;
-import javafx.beans.property.ReadOnlyObjectProperty;
-import javafx.beans.property.ReadOnlyStringProperty;
-import javafx.beans.property.SimpleObjectProperty;
-import javafx.beans.property.SimpleStringProperty;
-import javafx.beans.property.StringProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -41,8 +39,8 @@ public class DefaultProgramPluginContext implements ProgramPluginContext, Plugin
     private final PluginAccessPolicy accessPolicy;
     private final AccountSessionService accountSession;
     private final Callbacks callbacks;
-    private final StringProperty themeName = new SimpleStringProperty("dark");
-    private final SimpleObjectProperty<Locale> locale = new SimpleObjectProperty<>(Locale.getDefault());
+    private final MutableValue<String> themeName = new MutableValue<>("dark");
+    private final MutableValue<Locale> locale = new MutableValue<>(Locale.getDefault());
     private com.jlshell.plugin.loader.ScopedPluginFonts fonts;
 
     @Override public com.jlshell.plugin.api.ui.PluginFonts fonts() {
@@ -97,13 +95,13 @@ public class DefaultProgramPluginContext implements ProgramPluginContext, Plugin
 
     @Override public String themeName() { return themeName.get(); }
 
-    @Override public ReadOnlyStringProperty themeNameProperty() { return themeName; }
+    @Override public ObservableValue<String> themeNameProperty() { return themeName; }
 
     void setThemeName(String name) { themeName.set(name); }
 
     @Override public Locale locale() { return locale.get(); }
 
-    @Override public ReadOnlyObjectProperty<Locale> localeProperty() { return locale; }
+    @Override public ObservableValue<Locale> localeProperty() { return locale; }
 
     void setLocale(Locale loc) { locale.set(loc); }
 
@@ -129,7 +127,7 @@ public class DefaultProgramPluginContext implements ProgramPluginContext, Plugin
 
     @Override public Optional<SshSessionContext> sshSession() { return Optional.empty(); }
 
-    @Override public void openTab(String title, javafx.scene.Node content) {}
+    @Override public void openTab(String title, java.util.function.Supplier<javax.swing.JComponent> content) {}
 
     @Override public void closeTab() {}
 

@@ -2,7 +2,6 @@ package com.jlshell.ui.swing;
 
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.theme.ThemeService;
-import com.jlshell.ui.support.FxThread;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
@@ -17,19 +16,19 @@ public final class SwingProgressDialog implements AutoCloseable {
     private JProgressBar bar;
     private JLabel percentage;
     private final ThemeService themes;
-    private final javafx.beans.value.ChangeListener<Object> themeListener;
+    private final java.util.List<com.jlshell.plugin.api.lifecycle.Registration> registrations = new java.util.ArrayList<>();
 
-    /** 在 FX 线程读取服务状态，Swing 窗口完全由 EDT 创建。 */
+    /** 在 EDT 读取服务状态并创建原生进度窗口。 */
     public SwingProgressDialog(ThemeService themes, I18nService i18n, String name, String message) {
         this.themes = themes;
         var theme = themes.currentTheme(); String accent = themes.accentColor().color();
         String family = themes.uiFontFamily(); int size = themes.uiFontSize();
         String title = i18n.get("updates.title"), background = i18n.get("updates.background");
-        themeListener = (obs, old, next) -> SwingUtilities.invokeLater(() -> {
-            if (!closed.get() && dialog != null) SwingTheme.update(dialog);
+        java.util.function.Consumer<Object> refresh = value -> SwingUtilities.invokeLater(() -> {
+            if (!closed.get() && dialog != null) { SwingTheme.install(themes); SwingTheme.update(dialog); }
         });
-        themes.currentThemeProperty().addListener(themeListener);
-        themes.accentColorProperty().addListener(themeListener);
+        registrations.add(themes.onThemeChanged(refresh::accept));
+        registrations.add(themes.onAccentColorChanged(refresh::accept));
         SwingUtilities.invokeLater(() -> {
             if (closed.get()) return;
             SwingTheme.install(theme, accent, family, size);
@@ -78,9 +77,6 @@ public final class SwingProgressDialog implements AutoCloseable {
     @Override public void close() {
         if (!closed.compareAndSet(false, true)) return;
         SwingUtilities.invokeLater(() -> { if (dialog != null) dialog.dispose(); });
-        FxThread.run(() -> {
-            themes.currentThemeProperty().removeListener(themeListener);
-            themes.accentColorProperty().removeListener(themeListener);
-        });
+        registrations.forEach(com.jlshell.plugin.api.lifecycle.Registration::close);
     }
 }

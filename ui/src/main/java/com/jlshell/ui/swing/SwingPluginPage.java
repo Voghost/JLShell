@@ -3,12 +3,13 @@ package com.jlshell.ui.swing;
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.theme.ThemeService;
 import com.jlshell.ui.view.PluginsTabView;
-import javafx.scene.control.Tab;
+import com.jlshell.ui.model.WorkspacePage;
+import com.jlshell.ui.model.WorkspaceTabs;
 import javax.swing.*;
 import java.awt.BorderLayout;
 import java.util.function.Supplier;
 
-/** 页面生命周期：Swing 工厂在 EDT 执行，FX 模型监听在 FX 线程释放。 */
+/** 页面生命周期：Swing 工厂在 EDT 执行，工厂在 EDT 执行并随页面关闭释放。 */
 final class SwingPluginPage extends JPanel implements AutoCloseable {
     record Prepared(Supplier<SwingPluginPage> factory, Runnable releaseModel) {}
     private final JComponent content;
@@ -20,16 +21,15 @@ final class SwingPluginPage extends JPanel implements AutoCloseable {
         super(new BorderLayout()); this.content = content; setName("plugin.nativePage"); add(content);
     }
 
-    static Prepared prepare(Tab tab, I18nService i18n, ThemeService themes) {
+    static Prepared prepare(WorkspacePage tab, I18nService i18n, ThemeService themes) {
         String title = tab.getText(); boolean closable = tab.isClosable();
         var timing = (com.jlshell.ui.support.PluginOpenTiming)
                 tab.getProperties().get(com.jlshell.ui.support.PluginOpenTiming.PROPERTY);
         var edtQueue = timing == null ? null : timing.step("edt-page-queue");
-        Runnable closeTab = () -> com.jlshell.ui.support.FxThread.run(() -> {
-            var owner = tab.getTabPane(); if (owner == null) return;
-            owner.getTabs().remove(tab);
-            if (tab.getOnClosed() != null) tab.getOnClosed().handle(new javafx.event.Event(Tab.CLOSED_EVENT));
-        });
+        Runnable closeTab = () -> {
+            if (tab.getProperties().get("workspace.owner") instanceof WorkspaceTabs owner) owner.remove(tab);
+            tab.closed();
+        };
         java.util.function.Function<JComponent,SwingPluginPage> wrap = body -> {
             var page = new SwingPluginPage(body);
             page.timing = timing;
@@ -43,11 +43,6 @@ final class SwingPluginPage extends JPanel implements AutoCloseable {
             }
             return page;
         };
-        if (tab.getContent() == null) return new Prepared(() -> wrap.apply(new JPanel()), () -> {});
-        if (tab.getContent() instanceof PluginsTabView plugins) {
-            var factory = plugins.prepareNativeView();
-            return new Prepared(() -> wrap.apply(factory.get()), () -> {});
-        }
         if (tab.getProperties().get(PluginsTabView.NATIVE_VIEW) instanceof Supplier<?> supplier) {
             return new Prepared(() -> {
                 if (edtQueue != null) edtQueue.close();
@@ -58,22 +53,7 @@ final class SwingPluginPage extends JPanel implements AutoCloseable {
                 } catch (RuntimeException | Error error) { timing.failed(error); throw error; }
             }, () -> {});
         }
-        // openTab(Node) 是完整 JavaFX 页面契约。表单映射器只覆盖宿主已知的控件，
-        // 会丢失第三方 Region（如 RichTextFX）、ListCell 图形和图标字体。
-        // 保留插件原始节点树；插件通过 openSwingTab 显式选择原生 Swing。
-        var node = tab.getContent();
-        return new Prepared(() -> {
-            if (edtQueue != null) edtQueue.close();
-            try {
-                var bridge = timing == null ? new SwingFxPanel(themes)
-                        : timing.trace().call("javafx-bridge-create", () -> new SwingFxPanel(themes));
-                bridge.setPluginView(node, timing);
-                return wrap.apply(bridge);
-            } catch (RuntimeException | Error error) {
-                if (timing != null) timing.failed(error);
-                throw error;
-            }
-        }, () -> {});
+        return new Prepared(() -> wrap.apply(tab.getContent() == null ? new JPanel() : tab.getContent().get()), () -> {});
     }
 
     void updateTitle(String title) { if (titleLabel != null) titleLabel.setText(title); }
@@ -82,7 +62,7 @@ final class SwingPluginPage extends JPanel implements AutoCloseable {
         super.paintChildren(graphics);
         if (timing != null && isShowing() && getWidth() > 0 && getHeight() > 0) {
             timing.mark("swing-first-paint");
-            if (!(content instanceof SwingFxPanel)) timing.finish("swing-first-paint");
+            timing.finish("swing-first-paint");
             timing = null;
         }
     }
