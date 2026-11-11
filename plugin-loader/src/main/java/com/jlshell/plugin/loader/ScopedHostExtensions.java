@@ -11,6 +11,8 @@ import javax.swing.*;
 public final class ScopedHostExtensions implements HostExtensions, AutoCloseable {
     private final String sessionId;
     private final String pluginId;
+    private String pluginName;
+    public void pluginName(String name) { pluginName = name; }
     private final Deque<AutoCloseable> resources = new ArrayDeque<>();
     private volatile boolean closed;
     private boolean viewSupported;
@@ -71,8 +73,8 @@ public final class ScopedHostExtensions implements HostExtensions, AutoCloseable
     public List<Session> sessions() { requireOpen(); return HostExtensionRegistry.sessions(); }
     public CompletableFuture<Void> selectSession(String id) { requireOpen(); return HostExtensionRegistry.selectSession(id); }
     public Registration onSessionsChanged(Consumer<List<Session>> listener) { return own(HostExtensionRegistry.onSessionsChanged(listener)); }
-    public Registration registerFileAction(FileAction action) { return own(HostExtensionRegistry.fileAction(sessionId, Objects.requireNonNull(action))); }
-    public Registration registerTextAction(TextAction action) { return own(HostExtensionRegistry.textAction(sessionId, Objects.requireNonNull(action))); }
+    public Registration registerFileAction(FileAction action) { return own(HostExtensionRegistry.fileAction(sessionId, pluginId, Objects.requireNonNullElse(pluginName, pluginId), Objects.requireNonNull(action))); }
+    public Registration registerTextAction(TextAction action) { return own(HostExtensionRegistry.textAction(sessionId, pluginId, Objects.requireNonNullElse(pluginName, pluginId), Objects.requireNonNull(action))); }
     public Registration registerPreview(PreviewProvider provider) {
         Objects.requireNonNull(provider);
         PreviewProvider scoped=new PreviewProvider(provider.id(),provider.title(),provider.accepts(),file ->

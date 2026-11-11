@@ -381,7 +381,7 @@ public class MainWindow {
     private void openLocalShellTab(ConnectionProfile profile, com.jlshell.terminal.service.TerminalViewHandle handle) { openLocalShellTab(profile,handle,true); }
     private void openLocalShellTab(ConnectionProfile profile, com.jlshell.terminal.service.TerminalViewHandle handle,boolean focus) {
         localShellHandles.add(handle);
-        com.jlshell.plugin.loader.HostExtensionRegistry.bind(handle.sessionId().toString(),profile.id(),com.jlshell.program.api.ProgramWorkspaceService.Presentation.TAB);
+        com.jlshell.plugin.loader.HostExtensionRegistry.bindLocal(handle.sessionId().toString(),profile.id());
         var terminalRegistration=handle.terminalAccess().map(access -> com.jlshell.plugin.loader.HostExtensionRegistry.terminal(
                 new com.jlshell.plugin.api.host.HostExtensions.Session(access.sessionId(),profile.displayName(),"localhost",System.getProperty("user.name"),true,false),access))
                 .orElse(com.jlshell.plugin.api.lifecycle.Registration.noop());
@@ -420,6 +420,7 @@ public class MainWindow {
         }));
     }
     private void showError(String message) {
+        com.jlshell.plugin.loader.HostExtensionRegistry.error("UI", null, null, message);
         viewModel.statusMessageProperty().set(message);
         SwingMessages.show(i18nService.get("error.title"), message, themeService, i18nService);
     }
@@ -885,10 +886,29 @@ public class MainWindow {
     private final java.util.concurrent.ConcurrentMap<String,AutoCloseable> apiBackgroundLeases=new java.util.concurrent.ConcurrentHashMap<>();
     private void installProgramWorkspaceUi() {
         com.jlshell.plugin.loader.HostExtensionRegistry.workspaceUi(new com.jlshell.plugin.loader.WorkspaceUi() {
+            public CompletableFuture<com.jlshell.program.api.ProgramWorkspaceService.UiContext> context() {
+                return swingWorkbench.thenCompose(view -> UiThread.supplyAsync(() -> {
+                    var profile = selectedConnection();
+                    String active = selectedApiSessionId();
+                    java.awt.Component focus = java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+                    String terminal = com.jlshell.plugin.loader.HostExtensionRegistry.terminalEntries(active).stream()
+                            .filter(entry -> workspaceTabs.selected() instanceof SessionWorkspaceTab ssh
+                                    && ssh.getTerminalWorkspaceView().ownsTerminalFocus(entry.terminalId(), focus))
+                            .map(com.jlshell.plugin.loader.HostExtensionRegistry.TerminalEntry::terminalId).findFirst().orElse(null);
+                    if (terminal == null) {
+                        var entries = com.jlshell.plugin.loader.HostExtensionRegistry.terminalEntries(active);
+                        if (entries.size() == 1) terminal = entries.getFirst().terminalId();
+                    }
+                    return new com.jlshell.program.api.ProgramWorkspaceService.UiContext(profile == null ? null : profile.id(),
+                            active, terminal, activeProjectId, themeService.currentTheme().name(), view.frame().getWidth(), view.frame().getHeight());
+                }));
+            }
             public CompletableFuture<String> open(com.jlshell.program.api.ProgramWorkspaceService.OpenRequest request) {
                 return CompletableFuture.supplyAsync(() -> connectionProfileService.listProfiles().stream().filter(profile -> profile.id().equals(request.connectionId()))
                         .findFirst().orElseThrow(() -> new IllegalArgumentException("Saved connection not found")),executor)
-                        .thenCompose(profile -> openApiConnection(profile,request));
+                        .thenCompose(profile -> openApiConnection(profile,request)).whenComplete((value,error) -> {
+                            if (error != null) com.jlshell.plugin.loader.HostExtensionRegistry.error("CONNECTION", null, request.connectionId(), ExceptionMessages.userMessage(error));
+                        });
             }
             public CompletableFuture<com.jlshell.program.api.ProgramWorkspaceService.Selection> choose(com.jlshell.program.api.ProgramWorkspaceService.SelectionRequest request) {
                 return com.jlshell.plugin.loader.HostExtensionRegistry.workspace().sessions().thenCompose(values ->
@@ -983,7 +1003,10 @@ public class MainWindow {
                     String id=routed.session().sessionId().toString();
                     if(request.presentation()==com.jlshell.program.api.ProgramWorkspaceService.Presentation.BACKGROUND) {
                         if (routed.routeLease() != null) apiBackgroundLeases.put(id,routed.routeLease());
-                        routed.session().addDisconnectListener(reason -> ProgramConnectionRouteService.closeQuietly(apiBackgroundLeases.remove(id)));
+                        routed.session().addDisconnectListener(reason -> {
+                            com.jlshell.plugin.loader.HostExtensionRegistry.error("DISCONNECTED",id,profile.id(),reason);
+                            ProgramConnectionRouteService.closeQuietly(apiBackgroundLeases.remove(id));
+                        });
                         return CompletableFuture.completedFuture(id);
                     }
                     return UiThread.supplyAsync(() -> openWorkspace(profile,routed.session(),routed.routeLease(),request.focus())).thenCompose(java.util.function.Function.identity());
@@ -1035,6 +1058,7 @@ public class MainWindow {
                     try {
                         if (throwable != null) {
                             log.error("Local shell launch failed for {}", profile.displayName(), throwable);
+                            com.jlshell.plugin.loader.HostExtensionRegistry.error("LOCAL_SHELL", null, profile.id(), ExceptionMessages.userMessage(throwable));
                             showError(i18nService.get("status.connectionFailed",
                                     throwable.getCause() == null ? throwable.getMessage() : throwable.getCause().getMessage()));
                             return;
@@ -1072,6 +1096,7 @@ public class MainWindow {
                     if (throwable != null) {
                         var reason = ExceptionMessages.connectionReason(throwable);
                         log.error("SSH connection failed for {}: reason={}", selected.summary(), reason, throwable);
+                        com.jlshell.plugin.loader.HostExtensionRegistry.error(reason.name(), null, selected.id(), ExceptionMessages.userMessage(throwable));
                         UiThread.run(() -> {
                             showError(i18nService.get("status.connectionFailed",
                                     reason == com.jlshell.core.exception.ConnectionException.Reason.UNKNOWN

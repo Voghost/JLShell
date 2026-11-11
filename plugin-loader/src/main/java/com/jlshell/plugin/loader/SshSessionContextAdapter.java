@@ -103,6 +103,14 @@ public class SshSessionContextAdapter implements SshSessionContext {
     @Override
     public FileExplorer fileExplorer() {
         return new FileExplorer() {
+            @Override public CompletableFuture<com.jlshell.program.api.ProgramFileService.Content> readVersioned(String path) {
+                return guardedFuture(() -> sftpService.readVersioned(session, path).thenApply(value ->
+                        new com.jlshell.program.api.ProgramFileService.Content(path, value.bytes(), value.sha256())));
+            }
+            @Override public CompletableFuture<com.jlshell.program.api.ProgramFileService.WriteResult> writeAtomic(com.jlshell.program.api.ProgramFileService.WriteRequest request) {
+                return guardedFuture(() -> sftpService.writeAtomic(session, request.path(), request.content(), request.expectedSha256(), request.createOnly(), request.backup())
+                        .thenApply(value -> new com.jlshell.program.api.ProgramFileService.WriteResult(value.path(), value.previousSha256(), value.sha256(), value.backupPath(), value.bytesWritten())));
+            }
             @Override
             public CompletableFuture<List<RemoteFile>> listDirectory(String path) {
                 return guardedFuture(() -> sftpService.listDirectory(session, path)

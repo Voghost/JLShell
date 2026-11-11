@@ -19,6 +19,10 @@ public final class TerminalPopupBridge {
         if (component instanceof Container container) for (Component child : container.getComponents())
             install(child, terminalSettingsLabel, terminalSettings);
     }
+    private static IdeaListPopup.Row row(RefreshableTerminalPanel.PopupAction action) {
+        return new IdeaListPopup.Row(action.label(), null, null, action.shortcut(), null,
+                action.enabled(), action.children().stream().map(TerminalPopupBridge::row).toList(), action.action());
+    }
     private static void show(Component invoker, int x, int y, List<RefreshableTerminalPanel.PopupAction> actions,
                              String terminalSettingsLabel, Runnable terminalSettings) {
         List<IdeaListPopup.Row> rows = new ArrayList<>();
@@ -26,7 +30,7 @@ public final class TerminalPopupBridge {
         for (var action : actions) {
             if (action.separator()) { group = ""; continue; }
             rows.add(new IdeaListPopup.Row(action.label(), null, null, action.shortcut(), group,
-                    action.enabled(), List.of(), action.action()));
+                    action.enabled(), action.children().stream().map(TerminalPopupBridge::row).toList(), action.action()));
             group = null;
         }
         if (terminalSettings != null) {

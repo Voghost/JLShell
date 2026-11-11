@@ -8,6 +8,18 @@ public final class WorkspaceRpcCatalog {
     private WorkspaceRpcCatalog() {}
     public static List<ProgramApiDefinition> definitions() {
         return List.of(
+            method("agent.context","Get application and session context, optionally including the active terminal snapshot.",false,"{\"includeTerminalSnapshot\":false,\"historyLines\":100,\"maxCharacters\":65536}"),
+            method("file.readVersioned","Read a bounded file and its SHA-256 revision.",true,"{\"sessionId\":\"session-id\",\"path\":\"/project/file\"}","sessionId", "path"),
+            method("file.write","Write staged content with optimistic revision checking and optional backup.",true,"{\"sessionId\":\"session-id\",\"path\":\"/project/file\",\"contentBase64\":\"aGVsbG8=\",\"expectedSha256\":\"optional-64-hex-revision\",\"createOnly\":false,\"backup\":true}","sessionId", "path", "contentBase64"),
+            method("file.applyPatch","Apply ordered unique UTF-8 text replacements and commit atomically.",true,"{\"sessionId\":\"session-id\",\"path\":\"/project/file\",\"expectedSha256\":\"optional-64-hex-revision\",\"edits\":[{\"oldText\":\"old\",\"newText\":\"new\"}],\"backup\":true}","sessionId", "path", "edits"),
+            method("process.start","Start an explicit argv process with cwd, environment and streamed output.",true,"{\"sessionId\":\"session-id\",\"argv\":[\"git\",\"status\",\"--short\"],\"directory\":\"/project\",\"environment\":{\"LANG\":\"C.UTF-8\"},\"timeoutSeconds\":60,\"maxOutputCharacters\":262144}","sessionId", "argv"),
+            method("process.get","Read process state, exit code and bounded stdout/stderr.",false,"{\"processId\":\"process-id\"}","processId"),
+            method("process.await","Wait for process completion.",false,"{\"processId\":\"process-id\",\"timeoutSeconds\":60}","processId"),
+            method("process.events","Poll independent process output events.",false,"{\"processId\":\"process-id\",\"afterSequence\":0,\"limit\":128}","processId"),
+            method("process.cancel","Terminate the independent process channel.",false,"{\"processId\":\"process-id\"}","processId"),
+            method("job.checkpoint.get","Read persistent task checkpoint and revision.",false,"{\"jobId\":\"job-id\"}","jobId"),
+            method("job.checkpoint.save","Persist a JSON checkpoint with revision conflict protection.",false,"{\"jobId\":\"job-id\",\"expectedRevision\":0,\"data\":{\"stage\":\"tests\"}}","jobId", "expectedRevision", "data"),
+            method("job.resume","Rebind unfinished steps to currently connected sessions before resuming.",false,"{\"jobId\":\"job-id\",\"targets\":[{\"stepId\":\"step-id\",\"sessionId\":\"new-session\",\"terminalId\":\"new-terminal\"}]}","jobId", "targets"),
             method("connection.list","Search saved connection metadata.",false,"{\"text\":\"web\",\"projectId\":\"optional\",\"folderId\":\"optional\"}"),
             method("connection.get","Read one saved connection without credentials.",false,"{\"connectionId\":\"connection-id\"}","connectionId"),
             method("session.open","Open or reuse a connection, optionally creating a visible terminal tab.",false,"{\"connectionId\":\"connection-id\",\"presentation\":\"TAB\",\"reuse\":\"IF_CONNECTED\",\"focus\":false}","connectionId"),

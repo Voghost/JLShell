@@ -210,10 +210,13 @@ public class AppContext implements AutoCloseable {
             ProgramApiRegistry programApiRegistry = new DefaultProgramApiRegistry();
             ProgramSessionService programSessionService = new CoreProgramSessionService(
                     connectionProfileService::toConnectionRequest, sessionManager, executor);
-            java.util.function.Function<String,com.jlshell.plugin.api.capability.FileExplorer> fileAccess=id ->
-                    new com.jlshell.plugin.loader.SshSessionContextAdapter(sessionManager.getSession(new com.jlshell.core.model.SessionId(java.util.UUID.fromString(id)))
-                            .orElseThrow(() -> new IllegalArgumentException("Session not found")),sftpService).fileExplorer();
-            workspaceService=new com.jlshell.app.api.DefaultProgramWorkspaceService(connectionProfileService,sessionManager,executor,fileAccess);
+            java.util.function.Function<String,com.jlshell.plugin.api.capability.FileExplorer> fileAccess = id -> {
+                var session = sessionManager.getSession(new com.jlshell.core.model.SessionId(java.util.UUID.fromString(id)));
+                if (session.isPresent()) return new com.jlshell.plugin.loader.SshSessionContextAdapter(session.get(),sftpService).fileExplorer();
+                if (!com.jlshell.plugin.loader.HostExtensionRegistry.localSession(id)) throw new IllegalArgumentException("Session not found");
+                return new com.jlshell.app.api.LocalAgentFiles(executor);
+            };
+            workspaceService=new com.jlshell.app.api.DefaultProgramWorkspaceService(connectionProfileService,sessionManager,executor,fileAccess,new com.jlshell.app.api.SqliteWorkspaceJobStore(jdbi));
             com.jlshell.plugin.loader.HostExtensionRegistry.workspace(workspaceService);
             ProgramApiContext programApiContext = new ProgramApiContext() {
                 @Override public com.jlshell.program.api.ProgramWorkspaceService workspace() { return workspaceService; }

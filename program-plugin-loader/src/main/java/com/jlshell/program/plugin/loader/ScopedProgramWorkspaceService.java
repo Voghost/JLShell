@@ -10,7 +10,7 @@ import java.util.function.Consumer;
 final class ScopedProgramWorkspaceService implements ProgramWorkspaceService, AutoCloseable {
     private final ProgramWorkspaceService delegate;
     private final Set<Subscription> subscriptions=ConcurrentHashMap.newKeySet();
-    private final Set<String> operations=ConcurrentHashMap.newKeySet(), jobs=ConcurrentHashMap.newKeySet();
+    private final Set<String> operations=ConcurrentHashMap.newKeySet(), jobs=ConcurrentHashMap.newKeySet(), processes=ConcurrentHashMap.newKeySet();
     private final Subscription tracking;
     private volatile boolean closed;
     ScopedProgramWorkspaceService(ProgramWorkspaceService delegate) {
@@ -24,7 +24,7 @@ final class ScopedProgramWorkspaceService implements ProgramWorkspaceService, Au
         });
     }
     private void check() { if(closed) throw new IllegalStateException("Program plugin context disposed"); }
-    private static boolean finished(State state) { return state==State.SUCCEEDED || state==State.CANCELLED || state==State.FAILED; }
+    private static boolean finished(State state) { return state==State.SUCCEEDED || state==State.CANCELLED || state==State.FAILED || state==State.INTERRUPTED; }
     private synchronized Operation ownOperation(Operation operation) {
         if(closed) delegate.cancelOperation(operation.operationId());
         else {
@@ -67,9 +67,39 @@ final class ScopedProgramWorkspaceService implements ProgramWorkspaceService, Au
         subscriptions.add(wrapper);
         return wrapper;
     }
+    public com.jlshell.program.api.ProgramProcessService processes() {
+        check(); var raw = delegate.processes();
+        return new com.jlshell.program.api.ProgramProcessService() {
+            public CompletableFuture<Process> start(Request request) {
+                check();
+                return raw.start(request).thenApply(process -> {
+                    synchronized (ScopedProgramWorkspaceService.this) {
+                        if (closed) raw.cancel(process.processId());
+                        else {
+                            processes.add(process.processId());
+                            raw.await(process.processId(),3600).whenComplete((done,error) -> processes.remove(process.processId()));
+                        }
+                    }
+                    return process;
+                });
+            }
+            public Process get(String id) { check(); return raw.get(id); }
+            public CompletableFuture<Process> await(String id,int timeout) { check(); return raw.await(id,timeout); }
+            public Events events(String id,long after,int limit) { check(); return raw.events(id,after,limit); }
+            public Subscription subscribe(String id,Consumer<Output> listener) { return ownSubscription(() -> raw.subscribe(id,event -> { if (!closed) listener.accept(event); })); }
+            public boolean cancel(String id) { check(); return raw.cancel(id); }
+        };
+    }
+    public CompletableFuture<AgentContext> context(ContextRequest request) { check(); return delegate.context(request); }
+    public CompletableFuture<Checkpoint> checkpoint(String id) { check(); return delegate.checkpoint(id); }
+    public CompletableFuture<Checkpoint> checkpoint(String id,long expected,String json) { check(); return delegate.checkpoint(id,expected,json); }
+    public synchronized Job resumeJob(String id,List<ResumeTarget> targets) { check(); Job job=delegate.resumeJob(id,targets); jobs.add(id); return job; }
     public ProgramFileService files(String sessionId) {
         check(); var raw=delegate.files(sessionId);
         return new ProgramFileService() {
+            public CompletableFuture<Content> readVersioned(String path) { check(); return raw.readVersioned(path); }
+            public CompletableFuture<WriteResult> write(WriteRequest request) { check(); return raw.write(request); }
+            public CompletableFuture<WriteResult> applyPatch(PatchRequest request) { check(); return raw.applyPatch(request); }
             public CompletableFuture<List<File>> list(String path) { check(); return raw.list(path); }
             public CompletableFuture<File> stat(String path) { check(); return raw.stat(path); }
             public CompletableFuture<byte[]> readRange(String path,long offset,int length) { check(); return raw.readRange(path,offset,length); }
@@ -107,6 +137,7 @@ final class ScopedProgramWorkspaceService implements ProgramWorkspaceService, Au
         tracking.close(); subscriptions.forEach(Subscription::close); subscriptions.clear();
         for(String id:jobs) try { delegate.cancelJob(id); } catch(IllegalArgumentException removed) { }
         for(String id:operations) try { delegate.cancelOperation(id); } catch(IllegalArgumentException removed) { }
-        jobs.clear(); operations.clear();
+        for (String id : processes) try { delegate.processes().cancel(id); } catch (IllegalArgumentException removed) { }
+        jobs.clear(); operations.clear(); processes.clear();
     }
 }

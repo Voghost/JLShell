@@ -73,7 +73,10 @@ public final class TerminalWorkspaceView {
         appSettingsService = settings; i18nService = i18n; themeService = themes;
         ResourceThresholds thresholds = ResourceThresholds.of(JlshellDefaults.statusWarningPercent(), JlshellDefaults.statusDangerPercent());
         warningThreshold = thresholds.warning(); dangerThreshold = thresholds.danger();
-        sessionDisconnectListener = reason -> SwingExecutors.runOnEdtAsync(() -> onTerminalDisconnected(ShellTtyConnector.DisconnectReason.IO_ERROR));
+        sessionDisconnectListener = reason -> {
+            com.jlshell.plugin.loader.HostExtensionRegistry.error("DISCONNECTED",sshSession.sessionId().toString(),null,reason);
+            SwingExecutors.runOnEdtAsync(() -> onTerminalDisconnected(ShellTtyConnector.DisconnectReason.IO_ERROR));
+        };
         sshSession.addDisconnectListener(sessionDisconnectListener);
     }
 
@@ -84,6 +87,11 @@ public final class TerminalWorkspaceView {
     }
     public void setNativeTerminalHost(NativeTerminalHost host) { nativeTerminalHost = host; }
     public void setOnReconnect(Runnable reconnect) { onReconnect = reconnect; }
+    public boolean ownsTerminalFocus(String terminalId, java.awt.Component focus) {
+        if (focus == null) return false;
+        return handles.stream().anyMatch(handle -> handle.terminalAccess().map(access -> terminalId.equals(access.terminalId())).orElse(false)
+                && (focus == handle.component() || javax.swing.SwingUtilities.isDescendingFrom(focus, handle.component())));
+    }
     public boolean isDisconnected() { return disconnected; }
 
     public CompletableFuture<Void> initialize() {
@@ -99,15 +107,28 @@ public final class TerminalWorkspaceView {
             handles.add(handle);
             handle.textActions(() -> {
                 String text=handle.selectedText();
-                if(text.isEmpty()) return java.util.List.of();
                 var selection=new com.jlshell.plugin.api.host.HostExtensions.TextSelection(handle.sessionId().toString(),text,handle.currentDirectory());
                 var actions=new java.util.ArrayList<com.jlshell.terminal.support.RefreshableTerminalPanel.PopupAction>();
-                for(var action:com.jlshell.plugin.loader.HostExtensionRegistry.textActions(handle.sessionId().toString())) {
+                var names = new java.util.HashMap<String, String>();
+                for(var contribution:com.jlshell.plugin.loader.HostExtensionRegistry.textContributions(handle.sessionId().toString())) {
+                    var action = contribution.value();
+                    names.put(contribution.pluginId(), contribution.pluginName());
                     try { if(action.visible().test(selection)) actions.add(new com.jlshell.terminal.support.RefreshableTerminalPanel.PopupAction(
-                            action.title(),"",true,false,() -> { try { action.execute().accept(selection); } catch(RuntimeException error) { com.jlshell.plugin.loader.HostExtensionRegistry.report(error); } })); }
+                            action.title(),"",true,false,() -> { try { action.execute().accept(selection); } catch(RuntimeException error) { com.jlshell.plugin.loader.HostExtensionRegistry.report(error); } },
+                            action.placement() == com.jlshell.plugin.api.host.HostExtensions.MenuPlacement.TOP_LEVEL ? null : contribution.pluginId(), java.util.List.of())); }
                     catch(RuntimeException error) { com.jlshell.plugin.loader.HostExtensionRegistry.report(error); }
                 }
-                return actions;
+                var grouped = new java.util.LinkedHashMap<String, java.util.List<com.jlshell.terminal.support.RefreshableTerminalPanel.PopupAction>>();
+                var result = new java.util.ArrayList<com.jlshell.terminal.support.RefreshableTerminalPanel.PopupAction>();
+                for (var action : actions) {
+                    if (action.pluginGroup() == null) { result.add(action); continue; }
+                    grouped.computeIfAbsent(action.pluginGroup(), key -> new java.util.ArrayList<>()).add(action);
+                }
+                for (var entry : grouped.entrySet()) {
+                    String name = names.get(entry.getKey());
+                    result.add(new com.jlshell.terminal.support.RefreshableTerminalPanel.PopupAction(name, "", true, false, null, null, entry.getValue()));
+                }
+                return result;
             });
             handle.terminalAccess().ifPresent(access -> cwdListeners.add(
                     com.jlshell.plugin.loader.HostExtensionRegistry.terminal(

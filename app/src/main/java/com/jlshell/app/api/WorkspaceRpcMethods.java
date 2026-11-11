@@ -14,6 +14,28 @@ final class WorkspaceRpcMethods {
         try {
             JsonObject args=parameters!=null && parameters.isJsonObject()?parameters.getAsJsonObject():new JsonObject();
             return switch(method) {
+                case "agent.context" -> json(service.context(new ContextRequest(bool(args,"includeTerminalSnapshot",false),integer(args,"historyLines",100),integer(args,"maxCharacters",65536))));
+                case "file.readVersioned" -> service.files(required(args,"sessionId")).readVersioned(required(args,"path")).thenApply(content -> {
+                    JsonObject value=new JsonObject(); value.addProperty("path",content.path()); value.addProperty("sha256",content.sha256());
+                    value.addProperty("contentBase64",Base64.getEncoder().encodeToString(content.content())); return value;
+                });
+                case "file.write" -> json(service.files(required(args,"sessionId")).write(new com.jlshell.program.api.ProgramFileService.WriteRequest(
+                        required(args,"path"),Base64.getDecoder().decode(Objects.requireNonNull(optional(args,"contentBase64"),"contentBase64 is required")),optional(args,"expectedSha256"),bool(args,"createOnly",false),bool(args,"backup",true))));
+                case "file.applyPatch" -> json(service.files(required(args,"sessionId")).applyPatch(new com.jlshell.program.api.ProgramFileService.PatchRequest(
+                        required(args,"path"),optional(args,"expectedSha256"),array(args,"edits").asList().stream().map(value -> {
+                            JsonObject edit=value.getAsJsonObject(); return new com.jlshell.program.api.ProgramFileService.TextEdit(Objects.requireNonNull(optional(edit,"oldText"),"oldText is required"),Objects.requireNonNull(optional(edit,"newText"),"newText is required"));
+                        }).toList(),bool(args,"backup",true))));
+                case "process.start" -> json(service.processes().start(new com.jlshell.program.api.ProgramProcessService.Request(required(args,"sessionId"),strings(args,"argv"),
+                        optional(args,"directory"),stringMap(args,"environment"),integer(args,"timeoutSeconds",60),integer(args,"maxOutputCharacters",262144))));
+                case "process.get" -> value(service.processes().get(required(args,"processId")));
+                case "process.await" -> json(service.processes().await(required(args,"processId"),integer(args,"timeoutSeconds",60)));
+                case "process.events" -> value(service.processes().events(required(args,"processId"),longNumber(args,"afterSequence",0),integer(args,"limit",128)));
+                case "process.cancel" -> value(service.processes().cancel(required(args,"processId")));
+                case "job.checkpoint.get" -> checkpointJson(service.checkpoint(required(args,"jobId")));
+                case "job.checkpoint.save" -> checkpointJson(service.checkpoint(required(args,"jobId"),longNumber(args,"expectedRevision",0),Objects.requireNonNull(args.get("data"),"data is required").toString()));
+                case "job.resume" -> value(service.resumeJob(required(args,"jobId"),array(args,"targets").asList().stream().map(value -> {
+                    JsonObject target=value.getAsJsonObject(); return new ResumeTarget(required(target,"stepId"),required(target,"sessionId"),optional(target,"terminalId"));
+                }).toList()));
                 case "connection.list" -> json(service.connections(new ConnectionQuery(optional(args,"text"),optional(args,"projectId"),optional(args,"folderId"))));
                 case "connection.get" -> json(service.connections(new ConnectionQuery(null,null,null)).thenApply(values -> values.stream()
                         .filter(value -> value.connectionId().equals(required(args,"connectionId"))).findFirst().orElseThrow(() -> new IllegalArgumentException("Connection not found"))));
@@ -49,6 +71,15 @@ final class WorkspaceRpcMethods {
             };
         } catch(RuntimeException error) { return CompletableFuture.failedFuture(error); }
     }
+    private static CompletableFuture<JsonElement> checkpointJson(CompletableFuture<Checkpoint> future) {
+        return future.thenApply(checkpoint -> {
+            JsonObject result = new JsonObject();
+            result.addProperty("jobId",checkpoint.jobId()); result.addProperty("revision",checkpoint.revision());
+            result.add("data",JsonParser.parseString(checkpoint.dataJson()));
+            result.addProperty("updatedAt",checkpoint.updatedAt()); result.addProperty("recovered",checkpoint.recovered());
+            return result;
+        });
+    }
     private static CompletableFuture<JsonElement> json(CompletableFuture<?> future) { return future.thenApply(GSON::toJsonTree); }
     private static CompletableFuture<JsonElement> value(Object object) { return CompletableFuture.completedFuture(GSON.toJsonTree(object)); }
     private static String required(JsonObject args,String name) {
@@ -68,6 +99,13 @@ final class WorkspaceRpcMethods {
     private static long longNumber(JsonObject args,String name,long fallback) {
         if(!args.has(name)) return fallback;
         return args.get(name).getAsBigDecimal().longValueExact();
+    }
+    private static Map<String,String> stringMap(JsonObject args,String name) {
+        if (!args.has(name)) return Map.of();
+        if (!args.get(name).isJsonObject()) throw new IllegalArgumentException(name+" must be an object");
+        Map<String,String> result=new LinkedHashMap<>();
+        for (String key : args.getAsJsonObject(name).keySet()) result.put(key,Objects.requireNonNull(optional(args.getAsJsonObject(name),key)));
+        return result;
     }
     private static JsonArray array(JsonObject args,String name) {
         if(!args.has(name) || !args.get(name).isJsonArray()) throw new IllegalArgumentException(name+" must be an array");

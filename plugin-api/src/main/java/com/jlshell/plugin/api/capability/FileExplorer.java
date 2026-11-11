@@ -15,6 +15,8 @@ public interface FileExplorer {
 
     CompletableFuture<Void> deleteFile(String path);
 
+    default CompletableFuture<com.jlshell.program.api.ProgramFileService.Content> readVersioned(String path) { return unsupported(); }
+    default CompletableFuture<com.jlshell.program.api.ProgramFileService.WriteResult> writeAtomic(com.jlshell.program.api.ProgramFileService.WriteRequest request) { return unsupported(); }
     default CompletableFuture<RemoteFile> stat(String path) { return unsupported(); }
     default CompletableFuture<Void> rename(String source, String target) { return unsupported(); }
     default CompletableFuture<Void> createDirectory(String path, boolean recursive) { return unsupported(); }

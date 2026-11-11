@@ -78,6 +78,27 @@ public class SshjSftpService implements SftpService {
     }
 
     @Override
+    public CompletableFuture<SftpService.Content> readVersioned(SshSession session, String path) {
+        return CompletableFuture.supplyAsync(() -> {
+            try (SFTPClient client = newSftpClient(session)) {
+                byte[] content = SftpAtomicFiles.read(client, path);
+                return new SftpService.Content(content, SftpAtomicFiles.sha256(content));
+            } catch (IOException error) { throw new SftpOperationException("Failed to read versioned file", error); }
+        }, executorService);
+    }
+    @Override
+    public CompletableFuture<SftpService.WriteResult> writeAtomic(SshSession session, String path, byte[] content,
+            String expectedSha256, boolean createOnly, boolean backup) {
+        byte[] copy = content.clone();
+        return CompletableFuture.supplyAsync(() -> {
+            try (SFTPClient client = newSftpClient(session)) {
+                return SftpAtomicFiles.write(client, session.target().host() + ":" + session.target().port()
+                        + "/" + session.target().username(), path, copy, expectedSha256, createOnly, backup);
+            } catch (IOException error) { throw new SftpOperationException("Atomic write failed: " + error.getMessage(), error); }
+        }, executorService);
+    }
+
+    @Override
     public CompletableFuture<RemoteFileEntry> stat(SshSession sshSession, String path) {
         return CompletableFuture.supplyAsync(() -> {
             try (SFTPClient sftpClient = newSftpClient(sshSession)) {

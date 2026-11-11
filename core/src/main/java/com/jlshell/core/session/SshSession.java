@@ -35,6 +35,10 @@ public interface SshSession extends AutoCloseable {
      */
     CompletableFuture<CommandResult> execute(CommandRequest request);
 
+    default CompletableFuture<CommandChannel> startCommand(CommandRequest request) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("Streaming exec unavailable"));
+    }
+
     /**
      * 打开持续交互式 Shell。
      * 后续 terminal 模块会把返回的输入输出流桥接给 JediTerm。

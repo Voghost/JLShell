@@ -101,6 +101,25 @@ public class SshjSession implements SshSession {
     }
 
     @Override
+    public CompletableFuture<com.jlshell.core.session.CommandChannel> startCommand(CommandRequest request) {
+        ensureConnected();
+        return CompletableFuture.supplyAsync(() -> {
+            Session channel = null;
+            try {
+                channel = client.startSession();
+                for (var entry : request.environment().entrySet()) channel.setEnvVar(entry.getKey(), entry.getValue());
+                if (request.allocatePty()) channel.allocateDefaultPTY();
+                Session.Command command = channel.exec(request.command());
+                command.getOutputStream().close();
+                return new SshjCommandChannel(channel, command, request.timeout());
+            } catch (Exception error) {
+                if (channel != null) try { channel.close(); } catch (IOException closeError) { error.addSuppressed(closeError); }
+                throw new SessionOperationException("Failed to open exec channel", error);
+            }
+        }, executorService);
+    }
+
+    @Override
     public CompletableFuture<ShellChannel> openShell(ShellRequest request) {
         ensureConnected();
         return CompletableFuture.supplyAsync(() -> openShellBlocking(request), executorService);

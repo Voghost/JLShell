@@ -8,6 +8,25 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.*;
 
 class ScopedHostExtensionsTest {
+    @Test void menusDefaultToPluginSubmenuAndAllowExplicitTopLevel() {
+        try (var context = new ScopedHostExtensions("menu-test", "test.plugin")) {
+            context.pluginName("Agent Tools");
+            var file = new HostExtensions.FileAction("preview", "Preview", null, null,
+                    selection -> true, selection -> true, selection -> {});
+            var text = new HostExtensions.TextAction("explain", "Explain", selection -> true,
+                    selection -> {}, HostExtensions.MenuPlacement.TOP_LEVEL);
+            context.registerFileAction(file);
+            context.registerTextAction(text);
+            var contributed = HostExtensionRegistry.fileContributions("menu-test").getFirst();
+            assertEquals("Agent Tools", contributed.pluginName());
+            assertEquals("test.plugin", contributed.pluginId());
+            assertEquals(HostExtensions.MenuPlacement.PLUGIN_SUBMENU, contributed.value().placement());
+            assertEquals(HostExtensions.MenuPlacement.TOP_LEVEL,
+                    HostExtensionRegistry.textContributions("menu-test").getFirst().value().placement());
+        }
+        assertTrue(HostExtensionRegistry.fileContributions("menu-test").isEmpty());
+        assertTrue(HostExtensionRegistry.textContributions("menu-test").isEmpty());
+    }
     @Test void onlyMatchingSessionSeesActionsAndDisposeRemovesThem() {
         ScopedHostExtensions scoped=new ScopedHostExtensions("sdk-regression-session");
         var action=new HostExtensions.FileAction("test","Test",null,null,selection -> true,selection -> true,selection -> {});

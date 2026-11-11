@@ -10,7 +10,7 @@ public interface ProgramWorkspaceService {
     enum Presentation { TAB, BACKGROUND }
     enum Reuse { NEVER, IF_CONNECTED }
     enum Ready { CONNECTED, TERMINAL, SHELL }
-    enum State { QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELLED }
+    enum State { QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELLED, INTERRUPTED }
     record ConnectionQuery(String text, String projectId, String folderId) {}
     record Connection(String connectionId, String name, String host, int port, String username,
                       String projectId, String folderId, String type) {}
@@ -23,7 +23,22 @@ public interface ProgramWorkspaceService {
     }
     record Session(String sessionId, String connectionId, String name, String host, int port,
                    String username, String state, Presentation presentation, boolean active,
-                   List<String> terminalIds, List<Ready> ready) {}
+                   List<String> terminalIds, List<Ready> ready, String connectedAt, long connectedSeconds, ErrorInfo lastError) {
+        public Session(String sessionId, String connectionId, String name, String host, int port,
+                       String username, String state, Presentation presentation, boolean active,
+                       List<String> terminalIds, List<Ready> ready) {
+            this(sessionId, connectionId, name, host, port, username, state, presentation, active, terminalIds, ready, null, 0, null);
+        }
+    }
+    record ErrorInfo(String id, String time, String category, String sessionId, String connectionId, String message) {}
+    record UiContext(String selectedConnectionId, String activeSessionId, String activeTerminalId,
+                     String projectId, String theme, int width, int height) {}
+    record ContextRequest(boolean includeTerminalSnapshot, int historyLines, int maxCharacters) {}
+    record AgentContext(String schemaVersion, String applicationVersion, String capturedAt, Map<String,String> runtime, UiContext ui, List<Session> sessions,
+                        List<Job> jobs, List<Operation> operations, List<ProgramProcessService.Summary> processes, List<ErrorInfo> errors,
+                        ProgramTerminalService.Snapshot terminalSnapshot, List<String> capabilities) {}
+    record Checkpoint(String jobId, long revision, String dataJson, String updatedAt, boolean recovered) {}
+    record ResumeTarget(String stepId, String sessionId, String terminalId) {}
     record Terminal(String sessionId, String terminalId, boolean shellReady,
                     boolean commandTracking, boolean busy, int queuedOperations) {}
     record SelectionRequest(String title, String description, boolean multiple, List<String> candidateIds) {
@@ -51,10 +66,19 @@ public interface ProgramWorkspaceService {
                      String stepId, String kind, State state, double progress, String message,
                      String createdAt, String finishedAt) {}
     record Step(String stepId, String title, String sessionId, String terminalId, State state,
-                double progress, String message) {}
+                double progress, String message, String connectionId) {
+        public Step(String stepId, String title, String sessionId, String terminalId, State state, double progress, String message) {
+            this(stepId, title, sessionId, terminalId, state, progress, message, null);
+        }
+    }
     record Job(String jobId, String title, State state, List<Step> steps, String createdAt) {}
     @FunctionalInterface interface Subscription extends AutoCloseable { @Override void close(); }
 
+    default ProgramProcessService processes() { throw new UnsupportedOperationException("Processes unavailable"); }
+    default CompletableFuture<AgentContext> context(ContextRequest request) { return CompletableFuture.failedFuture(new UnsupportedOperationException("Agent context unavailable")); }
+    default CompletableFuture<Checkpoint> checkpoint(String jobId, long expectedRevision, String dataJson) { return CompletableFuture.failedFuture(new UnsupportedOperationException("Checkpoints unavailable")); }
+    default CompletableFuture<Checkpoint> checkpoint(String jobId) { return CompletableFuture.failedFuture(new UnsupportedOperationException("Checkpoints unavailable")); }
+    default Job resumeJob(String jobId, List<ResumeTarget> targets) { throw new UnsupportedOperationException("Recovery unavailable"); }
     CompletableFuture<List<Connection>> connections(ConnectionQuery query);
     CompletableFuture<Session> open(OpenRequest request);
     CompletableFuture<List<Session>> sessions();

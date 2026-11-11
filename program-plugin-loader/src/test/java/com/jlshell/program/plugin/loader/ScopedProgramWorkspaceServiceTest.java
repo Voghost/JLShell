@@ -14,6 +14,32 @@ import java.util.function.Consumer;
 import static org.junit.jupiter.api.Assertions.*;
 
 class ScopedProgramWorkspaceServiceTest {
+    @Test void disposalCancelsOwnedProcessesAndRejectsFurtherAccess() {
+        var cancelled = new AtomicInteger();
+        var completed = new CompletableFuture<com.jlshell.program.api.ProgramProcessService.Process>();
+        var process = new com.jlshell.program.api.ProgramProcessService.Process("process", "session", "RUNNING", "now", null, null, "", "", false, "");
+        var raw = new com.jlshell.program.api.ProgramProcessService() {
+            public CompletableFuture<Process> start(Request request) { return CompletableFuture.completedFuture(process); }
+            public Process get(String id) { return process; }
+            public CompletableFuture<Process> await(String id, int seconds) { return completed; }
+            public Events events(String id, long after, int limit) { return new Events(List.of(),after,false); }
+            public Subscription subscribe(String id, Consumer<Output> listener) { return () -> {}; }
+            public boolean cancel(String id) { cancelled.incrementAndGet(); completed.complete(process); return true; }
+        };
+        var delegate = (ProgramWorkspaceService) Proxy.newProxyInstance(ProgramWorkspaceService.class.getClassLoader(),
+                new Class<?>[]{ProgramWorkspaceService.class}, (proxy, method, args) -> switch (method.getName()) {
+                    case "subscribe" -> (Subscription) () -> {};
+                    case "processes" -> raw;
+                    default -> throw new UnsupportedOperationException(method.getName());
+                });
+        var scoped = new ScopedProgramWorkspaceService(delegate);
+        var accessor = scoped.processes();
+        accessor.start(new com.jlshell.program.api.ProgramProcessService.Request("session",List.of("pwd"),null,java.util.Map.of(),60,100)).join();
+        scoped.close();
+        assertEquals(1,cancelled.get());
+        assertThrows(IllegalStateException.class,() -> accessor.get("process"));
+    }
+
     @Test void disposesSubscriptionsAndCancelsAnOperationThatArrivesAfterDisposal() {
         var released = new AtomicInteger();
         var cancelled = new AtomicInteger();

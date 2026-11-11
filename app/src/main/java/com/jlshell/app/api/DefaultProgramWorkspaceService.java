@@ -28,16 +28,103 @@ public final class DefaultProgramWorkspaceService implements ProgramWorkspaceSer
     private final CopyOnWriteArrayList<Consumer<Event>> listeners=new CopyOnWriteArrayList<>();
     private final ScheduledExecutorService monitor=Executors.newSingleThreadScheduledExecutor(Thread.ofPlatform().daemon().name("workspace-events").factory());
     private final Thread dispatcher=Thread.ofVirtual().name("workspace-event-delivery").unstarted(this::dispatch);
-    private Map<String,Session> previous=Map.of();
+    private volatile Map<String,Session> previous=Map.of();
+    private final WorkspaceJobStore jobStore;
+    private final DefaultProgramProcessService processService;
+    private final Set<String> recoveredJobs = ConcurrentHashMap.newKeySet();
+    private CompletableFuture<Void> persistence = CompletableFuture.completedFuture(null);
     private long sequence;
     private volatile boolean closed;
     private final com.jlshell.plugin.api.lifecycle.Registration workspaceChanges;
 
     public DefaultProgramWorkspaceService(ConnectionProfileService connections,SessionManager sessions,Executor executor,
             java.util.function.Function<String,com.jlshell.plugin.api.capability.FileExplorer> fileAccess) {
+        this(connections, sessions, executor, fileAccess, WorkspaceJobStore.memory());
+    }
+    public DefaultProgramWorkspaceService(ConnectionProfileService connections, SessionManager sessions, Executor executor,
+            java.util.function.Function<String,com.jlshell.plugin.api.capability.FileExplorer> fileAccess, WorkspaceJobStore jobStore) {
         this.connections=connections; this.sessions=sessions; this.executor=executor; this.fileAccess=fileAccess;
+        this.jobStore = jobStore;
+        this.processService = new DefaultProgramProcessService(sessions, executor);
+        for (Job stored : jobStore.load()) {
+            boolean interrupted = stored.steps().stream().anyMatch(step -> !terminal(step.state()));
+            Job restored = interrupted ? new Job(stored.jobId(), stored.title(), State.INTERRUPTED,
+                    stored.steps().stream().map(step -> terminal(step.state()) ? step : new Step(step.stepId(), step.title(),
+                            step.sessionId(), step.terminalId(), State.INTERRUPTED, step.progress(), "Application restarted", step.connectionId())).toList(), stored.createdAt()) : stored;
+            jobs.put(restored.jobId(), restored);
+            recoveredJobs.add(restored.jobId());
+            if (interrupted) persist(restored);
+        }
         workspaceChanges = HostExtensionRegistry.onWorkspaceChange(change -> emit(change.type(), change.sessionId(), change.relatedId(), ""));
         dispatcher.start(); monitor.scheduleWithFixedDelay(this::observe,0,100,TimeUnit.MILLISECONDS);
+    }
+    @Override public com.jlshell.program.api.ProgramProcessService processes() { requireOpen(); return processService; }
+    @Override public CompletableFuture<AgentContext> context(ContextRequest request) {
+        requireOpen();
+        if (request.historyLines() < 0 || request.historyLines() > 100000 || request.maxCharacters() < 1 || request.maxCharacters() > 4_000_000)
+            return CompletableFuture.failedFuture(new IllegalArgumentException("Invalid context snapshot limits"));
+        CompletableFuture<UiContext> ui;
+        try { ui = HostExtensionRegistry.workspaceUi().context(); }
+        catch (IllegalStateException unavailable) { ui = CompletableFuture.completedFuture(new UiContext(null,null,null,null,null,0,0)); }
+        return ui.thenCompose(selection -> {
+            CompletableFuture<com.jlshell.program.api.ProgramTerminalService.Snapshot> snapshot = CompletableFuture.completedFuture(null);
+            if (request.includeTerminalSnapshot() && selection.activeSessionId() != null && selection.activeTerminalId() != null) {
+                try { snapshot = terminal(selection.activeSessionId(),selection.activeTerminalId()).snapshot(request.historyLines(),request.maxCharacters()); }
+                catch (IllegalArgumentException | IllegalStateException closedTerminal) { snapshot = CompletableFuture.completedFuture(null); }
+            }
+            return snapshot.thenApply(text -> new AgentContext("1", HostExtensionRegistry.applicationVersion(), Instant.now().toString(),
+                    Map.of("javaVersion",System.getProperty("java.version"),"os",System.getProperty("os.name"),"architecture",System.getProperty("os.arch")), selection,
+                    readSessions(), jobs().stream().sorted(Comparator.comparing(Job::createdAt).reversed()).limit(20).toList(),
+                    operations.values().stream().map(run -> run.info).filter(operation -> !terminal(operation.state())).limit(64).toList(),
+                    processService.summaries(),
+                    HostExtensionRegistry.errors().stream().sorted(Comparator.comparing(ErrorInfo::time).reversed()).limit(20).toList(), text,
+                    List.of("workspace","terminal","file.readVersioned","file.write","file.applyPatch","process","job.checkpoint","job.resume")));
+        });
+    }
+    private synchronized void persist(Job job) {
+        persistence = persistence.handle((ignored,error) -> null).thenRunAsync(() -> jobStore.save(job),executor);
+        persistence.whenComplete((ignored,error) -> {
+            if (error != null) HostExtensionRegistry.error("PERSISTENCE",null,null,safeError(error));
+        });
+    }
+    @Override public synchronized CompletableFuture<Checkpoint> checkpoint(String id) {
+        requireOpen(); job(id);
+        return persistence.thenApplyAsync(ignored -> recovered(jobStore.checkpoint(id)), executor);
+    }
+    @Override public synchronized CompletableFuture<Checkpoint> checkpoint(String id,long expected,String json) {
+        requireOpen(); job(id);
+        if (expected < 0 || json == null || json.length() > 65536)
+            return CompletableFuture.failedFuture(new IllegalArgumentException("Invalid checkpoint revision or size"));
+        try { com.google.gson.JsonParser.parseString(json); }
+        catch (RuntimeException error) { return CompletableFuture.failedFuture(new IllegalArgumentException("Checkpoint must contain JSON",error)); }
+        var result = persistence.thenApplyAsync(ignored -> recovered(jobStore.checkpoint(id,expected,json)),executor);
+        persistence = result.handle((ignored,error) -> null);
+        return result;
+    }
+    private Checkpoint recovered(Checkpoint checkpoint) {
+        return new Checkpoint(checkpoint.jobId(), checkpoint.revision(), checkpoint.dataJson(), checkpoint.updatedAt(), recoveredJobs.contains(checkpoint.jobId()));
+    }
+    @Override public synchronized Job resumeJob(String id,List<ResumeTarget> targets) {
+        requireOpen(); Job old = job(id);
+        if (!terminal(old.state()) || old.state() == State.SUCCEEDED) throw new IllegalStateException("Resume requires an interrupted, failed or cancelled job");
+        Map<String,ResumeTarget> replacements = new HashMap<>();
+        for (var target : targets) {
+            if (replacements.putIfAbsent(target.stepId(),target) != null) throw new IllegalArgumentException("Duplicate step target");
+        }
+        List<Step> steps = new ArrayList<>();
+        for (Step step : old.steps()) {
+            if (step.state() == State.SUCCEEDED) { steps.add(step); continue; }
+            ResumeTarget target = replacements.remove(step.stepId());
+            if (target == null) throw new IllegalArgumentException("Every unfinished step requires a new target");
+            Session session = get(target.sessionId()).join();
+            if (!session.ready().contains(Ready.CONNECTED)) throw new IllegalStateException("Resume target is disconnected");
+            if (target.terminalId() != null) HostExtensionRegistry.resolveTerminal(target.sessionId(),target.terminalId());
+            steps.add(new Step(step.stepId(),step.title(),target.sessionId(),target.terminalId(),State.QUEUED,0,"",session.connectionId()));
+        }
+        if (!replacements.isEmpty()) throw new IllegalArgumentException("Unknown or completed step target");
+        Job resumed = new Job(id,old.title(),State.QUEUED,List.copyOf(steps),old.createdAt());
+        jobs.put(id,resumed); recoveredJobs.remove(id); persist(resumed); emit("JOB_RESUMED",null,id,"");
+        return resumed;
     }
     private void requireOpen() { if(closed) throw new IllegalStateException("Workspace service closed"); }
     public CompletableFuture<List<Connection>> connections(ConnectionQuery query) {
@@ -89,15 +176,15 @@ public final class DefaultProgramWorkspaceService implements ProgramWorkspaceSer
             boolean connected=descriptor.state()==com.jlshell.core.model.SessionState.CONNECTED
                     && visible.map(com.jlshell.plugin.api.host.HostExtensions.Session::connected).orElse(true);
             result.put(id,describe(id,descriptor.displayName(),descriptor.target().host(),descriptor.target().port(),
-                    descriptor.target().username(),connected?"CONNECTED":descriptor.state()==com.jlshell.core.model.SessionState.CONNECTED?"DISCONNECTED":descriptor.state().name(),visible.map(com.jlshell.plugin.api.host.HostExtensions.Session::active).orElse(false),connected));
+                    descriptor.target().username(),connected?"CONNECTED":descriptor.state()==com.jlshell.core.model.SessionState.CONNECTED?"DISCONNECTED":descriptor.state().name(),visible.map(com.jlshell.plugin.api.host.HostExtensions.Session::active).orElse(false),connected,descriptor.connectedAt()));
         }
         for(var visible:HostExtensionRegistry.sessions()) if(!result.containsKey(visible.id())) {
             result.put(visible.id(),describe(visible.id(),visible.title(),visible.host(),0,visible.username(),
-                    visible.connected()?"CONNECTED":"CLOSED",visible.active(),visible.connected()));
+                    visible.connected()?"CONNECTED":"CLOSED",visible.active(),visible.connected(),HostExtensionRegistry.connectedAt(visible.id())));
         }
         return List.copyOf(result.values());
     }
-    private Session describe(String id,String title,String host,int port,String user,String state,boolean active,boolean connected) {
+    private Session describe(String id,String title,String host,int port,String user,String state,boolean active,boolean connected,Instant connectedAt) {
         var binding=HostExtensionRegistry.binding(id).orElse(null);
         var terminals=HostExtensionRegistry.terminalEntries(id);
         List<Ready> ready=new ArrayList<>();
@@ -106,7 +193,12 @@ public final class DefaultProgramWorkspaceService implements ProgramWorkspaceSer
         if(connected && terminals.stream().anyMatch(entry -> entry.access().shellReady())) ready.add(Ready.SHELL);
         return new Session(id,binding==null?null:binding.connectionId(),title,host,port,user,state,
                 binding==null ? (terminals.isEmpty()?Presentation.BACKGROUND:Presentation.TAB) : binding.presentation(),active,
-                terminals.stream().map(HostExtensionRegistry.TerminalEntry::terminalId).toList(),List.copyOf(ready));
+                terminals.stream().map(HostExtensionRegistry.TerminalEntry::terminalId).toList(),List.copyOf(ready),
+                connectedAt == null ? null : connectedAt.toString(),
+                connectedAt == null ? 0 : connected ? Math.max(0, java.time.Duration.between(connectedAt, Instant.now()).toSeconds())
+                        : previous.containsKey(id) ? previous.get(id).connectedSeconds() : 0,
+                HostExtensionRegistry.errors().stream().filter(error -> id.equals(error.sessionId())
+                        || binding != null && Objects.equals(binding.connectionId(), error.connectionId())).reduce((first,second) -> second).orElse(null));
     }
     public CompletableFuture<List<Session>> sessions() { requireOpen(); return CompletableFuture.completedFuture(readSessions()); }
     public CompletableFuture<Session> get(String id) {
@@ -192,7 +284,17 @@ public final class DefaultProgramWorkspaceService implements ProgramWorkspaceSer
     public com.jlshell.program.api.ProgramFileService files(String sessionId) {
         requireOpen();
         return new com.jlshell.program.api.ProgramFileService() {
-            private com.jlshell.plugin.api.capability.FileExplorer delegate() { return fileAccess.apply(sessionId); }
+            private com.jlshell.plugin.api.capability.FileExplorer delegate() { requireOpen(); return fileAccess.apply(sessionId); }
+            private <T> CompletableFuture<T> tracked(CompletableFuture<T> future) {
+                return future.whenComplete((value,error) -> {
+                    if (error != null) HostExtensionRegistry.error("FILE",sessionId,null,safeError(error));
+                });
+            }
+            public CompletableFuture<Content> readVersioned(String path) { return tracked(delegate().readVersioned(path)); }
+            public CompletableFuture<WriteResult> write(WriteRequest request) { return tracked(delegate().writeAtomic(request)); }
+            public CompletableFuture<WriteResult> applyPatch(PatchRequest request) {
+                return tracked(delegate().readVersioned(request.path()).thenCompose(content -> delegate().writeAtomic(AgentFileEdits.patch(content, request))));
+            }
             private File describeFile(com.jlshell.plugin.api.model.RemoteFile file) {
                 return new File(file.name(),file.path(),file.size(),file.isDirectory(),file.permissions(),file.lastModified()==null?null:file.lastModified().toString());
             }
@@ -279,13 +381,18 @@ public final class DefaultProgramWorkspaceService implements ProgramWorkspaceSer
                 if(old==null) emit("OPENED",session.sessionId(),null,session.state());
                 else {
                     if(old.active()!=session.active()) emit("ACTIVE_CHANGED",session.sessionId(),null,Boolean.toString(session.active()));
-                    if(old.ready().contains(Ready.CONNECTED) && !session.ready().contains(Ready.CONNECTED)) emit("DISCONNECTED",session.sessionId(),null,session.state());
+                    if(old.ready().contains(Ready.CONNECTED) && !session.ready().contains(Ready.CONNECTED)) {
+                        emit("DISCONNECTED",session.sessionId(),null,session.state());
+                        if (HostExtensionRegistry.errors().stream().noneMatch(error -> session.sessionId().equals(error.sessionId()) && error.category().equals("DISCONNECTED")))
+                            HostExtensionRegistry.error("DISCONNECTED", session.sessionId(), session.connectionId(), session.state());
+                    }
                 }
                 for(Ready stage:session.ready()) if(old==null || !old.ready().contains(stage)) emit(stage+"_READY",session.sessionId(),null,"");
             }
             for(String id:previous.keySet()) if(!current.containsKey(id)) { emit("CLOSED",id,null,""); HostExtensionRegistry.unbind(id); }
             terminalQueues.keySet().removeIf(id -> current.values().stream().noneMatch(session -> session.terminalIds().contains(id))
                     && operations.values().stream().noneMatch(run -> id.equals(run.info.terminalId()) && !terminal(run.info.state())));
+            processService.cancelDisconnectedSessions(current.values().stream().filter(session -> session.ready().contains(Ready.CONNECTED)).map(Session::sessionId).collect(java.util.stream.Collectors.toSet()));
             previous=current;
             for(var run:operations.values()) if(!terminal(run.info.state())) {
                 if(!current.containsKey(run.info.sessionId())) cancelOperation(run.info.operationId());
@@ -404,6 +511,7 @@ public final class DefaultProgramWorkspaceService implements ProgramWorkspaceSer
         run.info=new Operation(old.operationId(),old.sessionId(),old.terminalId(),old.jobId(),old.stepId(),old.kind(),state,progress,message,old.createdAt(),terminal(state)?Instant.now().toString():null);
         if(old.jobId()!=null) updateStepState(old.jobId(),old.stepId(),state,progress,message);
         emit("OPERATION_"+state,old.sessionId(),old.operationId(),message);
+        if (state == State.FAILED) HostExtensionRegistry.error("OPERATION", old.sessionId(), null, message);
         if(terminal(state)) run.result.complete(run.info);
     }
     public Operation operation(String id) { var run=operations.get(id); if(run==null) throw new IllegalArgumentException("Operation not found"); return run.info; }
@@ -431,21 +539,21 @@ public final class DefaultProgramWorkspaceService implements ProgramWorkspaceSer
     }
     public synchronized Job createJob(String title,List<Step> steps) {
         requireOpen();
-        if(title==null || title.isBlank() || steps.isEmpty() || steps.size()>100) throw new IllegalArgumentException("A job needs a title and 1..100 steps");
+        if(title==null || title.isBlank() || title.length()>512 || steps.isEmpty() || steps.size()>100) throw new IllegalArgumentException("A job needs a title and 1..100 steps");
         var ids=new HashSet<String>();
         List<Step> initial=new ArrayList<>();
         for(Step step:steps) {
-            if(step.stepId()==null || step.stepId().isBlank() || !ids.add(step.stepId())) throw new IllegalArgumentException("Step IDs must be unique");
-            get(step.sessionId()).join();
+            if(step.title()==null || step.title().length()>512 || step.stepId()==null || step.stepId().isBlank() || step.stepId().length()>128 || !ids.add(step.stepId())) throw new IllegalArgumentException("Step IDs must be unique");
+            Session target = get(step.sessionId()).join();
             if(step.terminalId()!=null) HostExtensionRegistry.resolveTerminal(step.sessionId(),step.terminalId());
-            initial.add(new Step(step.stepId(),step.title(),step.sessionId(),step.terminalId(),State.QUEUED,0,""));
+            initial.add(new Step(step.stepId(),step.title(),step.sessionId(),step.terminalId(),State.QUEUED,0,"",target.connectionId()));
         }
         if(jobs.size()>=256) {
             jobs.values().stream().filter(job -> terminal(job.state())).sorted(Comparator.comparing(Job::createdAt)).limit(128).forEach(job -> jobs.remove(job.jobId(),job));
             if(jobs.size()>=256) throw new IllegalStateException("Too many active jobs");
         }
         Job job=new Job(UUID.randomUUID().toString(),title,State.QUEUED,List.copyOf(initial),Instant.now().toString());
-        jobs.put(job.jobId(),job); emit("JOB_CREATED",null,job.jobId(),title); return job;
+        jobs.put(job.jobId(),job); persist(job); emit("JOB_CREATED",null,job.jobId(),title); return job;
     }
     private synchronized void validateStep(Input input,String terminalId) {
         if(input.jobId()==null) { if(input.stepId()!=null) throw new IllegalArgumentException("stepId requires jobId"); return; }
@@ -459,6 +567,7 @@ public final class DefaultProgramWorkspaceService implements ProgramWorkspaceSer
     public Job job(String id) { Job job=jobs.get(id); if(job==null) throw new IllegalArgumentException("Job not found"); return job; }
     public List<Job> jobs() { return jobs.values().stream().sorted(Comparator.comparing(Job::createdAt)).toList(); }
     public synchronized Job updateStep(String id,String stepId,State state,double progress,String message) {
+        requireOpen();
         if (operations.values().stream().anyMatch(run -> id.equals(run.info.jobId())
                 && stepId.equals(run.info.stepId()) && !terminal(run.info.state()))) {
             throw new IllegalStateException("Operation-managed steps are updated by their operation");
@@ -466,7 +575,7 @@ public final class DefaultProgramWorkspaceService implements ProgramWorkspaceSer
         return updateStepState(id, stepId, state, progress, message);
     }
     private Job updateStepState(String id,String stepId,State state,double progress,String message) {
-        if(!Double.isFinite(progress) || progress<0 || progress>1) throw new IllegalArgumentException("Progress must be 0..1");
+        if(message==null || message.length()>4096 || !Double.isFinite(progress) || progress<0 || progress>1) throw new IllegalArgumentException("Progress must be 0..1");
         Job old=job(id);
         if(old.state()==State.CANCELLED) return old;
         boolean found=false; List<Step> steps=new ArrayList<>();
@@ -475,25 +584,26 @@ public final class DefaultProgramWorkspaceService implements ProgramWorkspaceSer
             found=true;
             if (step.state() == State.RUNNING && state == State.QUEUED) throw new IllegalStateException("Running step cannot return to queued");
             if(terminal(step.state()) && step.state()!=state) throw new IllegalStateException("Finished step cannot change state");
-            steps.add(new Step(step.stepId(),step.title(),step.sessionId(),step.terminalId(),Objects.requireNonNull(state),progress,message));
+            steps.add(new Step(step.stepId(),step.title(),step.sessionId(),step.terminalId(),Objects.requireNonNull(state),progress,message,step.connectionId()));
         }
         if(!found) throw new IllegalArgumentException("Step not found");
         State aggregate=steps.stream().allMatch(step -> step.state()==State.QUEUED)?State.QUEUED
                 :steps.stream().allMatch(step -> step.state()==State.SUCCEEDED)?State.SUCCEEDED
                 :steps.stream().anyMatch(step -> step.state()==State.FAILED)?State.FAILED
                 :steps.stream().allMatch(step -> terminal(step.state()))?State.CANCELLED:State.RUNNING;
-        Job updated=new Job(id,old.title(),aggregate,List.copyOf(steps),old.createdAt()); jobs.put(id,updated);
+        Job updated=new Job(id,old.title(),aggregate,List.copyOf(steps),old.createdAt()); jobs.put(id,updated); persist(updated);
         emit("JOB_UPDATED",null,id,aggregate.name()); return updated;
     }
     public synchronized Job cancelJob(String id) {
+        requireOpen();
         Job old=job(id); if(old.state()==State.SUCCEEDED || old.state()==State.CANCELLED) return old;
         Job cancelled=new Job(id,old.title(),State.CANCELLED,old.steps().stream().map(step -> terminal(step.state())?step:
-                new Step(step.stepId(),step.title(),step.sessionId(),step.terminalId(),State.CANCELLED,step.progress(),"Cancelled")).toList(),old.createdAt());
-        jobs.put(id,cancelled);
+                new Step(step.stepId(),step.title(),step.sessionId(),step.terminalId(),State.CANCELLED,step.progress(),"Cancelled",step.connectionId())).toList(),old.createdAt());
+        jobs.put(id,cancelled); persist(cancelled);
         operations.values().stream().filter(run -> id.equals(run.info.jobId()) && !terminal(run.info.state())).forEach(run -> cancelOperation(run.info.operationId()));
         emit("JOB_CANCELLED",null,id,""); return cancelled;
     }
-    private static boolean terminal(State state) { return state==State.SUCCEEDED || state==State.FAILED || state==State.CANCELLED; }
+    private static boolean terminal(State state) { return state==State.SUCCEEDED || state==State.FAILED || state==State.CANCELLED || state==State.INTERRUPTED; }
     private static void requireTimeout(int value) { if(value<1 || value>3600) throw new IllegalArgumentException("Timeout must be 1..3600 seconds"); }
     private static void sleep(long millis) {
         try { Thread.sleep(millis); } catch(InterruptedException error) { Thread.currentThread().interrupt(); throw new CancellationException(); }
@@ -502,9 +612,15 @@ public final class DefaultProgramWorkspaceService implements ProgramWorkspaceSer
         while((error instanceof ExecutionException || error instanceof CompletionException) && error.getCause()!=null) error=error.getCause();
         return Objects.toString(error.getMessage(),error.getClass().getSimpleName());
     }
-    @Override public void close() {
-        if(closed) return;
-        for(var run:operations.values()) if(!terminal(run.info.state())) cancelOperation(run.info.operationId());
-        closed=true; workspaceChanges.close(); monitor.shutdownNow(); dispatcher.interrupt(); listeners.clear(); terminalQueues.clear();
+    @Override public synchronized void close() {
+        if (closed) return;
+        closed = true;
+        for (var run : operations.values()) if (!terminal(run.info.state())) cancelOperation(run.info.operationId());
+        processService.close();
+        try { persistence.join(); }
+        catch (CompletionException error) { HostExtensionRegistry.report(error); }
+        finally {
+            workspaceChanges.close(); monitor.shutdownNow(); dispatcher.interrupt(); listeners.clear(); terminalQueues.clear();
+        }
     }
 }

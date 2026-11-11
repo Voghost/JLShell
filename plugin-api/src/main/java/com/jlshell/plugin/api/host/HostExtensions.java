@@ -22,13 +22,28 @@ public interface HostExtensions {
     record FileSelection(String sessionId, String directory, List<FileRef> files) {
         public FileSelection { files = List.copyOf(files); }
     }
+    /** PLUGIN_SUBMENU groups contributions under the owning plugin display name. */
+    enum MenuPlacement { PLUGIN_SUBMENU, TOP_LEVEL }
     record FileAction(String id, String title, Icon icon, String group,
                       java.util.function.Predicate<FileSelection> visible,
                       java.util.function.Predicate<FileSelection> enabled,
-                      Consumer<FileSelection> execute) {}
+                      Consumer<FileSelection> execute, MenuPlacement placement) {
+        public FileAction { java.util.Objects.requireNonNull(placement); }
+        public FileAction(String id, String title, Icon icon, String group,
+                          java.util.function.Predicate<FileSelection> visible,
+                          java.util.function.Predicate<FileSelection> enabled, Consumer<FileSelection> execute) {
+            this(id, title, icon, group, visible, enabled, execute, MenuPlacement.PLUGIN_SUBMENU);
+        }
+    }
     record TextSelection(String sessionId, String text, String directory) {}
     record TextAction(String id, String title, java.util.function.Predicate<TextSelection> visible,
-                      Consumer<TextSelection> execute) {}
+                      Consumer<TextSelection> execute, MenuPlacement placement) {
+        public TextAction { java.util.Objects.requireNonNull(placement); }
+        public TextAction(String id, String title, java.util.function.Predicate<TextSelection> visible,
+                          Consumer<TextSelection> execute) {
+            this(id, title, visible, execute, MenuPlacement.PLUGIN_SUBMENU);
+        }
+    }
     record PreviewProvider(String id, String title, java.util.function.Predicate<FileRef> accepts,
                            java.util.function.Function<FileRef, CompletableFuture<JComponent>> create) {}
     record ViewOptions(int preferredWidth, int preferredHeight, int minimumWidth, int minimumHeight, Anchor anchor) {

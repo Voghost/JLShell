@@ -118,3 +118,19 @@ Program 插件新增 `context.workspace()`，Program API SPI 使用 `ProgramApiC
 本地 RPC 使用相同的服务和队列。新增 25 个方法及参数 Schema 见 `WorkspaceRpcCatalog`，既有 `terminal.*` 输入方法也进入共享队列。`workbench.sessions` 返回完整工作区元数据。所有 RPC 沿用本机 Bearer Token 认证。
 
 网站文档新增 SDK 2.1.0 预览，包含 Plugin / Program 中英文版本、变更记录、Raw Markdown 和 JSON-RPC 调用示例。SDK 2.1.0 公共 Maven 包发布为独立后续流程。
+
+## Harness Agent 开发补充
+
+- `workspace.context(ContextRequest)` 与 RPC `agent.context` 提供 schemaVersion=1 的公共程序上下文。包括左侧选中连接、活动会话/终端、窗口/项目/主题、会话连接时间与持续秒数、最近业务错误、任务及进程摘要。终端内容通过 includeTerminalSnapshot 按需查询。
+- `files(sessionId).readVersioned/write/applyPatch` 支持本地与 SSH 文件的 SHA-256 版本校验、同目录临时写入、原子替换和备份。精确补丁面向 UTF-8，每个 oldText 唯一匹配。单次编辑最大 4 MiB。远端原子覆盖需要对应 SFTP 能力，外部写入仍存在最后校验与重命名之间的乐观并发窗口。
+- `workspace.processes()` 提供 argv、工作目录、环境、有界 stdout/stderr、独立流事件、退出码、超时和通道级取消。远端编码面向 POSIX Shell，本地使用 ProcessBuilder。取消进入 CANCELLING，通道清理后完成。输出缓存受全局 8 Mi 字符预算控制。
+- 任务步骤及 connectionId 自动写入宿主 SQLite 的 agent_jobs 表。`checkpoint(jobId, expectedRevision, dataJson)` 完成时检查点已提交。`resumeJob` 要求为未成功步骤绑定当前会话，重启后未结束步骤为 INTERRUPTED，成功步骤保留。
+- 新增 12 个对应 RPC，参数与示例统一维护在 WorkspaceRpcCatalog，网站 SDK 2.1.0 预览文档同步提供中英文及 Raw Markdown。
+
+## SDK 2.1.0 菜单分组
+
+`HostExtensions.FileAction` 和 `TextAction` 默认使用 `MenuPlacement.PLUGIN_SUBMENU`。
+宿主按插件 ID 隔离分组，并使用插件的本地化名称显示 `插件名称 → 功能1、功能2`。
+旧构造函数继续可用，自动采用二级菜单。传入最后一个参数 `MenuPlacement.TOP_LEVEL`
+可显式展示为一级菜单。文件动作的 `group` 用于组内分隔，子菜单保留宿主圆角与键盘导航。
+终端在没有选中文本时也评估动作，插件可通过 `visible` 决定是否展示。

@@ -31,9 +31,22 @@ public final class HostExtensionRegistry {
             catch (RuntimeException error) { report(error); }
         }
     }
-    public record Binding(String connectionId,com.jlshell.program.api.ProgramWorkspaceService.Presentation presentation) {}
+    private static final ArrayDeque<com.jlshell.program.api.ProgramWorkspaceService.ErrorInfo> errors = new ArrayDeque<>();
+    private static final ConcurrentMap<String,java.time.Instant> connectedTimes = new ConcurrentHashMap<>();
+    public static java.time.Instant connectedAt(String sessionId) { return connectedTimes.get(sessionId); }
+    public static synchronized void error(String category, String sessionId, String connectionId, String message) {
+        String text = Objects.toString(message, "");
+        var info = new com.jlshell.program.api.ProgramWorkspaceService.ErrorInfo(UUID.randomUUID().toString(),
+                java.time.Instant.now().toString(), category, sessionId, connectionId, text.substring(0, Math.min(2048, text.length())));
+        if (errors.size() >= 100) errors.removeFirst();
+        errors.addLast(info);
+    }
+    public static synchronized List<com.jlshell.program.api.ProgramWorkspaceService.ErrorInfo> errors() { return List.copyOf(errors); }
+    public record Binding(String connectionId,com.jlshell.program.api.ProgramWorkspaceService.Presentation presentation, boolean local) {}
     private static final ConcurrentMap<String,Binding> bindings=new ConcurrentHashMap<>();
-    public static void bind(String id,String connectionId,com.jlshell.program.api.ProgramWorkspaceService.Presentation presentation) { bindings.put(id,new Binding(connectionId,presentation)); }
+    public static void bind(String id,String connectionId,com.jlshell.program.api.ProgramWorkspaceService.Presentation presentation) { bindings.compute(id,(key,old) -> new Binding(connectionId,presentation,old != null && old.local())); }
+    public static void bindLocal(String id,String connectionId) { bindings.put(id,new Binding(connectionId,com.jlshell.program.api.ProgramWorkspaceService.Presentation.TAB,true)); }
+    public static boolean localSession(String id) { return binding(id).map(Binding::local).orElse(false) && !terminalEntries(id).isEmpty(); }
     public static Optional<Binding> binding(String id) { return Optional.ofNullable(bindings.get(id)); }
     public static void unbind(String id) { bindings.remove(id); }
     public record TerminalEntry(String sessionId,String terminalId,TerminalAccess access) {}
@@ -63,7 +76,7 @@ public final class HostExtensionRegistry {
     public static List<Task> tasks(String pluginId) { return tasks.values().stream().filter(task -> task.pluginId().equals(pluginId)).toList(); }
     public static List<Task> tasks() { return List.copyOf(tasks.values()); }
 
-    public record Owned<T>(String sessionId, T value) {}
+    public record Owned<T>(String sessionId, String pluginId, String pluginName, T value) {}
     private static final ConcurrentMap<String, TerminalAccess> terminals = new ConcurrentHashMap<>();
     private static final CopyOnWriteArrayList<Owned<HostExtensions.FileAction>> fileActions = new CopyOnWriteArrayList<>();
     private static final CopyOnWriteArrayList<Owned<HostExtensions.TextAction>> textActions = new CopyOnWriteArrayList<>();
@@ -88,12 +101,14 @@ public final class HostExtensionRegistry {
     public static Registration terminal(HostExtensions.Session session, TerminalAccess terminal) {
         String terminalKey=Objects.requireNonNullElse(terminal.terminalId(),session.id());
         terminalEntries.put(terminalKey,new TerminalEntry(session.id(),terminalKey,terminal));
+        connectedTimes.putIfAbsent(session.id(),java.time.Instant.now());
         terminals.put(session.id(), terminal); sessions.put(session.id(), session); publishSessions();
         return () -> {
             terminalEntries.computeIfPresent(terminalKey,(id,entry) -> entry.access()==terminal ? null : entry);
             if(terminals.remove(session.id(),terminal)) {
                 terminalEntries(session.id()).stream().findFirst().ifPresent(entry -> terminals.put(session.id(),entry.access()));
                 sessions.computeIfPresent(session.id(),(id,current) -> terminals.containsKey(id) ? current : null);
+                if (!terminals.containsKey(session.id())) connectedTimes.remove(session.id());
                 publishSessions();
             }
         };
@@ -117,9 +132,15 @@ public final class HostExtensionRegistry {
             try { listener.accept(snapshot); } catch (RuntimeException error) { report(error); }
         }
     }
-    static Registration fileAction(String session, HostExtensions.FileAction action) { return add(fileActions, new Owned<>(session, action)); }
-    static Registration textAction(String session, HostExtensions.TextAction action) { return add(textActions, new Owned<>(session, action)); }
-    static Registration preview(String session, HostExtensions.PreviewProvider provider) { return add(previews, new Owned<>(session, provider)); }
+    static Registration fileAction(String session, String pluginId, String pluginName, HostExtensions.FileAction action) { return add(fileActions, new Owned<>(session, pluginId, pluginName, action)); }
+    public static List<Owned<HostExtensions.FileAction>> fileContributions(String session) {
+        return fileActions.stream().filter(item -> item.sessionId() == null || Objects.equals(item.sessionId(), session)).toList();
+    }
+    public static List<Owned<HostExtensions.TextAction>> textContributions(String session) {
+        return textActions.stream().filter(item -> item.sessionId() == null || Objects.equals(item.sessionId(), session)).toList();
+    }
+    static Registration textAction(String session, String pluginId, String pluginName, HostExtensions.TextAction action) { return add(textActions, new Owned<>(session, pluginId, pluginName, action)); }
+    static Registration preview(String session, HostExtensions.PreviewProvider provider) { return add(previews, new Owned<>(session, "", "", provider)); }
     public static List<HostExtensions.FileAction> fileActions(String session) { return matching(fileActions, session); }
     public static List<HostExtensions.TextAction> textActions(String session) { return matching(textActions, session); }
     public static List<HostExtensions.PreviewProvider> previews(String session) { return matching(previews, session); }

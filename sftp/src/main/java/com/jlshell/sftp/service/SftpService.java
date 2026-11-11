@@ -12,6 +12,15 @@ import com.jlshell.sftp.model.TransferRequest;
  */
 public interface SftpService {
 
+    record Content(byte[] bytes, String sha256) {}
+    record WriteResult(String path, String previousSha256, String sha256, String backupPath, long bytesWritten) {}
+    default CompletableFuture<Content> readVersioned(SshSession session, String path) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("Versioned reads unavailable"));
+    }
+    default CompletableFuture<WriteResult> writeAtomic(SshSession session, String path, byte[] content,
+            String expectedSha256, boolean createOnly, boolean backup) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("Atomic writes unavailable"));
+    }
     CompletableFuture<RemoteDirectoryListing> listDirectory(SshSession sshSession, String directoryPath);
 
     default CompletableFuture<byte[]> readRange(SshSession session,String path,long offset,int length) {

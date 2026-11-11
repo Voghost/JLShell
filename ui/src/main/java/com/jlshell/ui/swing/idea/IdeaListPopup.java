@@ -19,6 +19,7 @@ public final class IdeaListPopup extends JPanel {
         }
     }
 
+    private final Style style;
     private final JList<Row> list = new JList<>() {
         @Override public boolean getScrollableTracksViewportWidth() { return true; }
         @Override public String getToolTipText(MouseEvent event) {
@@ -48,6 +49,7 @@ public final class IdeaListPopup extends JPanel {
 
     public IdeaListPopup(List<Row> rows, int width, boolean searchable, String searchPrompt, Style style) {
         this.rows = List.copyOf(rows);
+        this.style = style;
         setLayout(new BorderLayout());
         setName("idea.listPopup");
         hover.setRepeats(false);
@@ -196,7 +198,7 @@ public final class IdeaListPopup extends JPanel {
             return;
         }
         if (child != null) child.setVisible(false);
-        child = new IdeaListPopup(row.children(), 170, false, "");
+        child = new IdeaListPopup(row.children(), 170, false, "", style);
         child.parentPopup = this;
         movement.reset();
         childIndex = index;

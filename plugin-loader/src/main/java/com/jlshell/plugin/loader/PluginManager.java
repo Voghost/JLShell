@@ -276,6 +276,8 @@ public class PluginManager {
             set.contexts.put(plugin.id(), context);
             timing.run("runtime-services", () -> attachRuntimeServices(sid, plugin.id(), context));
             try {
+                if (context.host() instanceof ScopedHostExtensions extensions)
+                    extensions.pluginName(plugin.displayName(java.util.Locale.getDefault()));
                 timing.run("plugin-code", () -> plugin.activate(context));
                 log.debug("Activated plugin {} in session {}", plugin.id(), sid);
             } catch (RuntimeException | Error error) {

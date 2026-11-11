@@ -169,7 +169,9 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
     private void status(String text) { message.setText(text); message.setToolTipText(text); }
     private void failure(Throwable error) {
         while (error.getCause() != null) error = error.getCause();
-        status(t("sftp.error") + ": " + Objects.toString(error.getMessage(), error.getClass().getSimpleName()));
+        String detail = Objects.toString(error.getMessage(), error.getClass().getSimpleName());
+        com.jlshell.plugin.loader.HostExtensionRegistry.error("SFTP",session.sessionId() == null ? null : session.sessionId().toString(),null,detail);
+        status(t("sftp.error") + ": " + detail);
     }
     private static String join(String parent, String name) { return parent.endsWith("/") ? parent + name : parent + "/" + name; }
     private static String formatSize(long bytes) {
@@ -521,15 +523,26 @@ public final class SwingSftpBrowser extends JPanel implements AutoCloseable {
             }
             var context = new com.jlshell.plugin.api.host.HostExtensions.FileSelection(
                     session.sessionId().toString(),path,selected.stream().map(e -> fileRef(e,isRemote)).toList());
-            for(var action : com.jlshell.plugin.loader.HostExtensionRegistry.fileActions(session.sessionId().toString())) {
+            var pluginRows = new java.util.LinkedHashMap<String, java.util.List<IdeaListPopup.Row>>();
+            var pluginNames = new java.util.HashMap<String, String>();
+            for(var contribution : com.jlshell.plugin.loader.HostExtensionRegistry.fileContributions(session.sessionId().toString())) {
+                var action = contribution.value();
                 try {
-                    if(action.visible().test(context)) rows.add(menuRow(action.title(),action.icon(),action.group(),
+                    if (!action.visible().test(context)) continue;
+                    var destination = rows;
+                    if (action.placement() != com.jlshell.plugin.api.host.HostExtensions.MenuPlacement.TOP_LEVEL) {
+                        destination = pluginRows.computeIfAbsent(contribution.pluginId(), key -> new java.util.ArrayList<>());
+                        pluginNames.put(contribution.pluginId(), contribution.pluginName());
+                    }
+                    destination.add(menuRow(action.title(),action.icon(),action.group(),
                             action.enabled().test(context),() -> {
                                 try { action.execute().accept(context); }
                                 catch(RuntimeException error) { failure(error); }
                             }));
                 } catch(RuntimeException error) { com.jlshell.plugin.loader.HostExtensionRegistry.report(error); }
             }
+            pluginRows.forEach((id, children) -> rows.add(new IdeaListPopup.Row(pluginNames.get(id), null, null, "", null,
+                    children.stream().anyMatch(IdeaListPopup.Row::enabled), children, null)));
             showMenu(rows, 190, IdeaListPopup.Style.CONTEXT, anchor, x, y);
         }
 
