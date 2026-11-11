@@ -2,43 +2,20 @@ package com.jlshell.ui.support;
 
 import java.io.InputStream;
 
-import javafx.scene.text.Font;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/**
- * Loads bundled Nerd Font TTF files so they are available to both
- * JavaFX (via Font.loadFont) and AWT/Swing terminal (via Font.createFont).
- *
- * JavaFX 字体按旧插件页面需要加载（CSS -fx-font-family 需要它）；
- * AWT 注册延迟到首次创建终端时（{@link #ensureAwtRegistered()}），
- * 把 2MB TTF 的二次 I/O 从启动路径移到首次开终端。
- */
+/** 延迟注册终端使用的 AWT Nerd Font。 */
 public final class BundledFontLoader {
 
     private static final Logger log = LoggerFactory.getLogger(BundledFontLoader.class);
 
     public static final String BUNDLED_FONT_FAMILY = "SauceCodePro Nerd Font Mono";
 
-    private static final Object FX_LOCK = new Object();
     private static final Object AWT_LOCK = new Object();
-    private static volatile boolean javafxLoaded = false;
     private static volatile boolean awtRegistered = false;
 
     private BundledFontLoader() {}
-
-    /** 加载 JavaFX 字体。必须在 JavaFX init 阶段调用（FX 线程或 FX init 线程）。 */
-    public static void load() {
-        if (javafxLoaded) return;
-        synchronized (FX_LOCK) {
-            if (javafxLoaded) return;
-            loadFont("/fonts/SauceCodeProNerdFontMono-Regular.ttf");
-            loadFont("/fonts/SauceCodeProNerdFontMono-Bold.ttf");
-
-            javafxLoaded = true;
-            log.info("Bundled JavaFX fonts loaded: {}", BUNDLED_FONT_FAMILY);
-        }
-    }
 
     /**
      * 首次创建终端时调用：把 TTF 注册到 AWT GraphicsEnvironment，
@@ -53,23 +30,6 @@ public final class BundledFontLoader {
             registerAwtFont("/fonts/SauceCodeProNerdFontMono-Bold.ttf");
             awtRegistered = true;
             log.info("Bundled AWT fonts registered: {}", BUNDLED_FONT_FAMILY);
-        }
-    }
-
-    private static void loadFont(String resourcePath) {
-        try (InputStream is = BundledFontLoader.class.getResourceAsStream(resourcePath)) {
-            if (is == null) {
-                log.warn("Bundled font not found: {}", resourcePath);
-                return;
-            }
-            Font font = Font.loadFont(is, -1);
-            if (font != null) {
-                log.debug("JavaFX font loaded: {} ({})", font.getName(), resourcePath);
-            } else {
-                log.warn("Failed to load JavaFX font: {}", resourcePath);
-            }
-        } catch (Exception e) {
-            log.warn("Error loading bundled font: {}", resourcePath, e);
         }
     }
 

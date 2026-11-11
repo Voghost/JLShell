@@ -8,13 +8,11 @@ import com.jlshell.sftp.service.SftpService;
 import com.jlshell.terminal.service.ColorSchemeRegistry;
 import com.jlshell.terminal.support.SwingExecutors;
 import com.jlshell.ui.service.I18nService;
-import com.jlshell.ui.support.FxThread;
+import com.jlshell.ui.support.UiThread;
 import com.jlshell.ui.theme.*;
 import com.jlshell.ui.view.PluginsTabView;
-import javafx.application.Platform;
-import javafx.scene.control.Tab;
-import javafx.scene.control.TabPane;
-import javafx.scene.layout.Pane;
+import com.jlshell.ui.model.WorkspacePage;
+import com.jlshell.ui.model.WorkspaceTabs;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.junit.jupiter.api.io.TempDir;
@@ -38,10 +36,6 @@ class SwingTransferAndPluginTest {
     private static final I18nService I18N = new I18nService(Locale.ENGLISH);
 
     @BeforeAll static void toolkit() throws Exception {
-        var ready = new CompletableFuture<Void>();
-        try { Platform.startup(() -> { Platform.setImplicitExit(false); ready.complete(null); }); }
-        catch (IllegalStateException running) { Platform.runLater(() -> ready.complete(null)); }
-        ready.get(10, TimeUnit.SECONDS);
         edt(() -> { SwingTheme.install(AppTheme.DARK, "#3574f0", null, 13); return null; });
     }
 
@@ -92,7 +86,7 @@ class SwingTransferAndPluginTest {
     }
 
     @Test void connectingStateIsRemovedWhenTerminalArrives() throws Exception {
-        TabPane model = FxThread.supplyAsync(() -> new TabPane(new Tab("Terminal", new Pane())))
+        WorkspaceTabs model = UiThread.supplyAsync(() -> tabs("Terminal"))
                 .get(10, TimeUnit.SECONDS);
         JPanel terminal = edt(JPanel::new);
         var session = edt(() -> new SwingSessionView(model, null, "Monitor", null, "Settings", I18N));
@@ -113,7 +107,6 @@ class SwingTransferAndPluginTest {
     }
 
     @Test
-    @org.junit.jupiter.api.condition.EnabledOnOs(org.junit.jupiter.api.condition.OS.WINDOWS)
     void nativePluginCanPaintBeforeItsActivationReturns() throws Exception {
         CountDownLatch created = new CountDownLatch(1);
         CountDownLatch afterOpen = new CountDownLatch(1), releaseActivation = new CountDownLatch(1), painted = new CountDownLatch(1);
@@ -125,7 +118,7 @@ class SwingTransferAndPluginTest {
             public boolean requiresSshSession() { return false; }
             public void deactivate() {}
             public void activate(PluginContext context) {
-                assertTrue(Platform.isFxApplicationThread());
+                assertFalse(SwingUtilities.isEventDispatchThread());
                 context.openSwingTab("Native page", () -> {
                     assertTrue(SwingUtilities.isEventDispatchThread());
                     created.countDown();
@@ -146,22 +139,22 @@ class SwingTransferAndPluginTest {
                                                  com.jlshell.core.support.PerformanceTrace timing) { plugin.activate(context); }
         };
         var executor = Executors.newSingleThreadExecutor();
-        var themes = FxThread.supplyAsync(() -> new ThemeService(new AppSettingsService() {
+        var themes = UiThread.supplyAsync(() -> new ThemeService(new AppSettingsService() {
             public Optional<String> get(String key) { return Optional.empty(); }
             public void set(String key, String value) {}
             public void remove(String key) {}
         }, new ColorSchemeRegistry(null, null), executor)).get(10, TimeUnit.SECONDS);
-        TabPane model = FxThread.supplyAsync(() -> new TabPane(new Tab("Terminal", new Pane()), new Tab("Files", new Pane())))
+        WorkspaceTabs model = UiThread.supplyAsync(() -> tabs("Terminal", "Files"))
                 .get(10, TimeUnit.SECONDS);
-        var plugins = FxThread.supplyAsync(() -> {
-            var list = new PluginsTabView(manager, null, "test", null, model, I18N, themes, remoteService(), null, null, null);
-            model.getTabs().add(new Tab("Plugins", list)); model.getSelectionModel().select(2); return list;
+        var plugins = UiThread.supplyAsync(() -> {
+            var list = new PluginsTabView(manager, null, "test", null, model, I18N, themes, remoteService(), null, null, null, new com.jlshell.core.support.MutableValue<>(List.of()));
+            var page = new WorkspacePage("Plugins"); page.setContent(list.prepareNativeView()); model.add(page); model.select(page); return list;
         }).get(10, TimeUnit.SECONDS);
         var session = edt(() -> new SwingSessionView(model, themes, "Monitor", null, "Settings", I18N));
-        FxThread.supplyAsync(() -> {
-            model.getTabs().addListener((javafx.collections.ListChangeListener<Tab>) change -> session.publishPages());
-            model.getSelectionModel().selectedIndexProperty().addListener((o, old, selected) ->
-                    SwingUtilities.invokeLater(() -> session.selectPage(selected.intValue(), false)));
+        UiThread.supplyAsync(() -> {
+            model.pagesProperty().subscribe(change -> SwingUtilities.invokeLater(session::publishPages));
+            model.selectionProperty().subscribe(selected ->
+                    SwingUtilities.invokeLater(() -> session.selectPage(model.pages().indexOf(selected), false)));
             session.publishPages(); return null;
         }).get(10, TimeUnit.SECONDS);
         var frame = edt(() -> { var f = new JFrame(); f.add(session.rightToolWindow()); f.setSize(500, 550); f.setVisible(true); f.getInputContext(); return f; });
@@ -175,9 +168,15 @@ class SwingTransferAndPluginTest {
             System.out.printf("Native plugin click-to-paint: %.1f ms; activation deliberately still blocked%n", (System.nanoTime() - clicked) / 1e6);
         } finally {
             releaseActivation.countDown();
-            FxThread.supplyAsync(() -> { plugins.dispose(); return null; }).get(10, TimeUnit.SECONDS);
+            UiThread.supplyAsync(() -> { plugins.dispose(); return null; }).get(10, TimeUnit.SECONDS);
             edt(() -> { session.close(); frame.dispose(); return null; }); executor.shutdownNow();
         }
+    }
+
+    private static WorkspaceTabs tabs(String... titles) {
+        var tabs = new WorkspaceTabs();
+        for (String title : titles) tabs.add(new WorkspacePage(title));
+        return tabs;
     }
 
     private static SftpService remoteService() {

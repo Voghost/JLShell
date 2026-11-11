@@ -1049,7 +1049,7 @@ public final class SwingWorkbench implements AutoCloseable {
     }
 
     private void focusSelection() {
-        // 回调经 FX 取活动会话后再回 EDT；不要抢先滚动或聚焦当前旧选择。
+        // 回调通过活动会话模型异步更新 EDT；不要抢先滚动或聚焦当前旧选择。
         actions.focusActiveConnection().run();
     }
 

@@ -5,13 +5,9 @@ import com.jlshell.data.entity.VaultEncryptionMode;
 import com.jlshell.ui.dialog.VaultManagerDialog;
 import com.jlshell.ui.model.*;
 import com.jlshell.ui.service.*;
-import com.jlshell.ui.swing.SwingAlerts;
+import com.jlshell.ui.swing.SwingMessages;
 import com.jlshell.ui.theme.*;
 import com.jlshell.ssh.support.HostKeyConfirmationCallback.TrustDecision;
-import javafx.application.Platform;
-import javafx.scene.control.Alert;
-import javafx.scene.control.ButtonType;
-import javafx.stage.Stage;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.junit.jupiter.api.io.TempDir;
@@ -45,7 +41,7 @@ class NativeDialogsUiSmokeTest {
 
     public static class Probe {
         static boolean hasFxPanel(Component component) {
-            if(component instanceof javafx.embed.swing.JFXPanel)return true;
+            if(component.getClass().getName().startsWith("javafx."))return true;
             return component instanceof Container parent && Arrays.stream(parent.getComponents()).anyMatch(Probe::hasFxPanel);
         }
         static void click(JDialog dialog,String name)throws Exception {
@@ -56,21 +52,18 @@ class NativeDialogsUiSmokeTest {
             catch(Throwable error){error.printStackTrace();System.exit(2);}
         }
         static void verify()throws Exception {
-            Locale.setDefault(Locale.SIMPLIFIED_CHINESE);java.awt.Toolkit.getDefaultToolkit();Platform.startup(()->Platform.setImplicitExit(false));
+            Locale.setDefault(Locale.SIMPLIFIED_CHINESE);java.awt.Toolkit.getDefaultToolkit();
             AppContext context=fx(AppContext::new);
             I18nService i18n=(I18nService)field(context.getMainWindow(),"i18nService");
             ThemeService themes=(ThemeService)field(context.getMainWindow(),"themeService");
-            Stage owner=fx(Stage::new);
+            Object owner=fx(() -> null);
             for(AppTheme theme:List.of(AppTheme.DARK,AppTheme.LIGHT)) {
                 fx(()->{themes.setTheme(theme);return null;});
-                var shown=open(()->{
-                    Alert alert=new Alert(Alert.AlertType.ERROR,"连接失败：用于界面验收的测试信息，未访问远程主机。",ButtonType.OK);
-                    alert.setTitle("连接失败");alert.setHeaderText(null);SwingAlerts.showAndWait(alert,themes,i18n);
-                });
-                JDialog error=window("jlshell.message.error");assertFalse(edt(()->hasFxPanel(error)));
+                var shown=SwingMessages.show("连接失败", "连接失败：用于界面验收的测试信息，未访问远程主机。", themes, i18n);
+                JDialog error=window("jlshell.message");assertFalse(edt(()->hasFxPanel(error)));
                 int shortHeight=edt(error::getHeight);
                 assertTrue(shortHeight<240,"Short errors should not retain the old 290px height");
-                capture(error,"native-error-"+theme.name().toLowerCase());click(error,"dialog.ok");shown.get(5,TimeUnit.SECONDS);
+                capture(error,"native-error-"+theme.name().toLowerCase());click(error,"dialog.close");shown.get(5,TimeUnit.SECONDS);
                 HostKeyConfirmationService service=new HostKeyConfirmationService(i18n);
                 var once=CompletableFuture.supplyAsync(()->service.confirmDecision("fixture.example",2222,"ssh-ed25519","SHA256:fixture-for-ui-only",false));
                 JDialog trust=window("jlshell.message.confirmation");assertFalse(edt(()->hasFxPanel(trust)));
@@ -83,28 +76,24 @@ class NativeDialogsUiSmokeTest {
                 var cancel=CompletableFuture.supplyAsync(()->service.confirmDecision("fixture.example",2222,"ssh-ed25519","SHA256:fixture-for-ui-only",false));
                 JDialog rejected=window("jlshell.message.confirmation");click(rejected,"dialog.cancel");assertEquals(TrustDecision.REJECT,cancel.get(5,TimeUnit.SECONDS));
             }
-            var longMessage=open(()->{
-                Alert alert=new Alert(Alert.AlertType.ERROR,
-                        "连接失败：这是需要自动换行的较长错误详情，用于确认正文不会截断。".repeat(8)+"\n"+
-                        "详细诊断信息：测试堆栈行，仅用于界面测试。\n".repeat(100),ButtonType.OK);
-                alert.setTitle("长错误信息");alert.setHeaderText(null);SwingAlerts.showAndWait(alert,themes,i18n);
-            });
-            JDialog longError=window("jlshell.message.error");
+            var longMessage=SwingMessages.show("长错误信息", "连接失败：这是需要自动换行的较长错误详情，用于确认正文不会截断。".repeat(8)+"\n"+
+                    "详细诊断信息：测试堆栈行，仅用于界面测试。\n".repeat(100), themes, i18n);
+            JDialog longError=window("jlshell.message");
             edt(()->{
                 JScrollPane scroll=(JScrollPane)named(longError,"dialog.messageScroll");
                 assertTrue(scroll.getVerticalScrollBar().isVisible(),"Long messages must scroll");
                 assertTrue(scroll.getViewport().getView().getPreferredSize().height>scroll.getViewport().getExtentSize().height);
                 assertTrue(longError.getHeight()<longError.getGraphicsConfiguration().getBounds().height);
-                assertTrue(named(longError,"dialog.ok").isShowing());
+                assertTrue(named(longError,"dialog.close").isShowing());
                 scroll.getVerticalScrollBar().setValue(scroll.getVerticalScrollBar().getMaximum());
                 return null;
             });
-            capture(longError,"native-error-long-light");click(longError,"dialog.ok");longMessage.get(5,TimeUnit.SECONDS);
+            capture(longError,"native-error-long-light");click(longError,"dialog.close");longMessage.get(5,TimeUnit.SECONDS);
             VaultKeyService keys=new VaultKeyService(null) {
                 public boolean isUnlocked(){return false;}
                 public boolean isCustomKeyConfigured(){return false;}
             };
-            Map<String,VaultEntryFormData> entries=new LinkedHashMap<>();
+            Map<String,VaultEntryFormData> entries=new java.util.concurrent.ConcurrentHashMap<>();
             VaultService vault=new VaultService(null,null,keys) {
                 public List<VaultEntryProfile> listByProject(String project){return entries.values().stream().map(f->new VaultEntryProfile(f.id(),f.name(),f.authenticationType(),f.encryptionMode(),f.projectId(),f.privateKeyPath())).toList();}
                 public VaultEntryFormData loadForm(String id){return entries.get(id);}
@@ -117,11 +106,12 @@ class NativeDialogsUiSmokeTest {
             };
             for(AppTheme theme:List.of(AppTheme.DARK,AppTheme.LIGHT)) {
                 fx(()->{themes.setTheme(theme);return null;});
-                var shown=open(()->VaultManagerDialog.show(owner,vault,i18n,themes,null,List.of(),null));
+                var shown=VaultManagerDialog.show(owner,vault,i18n,themes,null,List.of(),null);
                 shown.whenComplete((v,error)->{if(error!=null)error.printStackTrace();});
                 JDialog manager=window("jlshell.vault");assertFalse(edt(()->hasFxPanel(manager)));
                 edt(()->{((JTextField)named(manager,"vault-name")).setText("演示凭据");((JPasswordField)named(manager,"vault-password")).setText("fixture-only");return null;});
                 fx(()->null);click(manager,"vault-save");
+                for (int attempt = 0; attempt < 200 && !entries.containsKey("fixture"); attempt++) Thread.sleep(25);
                 assertEquals("fixture-only",entries.get("fixture").password());
                 capture(manager,"native-vault-"+theme.name().toLowerCase());
                 edt(()->{((JComboBox<?>)named(manager,"vault-auth")).setSelectedItem(AuthenticationType.PRIVATE_KEY);return null;});fx(()->null);edt(()->null);

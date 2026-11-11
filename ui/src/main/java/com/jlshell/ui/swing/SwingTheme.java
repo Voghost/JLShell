@@ -27,6 +27,10 @@ public final class SwingTheme {
 
     private SwingTheme() {}
 
+    public static void install(com.jlshell.ui.theme.ThemeService themes) {
+        install(themes.currentTheme(), themes.accentColor().color(), themes.uiFontFamily(), themes.uiFontSize());
+    }
+
     public static void install(AppTheme theme, String accent, String family, int size) {
         if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Swing theme requires EDT");
         if (isCurrent(theme, accent, family, size)) return;
@@ -96,7 +100,7 @@ public final class SwingTheme {
 
     public static void update(Component component) {
         // 保留 JediTerm 的自绘终端面板和滚动条 UI；不能让 LAF 遍历重装它们。
-        if (component instanceof JediTermWidget || component instanceof javafx.embed.swing.JFXPanel) return;
+        if (component instanceof JediTermWidget) return;
         if (component instanceof JComponent jc) {
             Font original = jc.getFont(), previous = UIManager.getFont("JLShell.previousFont");
             if (jc.getClientProperty("jlshell.fontScale") == null && original != null

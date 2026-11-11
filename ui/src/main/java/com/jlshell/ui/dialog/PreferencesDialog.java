@@ -1,6 +1,6 @@
 package com.jlshell.ui.dialog;
 
-import com.jlshell.ui.support.FxThread;
+import com.jlshell.ui.support.UiThread;
 
 import com.jlshell.core.shortcut.ShortcutConverter;
 import com.jlshell.core.shortcut.ShortcutDefinition;
@@ -252,14 +252,14 @@ public class PreferencesDialog {
                 accountService, shortcutRegistry, owner,
                 memoryReclaimService, preferenceChanged);
         return com.jlshell.ui.swing.SwingPreferencesDialog.showAsync(pages, initialTabIndex, i18n, themeService,
-                canApply, () -> FxThread.supplyAsync(() -> { apply.run(); themeService.refreshUi(); return null; }),
-                () -> FxThread.supplyAsync(() -> { applyAndClose.run(); themeService.refreshUi(); return null; }));
+                canApply, () -> UiThread.supplyAsync(() -> { apply.run(); themeService.refreshUi(); return null; }),
+                () -> UiThread.supplyAsync(() -> { applyAndClose.run(); themeService.refreshUi(); return null; }));
     }
 
     private static void showRestartPrompt(Object owner, I18nService i18n, ThemeService themeService) {
-        com.jlshell.ui.swing.SwingFormDialog.showMessage(i18n.get("preferences.title"), "jlshell.settings.restart", i18n,
-                () -> new javax.swing.JLabel(i18n.get("preferences.general.restartRequired")), 540, 200);
-        com.jlshell.ui.support.RestartHelper.scheduleRestart();
+        com.jlshell.ui.swing.SwingFormDialog.showMessageAsync(i18n.get("preferences.title"), "jlshell.settings.restart", i18n,
+                () -> new javax.swing.JLabel(i18n.get("preferences.general.restartRequired")), 540, 200)
+                .thenRun(com.jlshell.ui.support.RestartHelper::scheduleRestart);
     }
 
     private static boolean applyPendingSettings(FontProfileService fontProfileService, AppSettingsService appSettings,
@@ -424,29 +424,29 @@ public class PreferencesDialog {
                                          Runnable preferenceChanged) {
         var pages = new ArrayList<com.jlshell.ui.swing.SwingPreferencesDialog.Page>();
         pages.add(new com.jlshell.ui.swing.SwingPreferencesDialog.Page(0, i18n.get("preferences.tab.general"), i18n.get("settings.group.appearance"),
-                i18n.searchText("preferences.general.", "preferences.connection.", "preferences.updates."), () -> FxThread.supplyAsync(() -> buildGeneralPane(appSettings, i18n, themeService, pendingLang, pendingTheme,
+                i18n.searchText("preferences.general.", "preferences.connection.", "preferences.updates."), () -> UiThread.supplyAsync(() -> buildGeneralPane(appSettings, i18n, themeService, pendingLang, pendingTheme,
                 pendingAccent, pendingConnTimeout, pendingKeepAlive,
                 pendingUiFontFamily, pendingUiFontSize,
                 pendingUpdateAutoCheck, pendingUpdateChannel, pendingUpdateBaseUrl,
                 memoryReclaimService, preferenceChanged))));
         pages.add(new com.jlshell.ui.swing.SwingPreferencesDialog.Page(1, i18n.get("preferences.tab.account"), i18n.get("settings.group.appearance"),
-                i18n.searchText("preferences.account.", "account."), () -> FxThread.supplyAsync(() -> buildAccountPane(i18n, themeService, accountService, owner,
+                i18n.searchText("preferences.account.", "account."), () -> UiThread.supplyAsync(() -> buildAccountPane(i18n, themeService, accountService, owner,
                 pendingAccountSyncEnabled, pendingAccountBaseUrl, preferenceChanged))));
         pages.add(new com.jlshell.ui.swing.SwingPreferencesDialog.Page(2, i18n.get("preferences.tab.terminal"), null,
-                i18n.searchText("preferences.terminal.", "terminal.", "colorScheme.", "highlight."), () -> FxThread.supplyAsync(() -> buildTerminalPane(appSettings, fontProfileService.activeProfile(), i18n, themeService,
+                i18n.searchText("preferences.terminal.", "terminal.", "colorScheme.", "highlight."), () -> UiThread.supplyAsync(() -> buildTerminalPane(appSettings, fontProfileService.activeProfile(), i18n, themeService,
                 pending, pendingScheme, pendingScrollbackLines, pendingHighlights, preferenceChanged, owner))));
         pages.add(new com.jlshell.ui.swing.SwingPreferencesDialog.Page(3, i18n.get("preferences.tab.import"), i18n.get("settings.group.tools"),
-                i18n.searchText("import.", "preferences.import."), () -> FxThread.supplyAsync(() -> buildImportPane(i18n, connectionProfileService, activeProjectId, themeService))));
+                i18n.searchText("import.", "preferences.import."), () -> UiThread.supplyAsync(() -> buildImportPane(i18n, connectionProfileService, activeProjectId, themeService))));
         pages.add(new com.jlshell.ui.swing.SwingPreferencesDialog.Page(4, i18n.get("preferences.tab.api"), i18n.get("settings.group.tools"),
-                i18n.searchText("api.", "preferences.api."), () -> FxThread.supplyAsync(() -> buildApiPane(appSettings, i18n, apiServer, capabilityBus, selectedSessionId,
+                i18n.searchText("api.", "preferences.api."), () -> UiThread.supplyAsync(() -> buildApiPane(appSettings, i18n, apiServer, capabilityBus, selectedSessionId,
                 pendingApiEnabled, pendingApiPort, preferenceChanged))));
         pages.add(new com.jlshell.ui.swing.SwingPreferencesDialog.Page(5, i18n.get("preferences.tab.plugins"), null,
-                i18n.searchText("plugins."), () -> FxThread.supplyAsync(() -> buildPluginsPane(appSettings, i18n, themeService, owner,
+                i18n.searchText("plugins."), () -> UiThread.supplyAsync(() -> buildPluginsPane(appSettings, i18n, themeService, owner,
                 programPluginManager, pluginManager))));
         pages.add(new com.jlshell.ui.swing.SwingPreferencesDialog.Page(6, i18n.get("preferences.tab.shortcuts"), null,
-                i18n.searchText("shortcuts.", "shortcut."), () -> FxThread.supplyAsync(() -> buildShortcutsPane(shortcutRegistry, i18n, themeService, owner, preferenceChanged))));
+                i18n.searchText("shortcuts.", "shortcut."), () -> UiThread.supplyAsync(() -> buildShortcutsPane(shortcutRegistry, i18n, themeService, owner, preferenceChanged))));
         pages.add(new com.jlshell.ui.swing.SwingPreferencesDialog.Page(7, i18n.get("preferences.tab.about"), null,
-                i18n.searchText("about.", "preferences.about."), () -> FxThread.supplyAsync(() -> buildAboutPane(i18n))));
+                i18n.searchText("about.", "preferences.about."), () -> UiThread.supplyAsync(() -> buildAboutPane(i18n))));
         return pages;
     }
 
@@ -459,25 +459,19 @@ public class PreferencesDialog {
         var initial = new com.jlshell.ui.swing.SwingAccountSettingsPage.Values(
                 Boolean.parseBoolean(pendingAccountSyncEnabled[0]), pendingAccountBaseUrl[0]);
         return () -> new com.jlshell.ui.swing.SwingAccountSettingsPage(
-                initial, accountService, i18n, values -> FxThread.run(() -> {
+                initial, accountService, i18n, values -> UiThread.run(() -> {
                     pendingAccountSyncEnabled[0] = Boolean.toString(values.syncEnabled());
                     pendingAccountBaseUrl[0] = values.baseUrl(); preferenceChanged.run();
-                }), (action, refresh) -> FxThread.run(() -> {
-                    switch (action) {
+                }), (action, refresh) -> {
+                    var finished = switch (action) {
                         case BROWSER_LOGIN -> AccountDialog.showBrowserLogin(owner, i18n, themeService, accountService);
                         case PASSWORD_LOGIN -> AccountDialog.showLogin(owner, i18n, themeService, accountService);
                         case REGISTER -> AccountDialog.showRegister(owner, i18n, themeService, accountService);
-                        case CHANGE_PASSWORD -> showChangePasswordDialog(owner, i18n, themeService, accountService);
-                    }
-                    javax.swing.SwingUtilities.invokeLater(refresh);
-                }), message -> com.jlshell.ui.swing.SwingFormDialog.showMessage(i18n.get("account.title"), "jlshell.account.message", i18n,
+                        case CHANGE_PASSWORD -> AccountDialog.showChangePassword(owner, i18n, themeService, accountService);
+                    };
+                    finished.thenRun(() -> javax.swing.SwingUtilities.invokeLater(refresh));
+                }, message -> com.jlshell.ui.swing.SwingFormDialog.showMessageAsync(i18n.get("account.title"), "jlshell.account.message", i18n,
                         () -> new javax.swing.JLabel(message), 520, 220));
-    }
-
-    /** 修改密码对话框。 */
-    private static void showChangePasswordDialog(Object owner, I18nService i18n,
-                                                 ThemeService themeService, AccountService accountService) {
-        AccountDialog.showChangePassword(owner, i18n, themeService, accountService);
     }
 
     // ── General Tab ────────────────────────────────────────────────────────
@@ -496,7 +490,7 @@ public class PreferencesDialog {
         var fontNames = Arrays.stream(GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames())
                 .sorted(Comparator.comparing((String family) -> !isKnownMonospacedFamily(family)).thenComparing(String.CASE_INSENSITIVE_ORDER)).toList();
         return () -> com.jlshell.ui.swing.SwingSettingsGeneralPage.create(initial, fontNames, i18n,
-                memoryReclaimService, values -> FxThread.run(() -> {
+                memoryReclaimService, values -> UiThread.run(() -> {
                     pendingLang[0] = values.language(); pendingTheme[0] = values.theme(); pendingAccent[0] = values.accent();
                     pendingUiFontFamily[0] = values.fontFamily(); pendingUiFontSize[0] = Integer.toString(values.fontSize());
                     pendingConnTimeout[0] = Integer.toString(values.timeout()); pendingKeepAlive[0] = Integer.toString(values.keepAlive());
@@ -523,7 +517,7 @@ public class PreferencesDialog {
         var schemes = themeService.registry().allSchemes();
         return () -> new com.jlshell.ui.swing.SwingTerminalSettingsPage(
                 initial, monospace, chinese, schemes, i18n, themeService,
-                values -> FxThread.run(() -> {
+                values -> UiThread.run(() -> {
                     pending[0] = values.font(); pendingScheme[0] = values.scheme();
                     pendingScrollbackLines[0] = Integer.toString(values.scrollback());
                     pendingHighlights[0] = values.highlights().serialize(); preferenceChanged.run();
@@ -551,7 +545,7 @@ public class PreferencesDialog {
                 entry.endpoint(apiServer), entry.requestExample(), entry.schemaText(i18n))).toList();
         return () -> new com.jlshell.ui.swing.SwingApiSettingsPage(enabled, port, status,
                 () -> apiServer == null ? "" : apiServer.token(), entries, i18n,
-                (active, value) -> FxThread.run(() -> {
+                (active, value) -> UiThread.run(() -> {
                     pendingApiEnabled[0] = Boolean.toString(active); pendingApiPort[0] = value; preferenceChanged.run();
                 }));
     }
@@ -676,7 +670,7 @@ public class PreferencesDialog {
                                            ProgramPluginManager programs, PluginManager sessions) {
         var runtime = new com.jlshell.ui.swing.SwingPluginSettingsPage.Runtime() {
             public java.util.concurrent.CompletableFuture<List<com.jlshell.ui.swing.SwingPluginSettingsPage.Entry>> entries() {
-                return FxThread.supplyAsync(() -> {
+                return java.util.concurrent.CompletableFuture.supplyAsync(() -> {
                     var entries = new ArrayList<com.jlshell.ui.swing.SwingPluginSettingsPage.Entry>();
                     if (programs != null) for (var descriptor : programs.getInstalledPlugins()) {
                         try {
@@ -703,17 +697,17 @@ public class PreferencesDialog {
                 });
             }
             public java.util.concurrent.CompletableFuture<Void> enable(com.jlshell.ui.swing.SwingPluginSettingsPage.Entry entry, boolean enabled) {
-                return FxThread.supplyAsync(() -> {
+                return java.util.concurrent.CompletableFuture.supplyAsync(() -> {
                     if (entry.metadata().scope() == com.jlshell.plugin.api.PluginScope.PROGRAM && programs != null) programs.setPluginEnabled(entry.metadata().id(), enabled);
                     else if (sessions != null) sessions.setPluginEnabled(entry.metadata().id(), enabled);
                     return null;
                 });
             }
             public java.util.concurrent.CompletableFuture<Void> deactivate(String id) {
-                return FxThread.supplyAsync(() -> { if (sessions != null) sessions.deactivatePlugin(id); return null; });
+                return java.util.concurrent.CompletableFuture.supplyAsync(() -> { if (sessions != null) sessions.deactivatePlugin(id); return null; });
             }
             public java.util.concurrent.CompletableFuture<Void> reload() {
-                return FxThread.supplyAsync(() -> { if (sessions != null) sessions.reloadPlugins(); return null; });
+                return java.util.concurrent.CompletableFuture.supplyAsync(() -> { if (sessions != null) sessions.reloadPlugins(); return null; });
             }
         };
         String baseUrl = UpdateService.configuredBaseUrl(appSettings);
@@ -733,7 +727,7 @@ public class PreferencesDialog {
     private static java.util.function.Supplier<javax.swing.JComponent> buildShortcutsPane(ShortcutRegistry shortcutRegistry, I18nService i18n,
                                              ThemeService themeService, Object owner, Runnable preferenceChanged) {
         return () -> new com.jlshell.ui.swing.SwingShortcutSettingsPage(
-                shortcutRegistry, i18n, () -> FxThread.run(preferenceChanged));
+                shortcutRegistry, i18n, () -> UiThread.run(preferenceChanged));
     }
 
     // ── About Tab ──────────────────────────────────────────────────────────
@@ -749,7 +743,6 @@ public class PreferencesDialog {
     static String buildRuntimeDiagnostics() {
         Runtime runtime = Runtime.getRuntime();
         String launcherVersion = runtimeProperty("jlshell.launcher.version");
-        String javafxVersion = firstRuntimeProperty("javafx.runtime.version", "javafx.version");
         String javaRuntime = runtimeProperty("java.runtime.name") + " "
                 + firstRuntimeProperty("java.runtime.version", "java.version");
         String javaVm = runtimeProperty("java.vm.name") + " " + runtimeProperty("java.vm.version");
@@ -766,12 +759,12 @@ public class PreferencesDialog {
         }
 
         report.append('\n')
+                .append("- UI: Swing\n")
                 .append("Java\n")
                 .append("- Runtime: ").append(javaRuntime.strip()).append('\n')
                 .append("- Vendor: ").append(runtimeProperty("java.vendor")).append('\n')
                 .append("- VM: ").append(javaVm.strip()).append('\n')
                 .append("- Class version: ").append(runtimeProperty("java.class.version")).append('\n')
-                .append("- JavaFX: ").append(javafxVersion).append('\n')
                 .append('\n')
                 .append("System\n")
                 .append("- OS: ").append(system.strip()).append('\n')

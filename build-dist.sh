@@ -28,16 +28,9 @@ APP_JAR=""
 LAUNCHER_JAR=""
 
 # JDK 21 locations — override via env vars if needed
-JDK21_MAC="${JDK21_MAC:-/opt/homebrew/Cellar/openjdk@21/21.0.11/libexec/openjdk.jdk/Contents/Home}"
+JDK21_MAC="${JDK21_MAC:-/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home}"
 JDK21_WIN="${JDK21_WIN:-}"   # path to a Windows JDK 21 (only needed for --win on non-Windows)
 JDK21_LINUX="${JDK21_LINUX:-}"  # path to a Linux JDK 21 (only needed for --linux on non-Linux)
-
-# JavaFX SDK paths for jlink (download from https://gluonhq.com/products/javafx/)
-# Only needed if you want to jlink JavaFX modules too.
-# Leave empty to skip JavaFX jlink (fat jar already contains natives).
-JAVAFX_MODS_MAC="${JAVAFX_MODS_MAC:-}"
-JAVAFX_MODS_WIN="${JAVAFX_MODS_WIN:-}"
-JAVAFX_MODS_LINUX="${JAVAFX_MODS_LINUX:-}"
 
 write_vmoptions_file() {
     local file="$1"
@@ -92,7 +85,7 @@ current_os() {
 # ── Step 1: Maven build ───────────────────────────────────────────────────────
 build_jar() {
     log "Building launcher and app jar with cross-platform natives (profile: dist)..."
-    mvn package -DskipTests -pl launcher,app -am -P dist -q
+    mvn package -DskipTests -pl launcher,app -am -q
     APP_JAR="$(ls "$SCRIPT_DIR"/app/target/jlshell-app-*.jar | head -1)"
     LAUNCHER_JAR="$(ls "$SCRIPT_DIR"/launcher/target/jlshell-launcher-*.jar | head -1)"
     [[ -f "$APP_JAR" ]] || err "App jar not found"
@@ -101,7 +94,7 @@ build_jar() {
     ok "Launcher jar: $LAUNCHER_JAR ($(du -sh "$LAUNCHER_JAR" | cut -f1))"
 }
 
-# ── Step 2: Required Java modules (fixed list, covers Spring Boot + JavaFX + SQLite + SSH) ──
+# ── Step 2: Required Java modules (fixed list, covers Swing + SQLite + SSH) ──
 detect_modules() {
     # jdeps on a shaded fat jar can be unreliable; use a curated list that covers all runtime needs.
     echo "java.base,java.compiler,java.desktop,java.logging,java.management,java.naming,java.net.http,java.prefs,java.scripting,java.security.jgss,java.sql,java.xml,jdk.crypto.ec,jdk.httpserver,jdk.jfr,jdk.localedata,jdk.naming.dns,jdk.net,jdk.unsupported,jdk.unsupported.desktop,jdk.zipfs"
@@ -112,7 +105,6 @@ run_jlink() {
     local jdk="$1"
     local modules="$2"
     local output="$3"
-    local javafx_mods="$4"
 
     local jlink="$jdk/bin/jlink"
     [[ -x "$jlink" ]] || err "jlink not found at $jlink"
@@ -120,11 +112,6 @@ run_jlink() {
     rm -rf "$output"
 
     local module_path="$jdk/jmods"
-    if [[ -n "$javafx_mods" && -d "$javafx_mods" ]]; then
-        module_path="$javafx_mods:$module_path"
-        # Add JavaFX modules
-        modules="$modules,javafx.base,javafx.controls,javafx.graphics,javafx.swing"
-    fi
 
     log "Running jlink → $output"
     "$jlink" \
@@ -134,7 +121,7 @@ run_jlink() {
         --strip-debug \
         --no-man-pages \
         --no-header-files \
-        --vm=server --compress zip-9
+        --vm=server --compress zip-9 --include-locales=en,zh
 
     ok "JRE size: $(du -sh "$output" | cut -f1)"
 }
@@ -152,7 +139,7 @@ assemble_mac() {
     local jre_dir="$work/jre"
     local modules
     modules=$(detect_modules)
-    run_jlink "$jdk" "$modules" "$jre_dir" "${JAVAFX_MODS_MAC:-}"
+    run_jlink "$jdk" "$modules" "$jre_dir"
 
     # Build AppIcon.icns (jpackage needs it before invocation)
     local icon_src="$SCRIPT_DIR/app/src/main/resources/icons/app_icon.png"
@@ -249,7 +236,7 @@ assemble_linux() {
     local modules
     modules=$(detect_modules)
 
-    run_jlink "$jdk" "$modules" "$work/runtime" "${JAVAFX_MODS_LINUX:-}"
+    run_jlink "$jdk" "$modules" "$work/runtime"
 
     mkdir -p "$work/app"
     cp "$LAUNCHER_JAR" "$work/$LAUNCHER_MAIN_JAR"
@@ -317,7 +304,7 @@ assemble_win() {
     local modules
     modules=$(detect_modules)
 
-    run_jlink "$jdk" "$modules" "$work/runtime" "${JAVAFX_MODS_WIN:-}"
+    run_jlink "$jdk" "$modules" "$work/runtime"
 
     mkdir -p "$work/app"
     cp "$LAUNCHER_JAR" "$work/$LAUNCHER_MAIN_JAR"

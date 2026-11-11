@@ -152,18 +152,20 @@ JLShell-Plugin-Scope: SESSION
 
 - 使用 `ServicesResourceTransformer` 保留/合并 ServiceLoader 文件；
 - 使用 `ManifestResourceTransformer` 写入上述三个静态字段；
-- 将 `plugin-api`、`program-api`、JavaFX、Gson、SLF4J/Logback 视为宿主提供依赖，不打入 fat JAR；
+- 将 `plugin-api`、`program-api`、Gson、SLF4J/Logback 视为宿主提供依赖，不打入 fat JAR；
 - 将插件自行引入、宿主未提供的运行库打入 fat JAR；
 - 不把 `com.jlshell.*` 宿主实现类复制进插件包，避免类加载冲突。
 
 插件 Java 代码中的 `version()` 必须与 `jlshell.plugin.version` 完全一致。项目自身的 Maven
 版本可以带 `RELEASE` 后缀，但商店版本和 JAR 清单应使用规范 SemVer。
 
+宿主使用纯 Swing SDK。旧 JavaFX 页面及属性接口需要迁移并重新编译，迁移说明见 `../docs/plugin-swing-views.md`。
+
 ## 6. 兼容性与运行规范
 
 - 必须声明 `minHostVersionInclusive()`；建议同时声明 `maxHostVersionInclusive()`。
 - 兼容范围应与商店版本记录的 `minHostVersion`、`maxHostVersion` 保持一致。
-- JavaFX 节点更新必须在 JavaFX Application Thread 执行；SSH、SFTP、数据库和网络操作不得阻塞 UI 线程。
+- Swing 组件工厂及组件更新在 EDT 执行；`activate()` 允许在后台执行，SSH、SFTP、数据库和网络操作应异步完成。
 - `activate()` 中注册的监听器、定时任务和能力，应在 `deactivate()` 中安全释放。
 - 只通过 `context.storage()` 保存插件数据；存储会按插件 ID 隔离。不要绕过命名空间读写其他插件数据。
 - 不得把 Token、密码、私钥或用户数据写入日志、JAR、商店元数据或源码。

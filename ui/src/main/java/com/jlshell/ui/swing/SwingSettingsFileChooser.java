@@ -1,15 +1,19 @@
 package com.jlshell.ui.swing;
 
-import javafx.application.Platform;
 import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.io.File;
-import java.util.concurrent.atomic.AtomicReference;
 
-/** Native settings file selection, with the same FX model nested-loop contract as dialogs. */
+/** Native open/save selection, delivered asynchronously on EDT. */
 public final class SwingSettingsFileChooser {
     private SwingSettingsFileChooser() {}
     public static java.util.concurrent.CompletableFuture<File> openAsync(String title, boolean directory, String extension) {
+        return chooseAsync(title, directory, extension, null, false);
+    }
+    public static java.util.concurrent.CompletableFuture<File> saveAsync(String title, String name, String extension) {
+        return chooseAsync(title, false, extension, name, true);
+    }
+    private static java.util.concurrent.CompletableFuture<File> chooseAsync(String title, boolean directory, String extension, String name, boolean save) {
         var result = new java.util.concurrent.CompletableFuture<File>();
         Runnable show = () -> {
             try {
@@ -17,28 +21,12 @@ public final class SwingSettingsFileChooser {
                 chooser.setDialogTitle(title);
                 chooser.setFileSelectionMode(directory ? JFileChooser.DIRECTORIES_ONLY : JFileChooser.FILES_ONLY);
                 if (extension != null) chooser.setFileFilter(new FileNameExtensionFilter("*." + extension, extension));
-                result.complete(chooser.showOpenDialog(SwingDialogChrome.owner()) == JFileChooser.APPROVE_OPTION
-                        ? chooser.getSelectedFile() : null);
+                if (name != null) chooser.setSelectedFile(new File(name));
+                int selected = save ? chooser.showSaveDialog(SwingDialogChrome.owner()) : chooser.showOpenDialog(SwingDialogChrome.owner());
+                result.complete(selected == JFileChooser.APPROVE_OPTION ? chooser.getSelectedFile() : null);
             } catch (RuntimeException error) { result.completeExceptionally(error); }
         };
         if (SwingUtilities.isEventDispatchThread()) show.run(); else SwingUtilities.invokeLater(show);
         return result;
-    }
-
-    public static File open(String title, boolean directory, String extension) {
-        if(!Platform.isFxApplicationThread())throw new IllegalStateException("Settings model requires FX thread");
-        Object loop=new Object();AtomicReference<File> result=new AtomicReference<>();AtomicReference<RuntimeException> failure=new AtomicReference<>();
-        SwingUtilities.invokeLater(()->{
-            try {
-                JFileChooser chooser=new JFileChooser();chooser.setDialogTitle(title);
-                chooser.setFileSelectionMode(directory?JFileChooser.DIRECTORIES_ONLY:JFileChooser.FILES_ONLY);
-                if(extension!=null)chooser.setFileFilter(new FileNameExtensionFilter("*."+extension,extension));
-                var owner=java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().getActiveWindow();
-                if(chooser.showOpenDialog(owner)==JFileChooser.APPROVE_OPTION)result.set(chooser.getSelectedFile());
-            }catch(RuntimeException error){failure.set(error);}
-            finally{Platform.runLater(()->Platform.exitNestedEventLoop(loop,null));}
-        });
-        Platform.enterNestedEventLoop(loop);
-        if(failure.get()!=null)throw failure.get();return result.get();
     }
 }

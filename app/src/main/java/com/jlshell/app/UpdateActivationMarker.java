@@ -6,7 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
- * Confirms that a jar selected by the bootstrap launcher reached the JavaFX UI.
+ * Confirms that a jar selected by the bootstrap launcher reached the native Swing UI.
  */
 final class UpdateActivationMarker {
 

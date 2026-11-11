@@ -1,68 +1,34 @@
 package com.jlshell.ui.swing;
 
-import com.jlshell.ui.support.FxThread;
-import javafx.event.Event;
-import javafx.scene.control.CheckMenuItem;
-import javafx.scene.control.Menu;
-import javafx.scene.control.MenuBar;
-import javafx.scene.control.MenuItem;
-import javafx.scene.control.RadioMenuItem;
-import javafx.scene.control.SeparatorMenuItem;
-import javax.swing.JCheckBoxMenuItem;
-import javax.swing.JMenu;
-import javax.swing.JMenuBar;
-import javax.swing.JMenuItem;
-import javax.swing.JRadioButtonMenuItem;
-import javax.swing.SwingUtilities;
+import javax.swing.*;
 import javax.swing.event.MenuEvent;
 import javax.swing.event.MenuListener;
 import java.util.List;
+import java.util.function.Supplier;
 
-/** 原有菜单动作的线程隔离适配；业务回调继续在 FX 上执行。 */
+/** 原生菜单由不可变动作快照构建，打开时刷新动态状态。 */
 public final class SwingMenuBridge {
     private SwingMenuBridge() {}
-
-    public record Item(String text, String shortcut, javax.swing.KeyStroke accelerator, boolean disabled, boolean checked, int kind,
+    public record Item(String text, String shortcut, KeyStroke accelerator, boolean disabled, boolean checked, int kind,
                        Runnable action, Runnable refresh, List<Item> children) {}
 
-    /** 必须在 FX 线程取快照，EDT 不读取 JavaFX 的可变属性。 */
-    public static List<Item> snapshot(MenuBar menuBar, java.util.function.Consumer<Runnable> dispatch) {
-        return menuBar.getMenus().stream().map(menu -> snapshot(menu, dispatch)).toList();
-    }
+    public static Item action(String text, Runnable action) { return new Item(text, "", null, false, false, 0, action, null, List.of()); }
+    public static Item disabled(String text) { return new Item(text, "", null, true, false, 0, () -> {}, null, List.of()); }
+    public static Item separator() { return new Item("", "", null, false, false, 1, () -> {}, null, List.of()); }
+    public static Item checked(String text, boolean selected, Runnable action) { return new Item(text, "", null, false, selected, 2, action, null, List.of()); }
+    public static Item submenu(String text, List<Item> children) { return new Item(text, "", null, false, false, 4, () -> {}, null, children); }
 
-    private static Item snapshot(MenuItem item, java.util.function.Consumer<Runnable> dispatch) {
-        int kind = item instanceof SeparatorMenuItem ? 1 : item instanceof CheckMenuItem ? 2
-                : item instanceof RadioMenuItem ? 3 : item instanceof Menu ? 4 : 0;
-        boolean checked = item instanceof CheckMenuItem check ? check.isSelected()
-                : item instanceof RadioMenuItem radio && radio.isSelected();
-        String spec = item.getProperties().get("jlshell.shortcut") instanceof java.util.function.Supplier<?> source
-                ? (String) source.get() : null;
-        var accelerator = spec == null ? null : com.jlshell.core.shortcut.ShortcutConverter.toKeyStroke(spec);
-        String shortcut = spec == null ? item.getAccelerator() == null ? "" : item.getAccelerator().getDisplayText()
-                : com.jlshell.core.shortcut.ShortcutConverter.toDisplayText(spec);
-        return new Item(item.getText(), shortcut, accelerator, item.isDisable(), checked, kind, () -> dispatch.accept(() -> {
-            if (item instanceof CheckMenuItem check) check.setSelected(!check.isSelected());
-            if (item instanceof RadioMenuItem radio) radio.setSelected(true);
-            item.fire();
-        }),
-                null, item instanceof Menu menu ? menu.getItems().stream().map(child -> snapshot(child, dispatch)).toList() : List.of());
-    }
-
-    public static JMenuBar create(MenuBar model, List<Item> initial, java.util.function.Consumer<Runnable> dispatch) {
+    public static JMenuBar create(Supplier<List<Item>> provider) {
         JMenuBar bar = new JMenuBar();
+        List<Item> initial = provider.get();
         for (int i = 0; i < initial.size(); i++) {
             Item spec = initial.get(i);
-            JMenu menu = new JMenu(spec.text());
-            fill(menu, spec.children());
+            JMenu menu = new JMenu(spec.text()); fill(menu, spec.children());
             int index = i;
             menu.addMenuListener(new MenuListener() {
                 public void menuSelected(MenuEvent event) {
-                    FxThread.run(() -> {
-                        Menu source = model.getMenus().get(index);
-                        Event.fireEvent(source, new Event(Menu.ON_SHOWING));
-                        List<Item> items = source.getItems().stream().map(item -> snapshot(item, dispatch)).toList();
-                        SwingUtilities.invokeLater(() -> { fill(menu, items); menu.getPopupMenu().pack(); });
-                    });
+                    List<Item> current = provider.get();
+                    if (index < current.size()) fill(menu, current.get(index).children());
                 }
                 public void menuDeselected(MenuEvent event) {}
                 public void menuCanceled(MenuEvent event) {}

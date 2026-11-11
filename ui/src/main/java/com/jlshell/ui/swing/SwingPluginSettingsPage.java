@@ -38,8 +38,8 @@ public final class SwingPluginSettingsPage extends JPanel implements AutoCloseab
     private final JToggleButton installedTab;
     private final DefaultListModel<Entry> installedModel = new DefaultListModel<>();
     private final DefaultListModel<PluginStoreListing> marketModel = new DefaultListModel<>();
-    private final JList<Entry> installedList = new JList<>(installedModel);
-    private final JList<PluginStoreListing> marketList = new JList<>(marketModel);
+    private final JList<Entry> installedList = new JList<>(installedModel) { @Override public boolean getScrollableTracksViewportWidth() { return true; } };
+    private final JList<PluginStoreListing> marketList = new JList<>(marketModel) { @Override public boolean getScrollableTracksViewportWidth() { return true; } };
     private final JTextField installedSearch = new JTextField(), marketSearch = new JTextField();
     private final JComboBox<String> installedScope, marketScope;
     private final JPanel installedDetail = new JPanel(new BorderLayout()), marketDetail = new JPanel(new BorderLayout());
@@ -125,7 +125,10 @@ public final class SwingPluginSettingsPage extends JPanel implements AutoCloseab
         JPanel left = new JPanel(new BorderLayout(0, 8));
         left.setMinimumSize(new Dimension(230, 100));
         left.add(controls, BorderLayout.NORTH);
-        left.add(new JScrollPane(list));
+        JScrollPane listScroll = new JScrollPane(list);
+        listScroll.setName("plugins.listScroll");
+        listScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        left.add(listScroll);
         JPanel footer = new JPanel(new BorderLayout(0, 6));
         footer.add(status, BorderLayout.SOUTH);
         if (progressBar != null) footer.add(progressBar);
@@ -151,6 +154,7 @@ public final class SwingPluginSettingsPage extends JPanel implements AutoCloseab
             text.add(label);
         }
         panel.add(text);
+        panel.setPreferredSize(new Dimension(Math.max(1, list.getWidth()), 84));
         return panel;
     }
 
@@ -354,6 +358,7 @@ public final class SwingPluginSettingsPage extends JPanel implements AutoCloseab
         JPanel heading = new JPanel(new BorderLayout(0, 10));
         JPanel labels = new JPanel(new GridLayout(2, 1, 0, 4));
         JLabel name = new JLabel(title);
+        name.setName("plugins.detail.title");
         name.setFont(name.getFont().deriveFont(Font.BOLD, name.getFont().getSize2D() + 6));
         labels.add(name);
         labels.add(new JLabel(subtitle));

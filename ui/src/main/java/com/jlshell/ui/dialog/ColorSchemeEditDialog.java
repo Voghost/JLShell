@@ -17,7 +17,7 @@ public final class ColorSchemeEditDialog {
                                             TerminalColorScheme initial, boolean isNew) {
         TerminalColorScheme base = initial == null ? TerminalColorScheme.dark() : initial;
         return SwingFormDialog.showAsync(isNew ? i18n.get("preferences.terminal.colorScheme.new")
-                        : i18n.get("preferences.terminal.colorScheme.edit"), "jlshell.colors", i18n, () -> {
+                        : i18n.get("preferences.terminal.colorScheme.edit"), "jlshell.colors", i18n, themes, () -> {
             JPanel fields = new JPanel(new GridBagLayout());
             fields.setBorder(BorderFactory.createEmptyBorder(18, 20, 18, 20));
             JTextField name = new JTextField(initial == null ? "" : base.name(), 22);

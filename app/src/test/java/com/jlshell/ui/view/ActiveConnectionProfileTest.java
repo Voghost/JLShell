@@ -2,7 +2,7 @@ package com.jlshell.ui.view;
 
 import com.jlshell.core.model.ConnectionType;
 import com.jlshell.ui.model.ConnectionProfile;
-import javafx.scene.control.Tab;
+import com.jlshell.ui.model.WorkspacePage;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -13,15 +13,15 @@ class ActiveConnectionProfileTest {
         ConnectionProfile profile = profile("ssh-profile");
         SessionWorkspaceTab tab = mock(SessionWorkspaceTab.class);
         when(tab.getConnectionProfile()).thenReturn(profile);
-        assertNull(tab.getUserData());
+
         assertSame(profile, MainWindow.connectionProfileForTab(tab));
     }
     @Test void localTabsResolveTheirUserDataAndNonSessionTabsHaveNoProfile() {
-        Tab tab = new Tab();
+        WorkspacePage tab = new WorkspacePage("Local");
         ConnectionProfile profile = profile("local-profile");
-        tab.setUserData(profile);
+        tab.getProperties().put("connectionProfile", profile);
         assertSame(profile, MainWindow.connectionProfileForTab(tab));
-        assertNull(MainWindow.connectionProfileForTab(new Tab()));
+        assertNull(MainWindow.connectionProfileForTab(new WorkspacePage("Other")));
         assertNull(MainWindow.connectionProfileForTab(null));
     }
     private ConnectionProfile profile(String id) {

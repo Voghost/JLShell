@@ -24,30 +24,16 @@ import com.jlshell.ui.service.ConnectionProfileService;
 import com.jlshell.ui.service.I18nService;
 import com.jlshell.ui.service.VaultService;
 import com.jlshell.ui.theme.ThemeService;
-import javafx.collections.FXCollections;
-import javafx.collections.ObservableList;
-import javafx.collections.transformation.FilteredList;
-import javafx.geometry.Insets;
-import javafx.geometry.Pos;
-import javafx.scene.control.Alert;
-import javafx.scene.control.Button;
-import javafx.scene.control.ButtonType;
-import javafx.scene.control.Dialog;
-import javafx.scene.control.Label;
-import javafx.scene.control.ListCell;
-import javafx.scene.control.ListView;
-import javafx.scene.control.OverrunStyle;
-import javafx.scene.control.PasswordField;
-import javafx.scene.control.TextArea;
-import javafx.scene.control.TextField;
-import javafx.scene.layout.HBox;
-import javafx.scene.layout.Priority;
-import javafx.scene.layout.Region;
-import javafx.scene.layout.StackPane;
-import javafx.scene.layout.VBox;
-import javafx.scene.Node;
-import javafx.scene.shape.Rectangle;
 import java.io.File;
+import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+import java.awt.*;
+import java.util.ArrayList;
+import java.util.concurrent.CompletableFuture;
+import com.jlshell.core.support.MutableValue;
+import com.jlshell.ui.swing.SwingFormDialog;
+import com.jlshell.ui.swing.SwingSettingsFileChooser;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.security.GeneralSecurityException;
@@ -70,8 +56,6 @@ import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
 
-import javafx.stage.FileChooser;
-import javafx.stage.Stage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -93,362 +77,265 @@ public class ProjectManagerDialog {
 
     private ProjectManagerDialog() {}
 
-    public static void show(Stage owner, ConnectionProfileService service, I18nService i18n,
-                            ThemeService themeService, VaultService vaultService,
-                            String activeProjectId, Consumer<String> onSwitchProject) {
-        Dialog<Void> dialog = new Dialog<>();
-        dialog.setTitle(i18n.get("project.manage.title"));
-        dialog.setHeaderText(null);
-        if (owner != null) dialog.initOwner(owner);
-        themeService.applyToDialog(dialog);
-        dialog.getDialogPane().setPrefWidth(760);
-        dialog.getDialogPane().setPrefHeight(460);
-        dialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
-
-        ObservableList<ProjectProfile> items = FXCollections.observableArrayList();
-        refreshProjectItems(items, service, i18n);
-        FilteredList<ProjectProfile> filteredItems = new FilteredList<>(items, item -> true);
-        ListView<ProjectProfile> listView = new ListView<>(filteredItems);
-        listView.getStyleClass().add("project-manager-list");
-        listView.setCellFactory(lv -> new ListCell<>() {
-            private final Label nameLbl = new Label();
-            private final Label descLbl = new Label();
-            private final Label activeBadge = new Label();
-            private final Region spacer = new Region();
-            private final HBox titleRow = new HBox(8, nameLbl, spacer, activeBadge);
-            private final VBox box = new VBox(4, titleRow, descLbl);
-            private final StackPane clippedBox = new StackPane(box);
-            private final Rectangle clip = new Rectangle();
-
-            {
-                nameLbl.getStyleClass().add("project-manager-item-name");
-                descLbl.getStyleClass().add("project-manager-item-description");
-                activeBadge.getStyleClass().add("project-active-badge");
-                activeBadge.setVisible(false);
-                activeBadge.setManaged(false);
-                HBox.setHgrow(spacer, Priority.ALWAYS);
-                nameLbl.setMaxWidth(Double.MAX_VALUE);
-                descLbl.setMaxWidth(Double.MAX_VALUE);
-                nameLbl.setTextOverrun(OverrunStyle.ELLIPSIS);
-                descLbl.setTextOverrun(OverrunStyle.ELLIPSIS);
-                nameLbl.setWrapText(false);
-                descLbl.setWrapText(false);
-                titleRow.setAlignment(Pos.CENTER_LEFT);
-                box.getStyleClass().add("project-manager-item");
-                box.setMinWidth(0);
-                box.setPrefWidth(Region.USE_COMPUTED_SIZE);
-                box.maxWidthProperty().bind(clippedBox.widthProperty());
-                clippedBox.setMinWidth(0);
-                clippedBox.setMaxWidth(Double.MAX_VALUE);
-                clippedBox.prefWidthProperty().bind(lv.widthProperty().subtract(28));
-                clippedBox.setClip(clip);
-                clip.widthProperty().bind(clippedBox.widthProperty());
-                clip.heightProperty().bind(clippedBox.heightProperty());
-            }
-
-            @Override
-            protected void updateItem(ProjectProfile item, boolean empty) {
-                super.updateItem(item, empty);
-                if (empty || item == null) {
-                    setGraphic(null);
-                    setText(null);
-                    return;
-                }
-                nameLbl.setText(item.name() == null ? "" : item.name());
-                String description = isDefaultProject(item)
-                        ? i18n.get("project.default.description")
-                        : item.description() == null || item.description().isBlank()
-                        ? i18n.get("project.field.description")
-                        : item.description();
-                descLbl.setText(description);
-                boolean isActive = Objects.equals(item.id(), activeProjectId);
-                box.getStyleClass().remove("project-manager-item-active");
-                if (isActive) {
-                    activeBadge.setText(i18n.get("project.status.active"));
-                    activeBadge.setVisible(true);
-                    activeBadge.setManaged(true);
-                    box.getStyleClass().add("project-manager-item-active");
-                } else {
-                    activeBadge.setVisible(false);
-                    activeBadge.setManaged(false);
-                }
-                setGraphic(clippedBox);
-                setText(null);
-            }
-        });
-        listView.setPrefWidth(280);
-        listView.setMinWidth(240);
-        listView.setMaxWidth(280);
-
-        TextField searchField = new TextField();
-        searchField.getStyleClass().add("project-manager-search");
-        searchField.setPromptText(i18n.get("project.search.prompt"));
-        searchField.textProperty().addListener((obs, oldValue, newValue) -> {
-            String query = newValue == null ? "" : newValue.trim().toLowerCase();
-            filteredItems.setPredicate(item -> {
-                if (query.isBlank()) {
-                    return true;
-                }
-                return contains(item.name(), query) || contains(item.description(), query);
-            });
-        });
-
-        TextField nameField = new TextField();
-        nameField.getStyleClass().add("project-manager-input");
-        nameField.setPromptText(i18n.get("project.field.name"));
-        TextArea descField = new TextArea();
-        descField.getStyleClass().add("project-manager-input");
-        descField.setPromptText(i18n.get("project.field.description"));
-        descField.setPrefRowCount(4);
-        descField.setMaxHeight(120);
-        descField.setWrapText(true);
-
-        VBox contributionBox = new VBox(8);
-        contributionBox.getStyleClass().add("project-manager-plugin-contributions");
-        List<ContributionState> contributionStates = new java.util.ArrayList<>();
-
-        listView.getSelectionModel().selectedItemProperty().addListener((o, ov, nv) -> {
-            if (nv != null) {
-                nameField.setText(nv.name());
-                descField.setText(nv.description() != null ? nv.description() : "");
-                boolean defaultProject = isDefaultProject(nv);
-                nameField.setDisable(defaultProject);
-                descField.setDisable(defaultProject);
-            }
-            if (nv == null) {
-                rebuildProjectContributions(contributionBox, contributionStates, nameField, descField);
-            } else if (!isDefaultProject(nv)) {
-                rebuildProjectManagementContributions(contributionBox, contributionStates,
-                        nv.id(), nameField, descField);
-            } else {
-                contributionStates.clear();
-                contributionBox.getChildren().clear();
-                contributionBox.setVisible(false);
-                contributionBox.setManaged(false);
-            }
-        });
-
-        Button saveBtn = new Button(i18n.get("project.action.save"));
-        Button newBtn = new Button(i18n.get("project.action.new"));
-        Button deleteBtn = new Button(i18n.get("project.action.delete"));
-        Button switchBtn = new Button(i18n.get("project.action.switchTo"));
-        switchBtn.getStyleClass().add("button-primary");
-        switchBtn.setDisable(true);
-
-        switchBtn.setOnAction(e -> {
-            ProjectProfile selected = listView.getSelectionModel().getSelectedItem();
-            if (selected == null || Objects.equals(selected.id(), activeProjectId)) return;
-            Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
-                    i18n.get("project.switch.detail", selected.name()),
-                    ButtonType.OK, ButtonType.CANCEL);
-            confirm.setHeaderText(i18n.get("project.switch.confirm", selected.name()));
-            themeService.applyToDialog(confirm);
-            com.jlshell.ui.swing.SwingAlerts.showAndWait(confirm, themeService, i18n).filter(ButtonType.OK::equals).ifPresent(unused -> {
-                if (onSwitchProject != null) onSwitchProject.accept(selected.id());
-                dialog.close();
-            });
-        });
-
-        listView.getSelectionModel().selectedItemProperty().addListener((o, ov, nv) -> {
-            boolean noSelection = nv == null;
-            boolean defaultProject = nv != null && isDefaultProject(nv);
-            switchBtn.setDisable(noSelection || Objects.equals(nv.id(), activeProjectId));
-            saveBtn.setDisable(defaultProject);
-            deleteBtn.setDisable(noSelection || defaultProject);
-        });
-
-        newBtn.setOnAction(e -> {
-            listView.getSelectionModel().clearSelection();
-            nameField.setDisable(false);
-            descField.setDisable(false);
-            nameField.clear();
-            descField.clear();
-            nameField.requestFocus();
-        });
-
-        saveBtn.setOnAction(e -> {
-            String name = nameField.getText().trim();
-            if (name.isBlank()) return;
-            ProjectProfile selected = listView.getSelectionModel().getSelectedItem();
-            if (selected != null && isDefaultProject(selected)) return;
-            String validationError = validateProjectContributions(contributionStates);
-            if (validationError != null) {
-                showError(i18n, themeService, dialog, validationError);
-                return;
-            }
-            String id = selected != null ? selected.id() : null;
-            ProjectProfile saved = service.saveProject(id, name, descField.getText().trim());
-            if (selected == null) {
-                ProjectCreatedEvent event = new ProjectCreatedEvent(
-                        saved.id(), saved.name(), saved.description(), Instant.now());
-                notifyProjectContributions(contributionStates, event);
-            } else {
-                ProjectUpdatedEvent event = new ProjectUpdatedEvent(
-                        saved.id(), saved.name(), saved.description(), Instant.now());
-                notifyProjectManagementContributions(contributionStates, event);
-            }
-            refreshProjectItems(items, service, i18n);
-            items.stream().filter(p -> Objects.equals(p.id(), saved.id()))
-                    .findFirst().ifPresent(listView.getSelectionModel()::select);
-        });
-
-        deleteBtn.setOnAction(e -> {
-            ProjectProfile selected = listView.getSelectionModel().getSelectedItem();
-            if (selected == null || isDefaultProject(selected)) return;
-            Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
-                    i18n.get("project.action.deleteConfirm").replace("{0}", selected.name()),
-                    ButtonType.YES, ButtonType.NO);
-            themeService.applyToDialog(confirm);
-            com.jlshell.ui.swing.SwingAlerts.showAndWait(confirm, themeService, i18n).filter(b -> b == ButtonType.YES).ifPresent(b -> {
-                service.deleteProject(selected.id());
-                refreshProjectItems(items, service, i18n);
-                nameField.clear();
-                descField.clear();
-            });
-        });
-
-        Button importBtn = new Button(i18n.get("project.action.importConfig"));
-        Button exportBtn = new Button(i18n.get("project.action.exportConfig"));
-
-        importBtn.setOnAction(e -> {
-            FileChooser chooser = new FileChooser();
-            chooser.setTitle(i18n.get("project.import.title"));
-            chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter(
-                    i18n.get("project.import.filter"), "*.json"));
-            File file = chooser.showOpenDialog(owner != null ? owner : dialog.getDialogPane().getScene().getWindow());
-            if (file == null) {
-                return;
-            }
-            try {
-                String code = projectPackageRequiresCode(file)
-                        ? showProjectPackageCodeDialog(dialog, i18n, themeService)
-                        : "";
-                if (code == null) {
-                    return;
-                }
-                ProjectProfile imported = importProjectConfig(file, service, vaultService, code);
-                refreshProjectItems(items, service, i18n);
-                items.stream().filter(p -> Objects.equals(p.id(), imported.id()))
-                        .findFirst().ifPresent(listView.getSelectionModel()::select);
-            } catch (Exception ex) {
-                showError(i18n, themeService, dialog, i18n.get("project.import.failed", ex.getMessage()));
-            }
-        });
-
-        exportBtn.setOnAction(e -> {
-            ProjectProfile selected = listView.getSelectionModel().getSelectedItem();
-            if (selected == null) {
-                return;
-            }
-            FileChooser chooser = new FileChooser();
-            chooser.setTitle(i18n.get("project.export.title"));
-            chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter(
-                    i18n.get("project.import.filter"), "*.json"));
-            chooser.setInitialFileName(safeFileName(selected.name()) + ".jlshell-project.json");
-            File file = chooser.showSaveDialog(owner != null ? owner : dialog.getDialogPane().getScene().getWindow());
-            if (file == null) {
-                return;
-            }
-            try {
-                String code = generateProjectPackageCode();
-                exportProjectConfig(file, selected, service, vaultService, code);
-                showProjectPackageCodeResult(dialog, i18n, themeService, code);
-            } catch (Exception ex) {
-                showError(i18n, themeService, dialog, i18n.get("project.export.failed", ex.getMessage()));
-            }
-        });
-        listView.getSelectionModel().selectedItemProperty().addListener((o, ov, nv) ->
-                exportBtn.setDisable(nv == null));
-        exportBtn.setDisable(true);
-
-        Label nameLabel = new Label(i18n.get("project.field.name"));
-        nameLabel.getStyleClass().add("project-manager-field-label");
-        Label descLabel = new Label(i18n.get("project.field.description"));
-        descLabel.getStyleClass().add("project-manager-field-label");
-        rebuildProjectContributions(contributionBox, contributionStates, nameField, descField);
-        VBox form = new VBox(8, nameLabel, nameField, descLabel, descField, contributionBox);
-        form.getStyleClass().add("project-manager-form");
-
-        javafx.scene.layout.FlowPane editButtons = new javafx.scene.layout.FlowPane(8, 6, newBtn, saveBtn, deleteBtn, importBtn, exportBtn);
-        editButtons.setMinWidth(0);
-        editButtons.setPrefWrapLength(380);
-        HBox.setHgrow(editButtons, Priority.ALWAYS);
-        Region spacer = new Region();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox bottomBar = new HBox(8, editButtons, spacer, switchBtn);
-        bottomBar.setAlignment(Pos.CENTER_LEFT);
-
-        VBox rightPane = new VBox(12, form, bottomBar);
-        HBox.setHgrow(rightPane, Priority.ALWAYS);
-        VBox.setVgrow(form, Priority.ALWAYS);
-
-        VBox leftPane = new VBox(8, searchField, listView);
-        VBox.setVgrow(listView, Priority.ALWAYS);
-        leftPane.setPrefWidth(280);
-        leftPane.setMinWidth(240);
-        leftPane.setMaxWidth(280);
-
-        HBox content = new HBox(14, leftPane, rightPane);
-        content.getStyleClass().add("project-manager-content");
-        content.setPadding(new Insets(14));
-        dialog.getDialogPane().setContent(content);
-        items.stream().filter(project -> Objects.equals(project.id(), activeProjectId)).findFirst()
-                .ifPresentOrElse(listView.getSelectionModel()::select, () -> listView.getSelectionModel().selectFirst());
-        if (com.jlshell.ui.swing.SwingDialogHost.enabled()) {
-            com.jlshell.ui.swing.SwingDialogHost.showAndWait(dialog, themeService, i18n, "jlshell.projects", 840, 480);
-        } else dialog.showAndWait();
+    public static CompletableFuture<Void> show(Object owner, ConnectionProfileService service,
+            I18nService i18n, ThemeService themes, VaultService vault, String activeProjectId, Consumer<String> switchProject) {
+        return SwingFormDialog.showMessageAsync(i18n.get("project.manage.title"), "jlshell.projects", i18n, themes,
+                () -> new ProjectEditor(service, vault, i18n, activeProjectId, switchProject), 840, 500);
     }
 
-    private static void rebuildProjectContributions(VBox box, List<ContributionState> states,
-                                                    TextField nameField, TextArea descriptionField) {
-        states.clear();
-        box.getChildren().clear();
-        for (ProjectIntegrationRegistry.RegisteredContribution registered
-                : ProjectIntegrationRegistry.shared().contributions()) {
-            ProjectCreationContext context = new ProjectCreationContext(
-                    com.jlshell.ui.support.FxObservableValue.adapt(nameField.textProperty()),
-                    com.jlshell.ui.support.FxObservableValue.adapt(descriptionField.textProperty()));
-            try {
-                Node view = com.jlshell.ui.swing.SwingPageModel.wrap(registered.contribution().createView(context));
-                if (view != null) {
-                    box.getChildren().add(view);
-                    states.add(new ContributionState(registered.contribution(), context, null));
-                }
-            } catch (RuntimeException error) {
-                log.warn("Failed to create project contribution {}/{}",
-                        registered.pluginId(), registered.contribution().id(), error);
-            }
+    private static final class ProjectEditor extends JPanel implements AutoCloseable {
+        private final ConnectionProfileService service;
+        private final VaultService vault;
+        private final I18nService i18n;
+        private final String activeProject;
+        private final Consumer<String> switchProject;
+        private final DefaultListModel<ProjectProfile> model = new DefaultListModel<>();
+        private final JList<ProjectProfile> list = new JList<>(model);
+        private final JTextField search = new JTextField(), name = new JTextField();
+        private final JTextArea description = new JTextArea(4, 30);
+        private final JPanel contributions = new JPanel();
+        private final JLabel status = new JLabel(" ");
+        private final JButton save, delete, switchButton, export;
+        private final List<ContributionState> states = new ArrayList<>();
+        private final List<JComponent> contributionViews = new ArrayList<>();
+        private List<ProjectProfile> projects = List.of();
+        private long revision;
+        private boolean closed, busy, updating;
+
+        ProjectEditor(ConnectionProfileService service, VaultService vault, I18nService i18n, String activeProject, Consumer<String> switchProject) {
+            super(new BorderLayout(16, 12));
+            this.service = service; this.vault = vault; this.i18n = i18n; this.activeProject = activeProject; this.switchProject = switchProject;
+            setName("dialog.content"); setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
+            list.setName("projects.list"); list.setFixedCellHeight(66); list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+            list.setCellRenderer((items, project, index, selected, focused) -> {
+                var row = new JPanel(new GridLayout(2, 1, 0, 6));
+                row.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
+                row.setBackground(selected ? items.getSelectionBackground() : items.getBackground());
+                var title = new JLabel(project.name() + (Objects.equals(project.id(), activeProject) ? " · " + i18n.get("project.status.active") : ""));
+                var detail = new JLabel(project.description());
+                for (var label : List.of(title, detail)) label.setForeground(selected ? items.getSelectionForeground() : items.getForeground());
+                row.add(title); row.add(detail); return row;
+            });
+            search.putClientProperty("JTextField.placeholderText", i18n.get("project.search.prompt"));
+            var left = new JPanel(new BorderLayout(0, 8)); left.add(search, BorderLayout.NORTH);
+            left.add(new JScrollPane(list)); left.setPreferredSize(new Dimension(260, 0)); add(left, BorderLayout.WEST);
+            var form = new JPanel(); form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
+            name.setName("projects.name"); description.setName("projects.description"); description.setLineWrap(true); description.setWrapStyleWord(true);
+            var nameLabel = new JLabel(i18n.get("project.field.name"));
+            nameLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+            name.setAlignmentX(Component.LEFT_ALIGNMENT);
+            name.setMaximumSize(new Dimension(Integer.MAX_VALUE, name.getPreferredSize().height));
+            form.add(nameLabel);
+            form.add(Box.createVerticalStrut(6));
+            form.add(name);
+            form.add(Box.createVerticalStrut(14));
+            var descriptionLabel = new JLabel(i18n.get("project.field.description"));
+            descriptionLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+            form.add(descriptionLabel);
+            form.add(Box.createVerticalStrut(6));
+            var descriptionScroll = new JScrollPane(description);
+            descriptionScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
+            descriptionScroll.setPreferredSize(new Dimension(0, 100));
+            descriptionScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, 140));
+            form.add(descriptionScroll);
+            contributions.setLayout(new BoxLayout(contributions, BoxLayout.Y_AXIS));
+            contributions.setAlignmentX(Component.LEFT_ALIGNMENT);
+            form.add(Box.createVerticalStrut(14));
+            form.add(contributions);
+            form.add(Box.createVerticalGlue());
+            var right = new JPanel(new BorderLayout(0, 12)); right.add(form);
+            var actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+            var create = button("project.action.new", this::newProject);
+            save = button("project.action.save", this::save);
+            delete = button("project.action.delete", this::delete);
+            var importButton = button("project.action.importConfig", this::importConfig);
+            export = button("project.action.exportConfig", this::exportConfig);
+            switchButton = button("project.action.switchTo", this::switchTo);
+            create.setName("projects.new"); save.setName("projects.save"); delete.setName("projects.delete");
+            for (var button : List.of(create, save, delete, importButton, export, switchButton)) actions.add(button);
+            var footer = new JPanel(new BorderLayout(0, 8)); footer.add(actions); footer.add(status, BorderLayout.SOUTH);
+            right.add(footer, BorderLayout.SOUTH); add(right);
+            list.addListSelectionListener(event -> {
+                if (!event.getValueIsAdjusting() && !updating) selectCurrent();
+            });
+            DocumentListener changed = new DocumentListener() {
+                public void insertUpdate(DocumentEvent event) { publishDraft(); }
+                public void removeUpdate(DocumentEvent event) { publishDraft(); }
+                public void changedUpdate(DocumentEvent event) { publishDraft(); }
+            };
+            name.getDocument().addDocumentListener(changed); description.getDocument().addDocumentListener(changed);
+            search.getDocument().addDocumentListener(new DocumentListener() {
+                public void insertUpdate(DocumentEvent event) { filter(); }
+                public void removeUpdate(DocumentEvent event) { filter(); }
+                public void changedUpdate(DocumentEvent event) { filter(); }
+            });
+            rebuildContributions(); updateEnabled(); reload(activeProject);
         }
-        boolean visible = !box.getChildren().isEmpty();
-        box.setVisible(visible);
-        box.setManaged(visible);
+        private void newProject() {
+            if (busy) return;
+            updating = true; list.clearSelection(); updating = false;
+            name.setText(""); description.setText(""); rebuildContributions(); updateEnabled(); name.requestFocusInWindow();
+        }
+        private void selectCurrent() {
+            ProjectProfile selected = list.getSelectedValue();
+            name.setText(selected == null ? "" : selected.name());
+            description.setText(selected == null ? "" : Objects.toString(selected.description(), ""));
+            rebuildContributions(); updateEnabled();
+        }
+        private JButton button(String key, Runnable action) {
+            var button = new JButton(i18n.get(key)); button.addActionListener(event -> action.run()); return button;
+        }
+        private void publishDraft() {
+            for (ContributionState state : states) { state.name().set(name.getText()); state.description().set(description.getText()); }
+        }
+        private void rebuildContributions() {
+            closeContributions();
+            ProjectProfile selected = list.getSelectedValue();
+            if (isDefaultProject(selected)) return;
+            for (var registered : ProjectIntegrationRegistry.shared().contributions()) {
+                var title = new MutableValue<>(name.getText());
+                var detail = new MutableValue<>(description.getText());
+                var creation = selected == null ? new ProjectCreationContext(title, detail) : null;
+                var management = selected == null ? null : new ProjectManagementContext(selected.id(), title, detail);
+                try {
+                    var factory = creation != null ? registered.contribution().createView(creation) : registered.contribution().createManagementView(management);
+                    if (factory == null) continue;
+                    var view = Objects.requireNonNull(factory.get());
+                    contributions.add(view); contributionViews.add(view);
+                    states.add(new ContributionState(registered.contribution(), creation, management, title, detail));
+                } catch (RuntimeException | LinkageError error) { log.warn("Cannot build project contribution {}/{}", registered.pluginId(), registered.contribution().id(), error); }
+            }
+            contributions.revalidate(); contributions.repaint();
+        }
+        private void closeContributions() {
+            states.clear();
+            for (var view : contributionViews) if (view instanceof AutoCloseable resource) try { resource.close(); }
+            catch (Exception error) { log.warn("Cannot close project contribution", error); }
+            contributionViews.clear(); contributions.removeAll();
+        }
+        private void reload(String selectedId) {
+            long request = ++revision;
+            busy = true; updateEnabled();
+            CompletableFuture.supplyAsync(service::listProjects).whenComplete((values, error) -> SwingUtilities.invokeLater(() -> {
+                if (closed || request != revision) return;
+                busy = false; updateEnabled();
+                if (error != null) { fail(error); return; }
+                var all = new ArrayList<ProjectProfile>();
+                all.add(new ProjectProfile(null, i18n.get("project.label.default"), i18n.get("project.default.description"))); all.addAll(values);
+                projects = List.copyOf(all); filter();
+                projects.stream().filter(project -> Objects.equals(project.id(), selectedId)).findFirst().ifPresent(project -> list.setSelectedValue(project, true));
+            }));
+        }
+        private void filter() {
+            ProjectProfile selected = list.getSelectedValue();
+            String query = search.getText().strip().toLowerCase(Locale.ROOT);
+            updating = true; model.clear();
+            model.addAll(projects.stream().filter(project -> ProjectManagerDialog.contains(project.name(), query) || ProjectManagerDialog.contains(project.description(), query)).toList());
+            if (selected != null) list.setSelectedValue(selected, true);
+            updating = false;
+            if (!Objects.equals(selected, list.getSelectedValue())) selectCurrent();
+        }
+        private void updateEnabled() {
+            ProjectProfile selected = list.getSelectedValue();
+            boolean editable = !busy && !isDefaultProject(selected);
+            name.setEnabled(editable); description.setEnabled(editable); save.setEnabled(editable);
+            delete.setEnabled(!busy && selected != null && !isDefaultProject(selected));
+            switchButton.setEnabled(!busy && selected != null && !Objects.equals(selected.id(), activeProject));
+            export.setEnabled(!busy && selected != null); list.setEnabled(!busy);
+        }
+        private void save() {
+            if (busy || name.getText().isBlank() || isDefaultProject(list.getSelectedValue())) return;
+            String validation = validateProjectContributions(states);
+            if (validation != null) { status.setText(validation); return; }
+            ProjectProfile selected = list.getSelectedValue();
+            String id = selected == null ? null : selected.id(), title = name.getText().strip(), detail = description.getText().strip();
+            var submitted = List.copyOf(states);
+            busy = true; updateEnabled();
+            CompletableFuture.supplyAsync(() -> service.saveProject(id, title, detail)).whenComplete((saved, error) -> SwingUtilities.invokeLater(() -> {
+                busy = false;
+                if (error == null) {
+                    if (selected == null) notifyProjectContributions(submitted, new ProjectCreatedEvent(saved.id(), saved.name(), saved.description(), Instant.now()));
+                    else notifyProjectManagementContributions(submitted, new ProjectUpdatedEvent(saved.id(), saved.name(), saved.description(), Instant.now()));
+                }
+                if (closed) return;
+                updateEnabled(); if (error != null) fail(error); else reload(saved.id());
+            }));
+        }
+        private void delete() {
+            ProjectProfile selected = list.getSelectedValue();
+            if (busy || selected == null || isDefaultProject(selected)) return;
+            confirm(i18n.get("project.action.deleteConfirm", selected.name()), () -> run(() -> { service.deleteProject(selected.id()); return true; }, ignored -> {
+                list.clearSelection(); name.setText(""); description.setText(""); rebuildContributions(); reload(activeProject);
+            }));
+        }
+        private void switchTo() {
+            ProjectProfile selected = list.getSelectedValue();
+            if (busy || selected == null || Objects.equals(selected.id(), activeProject)) return;
+            confirm(i18n.get("project.switch.detail", selected.name()), () -> {
+                var window = SwingUtilities.getWindowAncestor(this); if (window != null) window.dispose();
+                if (switchProject != null) switchProject.accept(selected.id());
+            });
+        }
+        private void confirm(String message, Runnable accepted) {
+            SwingFormDialog.showAsync(i18n.get("project.manage.title"), "jlshell.projects.confirm", i18n,
+                    () -> new SwingFormDialog.Form<>(new JLabel(message), () -> Boolean.TRUE), 520, 220)
+                    .thenAccept(value -> { if (!closed && Boolean.TRUE.equals(value)) accepted.run(); });
+        }
+        private void importConfig() {
+            if (busy) return;
+            SwingSettingsFileChooser.openAsync(i18n.get("project.import.title"), false, "json").thenAccept(file -> {
+                if (file == null || closed) return;
+                run(() -> projectPackageRequiresCode(file), required -> {
+                    if (!required) { importFile(file, ""); return; }
+                    codeDialog(i18n).thenAccept(code -> { if (code != null && !closed) importFile(file, code); });
+                });
+            });
+        }
+        private void importFile(File file, String code) {
+            run(() -> importProjectConfig(file, service, vault, code), project -> reload(project.id()));
+        }
+        private void exportConfig() {
+            ProjectProfile selected = list.getSelectedValue();
+            if (busy || selected == null) return;
+            SwingSettingsFileChooser.saveAsync(i18n.get("project.export.title"), safeFileName(selected.name()) + ".jlshell-project.json", "json")
+                    .thenAccept(file -> {
+                        if (file == null || closed) return;
+                        String code = generateProjectPackageCode();
+                        busy = true; updateEnabled();
+                        CompletableFuture.runAsync(() -> {
+                            try { exportProjectConfig(file, selected, service, vault, code); }
+                            catch (Exception error) { throw new java.util.concurrent.CompletionException(error); }
+                        }).whenComplete((ignored, error) -> SwingUtilities.invokeLater(() -> {
+                            busy = false;
+                            if (!closed) updateEnabled();
+                            if (error == null) showCode(i18n, code);
+                            else if (!closed) fail(error);
+                            else SwingFormDialog.showMessageAsync(i18n.get("project.export.title"), "jlshell.projects.exportError", i18n,
+                                    () -> new JLabel(Objects.toString(error.getCause() == null ? error.getMessage() : error.getCause().getMessage())), 560, 220);
+                        }));
+                    });
+        }
+        @FunctionalInterface private interface Operation<T> { T run() throws Exception; }
+        private <T> void run(Operation<T> operation, Consumer<T> completed) {
+            if (closed || busy) return;
+            busy = true; updateEnabled();
+            CompletableFuture.supplyAsync(() -> {
+                try { return operation.run(); } catch (Exception error) { throw new java.util.concurrent.CompletionException(error); }
+            }).whenComplete((value, error) -> SwingUtilities.invokeLater(() -> {
+                busy = false; if (closed) return;
+                updateEnabled(); if (error != null) fail(error); else completed.accept(value);
+            }));
+        }
+        private void fail(Throwable error) {
+            while (error.getCause() != null) error = error.getCause();
+            status.setText(Objects.toString(error.getMessage(), error.getClass().getSimpleName()));
+        }
+        @Override public void close() { closed = true; revision++; closeContributions(); }
     }
 
-    private static void rebuildProjectManagementContributions(
-            VBox box, List<ContributionState> states, String projectId,
-            TextField nameField, TextArea descriptionField) {
-        states.clear();
-        box.getChildren().clear();
-        for (ProjectIntegrationRegistry.RegisteredContribution registered
-                : ProjectIntegrationRegistry.shared().contributions()) {
-            ProjectManagementContext context = new ProjectManagementContext(
-                    projectId, com.jlshell.ui.support.FxObservableValue.adapt(nameField.textProperty()),
-                    com.jlshell.ui.support.FxObservableValue.adapt(descriptionField.textProperty()));
-            try {
-                Node view = com.jlshell.ui.swing.SwingPageModel.wrap(registered.contribution().createManagementView(context));
-                if (view != null) {
-                    box.getChildren().add(view);
-                    states.add(new ContributionState(registered.contribution(), null, context));
-                }
-            } catch (RuntimeException error) {
-                log.warn("Failed to create project management contribution {}/{}",
-                        registered.pluginId(), registered.contribution().id(), error);
-            }
-        }
-        boolean visible = !box.getChildren().isEmpty();
-        box.setVisible(visible);
-        box.setManaged(visible);
-    }
+    private record ContributionState(ProjectCreationContribution contribution, ProjectCreationContext creationContext,
+            ProjectManagementContext managementContext, MutableValue<String> name,
+            MutableValue<String> description) {}
 
     private static String validateProjectContributions(List<ContributionState> states) {
         for (ContributionState state : states) {
@@ -490,25 +377,8 @@ public class ProjectManagerDialog {
         }
     }
 
-    private record ContributionState(ProjectCreationContribution contribution,
-                                     ProjectCreationContext creationContext,
-                                     ProjectManagementContext managementContext) {
-    }
-
-    private static boolean contains(String value, String query) {
-        return value != null && value.toLowerCase().contains(query);
-    }
-
-    private static void refreshProjectItems(ObservableList<ProjectProfile> items,
-                                            ConnectionProfileService service,
-                                            I18nService i18n) {
-        items.setAll(new ProjectProfile(null, i18n.get("project.label.default"), i18n.get("project.default.description")));
-        items.addAll(service.listProjects());
-    }
-
-    private static boolean isDefaultProject(ProjectProfile project) {
-        return project != null && project.id() == null;
-    }
+    private static boolean contains(String value, String query) { return value != null && value.toLowerCase(Locale.ROOT).contains(query); }
+    private static boolean isDefaultProject(ProjectProfile project) { return project != null && project.id() == null; }
 
     private static void exportProjectConfig(File file, ProjectProfile project, ConnectionProfileService service,
                                             VaultService vaultService, String packageCode) throws Exception {
@@ -922,46 +792,26 @@ public class ProjectManagerDialog {
         return Base64.getUrlDecoder().decode(value);
     }
 
-    private static void showProjectPackageCodeResult(Dialog<?> owner, I18nService i18n,
-                                                     ThemeService themeService, String code) {
-        TextArea codeArea = new TextArea(code);
-        codeArea.setEditable(false);
-        codeArea.setWrapText(true);
-        codeArea.setPrefColumnCount(36);
-        codeArea.setPrefRowCount(2);
-        VBox content = new VBox(8, new Label(i18n.get("project.export.codeHint")), codeArea);
-        content.setPadding(new Insets(8, 0, 0, 0));
-
-        Alert alert = new Alert(Alert.AlertType.INFORMATION, "", ButtonType.OK);
-        alert.setTitle(i18n.get("project.export.codeTitle"));
-        alert.setHeaderText(i18n.get("project.export.codeHeader"));
-        alert.getDialogPane().setContent(content);
-        themeService.applyToDialog(alert);
-        if (owner.getDialogPane().getScene() != null) {
-            alert.initOwner(owner.getDialogPane().getScene().getWindow());
-        }
-        com.jlshell.ui.swing.SwingAlerts.showAndWait(alert, themeService, i18n);
+    private static CompletableFuture<String> codeDialog(I18nService i18n) {
+        return SwingFormDialog.showAsync(i18n.get("project.import.codeTitle"), "jlshell.projects.code", i18n, () -> {
+            var field = new JPasswordField();
+            var body = new JPanel(new BorderLayout(0, 8));
+            body.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+            body.add(new JLabel(i18n.get("project.import.codePrompt")), BorderLayout.NORTH); body.add(field);
+            return new SwingFormDialog.Form<>(body, () -> {
+                char[] value = field.getPassword();
+                try { if (value.length == 0) return null; String code = new String(value); field.setText(""); return code; }
+                finally { java.util.Arrays.fill(value, '\0'); }
+            });
+        }, 520, 240);
     }
-
-    private static String showProjectPackageCodeDialog(Dialog<?> owner, I18nService i18n,
-                                                       ThemeService themeService) {
-        Dialog<String> dialog = new Dialog<>();
-        dialog.setTitle(i18n.get("project.import.codeTitle"));
-        dialog.setHeaderText(i18n.get("project.import.codeHeader"));
-        themeService.applyToDialog(dialog);
-        if (owner.getDialogPane().getScene() != null) {
-            dialog.initOwner(owner.getDialogPane().getScene().getWindow());
-        }
-        PasswordField field = new PasswordField();
-        field.setPromptText(i18n.get("project.import.codePrompt"));
-        field.setPrefColumnCount(32);
-        VBox content = new VBox(8, new Label(i18n.get("project.import.codePrompt")), field);
-        content.setPadding(new Insets(8, 0, 0, 0));
-        dialog.getDialogPane().setContent(content);
-        ButtonType importType = new ButtonType(i18n.get("project.action.importConfig"), ButtonType.OK.getButtonData());
-        dialog.getDialogPane().getButtonTypes().addAll(importType, ButtonType.CANCEL);
-        dialog.setResultConverter(button -> button == importType ? field.getText() : null);
-        return dialog.showAndWait().orElse(null);
+    private static void showCode(I18nService i18n, String code) {
+        SwingFormDialog.showMessageAsync(i18n.get("project.export.codeTitle"), "jlshell.projects.exportCode", i18n, () -> {
+            var body = new JPanel(new BorderLayout(0, 12));
+            body.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+            body.add(new JLabel(i18n.get("project.export.codeHint")), BorderLayout.NORTH);
+            var field = new JTextField(code); field.setEditable(false); body.add(field); return body;
+        }, 620, 240);
     }
 
     private static String safeFileName(String value) {
@@ -969,13 +819,4 @@ public class ProjectManagerDialog {
         return name.replaceAll("[\\\\/:*?\"<>|]+", "_");
     }
 
-    private static void showError(I18nService i18n, ThemeService themeService, Dialog<?> owner, String message) {
-        Alert alert = new Alert(Alert.AlertType.ERROR, message, ButtonType.OK);
-        alert.setHeaderText(i18n.get("error.title"));
-        themeService.applyToDialog(alert);
-        if (owner.getDialogPane().getScene() != null) {
-            alert.initOwner(owner.getDialogPane().getScene().getWindow());
-        }
-        com.jlshell.ui.swing.SwingAlerts.showAndWait(alert, themeService, i18n);
-    }
 }

@@ -23,7 +23,7 @@ env:
   BASE_VERSION: ${{ inputs.base_version || '0.1.67' }}
   VERSION: ${{ inputs.base_version || '0.1.67' }}-preview.${{ github.run_number }}.${{ github.run_attempt }}
   PACKAGE_VERSION: 1.0.${{ github.run_number }}
-  MODULES: "java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.management.rmi,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.transaction.xa,java.xml,java.xml.crypto,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.httpserver,jdk.jfr,jdk.localedata,jdk.management,jdk.naming.dns,jdk.net,jdk.unsupported,jdk.unsupported.desktop,jdk.zipfs,javafx.base,javafx.controls,javafx.fxml,javafx.graphics,javafx.swing"
+  MODULES: "java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.management.rmi,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.transaction.xa,java.xml,java.xml.crypto,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.httpserver,jdk.jfr,jdk.localedata,jdk.management,jdk.naming.dns,jdk.net,jdk.unsupported,jdk.unsupported.desktop,jdk.zipfs"
 
 jobs:
   validate-preview:
@@ -41,7 +41,7 @@ jobs:
         with:
           java-version: '21.0.11'
           distribution: 'liberica'
-          java-package: 'jdk+fx'
+          java-package: 'jdk'
           cache: maven
       - name: Test existing application and preview isolation
         run: mvn -B -pl app,launcher -am test
@@ -86,7 +86,7 @@ jobs:
         with:
           java-version: '21.0.11'
           distribution: 'liberica'
-          java-package: 'jdk+fx'
+          java-package: 'jdk'
           cache: maven
 
       - name: Set version from input
@@ -112,7 +112,7 @@ jobs:
             --module-path $JDK/jmods \
             --add-modules $MODULES \
             --output dist/jre \
-            --strip-debug --no-man-pages --no-header-files --compress zip-6
+            --strip-debug --no-man-pages --no-header-files --compress zip-6 --include-locales=en,zh
 
           # Build AppIcon.icns (needed by jpackage)
           ICON_PNG=app/src/main/resources/icons/app_icon.png
@@ -158,40 +158,17 @@ jobs:
             --java-options "--add-exports java.desktop/sun.swing=ALL-UNNAMED" \
             --java-options "--add-opens java.desktop/sun.swing=ALL-UNNAMED" \
             --java-options "--add-opens java.desktop/javax.swing=ALL-UNNAMED" \
-            --java-options "--add-exports javafx.graphics/com.sun.javafx.tk=ALL-UNNAMED" \
-            --java-options "--add-exports javafx.controls/com.sun.javafx.scene.control=ALL-UNNAMED" \
             --java-options "-Dapple.laf.useScreenMenuBar=true" \
             --java-options "-Dapple.awt.application.appearance=system" \
             --java-options "-Dapple.awt.application.name=JLShellPreview" \
             --dest dist/mac-work
 
-          # Verify native menu access using the actual jpackage Java options.
-          # Classpath-only preview tests cannot catch missing JavaFX module exports.
-          mkdir -p dist/preview-probe
-          cat > dist/PreviewMenuAccessProbe.java <<'EOF'
-          public class PreviewMenuAccessProbe {
-            public static void main(String[] args) throws Exception {
-              var toolkit = Class.forName("com.sun.javafx.tk.Toolkit").getMethod("getToolkit");
-              var adapter = Class.forName("com.sun.javafx.scene.control.GlobalMenuAdapter")
-                .getMethod("adapt", Class.forName("javafx.scene.control.Menu"));
-              if (!toolkit.canAccess(null) || !adapter.canAccess(null)) {
-                throw new IllegalStateException("Packaged macOS native menu bridge is not accessible");
-              }
-              System.out.println("Packaged JavaFX native menu access verified");
-            }
-          }
-          EOF
-          "$JDK/bin/javac" -d dist/preview-probe dist/PreviewMenuAccessProbe.java
-          PREVIEW_OPTIONS=()
-          while IFS= read -r line; do
-            case "$line" in java-options=*) PREVIEW_OPTIONS+=("${line#java-options=}");; esac
-          done < dist/mac-work/JLShellPreview.app/Contents/app/JLShellPreview.cfg
+          # Verify the Swing-only payload using the linked runtime.
           dist/mac-work/JLShellPreview.app/Contents/runtime/Contents/Home/bin/java \
-            "${PREVIEW_OPTIONS[@]}" --add-modules javafx.controls \
-            -cp dist/preview-probe PreviewMenuAccessProbe
+            -Djava.awt.headless=true -cp "$JAR" com.jlshell.app.DistributionSmoke
 
           # Localize the macOS application menu metadata used by AppKit.
-          # JavaFX owns most menu wiring, but these bundle resources allow
+          # These bundle resources allow
           # system-generated app-menu labels to follow macOS language fallback.
           /usr/libexec/PlistBuddy -c "Delete :NSRequiresAquaSystemAppearance" \
             dist/mac-work/JLShellPreview.app/Contents/Info.plist >/dev/null 2>&1 || true
@@ -229,7 +206,7 @@ jobs:
         with:
           java-version: '21.0.11'
           distribution: 'liberica'
-          java-package: 'jdk+fx'
+          java-package: 'jdk'
           cache: maven
 
       - name: Install tools
@@ -259,7 +236,7 @@ jobs:
             --module-path $JDK/jmods \
             --add-modules $MODULES \
             --output dist/runtime \
-            --strip-debug --no-man-pages --no-header-files --compress zip-6
+            --strip-debug --no-man-pages --no-header-files --compress zip-6 --include-locales=en,zh
 
           cp "$LAUNCHER_JAR" dist/jlshell-launcher.jar
           mkdir -p dist/app
@@ -512,7 +489,7 @@ jobs:
         with:
           java-version: '21.0.11'
           distribution: 'liberica'
-          java-package: 'jdk+fx'
+          java-package: 'jdk'
           cache: maven
 
       - name: Install Python for ICO conversion
@@ -590,7 +567,7 @@ jobs:
       - name: Build fat jar + jlink runtime
         shell: bash
         run: |
-          mvn package -DskipTests -pl launcher,app -am -P dist -q
+          mvn package -DskipTests -pl launcher,app -am -q
 
           JAR=$(ls app/target/jlshell-app-*.jar | head -1)
           LAUNCHER_JAR=$(ls launcher/target/jlshell-launcher-*.jar | head -1)
@@ -603,7 +580,7 @@ jobs:
             --module-path "$JDK/jmods" \
             --add-modules $MODULES \
             --output dist/runtime \
-            --strip-debug --no-man-pages --no-header-files --compress zip-6
+            --strip-debug --no-man-pages --no-header-files --compress zip-6 --include-locales=en,zh
 
       - name: Package Windows app image and installer
         shell: bash

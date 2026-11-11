@@ -66,7 +66,7 @@ env:
   RELEASE_MIN_LAUNCHER_VERSION: ${{ inputs.min_launcher_version || '0.2.2' }}
   RELEASE_PUBLISH: ${{ github.event.inputs.publish }}
   RELEASE_ASSET_VISIBLE: ${{ github.event.inputs.asset_visible }}
-  MODULES: "java.base,java.compiler,java.desktop,java.logging,java.management,java.naming,java.net.http,java.prefs,java.scripting,java.security.jgss,java.sql,java.xml,jdk.crypto.ec,jdk.httpserver,jdk.jfr,jdk.localedata,jdk.naming.dns,jdk.net,jdk.unsupported,jdk.unsupported.desktop,jdk.zipfs,javafx.controls,javafx.swing"
+  MODULES: "java.base,java.compiler,java.desktop,java.logging,java.management,java.naming,java.net.http,java.prefs,java.scripting,java.security.jgss,java.sql,java.xml,jdk.crypto.ec,jdk.httpserver,jdk.jfr,jdk.localedata,jdk.naming.dns,jdk.net,jdk.unsupported,jdk.unsupported.desktop,jdk.zipfs"
 
 jobs:
   validate-release-notes:
@@ -86,7 +86,7 @@ jobs:
         with:
           java-version: '21.0.11'
           distribution: 'liberica'
-          java-package: 'jdk+fx'
+          java-package: 'jdk'
           cache: maven
 
       - name: Test before release
@@ -136,7 +136,7 @@ jobs:
         with:
           java-version: '21.0.11'
           distribution: 'liberica'
-          java-package: 'jdk+fx'
+          java-package: 'jdk'
           cache: maven
 
       - name: Set version from input
@@ -157,7 +157,7 @@ jobs:
           LAUNCHER_JAR=$(ls launcher/target/jlshell-launcher-*.jar | head -1)
           mkdir -p dist
           python .github/scripts/slim_distribution.py "$JAR" "dist/jlshell-app-${VERSION}.jar"
-          python .github/scripts/slim_distribution.py "$JAR" dist/jlshell-app-native.jar --target native --provided-javafx "$HOME/.m2/repository/org/openjfx"
+          python .github/scripts/slim_distribution.py "$JAR" dist/jlshell-app-native.jar --target native
           JAR=dist/jlshell-app-native.jar
           echo "JAR=$JAR" >> $GITHUB_ENV
           echo "LAUNCHER_JAR=$LAUNCHER_JAR" >> $GITHUB_ENV
@@ -173,7 +173,7 @@ jobs:
             --output dist/jre \
             --strip-debug --no-man-pages --no-header-files --vm=server --compress zip-9 --include-locales=en,zh
 
-          "dist/jre/bin/java" --add-modules=javafx.controls,javafx.swing -Djava.awt.headless=true -cp "$JAR" com.jlshell.app.DistributionSmoke
+          "dist/jre/bin/java" -Djava.awt.headless=true -cp "$JAR" com.jlshell.app.DistributionSmoke
 
           # Build AppIcon.icns (needed by jpackage)
           ICON_PNG=app/src/main/resources/icons/app_icon.png
@@ -208,7 +208,6 @@ jobs:
             --icon dist/AppIcon.icns \
             --vendor JLShell \
             --description "JLShell SSH Client" \
-            --java-options "--add-modules=javafx.controls,javafx.swing" \
             --java-options "--add-exports=java.desktop/sun.swing=ALL-UNNAMED" \
             --java-options "--add-opens=java.desktop/sun.swing=ALL-UNNAMED" \
             --java-options "--add-opens=java.desktop/javax.swing=ALL-UNNAMED" \
@@ -227,7 +226,7 @@ jobs:
             --dest dist/mac-work
 
           # Localize the macOS application menu metadata used by AppKit.
-          # JavaFX owns most menu wiring, but these bundle resources allow
+          # Native application menu wiring and these bundle resources allow
           # system-generated app-menu labels to follow macOS language fallback.
           /usr/libexec/PlistBuddy -c "Delete :NSRequiresAquaSystemAppearance" \
             dist/mac-work/JLShell.app/Contents/Info.plist >/dev/null 2>&1 || true
@@ -312,7 +311,7 @@ jobs:
         with:
           java-version: '21.0.11'
           distribution: 'liberica'
-          java-package: 'jdk+fx'
+          java-package: 'jdk'
           cache: maven
 
       - name: Install tools
@@ -332,7 +331,7 @@ jobs:
           LAUNCHER_JAR=$(ls launcher/target/jlshell-launcher-*.jar | head -1)
           mkdir -p dist
           python .github/scripts/slim_distribution.py "$JAR" "dist/jlshell-app-${VERSION}.jar"
-          python .github/scripts/slim_distribution.py "$JAR" dist/jlshell-app-native.jar --target native --provided-javafx "$HOME/.m2/repository/org/openjfx"
+          python .github/scripts/slim_distribution.py "$JAR" dist/jlshell-app-native.jar --target native
           JAR=dist/jlshell-app-native.jar
           echo "JAR=$JAR" >> $GITHUB_ENV
           echo "LAUNCHER_JAR=$LAUNCHER_JAR" >> $GITHUB_ENV
@@ -345,7 +344,7 @@ jobs:
             --output dist/runtime \
             --strip-debug --no-man-pages --no-header-files --vm=server --compress zip-9 --include-locales=en,zh
 
-          "dist/runtime/bin/java" --add-modules=javafx.controls,javafx.swing -Djava.awt.headless=true -cp "$JAR" com.jlshell.app.DistributionSmoke
+          "dist/runtime/bin/java" -Djava.awt.headless=true -cp "$JAR" com.jlshell.app.DistributionSmoke
 
           cp "$LAUNCHER_JAR" dist/jlshell-launcher.jar
           mkdir -p dist/app
@@ -397,7 +396,7 @@ jobs:
             fi
           fi
           exec "$DIR/runtime/bin/java" "${VM_OPTS[@]}" \
-            --add-modules=javafx.controls,javafx.swing \
+            \
             --add-exports=java.desktop/sun.swing=ALL-UNNAMED \
             --add-opens=java.desktop/sun.swing=ALL-UNNAMED \
             --add-opens=java.desktop/javax.swing=ALL-UNNAMED \
@@ -460,7 +459,7 @@ jobs:
             fi
           fi
           exec "$DIR/runtime/bin/java" "${VM_OPTS[@]}" \
-            --add-modules=javafx.controls,javafx.swing \
+            \
             --add-exports=java.desktop/sun.swing=ALL-UNNAMED \
             --add-opens=java.desktop/sun.swing=ALL-UNNAMED \
             --add-opens=java.desktop/javax.swing=ALL-UNNAMED \
@@ -560,7 +559,7 @@ jobs:
             fi
           fi
           exec "$HERE/usr/runtime/bin/java" "${VM_OPTS[@]}" \
-            --add-modules=javafx.controls,javafx.swing \
+            \
             --add-exports=java.desktop/sun.swing=ALL-UNNAMED \
             --add-opens=java.desktop/sun.swing=ALL-UNNAMED \
             --add-opens=java.desktop/javax.swing=ALL-UNNAMED \
@@ -600,7 +599,7 @@ jobs:
         with:
           java-version: '21.0.11'
           distribution: 'liberica'
-          java-package: 'jdk+fx'
+          java-package: 'jdk'
           cache: maven
 
       - name: Install Python for ICO conversion
@@ -638,7 +637,7 @@ jobs:
           LAUNCHER_JAR=$(ls launcher/target/jlshell-launcher-*.jar | head -1)
           mkdir -p dist
           python .github/scripts/slim_distribution.py "$JAR" "dist/jlshell-app-${VERSION}.jar"
-          python .github/scripts/slim_distribution.py "$JAR" dist/jlshell-app-native.jar --target native --provided-javafx "$HOME/.m2/repository/org/openjfx"
+          python .github/scripts/slim_distribution.py "$JAR" dist/jlshell-app-native.jar --target native
           JAR=dist/jlshell-app-native.jar
           echo "JAR=$JAR" >> $GITHUB_ENV
           echo "LAUNCHER_JAR=$LAUNCHER_JAR" >> $GITHUB_ENV
@@ -654,7 +653,7 @@ jobs:
       - name: Verify native runtime and curated application
         shell: bash
         run: |
-          dist/runtime/bin/java --add-modules=javafx.controls,javafx.swing -Djava.awt.headless=true -cp "$JAR" com.jlshell.app.DistributionSmoke
+          dist/runtime/bin/java -Djava.awt.headless=true -cp "$JAR" com.jlshell.app.DistributionSmoke
 
       - name: Package Windows app image and installer
         shell: bash
@@ -680,7 +679,6 @@ jobs:
             --icon app/src/main/resources/icons/app_icon.ico \
             --vendor JLShell \
             --description "JLShell SSH Client" \
-            --java-options "--add-modules=javafx.controls,javafx.swing" \
             --java-options "--add-exports=java.desktop/sun.swing=ALL-UNNAMED" \
             --java-options "--add-opens=java.desktop/sun.swing=ALL-UNNAMED" \
             --java-options "--add-opens=java.desktop/javax.swing=ALL-UNNAMED" \
@@ -718,7 +716,6 @@ jobs:
             --icon app/src/main/resources/icons/app_icon.ico \
             --vendor JLShell \
             --description "JLShell SSH Client" \
-            --java-options "--add-modules=javafx.controls,javafx.swing" \
             --java-options "--add-exports=java.desktop/sun.swing=ALL-UNNAMED" \
             --java-options "--add-opens=java.desktop/sun.swing=ALL-UNNAMED" \
             --java-options "--add-opens=java.desktop/javax.swing=ALL-UNNAMED" \

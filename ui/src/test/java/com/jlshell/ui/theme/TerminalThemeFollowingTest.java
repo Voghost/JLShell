@@ -3,8 +3,7 @@ package com.jlshell.ui.theme;
 import com.jlshell.core.service.AppSettingsService;
 import com.jlshell.terminal.model.TerminalColorScheme;
 import com.jlshell.terminal.service.ColorSchemeRegistry;
-import com.jlshell.ui.support.FxThread;
-import javafx.application.Platform;
+import com.jlshell.ui.support.UiThread;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -16,10 +15,6 @@ import static org.junit.jupiter.api.Assertions.*;
 @EnabledIfSystemProperty(named = "jlshell.ui.smoke", matches = "true")
 class TerminalThemeFollowingTest {
     @BeforeAll static void toolkit() throws Exception {
-        var ready = new CompletableFuture<Void>();
-        try { Platform.startup(() -> { Platform.setImplicitExit(false); ready.complete(null); }); }
-        catch (IllegalStateException running) { Platform.runLater(() -> ready.complete(null)); }
-        ready.get(10, TimeUnit.SECONDS);
     }
 
     @Test void remembersBothKindsAndIgnoresStaleStartupResult() throws Exception {
@@ -43,7 +38,7 @@ class TerminalThemeFollowingTest {
             public boolean isTerminated() { return false; }
             public boolean awaitTermination(long timeout, TimeUnit unit) { return true; }
         };
-        var service = FxThread.supplyAsync(() -> {
+        var service = UiThread.supplyAsync(() -> {
             var theme = new ThemeService(settings, registry, executor);
             theme.setActiveColorScheme(registry.copyScheme(TerminalColorScheme.dark(), "custom-dark"));
             theme.setTheme(AppTheme.LIGHT);
@@ -56,7 +51,7 @@ class TerminalThemeFollowingTest {
             return theme;
         }).get(10, TimeUnit.SECONDS);
         startup.get().run();
-        FxThread.supplyAsync(() -> {
+        UiThread.supplyAsync(() -> {
             assertEquals("custom-light", service.activeColorScheme().name());
             assertEquals("custom-light", values.get("terminal.colorScheme.active"));
             assertEquals("custom-dark", values.get("terminal.colorScheme.DARK"));

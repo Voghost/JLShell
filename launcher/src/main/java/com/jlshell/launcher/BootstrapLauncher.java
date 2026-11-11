@@ -63,9 +63,9 @@ public final class BootstrapLauncher {
     }
 
     /**
-     * Relaunch on Windows with a deterministic DLL search path before JavaFX is
+     * Relaunch on Windows with a deterministic DLL search path before AWT is
      * initialized. The jpackage launcher already selects the bundled JVM, but
-     * Windows can still resolve glass.dll from an old Java installation on the
+     * Windows can still resolve AWT or font DLLs from an old Java installation on the
      * user's PATH. A fresh javaw process is required because changing
      * java.library.path after JVM startup does not reliably change native DLL
      * resolution.
@@ -107,8 +107,6 @@ public final class BootstrapLauncher {
         command.add("--add-exports=java.desktop/sun.swing=ALL-UNNAMED");
         command.add("--add-opens=java.desktop/sun.swing=ALL-UNNAMED");
         command.add("--add-opens=java.desktop/javax.swing=ALL-UNNAMED");
-        if (java.lang.module.ModuleFinder.ofSystem().find("javafx.controls").isPresent())
-            command.add("--add-modules=javafx.controls,javafx.swing");
         if (preview) {
             String previewHome = System.getProperty("jlshell.preview.home");
             if (previewHome != null && !previewHome.isBlank()) command.add("-Djlshell.preview.home=" + previewHome);
@@ -459,7 +457,7 @@ public final class BootstrapLauncher {
             Class<?> mainClass = Class.forName(APP_MAIN_CLASS, true, runtime.loader());
             Method main = mainClass.getMethod("main", String[].class);
             main.invoke(null, (Object) args);
-            // main() returning does not end AWT/JavaFX event threads. The shutdown
+            // main() returning does not end AWT event threads. The shutdown
             // hook retains the loader so lazy classes and resources remain available.
         } catch (InvocationTargetException error) {
             runtime.close();

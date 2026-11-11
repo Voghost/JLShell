@@ -6,9 +6,8 @@ import com.jlshell.core.service.impl.PersistentFontProfileService;
 import com.jlshell.plugin.api.ui.FontSpec;
 import com.jlshell.plugin.loader.ScopedPluginFonts;
 import com.jlshell.terminal.service.ColorSchemeRegistry;
-import com.jlshell.ui.support.FxThread;
+import com.jlshell.ui.support.UiThread;
 import com.jlshell.ui.theme.ThemeService;
-import javafx.application.Platform;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import java.util.*;
@@ -18,17 +17,13 @@ import static org.junit.jupiter.api.Assertions.*;
 @EnabledIfSystemProperty(named = "jlshell.ui.smoke", matches = "true")
 class HostPluginFontsTest {
     @BeforeAll static void toolkit() throws Exception {
-        var ready = new CompletableFuture<Void>();
-        try { Platform.startup(() -> { Platform.setImplicitExit(false); ready.complete(null); }); }
-        catch (IllegalStateException running) { Platform.runLater(() -> ready.complete(null)); }
-        ready.get(10, TimeUnit.SECONDS);
     }
 
     @Test void reflectsPersistedPreferencesAndPublishesInitialDistinctOrderedChanges() throws Exception {
         var settings = new Settings();
         var profiles = new PersistentFontProfileService(settings);
         var executor = Executors.newSingleThreadExecutor();
-        var themes = FxThread.supplyAsync(() -> new ThemeService(settings, new ColorSchemeRegistry(null, null), executor))
+        var themes = UiThread.supplyAsync(() -> new ThemeService(settings, new ColorSchemeRegistry(null, null), executor))
                 .get(10, TimeUnit.SECONDS);
         var fonts = new HostPluginFonts(profiles, themes);
         List<FontSpec> terminal = new CopyOnWriteArrayList<>(), ui = new CopyOnWriteArrayList<>();
@@ -40,7 +35,7 @@ class HostPluginFontsTest {
         profiles.updateActiveProfile(new FontProfile("Example Mono", 15.5, true, 1));
         profiles.updateActiveProfile(new FontProfile("Example Mono", 15.5, false, 2)); // Same visible font.
         profiles.updateActiveProfile(new FontProfile("Second Mono", 17, false, 2));
-        FxThread.supplyAsync(() -> {
+        UiThread.supplyAsync(() -> {
             settings.set("ui.font.family", "Example UI"); settings.set("ui.font.size", "16");
             themes.refreshUiFont(); themes.refreshUiFont(); return null;
         }).get(10, TimeUnit.SECONDS);
@@ -49,7 +44,7 @@ class HostPluginFontsTest {
         assertEquals(List.of(new FontSpec("", 13), new FontSpec("Example UI", 16)), ui);
         assertEquals(new FontSpec("Second Mono", 17), fonts.terminalFont());
         assertEquals(new FontSpec("Example UI", 16), fonts.uiFont());
-        assertTrue(themes.uiStyle().contains("16px"));
+        assertEquals(16, themes.uiFont().size());
         int reads = settings.reads;
         fonts.terminalFont(); fonts.uiFont(); assertEquals(reads, settings.reads, "Snapshot getters must not access storage");
         first.close(); second.close(); fonts.close(); executor.shutdownNow(); drain();
@@ -58,7 +53,7 @@ class HostPluginFontsTest {
     @Test void rapidUpdatesBeforeInitialDeliveryNeverRevertTheCurrentFont() throws Exception {
         var settings = new Settings(); var profiles = new PersistentFontProfileService(settings);
         var executor = Executors.newSingleThreadExecutor();
-        var themes = FxThread.supplyAsync(() -> new ThemeService(settings, new ColorSchemeRegistry(null, null), executor))
+        var themes = UiThread.supplyAsync(() -> new ThemeService(settings, new ColorSchemeRegistry(null, null), executor))
                 .get(10, TimeUnit.SECONDS);
         var fonts = new HostPluginFonts(profiles, themes);
         List<FontSpec> received = new CopyOnWriteArrayList<>();
@@ -78,7 +73,7 @@ class HostPluginFontsTest {
     @Test void pendingInitialDeliveryIsCancelledAndFailingSubscriberCannotBreakOthers() throws Exception {
         var settings = new Settings(); var profiles = new PersistentFontProfileService(settings);
         var executor = Executors.newSingleThreadExecutor();
-        var themes = FxThread.supplyAsync(() -> new ThemeService(settings, new ColorSchemeRegistry(null, null), executor))
+        var themes = UiThread.supplyAsync(() -> new ThemeService(settings, new ColorSchemeRegistry(null, null), executor))
                 .get(10, TimeUnit.SECONDS);
         var fonts = new HostPluginFonts(profiles, themes);
         var scoped = new ScopedPluginFonts(fonts);
@@ -98,7 +93,7 @@ class HostPluginFontsTest {
     }
 
     private static void drain() throws Exception {
-        FxThread.supplyAsync(() -> null).get(10, TimeUnit.SECONDS);
+        UiThread.supplyAsync(() -> null).get(10, TimeUnit.SECONDS);
         com.jlshell.terminal.support.SwingExecutors.runOnEdtAsync(() -> {}).get(10, TimeUnit.SECONDS);
     }
     private static class Settings implements AppSettingsService {

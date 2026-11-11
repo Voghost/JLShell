@@ -2,10 +2,10 @@
 
 [中文文档](README_zh.md)
 
-A modern cross-platform SSH/SFTP client built with JavaFX, featuring an IDE-inspired UI, SFTP file browser, plugin system with inter-plugin RPC, and an external JSON-RPC API.
+A modern cross-platform SSH/SFTP client built with native Swing, featuring an IDE-inspired UI, SFTP file browser, plugin system with inter-plugin RPC, and an external JSON-RPC API.
 
 ![Java](https://img.shields.io/badge/Java-21-orange)
-![JavaFX](https://img.shields.io/badge/JavaFX-21-blue)
+![Swing](https://img.shields.io/badge/UI-Swing-blue)
 ![JDBI](https://img.shields.io/badge/JDBI-3-blue)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
@@ -70,7 +70,7 @@ Pre-built packages with bundled JRE (~50 MB, no JDK required):
 
 ```bash
 # Run locally (current platform)
-mvn install -DskipTests -q && mvn javafx:run -pl app
+./run-local-test.sh --real-data
 
 # Build distributable package for current platform
 ./build-dist.sh
@@ -128,15 +128,14 @@ public class MyPlugin implements JlShellPlugin, PluginView {
     public void deactivate() { /* cleanup */ }
 
     @Override
-    public Node createView(PluginContext ctx) {
-        Button btn = new Button("Run df -h");
-        btn.setOnAction(e ->
-            ctx.sshSession().ifPresent(ssh ->
-                ssh.commandExecutor().execute("df -h")
-                   .thenAccept(out -> Platform.runLater(() -> System.out.println(out.stdout())))
-            )
-        );
-        return btn;
+    public java.util.function.Supplier<javax.swing.JComponent> createView(PluginContext ctx) {
+        return () -> {
+            var button = new javax.swing.JButton("Run df -h");
+            button.addActionListener(event -> ctx.sshSession().ifPresent(ssh ->
+                    ssh.commandExecutor().execute("df -h")
+                            .thenAccept(output -> System.out.println(output.stdout()))));
+            return button;
+        };
     }
 }
 ```
@@ -381,7 +380,7 @@ jlshell-parent
 ├── ssh            — SSHJ-based SSH session management
 ├── sftp           — SFTP file transfer service
 ├── terminal       — JediTerm integration, 305+ color schemes
-├── ui             — JavaFX views, themes, i18n, connection import
+├── ui             — Swing views, themes, i18n, connection import
 ├── plugin-api     — Public SPI for plugin developers (standalone publishable JAR)
 ├── plugin-loader  — Plugin discovery, lifecycle, per-session capability bus
 └── plugins
@@ -393,9 +392,9 @@ jlshell-parent
 
 ## Tech Stack
 
-- **Java 21** + **JavaFX 21** (UI)
+- **Java 21** + **Swing / FlatLaf** (UI)
 - **SSHJ** (SSH/SFTP client)
-- **JediTerm** (terminal emulator, Swing → SwingNode)
+- **JediTerm** (terminal emulator, native Swing)
 - **JDBI 3** + **HikariCP** + **SQLite** (persistence, WAL mode)
 - **Bouncy Castle** (AES-256-GCM credential encryption)
 - **Gson** (JSON / JSON-RPC codec)

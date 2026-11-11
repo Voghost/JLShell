@@ -312,8 +312,7 @@ public class AppContext implements AutoCloseable {
 
     private static void prepareSwingTheme(ThemeService themes, AppSettingsService settings,
                                           com.jlshell.core.support.PerformanceTrace timing) {
-        if ("javafx".equalsIgnoreCase(System.getProperty("jlshell.ui.renderer", "swing"))) return;
-        // 主题偏好已就绪：EDT 初始化 LAF，同时 FX 继续装配服务与插件。
+        // 主题偏好已就绪：EDT 初始化 LAF，同时启动线程继续装配服务与插件。
         // 不等待 EDT；窗口创建时 install() 会确认实际配置，并在预加载失败时重试。
         var theme = themes.currentTheme();
         String accent = themes.accentColor().color(), family = settings.get("ui.font.family", null);

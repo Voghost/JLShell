@@ -24,6 +24,7 @@ public final class SwingAccountSettingsPage extends JPanel {
         this.accounts = accounts;
         this.i18n = i18n;
         setName("settings.accountForm");
+        status.setName("account-status-badge");
         web = action("account.login.web.action", Action.BROWSER_LOGIN, open);
         password = action("account.login.password.action", Action.PASSWORD_LOGIN, open);
         register = action("account.register.action", Action.REGISTER, open);

@@ -1,8 +1,6 @@
 package com.jlshell.app;
 
-import com.jlshell.ui.support.FxThread;
-import javafx.application.Platform;
-import javafx.stage.Stage;
+import com.jlshell.ui.support.UiThread;
 import javax.swing.*;
 import java.awt.*;
 import java.lang.management.ManagementFactory;
@@ -12,7 +10,7 @@ import java.util.function.Supplier;
 /** 独立空配置的真实窗口性能探针；通过 measure_workbench.py 启动，不建立 SSH 连接。 */
 public class WorkbenchPerformanceProbe {
     static long started = System.nanoTime();
-    static <T> T fx(Supplier<T> task) throws Exception { return FxThread.supplyAsync(task).get(30, TimeUnit.SECONDS); }
+    static <T> T fx(Supplier<T> task) throws Exception { return UiThread.supplyAsync(task).get(30, TimeUnit.SECONDS); }
     static <T> T edt(Supplier<T> task) throws Exception {
         var f = new CompletableFuture<T>();
         SwingUtilities.invokeLater(() -> { try { f.complete(task.get()); } catch(Throwable e) { f.completeExceptionally(e); } });
@@ -60,12 +58,8 @@ public class WorkbenchPerformanceProbe {
     public static void main(String[] args) throws Exception {
         try {
             var ready = new CompletableFuture<Void>();
-            Platform.startup(() -> { Platform.setImplicitExit(false); ready.complete(null); });
-            ready.get(20,TimeUnit.SECONDS); metric("toolkit");
-            new JlShellDesktopApplication().init();
-            metric("fonts");
             AppContext context = fx(AppContext::new); metric("context");
-            Stage owner = fx(() -> { Stage s=new Stage();s.setScene(context.getMainWindow().createScene(s));return s; });
+            Object owner = null;
             metric("scene");
             var shown=fx(() -> context.getMainWindow().showSwingWindow(owner,()->{}));
             shown.get(20,TimeUnit.SECONDS); edt(()->null); metric("window");
@@ -73,7 +67,7 @@ public class WorkbenchPerformanceProbe {
             for (int iteration=0;iteration<3;iteration++) {
                 long open=System.nanoTime();
                 var done = new CompletableFuture<Void>();
-                Platform.runLater(()->{try {context.getMainWindow().openPreferences(owner);done.complete(null);}catch(Throwable e){done.completeExceptionally(e);}});
+                com.jlshell.ui.support.UiThread.run(()->{try {context.getMainWindow().openPreferences(owner);done.complete(null);}catch(Throwable e){done.completeExceptionally(e);}});
                 JDialog settings=null;
                 for(int i=0;i<600&&settings==null;i++) {
                     settings=edt(()->{for(Window w:Window.getWindows()) if(w instanceof JDialog d&&d.isShowing()&&"jlshell.settings".equals(d.getName()))return d;return null;});
@@ -92,7 +86,7 @@ public class WorkbenchPerformanceProbe {
             Thread.sleep(Long.getLong("jlshell.performance.idleMillis", 35000L));
             metric("idleAfterSettings");
             fx(()->{context.getMainWindow().closeSwingWindow();return null;});
-            context.close();Platform.exit();System.exit(0);
+            context.close();System.exit(0);
         } catch(Throwable e) {e.printStackTrace();System.exit(2);}
     }
 }

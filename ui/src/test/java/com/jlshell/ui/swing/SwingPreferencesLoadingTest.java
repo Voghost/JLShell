@@ -5,10 +5,9 @@ import com.jlshell.terminal.model.TerminalColorScheme;
 import com.jlshell.terminal.service.ColorSchemeRegistry;
 import com.jlshell.terminal.support.SwingExecutors;
 import com.jlshell.ui.service.I18nService;
-import com.jlshell.ui.support.FxThread;
+import com.jlshell.ui.support.UiThread;
 import com.jlshell.ui.theme.AppTheme;
 import com.jlshell.ui.theme.ThemeService;
-import javafx.application.Platform;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -30,10 +29,6 @@ import static org.junit.jupiter.api.Assertions.*;
 @EnabledIfSystemProperty(named = "jlshell.ui.smoke", matches = "true")
 class SwingPreferencesLoadingTest {
     @BeforeAll static void toolkit() throws Exception {
-        var ready = new CompletableFuture<Void>();
-        try { Platform.startup(() -> { Platform.setImplicitExit(false); ready.complete(null); }); }
-        catch (IllegalStateException running) { Platform.runLater(() -> ready.complete(null)); }
-        ready.get(10, TimeUnit.SECONDS);
         edt(() -> { SwingTheme.install(AppTheme.DARK, "#3574f0", null, 13); return null; });
     }
 
@@ -42,7 +37,7 @@ class SwingPreferencesLoadingTest {
         AtomicInteger initialLoads = new AtomicInteger(), secondLoads = new AtomicInteger();
         var finished = new CompletableFuture<Void>();
         try {
-            Platform.runLater(() -> {
+            com.jlshell.ui.support.UiThread.run(() -> {
                 try {
                     var settings = new AppSettingsService() {
                         public Optional<String> get(String key) { return Optional.empty(); }
@@ -84,7 +79,7 @@ class SwingPreferencesLoadingTest {
             assertEquals(1, initialLoads.get()); assertEquals(0, secondLoads.get());
             JTextField editor = edt(() -> (JTextField) named(dialog, "lazy.editor"));
             edt(() -> { editor.setText("unsaved"); return null; });
-            FxThread.supplyAsync(() -> null).get(10, TimeUnit.SECONDS);
+            UiThread.supplyAsync(() -> null).get(10, TimeUnit.SECONDS);
             edt(() -> { ((JTextField) named(dialog, "settings.search")).setText("needle"); return null; });
             await(() -> named(dialog, "lazy.second"));
             assertEquals(1, secondLoads.get());

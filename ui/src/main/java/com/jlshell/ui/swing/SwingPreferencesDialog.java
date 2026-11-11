@@ -67,12 +67,12 @@ public final class SwingPreferencesDialog {
                                    ThemeService themes, boolean applyDisabled,
                                    java.util.function.Supplier<java.util.concurrent.CompletableFuture<Void>> applyAction,
                                    java.util.function.Supplier<java.util.concurrent.CompletableFuture<Void>> okAction, Runnable closed) {
+        SwingTheme.install(themes);
         this.pages = pages;
         this.themes = themes;
         this.pageLoadFailed = i18n.get("settings.page.loadFailed");
         owner = SwingDialogChrome.owner();
-        // AWT 应用模态过滤器会阻止 JFXPanel 中的 Glass 下拉弹窗接收鼠标。
-        // 使用禁用宿主窗口实现模态，FX 嵌套事件循环仍保持 showAndWait 的调用顺序。
+        // 统一原生弹窗的宿主禁用与关闭恢复行为。
         dialog = new SwingModalDialog(owner, i18n.get("preferences.title") + " — JLShell");
         dialog.setName("jlshell.settings");
         dialog.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);

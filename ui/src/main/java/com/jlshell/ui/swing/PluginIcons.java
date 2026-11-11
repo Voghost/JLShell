@@ -1,10 +1,5 @@
 package com.jlshell.ui.swing;
 
-import com.jlshell.ui.support.FxThread;
-import javafx.embed.swing.SwingFXUtils;
-import javafx.scene.control.Label;
-import javafx.scene.image.ImageView;
-import javafx.scene.layout.StackPane;
 
 import javax.imageio.ImageIO;
 import javax.swing.*;
@@ -104,23 +99,6 @@ public final class PluginIcons {
                 } finally { reader.dispose(); }
             }
         } catch (Exception unavailable) { return null; }
-    }
-
-    public static StackPane avatar(String name, Source source) {
-        Label fallback = new Label(initial(name));
-        fallback.getStyleClass().add("plugin-avatar-text");
-        StackPane avatar = new StackPane(fallback);
-        avatar.getStyleClass().add("plugin-avatar");
-        avatar.getProperties().put("swing.pluginIconSource", source);
-        if (source != null) source.image().thenAccept(image -> {
-            if (image == null) return;
-            FxThread.run(() -> {
-                ImageView view = new ImageView(SwingFXUtils.toFXImage(image, null));
-                view.setFitWidth(40); view.setFitHeight(40); view.setPreserveRatio(true);
-                avatar.getChildren().setAll(fallback, view); fallback.setVisible(false);
-            });
-        });
-        return avatar;
     }
 
     public static Icon icon(String name, Source source, int size, boolean monochrome) {

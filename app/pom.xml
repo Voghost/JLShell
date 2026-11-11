@@ -65,14 +65,6 @@
             <artifactId>logback-classic</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.openjfx</groupId>
-            <artifactId>javafx-controls</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.openjfx</groupId>
-            <artifactId>javafx-swing</artifactId>
-        </dependency>
-        <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>
@@ -88,97 +80,8 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
-
-    <!-- Cross-platform natives: only included when building the distributable fat jar -->
     <profiles>
-        <profile>
-            <id>dist</id>
-            <dependencies>
-                <dependency>
-                    <groupId>org.openjfx</groupId>
-                    <artifactId>javafx-controls</artifactId>
-                    <version>${javafx.version}</version>
-                    <classifier>win</classifier>
-                </dependency>
-                <dependency>
-                    <groupId>org.openjfx</groupId>
-                    <artifactId>javafx-swing</artifactId>
-                    <version>${javafx.version}</version>
-                    <classifier>win</classifier>
-                </dependency>
-                <dependency>
-                    <groupId>org.openjfx</groupId>
-                    <artifactId>javafx-graphics</artifactId>
-                    <version>${javafx.version}</version>
-                    <classifier>win</classifier>
-                </dependency>
-                <dependency>
-                    <groupId>org.openjfx</groupId>
-                    <artifactId>javafx-base</artifactId>
-                    <version>${javafx.version}</version>
-                    <classifier>win</classifier>
-                </dependency>
-                <dependency>
-                    <groupId>org.openjfx</groupId>
-                    <artifactId>javafx-controls</artifactId>
-                    <version>${javafx.version}</version>
-                    <classifier>linux</classifier>
-                </dependency>
-                <dependency>
-                    <groupId>org.openjfx</groupId>
-                    <artifactId>javafx-swing</artifactId>
-                    <version>${javafx.version}</version>
-                    <classifier>linux</classifier>
-                </dependency>
-                <dependency>
-                    <groupId>org.openjfx</groupId>
-                    <artifactId>javafx-graphics</artifactId>
-                    <version>${javafx.version}</version>
-                    <classifier>linux</classifier>
-                </dependency>
-                <dependency>
-                    <groupId>org.openjfx</groupId>
-                    <artifactId>javafx-base</artifactId>
-                    <version>${javafx.version}</version>
-                    <classifier>linux</classifier>
-                </dependency>
-            </dependencies>
-        </profile>
 
-        <!-- macOS dock options -->
-        <profile>
-            <id>mac-dock</id>
-            <activation>
-                <os>
-                    <family>mac</family>
-                </os>
-            </activation>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>org.openjfx</groupId>
-                        <artifactId>javafx-maven-plugin</artifactId>
-                        <configuration>
-                            <options>
-                                <option>-Xms${jlshell.jvm.xms}</option>
-                                <option>-Xmx${jlshell.jvm.xmx}</option>
-                                <option>-XX:+ExplicitGCInvokesConcurrent</option>
-                                <option>-XX:+UseG1GC</option>
-                                <option>-XX:G1PeriodicGCInterval=30000</option>
-                                <option>-XX:MinHeapFreeRatio=20</option>
-                                <option>-XX:MaxHeapFreeRatio=40</option>
-                                <option>-Dapple.laf.useScreenMenuBar=true</option>
-                                <option>-Dapple.awt.application.appearance=system</option>
-                                <option>-Dapple.awt.application.name=JLShell</option>
-                                <option>-Dcom.apple.mrj.application.apple.menu.about.name=JLShell</option>
-                                <option>-Xdock:icon=${project.basedir}/src/main/resources/icons/app_icon.png</option>
-                                <option>-Xdock:name=JLShell</option>
-                            </options>
-                        </configuration>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
 
         <!-- Windows native exe via Launch4j -->
         <profile>
@@ -243,22 +146,6 @@
                 <version>${maven.surefire.plugin.version}</version>
                 <configuration>
                     <argLine>-Dnet.bytebuddy.experimental=true</argLine>
-                </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.openjfx</groupId>
-                <artifactId>javafx-maven-plugin</artifactId>
-                <configuration>
-                    <mainClass>com.jlshell.app.Launcher</mainClass>
-                    <options>
-                        <option>-Xms${jlshell.jvm.xms}</option>
-                        <option>-Xmx${jlshell.jvm.xmx}</option>
-                        <option>-XX:+ExplicitGCInvokesConcurrent</option>
-                        <option>-XX:+UseG1GC</option>
-                        <option>-XX:G1PeriodicGCInterval=30000</option>
-                        <option>-XX:MinHeapFreeRatio=20</option>
-                        <option>-XX:MaxHeapFreeRatio=40</option>
-                    </options>
                 </configuration>
             </plugin>
             <plugin>

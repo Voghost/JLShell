@@ -1,5 +1,6 @@
 package com.jlshell.app;
 
+import com.jlshell.ui.support.UiThread;
 import com.jlshell.core.model.ConnectionType;
 import com.jlshell.core.service.AppSettingsService;
 import com.jlshell.data.entity.AuthenticationType;
@@ -13,9 +14,6 @@ import com.jlshell.ui.swing.*;
 import com.jlshell.ui.theme.*;
 import com.jlshell.ui.view.ConnectionDialog;
 import com.sun.net.httpserver.HttpServer;
-import javafx.application.Platform;
-import javafx.scene.control.*;
-import javafx.stage.Stage;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.junit.jupiter.api.io.TempDir;
@@ -97,8 +95,9 @@ class PresentationUiSmokeTest {
         static CompletableFuture<Optional<ConnectionFormData>> form(I18nService i18n,ThemeService themes,
                 ConnectionFormData initial,List<ProjectProfile> projects,VaultService vault,
                 ConnectionDialog.ConnectionTester tester) {
-            var result=new CompletableFuture<Optional<ConnectionFormData>>();Platform.runLater(()->{
-                try{result.complete(ConnectionDialog.show(owner,i18n,themes,initial,projects,List.of(),vault,tester,10));}
+            var result=new CompletableFuture<Optional<ConnectionFormData>>();com.jlshell.ui.support.UiThread.run(()->{
+                try{ConnectionDialog.showAsync(owner,i18n,themes,initial,projects,List.of(),vault,tester,10)
+                    .whenComplete((value, error) -> { if (error != null) result.completeExceptionally(error); else result.complete(Optional.ofNullable(value)); });}
                 catch(Throwable error){result.completeExceptionally(error);}
             });return result;
         }
@@ -116,19 +115,18 @@ class PresentationUiSmokeTest {
             robot.mouseMove(point.x,point.y);robot.mousePress(java.awt.event.InputEvent.BUTTON1_DOWN_MASK);
             robot.mouseRelease(java.awt.event.InputEvent.BUTTON1_DOWN_MASK);robot.waitForIdle();Thread.sleep(250);
         }
-        static void clickFx(SwingFxPanel panel,Button button)throws Exception {
-            if(Boolean.getBoolean("jlshell.ui.realMouse")) {
-                var bounds=fx(()->button.localToScene(button.getBoundsInLocal()));
-                var origin=edt(panel::getLocationOnScreen);
-                mouse(new java.awt.Point(origin.x+(int)((bounds.getMinX()+bounds.getMaxX())/2),
-                        origin.y+(int)((bounds.getMinY()+bounds.getMaxY())/2)));
-            } else fx(()->{button.fire();return null;});
-            fx(()->null);edt(()->null);
+
+        @SuppressWarnings("unchecked") static <T> JComboBox<T> box(JComponent panel, String id) {
+            return (JComboBox<T>) named(panel, "connection-" + id);
         }
-        @SuppressWarnings("unchecked") static <T> ComboBox<T> box(JComponent panel,String id) {
-            return (ComboBox<T>)((java.util.Map<?,?>)panel.getClientProperty("jlshell.formFields")).get("connection-"+id);
+        static JTextField input(JComponent panel, String id) { return (JTextField) named(panel, "connection-" + id); }
+        static void awaitNative(java.util.function.Supplier<Boolean> ready) throws Exception {
+            for (int attempt = 0; attempt < 200; attempt++) {
+                if (edt(ready)) return;
+                Thread.sleep(25);
+            }
+            fail("Native connection form did not become ready");
         }
-        static TextField input(JComponent panel,String id) {return (TextField)((java.util.Map<?,?>)panel.getClientProperty("jlshell.formFields")).get("connection-"+id);}
         static void connection(I18nService i18n,ThemeService themes,List<ProjectProfile> projects)throws Exception {
             String projectId=projects.getFirst().id();
             var profile=new VaultEntryProfile("fixture-vault","验收凭据",AuthenticationType.PASSWORD,VaultEncryptionMode.SYSTEM,projectId,null);
@@ -147,23 +145,31 @@ class PresentationUiSmokeTest {
                 fx(()->{themes.setTheme(theme);return null;});
                 var result=form(i18n,themes,ConnectionFormData.empty(projectId),projects,vault,tester);
                 JDialog dialog=window("jlshell.connection");JComponent panel=edt(()->(JComponent)named(dialog,"dialog.content"));
-                assertFalse(panel instanceof SwingFxPanel, "Connection form must use native Swing controls");
+                NativeSettingsProbe.assertNative(panel);
                 assertNotNull(edt(()->named(dialog,"dialog.header")));
                 assertFalse(edt(()->((JButton)named(dialog,"dialog.ok")).isEnabled()),"Original required-field validation must disable native OK");
-                fx(()->{
-                    input(panel,"name").setText("验收连接");input(panel,"host").setText("ui.example.invalid");input(panel,"user").setText("fixture");
-                    box(panel,"vault").setValue(profile);
-                    assertEquals("fixture-password",input(panel,"password").getText());
-                    assertTrue(input(panel,"password").isDisabled());assertTrue(box(panel,"auth").isDisabled());
-                    box(panel,"vault").getSelectionModel().select(0);
-                    assertFalse(input(panel,"password").isDisabled());assertFalse(box(panel,"auth").isDisabled());
-                    box(panel,"auth").setValue(AuthenticationType.PRIVATE_KEY);
-                    assertTrue(input(panel,"password").isDisabled());assertFalse(input(panel,"key-path").isDisabled());
-                    box(panel,"vault").setValue(profile);
-                    ((Button)((java.util.Map<?,?>)panel.getClientProperty("jlshell.formFields")).get("connection-test")).fire();return null;
+                awaitNative(() -> box(panel,"vault").getItemCount() == 2);
+                edt(() -> {
+                    input(panel,"name").setText("验收连接"); input(panel,"host").setText("ui.example.invalid"); input(panel,"user").setText("fixture");
+                    box(panel,"vault").setSelectedItem(profile);
+                    return null;
                 });
-                edt(()->null);assertTrue(edt(()->((JButton)named(dialog,"dialog.ok")).isEnabled()));
-                assertNotNull(tested.get());assertEquals("ui.example.invalid",tested.get().request().target().host());
+                awaitNative(() -> input(panel,"password").getText().equals("fixture-password") && !input(panel,"password").isEnabled());
+                edt(() -> {
+                    assertFalse(box(panel,"auth").isEnabled());
+                    box(panel,"vault").setSelectedIndex(0);
+                    assertTrue(input(panel,"password").isEnabled()); assertTrue(box(panel,"auth").isEnabled());
+                    box(panel,"auth").setSelectedItem(AuthenticationType.PRIVATE_KEY);
+                    assertFalse(input(panel,"password").isEnabled()); assertTrue(input(panel,"key-path").isEnabled());
+                    box(panel,"vault").setSelectedItem(profile);
+                    return null;
+                });
+                awaitNative(() -> input(panel,"password").getText().equals("fixture-password") && !input(panel,"password").isEnabled()
+                        && ((JButton) named(panel,"connection-test")).isEnabled());
+                edt(() -> { ((JButton) named(panel,"connection-test")).doClick(); return null; });
+                awaitNative(() -> tested.get() != null && ((JButton) named(panel,"connection-test")).isEnabled());
+                assertTrue(edt(() -> ((JButton) named(dialog,"dialog.ok")).isEnabled()));
+                assertEquals("ui.example.invalid", tested.get().request().target().host());
                 capture(dialog,"connection-"+theme.name().toLowerCase());
                 click(dialog,"dialog.ok");accepted=result.get(10,TimeUnit.SECONDS).orElseThrow();
                 assertEquals("fixture-vault",accepted.vaultEntryId());assertEquals("fixture-password",accepted.password());
@@ -179,7 +185,7 @@ class PresentationUiSmokeTest {
             var cancel=form(i18n,themes,ConnectionFormData.empty(projectId),projects,vault,tester);dialog=window("jlshell.connection");
             JDialog localDialog=dialog;
             JComponent panel=edt(()->(JComponent)named(localDialog,"dialog.content"));
-            fx(()->{box(panel,"type").setValue(ConnectionType.LOCAL_SHELL);assertFalse(input(panel,"host").isManaged());return null;});
+            edt(()->{box(panel,"type").setSelectedItem(ConnectionType.LOCAL_SHELL);assertFalse(input(panel,"host").isShowing());return null;});
             click(dialog,"dialog.cancel");assertTrue(cancel.get(10,TimeUnit.SECONDS).isEmpty());
         }
         static void plugins(I18nService i18n,ThemeService themes,PluginManager sessions,ProgramPluginManager programs)throws Exception {
@@ -191,15 +197,15 @@ class PresentationUiSmokeTest {
                 JDialog dialog=window("jlshell.settings");
                 edt(()->{((JTextField)named(dialog,"settings.search")).setText(i18n.get("preferences.tab.plugins"));return null;});Thread.sleep(350);
                 for(int attempt=0;attempt<100;attempt++) {
-                    if(edt(()->NativeSettingsProbe.styled(dialog,"plugin-detail-title")!=null))break;Thread.sleep(50);
+                    if(edt(()->named(dialog,"plugins.detail.title")!=null))break;Thread.sleep(50);
                 }
                 edt(()->{NativeSettingsProbe.assertNative(dialog);assertNotNull(named(dialog,"settings.pluginTab.0"));
-                    assertNotNull(NativeSettingsProbe.styled(dialog,"plugin-detail-title"));return null;});
+                    assertNotNull(named(dialog,"plugins.detail.title"));return null;});
                 capture(dialog,"plugins-marketplace-"+theme.name().toLowerCase());
                 java.awt.Dimension original=edt(dialog::getSize);
                 edt(()->{dialog.setSize(820,600);return null;});Thread.sleep(250);
                 edt(()->{
-                    JScrollPane scroll=(JScrollPane)NativeSettingsProbe.styled(dialog,"plugin-manager-list");
+                    JScrollPane scroll=NativeSettingsProbe.all(dialog,JScrollPane.class).stream().filter(view -> "plugins.listScroll".equals(view.getName()) && view.isShowing()).findFirst().orElseThrow();
                     JList<?> items=(JList<?>)scroll.getViewport().getView();
                     assertFalse(scroll.getHorizontalScrollBar().isVisible());
                     assertEquals(scroll.getViewport().getExtentSize().width,items.getWidth(),"Plugin cells must track the viewport width");
@@ -209,7 +215,7 @@ class PresentationUiSmokeTest {
                 });capture(dialog,"plugins-narrow-"+theme.name().toLowerCase());
                 edt(()->{dialog.setSize(original);return null;});Thread.sleep(100);
                 click(dialog,"settings.pluginTab.1");Thread.sleep(250);
-                JList<?> list=edt(()->NativeSettingsProbe.all(NativeSettingsProbe.styled(dialog,"plugin-manager-list"),JList.class).getFirst());
+                JList<?> list=edt(()->NativeSettingsProbe.all(dialog,JList.class).stream().filter(java.awt.Component::isShowing).findFirst().orElseThrow());
                 edt(()->{assertEquals(2,list.getModel().getSize());list.setSelectedIndex(1);return null;});Thread.sleep(250);
                 capture(dialog,"plugins-installed-"+theme.name().toLowerCase());
                 if(theme==AppTheme.DARK) {
@@ -231,8 +237,8 @@ class PresentationUiSmokeTest {
             originalPluginJar("plugin-program-demo","com/jlshell/demo/program/HostToolsProgramPlugin.java","program-plugins");
             HttpServer server=store();
             try {
-                Platform.startup(()->Platform.setImplicitExit(false));
-                AppContext context=fx(()->{var value=new AppContext();main=value.getMainWindow();owner=new Stage();owner.setScene(main.createScene(owner));
+
+                AppContext context=fx(()->{var value=new AppContext();main=value.getMainWindow();owner=null;
                     main.showSwingWindow(owner,()->{});return value;});
                 @SuppressWarnings("unchecked") SwingWorkbench workbench=((CompletableFuture<SwingWorkbench>)field(main,"swingWorkbench")).get(10,TimeUnit.SECONDS);
                 edt(()->{workbench.show();return null;});

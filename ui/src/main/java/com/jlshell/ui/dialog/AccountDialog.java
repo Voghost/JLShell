@@ -17,33 +17,33 @@ import java.util.concurrent.CompletableFuture;
 public final class AccountDialog {
     private AccountDialog() {}
 
-    public static void showLogin(Object owner, I18nService i18n, ThemeService themes, AccountService account) {
-        show(i18n, account, false);
+    public static CompletableFuture<Void> showLogin(Object owner, I18nService i18n, ThemeService themes, AccountService account) {
+        return show(i18n, themes, account, false);
     }
 
-    public static void showRegister(Object owner, I18nService i18n, ThemeService themes, AccountService account) {
-        show(i18n, account, true);
+    public static CompletableFuture<Void> showRegister(Object owner, I18nService i18n, ThemeService themes, AccountService account) {
+        return show(i18n, themes, account, true);
     }
 
-    public static void showBrowserLogin(Object owner, I18nService i18n, ThemeService themes, AccountService account) {
-        SwingFormDialog.showMessage(i18n.get("account.login.web.title"), "jlshell.account.browser", i18n,
+    public static CompletableFuture<Void> showBrowserLogin(Object owner, I18nService i18n, ThemeService themes, AccountService account) {
+        return SwingFormDialog.showMessageAsync(i18n.get("account.login.web.title"), "jlshell.account.browser", i18n, themes,
                 () -> new BrowserForm(i18n, account), 580, 280);
     }
 
-    public static void showChangePassword(Object owner, I18nService i18n, ThemeService themes, AccountService account) {
-        SwingFormDialog.showAndWait(i18n.get("account.changePassword.title"), "jlshell.account.password", i18n, () -> {
+    public static CompletableFuture<Void> showChangePassword(Object owner, I18nService i18n, ThemeService themes, AccountService account) {
+        return SwingFormDialog.showAsync(i18n.get("account.changePassword.title"), "jlshell.account.password", i18n, themes, () -> {
             PasswordForm form = new PasswordForm(i18n, account);
             return new SwingFormDialog.Form<>(form, form::submit, i18n.get("account.changePassword"));
-        }, 560, 340);
+        }, 560, 340).thenApply(ignored -> null);
     }
 
-    private static void show(I18nService i18n, AccountService account, boolean register) {
-        SwingFormDialog.showAndWait(i18n.get(register ? "account.register.title" : "account.login.title"),
-                "jlshell.account", i18n, () -> {
+    private static CompletableFuture<Void> show(I18nService i18n, ThemeService themes, AccountService account, boolean register) {
+        return SwingFormDialog.showAsync(i18n.get(register ? "account.register.title" : "account.login.title"),
+                "jlshell.account", i18n, themes, () -> {
                     LoginForm form = new LoginForm(i18n, account, register);
                     return new SwingFormDialog.Form<>(form, form::submit,
                             i18n.get(register ? "account.register.action" : "account.login.action"));
-                }, 580, register ? 590 : 430);
+                }, 580, register ? 590 : 430).thenApply(ignored -> null);
     }
 
     private abstract static class AccountForm extends JPanel implements AutoCloseable {

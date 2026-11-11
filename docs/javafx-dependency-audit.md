@@ -20,10 +20,31 @@
 - 导入继续使用原解析器及加密持久化，文件读取与连接写入在后台执行。插件市场保留下载校验、安装替换、更新检查、启停、卸载及原生插件设置页。
 - 已通过 JDK 21 的 `mvn -B -Pwith-plugins test`。设置导航缓存、所有设置页、应用/取消、关于布局、字体订阅和原生对话框的真实窗口回归通过。
 
-宿主启动、工作台/会话模型、连接/项目/凭据表单和旧 FX 嵌入适配仍待迁移。
-当前完整应用仍需要 JavaFX，尚未形成无 FX 安装包。新的 SDK 页面签名需要插件迁移并重新编译，尚未发布到 Maven Central。
+第三批迁移已完成，验证日期为 2026-11-11。
 
-## 1. 当前依赖范围
+- 启动入口直接创建 AWT/Swing 工作台，主窗口、会话标签、终端、SFTP 跟随目录及监控使用普通 Java 状态和 EDT。
+- 连接、项目、凭据和确认表单使用原生 Swing，删除 FX 表单转换器、JFXPanel/SwingNode 桥接、旧视图及 CSS 资源。
+- 父 POM、全部宿主模块和四个内置/示例插件的依赖树均无 OpenJFX。Release、Preview、本地运行脚本与 bootstrap launcher 已移除 FX 模块及启动参数，使用普通 JDK 21。
+- 发布裁剪脚本会拒绝意外混入的 JavaFX 类。精简运行时通过 SQLite、SSH 加密库、JNA、真实本地 PTY 验证，并使用裁剪后的 JAR 完成真实主窗口启动及正常退出。
+- JDK 21 全量验收命令为 `mvn -B -Pwith-plugins test -Djlshell.ui.smoke=true`。共 336 项，0 失败、0 错误、7 项按环境条件跳过。包含设置与表单、目录跟随、插件首帧、工具窗口布局、主题/字体应用及真实鼠标菜单/快捷键/滚动条回归。
+- 两类加载器隔离缺少旧 UI 类的外部插件。旧页面返回类型或 FX 属性签名需要按 `docs/plugin-swing-views.md` 迁移并重新编译，新的 SDK 尚未发布到 Maven Central。
+
+### 当前产物实测
+
+下表采用十进制 MB。当前 macOS ARM64 构建使用 OpenJDK 21.0.12.1，运行时参数与 Release 一致，保留英文/中文 locale。发布基线运行时为 21.0.11，JDK 发行包与小版本不同会影响最终大小。
+
+| 产物 | 0.2.2 发布基线 | 当前本地构建 |
+|---|---|---|
+| 通用应用 JAR | 34.83 MB | 26.52 MB |
+| macOS ARM64 应用 JAR | 23.60 MB | 23.36 MB |
+| macOS ARM64 完整 ZIP | 66.11 MB | 56.63 MB |
+| 当前精简运行时文件总计 | — | 50.05 MB |
+
+当前精简 JAR 和运行时中均无 JavaFX 类或模块。完整 ZIP 位于 `dist/javafx-free-check/release/JLShell-mac-arm64-swing.zip`，测量原始字节数见 `dist/javafx-free-check/size-report.json`。Windows/Linux 的原生打包和运行需由对应平台 CI 验证。
+
+本地验证使用 `./run-local-test.sh`，默认独立测试数据。需要真实保存数据时使用 `./run-local-test.sh --real-data`。源码修改后首次启动应重新构建，再使用 `--no-build`。`./run.sh` 使用真实数据和正常应用模式，Windows 使用 `run.bat`。
+
+## 1. 发布基线的依赖范围
 
 宿主默认显示 Swing 工作台，但启动生命周期、业务控制器、表单模型、属性监听和插件接口仍使用 JavaFX。
 彻底移除需要同步替换这些调用链。
@@ -52,7 +73,7 @@
 - 独立 `plugins/` 的四个示例/系统监控模块均声明 controls。
 - `program-api` 自身只有 Gson 等依赖，生产源码没有 JavaFX 引用。UI 型 `ProgramPluginContext` 位于 `plugin-api`，仍有 FX 属性签名。
 
-## 2. 正常功能中的实际调用
+## 2. 发布基线的功能调用
 
 ### 启动与主界面
 
@@ -126,13 +147,13 @@ SDK 移除 Node 和 FX 属性会改变公开方法签名，需要发布具有明
 
 仅从这些可识别数据估算，独立 JAR 有望降至约 27 MB，macOS ZIP 有望降至约 59–60 MB。
 JAR 的 ZIP 条目元数据、待删除宿主适配代码、模块索引和最终重压缩会影响结果。
-上述为数据归属分析与估算，尚未生成可运行的无 FX 构建。Windows/Linux 完整包需在各自平台重新打包后实测。
+上述为迁移前的数据归属分析与估算，当前产物实测见前面的实施检查点。Windows/Linux 完整包需在各自平台重新打包后实测。
 独立 JAR 与完整安装包的收益分别计算。
 
 发布 JAR 中没有发现 RichTextFX、ReactFX、Flowless、ControlsFX、Ikonli 的类条目，项目 POM 也没有这些依赖声明。
 发布 macOS 运行时只有上述四个 FX 模块，未包含 fxml、web、media。Preview 配置与 Release 的模块范围不同。
 
-## 5. 建议实施顺序
+## 5. 迁移顺序与发布要求
 
 1. 定义无 FX 的宿主状态与读取/监听契约，迁移主题、语言、会话、目录及项目字段属性。
 2. 将 Swing 工作台的会话、侧栏、设置、连接和项目表单逻辑改为直接使用 Swing 与普通 Java 模型。

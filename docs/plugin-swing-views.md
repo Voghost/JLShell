@@ -13,6 +13,8 @@
 
 这些接口变更涉及二进制兼容性。使用旧页面返回类型或 JavaFX 属性的插件需要迁移并重新编译。仅替换插件的 SDK JAR 无法完成迁移。加载器会记录无法加载的外部插件并继续扫描其他 JAR。
 
+插件激活在后台串行执行，页面工厂与组件更新在 Swing EDT 执行。激活期间登记页面即可提前绘制，网络或文件操作继续异步完成。
+
 ## 页面工厂
 
 ```java
@@ -50,4 +52,4 @@ subscription.close();
 
 宿主 SDK 使用 `provided` 作用域。插件 fat JAR 保留自身业务依赖及资源，排除 SDK、OpenJFX、SLF4J 和宿主内部模块。仓库内的脚本片段、Session Demo、Program Demo 和系统监控插件均已使用 Swing。
 
-使用 JDK 21，在桌面仓库执行 `mvn -Pwith-plugins package` 可同时验证 SDK 与四个插件。宿主其余旧表单和启动模型仍在迁移，移除 SDK 的依赖并不代表整个桌面运行时已完成 OpenJFX 清理。
+使用 JDK 21，在桌面仓库执行 `mvn -Pwith-plugins package` 可同时验证 SDK 与四个插件。宿主启动、工作台、设置与对话框已迁移至 Swing，构建及发布脚本使用普通 JDK。
