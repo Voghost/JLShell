@@ -319,6 +319,13 @@ assemble_win() {
 setlocal
 set DIR=%~dp0
 set JAVA=%DIR%runtime\bin\javaw.exe
+set PATH=%DIR%runtime\bin;%SystemRoot%\System32;%SystemRoot%;%PATH%
+set JAVA_HOME=%DIR%runtime
+set JAVAFX_HOME=
+set JAVA_TOOL_OPTIONS=
+set _JAVA_OPTIONS=
+set JDK_JAVA_OPTIONS=
+set JLSHELL_RUNTIME_ISOLATED=true
 set VM_OPTS=-Xms32m -Xmx512m -XX:+ExplicitGCInvokesConcurrent -XX:+UseG1GC -XX:+UseCompactObjectHeaders --enable-native-access=ALL-UNNAMED -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40
 set USER_VMOPTIONS=%APPDATA%\JLShell\JLShell.vmoptions
 set BUNDLED_VMOPTIONS=%DIR%JLShell.vmoptions

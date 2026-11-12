@@ -24,6 +24,7 @@ final class VisibleTerminalAccess implements TerminalAccess, AutoCloseable {
     private volatile boolean closed;
     private final java.util.concurrent.Semaphore batchLock=new java.util.concurrent.Semaphore(1,true);
     private final ArrayBlockingQueue<Event> events = new ArrayBlockingQueue<>(512);
+    private boolean deliveryStarted;
     private final Thread dispatcher = Thread.ofVirtual().name("terminal-events").unstarted(() -> {
         try {
             while (true) {
@@ -97,7 +98,6 @@ final class VisibleTerminalAccess implements TerminalAccess, AutoCloseable {
 
     VisibleTerminalAccess(String id,JlshellJediTermWidget widget,Supplier<String> directory) {
         this.id=id; this.widget=widget; this.directory=directory;
-        dispatcher.start();
     }
     public String sessionId() { return id; }
     public CompletableFuture<Snapshot> snapshot(int lines,int limit) {
@@ -190,8 +190,11 @@ final class VisibleTerminalAccess implements TerminalAccess, AutoCloseable {
         result.whenComplete((value,error)->{ if(result.isCancelled()) worker.interrupt(); });
         worker.start(); return result;
     }
-    public Registration subscribe(Consumer<Event> listener) {
-        requireOpen(); listeners.add(Objects.requireNonNull(listener)); return () -> listeners.remove(listener);
+    public synchronized Registration subscribe(Consumer<Event> listener) {
+        requireOpen();
+        listeners.add(Objects.requireNonNull(listener));
+        if (!deliveryStarted) { deliveryStarted = true; dispatcher.start(); }
+        return () -> listeners.remove(listener);
     }
     public synchronized void close() {
         if(closed) return;

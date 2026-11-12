@@ -483,8 +483,16 @@ public final class BootstrapLauncher {
     }
 
     private static void invokeApplication(Path appJar, String[] args) throws Exception {
-        Path runtimeCache = Path.of(System.getProperty("java.io.tmpdir"), "jlshell-runtime");
-        ApplicationRuntime runtime = ApplicationRuntime.open(appJar, runtimeCache);
+        Path runtimeCache = updatesDir().resolve("runtime");
+        try { Files.createDirectories(runtimeCache); }
+        catch (IOException readOnlyInstallation) {
+            runtimeCache = Path.of(System.getProperty("java.io.tmpdir"), "jlshell-runtime");
+        }
+        ApplicationRuntime runtime;
+        try { runtime = ApplicationRuntime.open(appJar, runtimeCache); }
+        catch (java.nio.file.AccessDeniedException readOnlyCache) {
+            runtime = ApplicationRuntime.open(appJar, Path.of(System.getProperty("java.io.tmpdir"), "jlshell-runtime"));
+        }
         ClassLoader previous = Thread.currentThread().getContextClassLoader();
         try {
             Thread.currentThread().setContextClassLoader(runtime.loader());

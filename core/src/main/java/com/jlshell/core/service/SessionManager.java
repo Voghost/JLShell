@@ -15,6 +15,9 @@ import com.jlshell.core.session.SshSession;
  */
 public interface SessionManager {
 
+    /** Notifications carry no snapshot. Consumers query state off the publishing thread. */
+    default AutoCloseable onSessionsChanged(Runnable listener) { return () -> {}; }
+
     CompletableFuture<SshSession> openSession(ConnectionRequest request);
 
     Optional<SshSession> getSession(SessionId sessionId);

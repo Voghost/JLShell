@@ -27,6 +27,13 @@ public final class DefaultProgramWorkspaceService implements ProgramWorkspaceSer
     private final ArrayBlockingQueue<Event> delivery=new ArrayBlockingQueue<>(512);
     private final CopyOnWriteArrayList<Consumer<Event>> listeners=new CopyOnWriteArrayList<>();
     private final ScheduledExecutorService monitor=Executors.newSingleThreadScheduledExecutor(Thread.ofPlatform().daemon().name("workspace-events").factory());
+    private final ScheduledThreadPoolExecutor deadlines = new ScheduledThreadPoolExecutor(1,
+            Thread.ofPlatform().daemon().name("workspace-operation-timeouts").factory());
+    private final AtomicBoolean observationPending = new AtomicBoolean();
+    private final java.util.concurrent.atomic.AtomicLong changes = new java.util.concurrent.atomic.AtomicLong();
+    private AutoCloseable sessionChanges;
+    private com.jlshell.plugin.api.lifecycle.Registration visibleSessionChanges;
+    private boolean deliveryStarted;
     private final Thread dispatcher=Thread.ofVirtual().name("workspace-event-delivery").unstarted(this::dispatch);
     private volatile Map<String,Session> previous=Map.of();
     private final WorkspaceJobStore jobStore;
@@ -45,6 +52,7 @@ public final class DefaultProgramWorkspaceService implements ProgramWorkspaceSer
             java.util.function.Function<String,com.jlshell.plugin.api.capability.FileExplorer> fileAccess, WorkspaceJobStore jobStore) {
         this.connections=connections; this.sessions=sessions; this.executor=executor; this.fileAccess=fileAccess;
         this.jobStore = jobStore;
+        deadlines.setRemoveOnCancelPolicy(true);
         this.processService = new DefaultProgramProcessService(sessions, executor);
         for (Job stored : jobStore.load()) {
             boolean interrupted = stored.steps().stream().anyMatch(step -> !terminal(step.state()));
@@ -56,7 +64,11 @@ public final class DefaultProgramWorkspaceService implements ProgramWorkspaceSer
             if (interrupted) persist(restored);
         }
         workspaceChanges = HostExtensionRegistry.onWorkspaceChange(change -> emit(change.type(), change.sessionId(), change.relatedId(), ""));
-        dispatcher.start(); monitor.scheduleWithFixedDelay(this::observe,0,100,TimeUnit.MILLISECONDS);
+        sessionChanges = sessions.onSessionsChanged(this::requestObservation);
+        visibleSessionChanges = HostExtensionRegistry.onSessionsChanged(ignored -> requestObservation());
+        requestObservation();
+        // Readiness can also change inside a terminal supplied by an external plugin.
+        monitor.scheduleWithFixedDelay(this::observe, 5, 5, TimeUnit.SECONDS);
     }
     @Override public com.jlshell.program.api.ProgramProcessService processes() { requireOpen(); return processService; }
     @Override public CompletableFuture<AgentContext> context(ContextRequest request) {
@@ -355,7 +367,12 @@ public final class DefaultProgramWorkspaceService implements ProgramWorkspaceSer
     private static TerminalEvent terminalEvent(TerminalAccess.Event event) {
         return new TerminalEvent(event.sequence(), event.time().toString(), event.kind().name(), event.text(), event.exitCode());
     }
-    public Subscription subscribe(Consumer<Event> listener) { requireOpen(); listeners.add(Objects.requireNonNull(listener)); return () -> listeners.remove(listener); }
+    public synchronized Subscription subscribe(Consumer<Event> listener) {
+        requireOpen();
+        listeners.add(Objects.requireNonNull(listener));
+        if (!deliveryStarted) { deliveryStarted = true; dispatcher.start(); }
+        return () -> listeners.remove(listener);
+    }
     public synchronized Events events(long after,int limit) {
         if(after<0 || limit<1 || limit>512) throw new IllegalArgumentException("Invalid event page");
         var page=journal.stream().filter(event -> event.sequence()>after).limit(limit).toList();
@@ -365,6 +382,7 @@ public final class DefaultProgramWorkspaceService implements ProgramWorkspaceSer
         if(closed) return;
         Event event=new Event(++sequence,Instant.now().toString(),type,session,related,message);
         if(journal.size()==512) journal.removeFirst(); journal.addLast(event);
+        if (listeners.isEmpty()) return;
         if(!delivery.offer(event)) { delivery.poll(); delivery.offer(event); }
     }
     private void dispatch() {
@@ -373,6 +391,21 @@ public final class DefaultProgramWorkspaceService implements ProgramWorkspaceSer
             for(var listener:listeners) try { listener.accept(event); } catch(RuntimeException error) { HostExtensionRegistry.report(error); }
         }} catch(InterruptedException error) { Thread.currentThread().interrupt(); }
     }
+    private void requestObservation() {
+        changes.incrementAndGet();
+        if (closed || !observationPending.compareAndSet(false, true)) return;
+        try {
+            monitor.execute(() -> {
+                long version = changes.get();
+                try { observe(); }
+                finally {
+                    observationPending.set(false);
+                    if (changes.get() != version) requestObservation();
+                }
+            });
+        } catch (RejectedExecutionException stopping) { observationPending.set(false); }
+    }
+
     private void observe() {
         try {
             Map<String,Session> current=new LinkedHashMap<>(); readSessions().forEach(session -> current.put(session.sessionId(),session));
@@ -396,10 +429,6 @@ public final class DefaultProgramWorkspaceService implements ProgramWorkspaceSer
             previous=current;
             for(var run:operations.values()) if(!terminal(run.info.state())) {
                 if(!current.containsKey(run.info.sessionId())) cancelOperation(run.info.operationId());
-                else if(System.nanoTime()>=run.deadline) {
-                    transition(run,State.FAILED,run.info.progress(),"Operation timed out");
-                    run.cancelled.set(true); if(run.current!=null) run.current.cancel(true);
-                }
             }
         } catch(RuntimeException error) { if(!closed) HostExtensionRegistry.report(error); }
     }
@@ -410,9 +439,17 @@ public final class DefaultProgramWorkspaceService implements ProgramWorkspaceSer
         final CompletableFuture<Operation> result=new CompletableFuture<>();
         volatile CompletableFuture<?> current;
         volatile long lastProgress;
+        volatile ScheduledFuture<?> timeout;
         volatile long deadline=Long.MAX_VALUE;
         OperationRun(Operation info) { this.info=info; }
     }
+    private synchronized void timeout(OperationRun run) {
+        if (terminal(run.info.state())) return;
+        transition(run, State.FAILED, run.info.progress(), "Operation timed out");
+        run.cancelled.set(true);
+        if (run.current != null) run.current.cancel(true);
+    }
+
     public CompletableFuture<Operation> enqueue(Input input) {
         requireOpen();
         try {
@@ -437,6 +474,7 @@ public final class DefaultProgramWorkspaceService implements ProgramWorkspaceSer
                 OperationRun run=new OperationRun(new Operation(id,input.sessionId(),target.terminalId(),input.jobId(),input.stepId(),mode,State.QUEUED,0,"",Instant.now().toString(),null));
                 run.deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(input.timeoutSeconds());
                 operations.put(id,run);
+                run.timeout = deadlines.schedule(() -> timeout(run), input.timeoutSeconds(), TimeUnit.SECONDS);
                 var queue=terminalQueues.computeIfAbsent(target.terminalId(),key -> new TerminalQueue());
                 synchronized(queue) { queue.tail=queue.tail.handle((value,error) -> null).thenRunAsync(() -> execute(run,target,input),executor); }
                 return CompletableFuture.completedFuture(run.info);
@@ -512,7 +550,10 @@ public final class DefaultProgramWorkspaceService implements ProgramWorkspaceSer
         if(old.jobId()!=null) updateStepState(old.jobId(),old.stepId(),state,progress,message);
         emit("OPERATION_"+state,old.sessionId(),old.operationId(),message);
         if (state == State.FAILED) HostExtensionRegistry.error("OPERATION", old.sessionId(), null, message);
-        if(terminal(state)) run.result.complete(run.info);
+        if(terminal(state)) {
+            if (run.timeout != null) run.timeout.cancel(false);
+            run.result.complete(run.info);
+        }
     }
     public Operation operation(String id) { var run=operations.get(id); if(run==null) throw new IllegalArgumentException("Operation not found"); return run.info; }
     public CompletableFuture<Operation> awaitOperation(String id,int timeout) {
@@ -620,7 +661,10 @@ public final class DefaultProgramWorkspaceService implements ProgramWorkspaceSer
         try { persistence.join(); }
         catch (CompletionException error) { HostExtensionRegistry.report(error); }
         finally {
-            workspaceChanges.close(); monitor.shutdownNow(); dispatcher.interrupt(); listeners.clear(); terminalQueues.clear();
+            workspaceChanges.close();
+            visibleSessionChanges.close();
+            try { if (sessionChanges != null) sessionChanges.close(); } catch (Exception error) { HostExtensionRegistry.report(error); }
+            monitor.shutdownNow(); deadlines.shutdownNow(); dispatcher.interrupt(); listeners.clear(); terminalQueues.clear();
         }
     }
 }
