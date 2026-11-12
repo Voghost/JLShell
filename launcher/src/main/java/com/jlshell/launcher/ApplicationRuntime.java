@@ -8,37 +8,47 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.util.HexFormat;
 
-/** Owns a private application archive and its loader until the JVM shuts down. */
+/** Loads a verified, reusable snapshot so updates can replace the source archive safely. */
 final class ApplicationRuntime implements AutoCloseable {
-    private final Path directory;
     private final Path archive;
     private final URLClassLoader loader;
     private final Thread shutdown;
     private boolean closed;
 
-    private ApplicationRuntime(Path directory, Path archive, URLClassLoader loader) {
-        this.directory = directory; this.archive = archive; this.loader = loader;
+    private ApplicationRuntime(Path archive, URLClassLoader loader) {
+        this.archive = archive; this.loader = loader;
         shutdown = new Thread(this::close, "jlshell-runtime-cleanup");
         Runtime.getRuntime().addShutdownHook(shutdown);
     }
 
-    static ApplicationRuntime open(Path source, Path cache) throws Exception {
+    static synchronized ApplicationRuntime open(Path source, Path cache) throws Exception {
         Files.createDirectories(cache);
         removeStoppedRuntimes(cache);
-        Path directory = Files.createTempDirectory(cache, "runtime-" + ProcessHandle.current().pid() + "-");
-        Path archive = directory.resolve("app.jar");
-        URLClassLoader loader = null;
-        try {
-            String expected = digest(source);
-            Files.copy(source, archive);
-            if (!expected.equals(digest(archive))) throw new IOException("Application JAR changed while preparing runtime: " + source);
-            loader = new URLClassLoader(new java.net.URL[]{archive.toUri().toURL()}, ClassLoader.getPlatformClassLoader());
-            return new ApplicationRuntime(directory, archive, loader);
-        } catch (Exception | Error error) {
-            if (loader != null) try { loader.close(); } catch (IOException cleanup) { error.addSuppressed(cleanup); }
-            try { Files.deleteIfExists(archive); Files.deleteIfExists(directory); } catch (IOException cleanup) { error.addSuppressed(cleanup); }
-            throw error;
+        String expected = digest(source);
+        Path archive = cache.resolve(expected + ".jar");
+        // Serializes cache creation across launches. Readers only see a fully verified archive.
+        try (var channel = java.nio.channels.FileChannel.open(cache.resolve("prepare.lock"),
+                java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.WRITE);
+             var lock = channel.lock()) {
+            if (!Files.isRegularFile(archive, LinkOption.NOFOLLOW_LINKS) || !expected.equals(digest(archive))) {
+                Path pending = Files.createTempFile(cache, "prepare-", ".jar");
+                try {
+                    Files.copy(source, pending, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    if (!expected.equals(digest(pending))) {
+                        throw new IOException("Application JAR changed while preparing runtime: " + source);
+                    }
+                    try {
+                        Files.move(pending, archive, java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    } catch (java.nio.file.AtomicMoveNotSupportedException unsupported) {
+                        Files.move(pending, archive, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    }
+                } finally { Files.deleteIfExists(pending); }
+            }
         }
+        URLClassLoader loader = new URLClassLoader(new java.net.URL[]{archive.toUri().toURL()},
+                ClassLoader.getPlatformClassLoader());
+        return new ApplicationRuntime(archive, loader);
     }
 
     URLClassLoader loader() { return loader; }
@@ -74,6 +84,6 @@ final class ApplicationRuntime implements AutoCloseable {
             try { Runtime.getRuntime().removeShutdownHook(shutdown); } catch (IllegalStateException ignored) { }
         }
         try { loader.close(); } catch (IOException ignored) { }
-        try { Files.deleteIfExists(archive); Files.deleteIfExists(directory); } catch (IOException ignored) { }
+        // The verified content-addressed archive is reused by subsequent launches.
     }
 }

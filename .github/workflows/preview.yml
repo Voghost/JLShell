@@ -629,6 +629,8 @@ jobs:
             --java-options "--add-opens java.desktop/javax.swing=ALL-UNNAMED" \
             --dest dist/win-image
 
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File .github/scripts/install_windows_bootstrap.ps1 -AppPath dist/win-image/JLShellPreview/JLShellPreview.exe -Description "JLShell Preview"
+
           # plugins directory — drop plugin JARs here to install them
           mkdir -p dist/win-image/JLShellPreview/plugins
           cat > dist/win-image/JLShellPreview/plugins/README.txt <<'EOF'
@@ -645,27 +647,9 @@ jobs:
             --type msi \
             --name JLShellPreview \
             --app-version "$PKG_VERSION" \
-            --input dist/win-input \
-            --main-jar jlshell-launcher.jar \
-            --main-class com.jlshell.launcher.BootstrapLauncher \
-            --runtime-image dist/runtime \
-            --icon app/src/main/resources/icons/app_icon.ico \
+            --app-image dist/win-image/JLShellPreview \
             --vendor JLShell \
             --description "JLShell Preview" \
-            --java-options "-Xms32m" \
-            --java-options "-Xmx512m" \
-            --java-options "-XX:+ExplicitGCInvokesConcurrent" \
-            --java-options "-XX:+UseG1GC" \
-            --java-options "-XX:+UseCompactObjectHeaders" \
-            --java-options "--enable-native-access=ALL-UNNAMED" \
-            --java-options "-XX:G1PeriodicGCInterval=30000" \
-            --java-options "-XX:MinHeapFreeRatio=20" \
-            --java-options "-XX:MaxHeapFreeRatio=40" \
-            --java-options "--add-opens java.base/java.lang=ALL-UNNAMED" \
-            --java-options "--add-opens java.desktop/sun.awt=ALL-UNNAMED" \
-            --java-options "--add-exports java.desktop/sun.swing=ALL-UNNAMED" \
-            --java-options "--add-opens java.desktop/sun.swing=ALL-UNNAMED" \
-            --java-options "--add-opens java.desktop/javax.swing=ALL-UNNAMED" \
             --win-dir-chooser \
             --win-menu \
             --win-menu-group JLShellPreview \

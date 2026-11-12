@@ -36,7 +36,24 @@ class ApplicationRuntimeTest {
             }
             assertTrue(Files.exists(snapshot));
         }
-        assertFalse(Files.exists(snapshot), "Explicit close must release the private archive");
+        assertTrue(Files.exists(snapshot), "Verified archive remains available for reuse");
+    }
+
+    @Test void reusesVerifiedArchiveAndRepairsCorruption() throws Exception {
+        Path source = temporary.resolve("source.jar");
+        try (var jar = new JarOutputStream(Files.newOutputStream(source))) { }
+        Path cache = temporary.resolve("cache");
+        Path archive;
+        try (var runtime = ApplicationRuntime.open(source, cache)) { archive = runtime.archive(); }
+        var modified = Files.getLastModifiedTime(archive);
+        try (var runtime = ApplicationRuntime.open(source, cache)) {
+            assertEquals(archive, runtime.archive());
+            assertEquals(modified, Files.getLastModifiedTime(archive));
+        }
+        Files.writeString(archive, "corrupted");
+        try (var runtime = ApplicationRuntime.open(source, cache)) {
+            assertArrayEquals(Files.readAllBytes(source), Files.readAllBytes(runtime.archive()));
+        }
     }
 
     @Test void cleansOnlyStoppedRuntimeArchivesAndLeavesRunningOrUnknownFilesAlone() throws Exception {

@@ -19,6 +19,20 @@ import com.jlshell.core.session.SshSession;
  */
 public class DefaultSessionManager implements SessionManager {
 
+    private final java.util.concurrent.CopyOnWriteArrayList<Runnable> listeners = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    @Override public AutoCloseable onSessionsChanged(Runnable listener) {
+        listeners.add(listener);
+        return () -> listeners.remove(listener);
+    }
+
+    private void changed() {
+        for (Runnable listener : listeners) {
+            try { listener.run(); }
+            catch (RuntimeException ignored) { /* A consumer must not break session lifecycle. */ }
+        }
+    }
+
     private final ConnectionManager connectionManager;
     private final SessionRegistry sessionRegistry;
 
@@ -33,6 +47,8 @@ public class DefaultSessionManager implements SessionManager {
                 .thenApply(session -> {
                     // 只有连接真正成功后才注册，避免脏会话出现在 UI 列表。
                     sessionRegistry.register(session);
+                    session.addDisconnectListener(reason -> changed());
+                    changed();
                     return session;
                 });
     }
@@ -54,7 +70,7 @@ public class DefaultSessionManager implements SessionManager {
 
         return session.disconnect()
                 // 不论底层关闭成功或失败，都从活动注册表中移除，避免 UI 悬挂。
-                .whenComplete((unused, throwable) -> sessionRegistry.remove(sessionId));
+                .whenComplete((unused, throwable) -> { sessionRegistry.remove(sessionId); changed(); });
     }
 
     @Override

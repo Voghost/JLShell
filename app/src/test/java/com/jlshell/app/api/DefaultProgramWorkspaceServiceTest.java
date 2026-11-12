@@ -31,10 +31,11 @@ class DefaultProgramWorkspaceServiceTest {
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
     private final List<Registration> registrations = new ArrayList<>();
     private DefaultProgramWorkspaceService service;
+    private SessionManager manager;
     private final com.jlshell.plugin.api.capability.FileExplorer fileService = mock(com.jlshell.plugin.api.capability.FileExplorer.class);
 
     @BeforeEach void setup() {
-        var manager = mock(SessionManager.class);
+        manager = mock(SessionManager.class);
         when(manager.listSessions()).thenReturn(List.of());
         var profiles = mock(ConnectionProfileService.class);
         when(profiles.listProfiles()).thenReturn(List.of());
@@ -57,6 +58,33 @@ class DefaultProgramWorkspaceServiceTest {
 
     private Input input(String session, String terminal, String command) {
         return new Input(session, terminal, null, null, "SUBMIT", List.of(command), 0, false, 5);
+    }
+
+    @Test void observesSessionEventsWithoutContinuousPolling() throws Exception {
+        var opened = new CountDownLatch(1);
+        var active = new CountDownLatch(1);
+        try (var subscription = service.subscribe(event -> {
+            if ("observer-session".equals(event.sessionId()) && event.type().equals("OPENED")) opened.countDown();
+            if ("observer-session".equals(event.sessionId()) && event.type().equals("ACTIVE_CHANGED")) active.countDown();
+        })) {
+            terminal("observer-session", "observer-terminal");
+            assertTrue(opened.await(2, TimeUnit.SECONDS));
+            HostExtensionRegistry.activeSession("observer-session");
+            assertTrue(active.await(2, TimeUnit.SECONDS));
+            // Once the event is processed an idle workspace does not scan every 100ms.
+            Thread.sleep(150);
+            clearInvocations(manager);
+            Thread.sleep(400);
+            verify(manager, never()).listSessions();
+        }
+    }
+
+    @Test void operationDeadlineDoesNotWaitForFallbackObservation() throws Exception {
+        var target = terminal("deadline-session", "deadline-terminal");
+        target.pending = new CompletableFuture<>();
+        var operation = service.enqueue(new Input(target.session, "deadline-terminal", null, null,
+                "SUBMIT", List.of("pwd"), 0, false, 1)).get();
+        assertEquals(State.FAILED, service.awaitOperation(operation.operationId(), 3).get().state());
     }
 
     @Test void rejectsAmbiguousAndCrossSessionTargets() throws Exception {
